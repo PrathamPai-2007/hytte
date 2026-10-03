@@ -51,6 +51,8 @@ Hytte hangs a small pill from the top-centre of your screen. It stays out of the
 | **Staging shelf** | Drag files or text onto the notch to park them. Switch folders, desktops or apps, then drag them back out of the pill into any destination. The shelf follows you across virtual desktops and survives restarts. |
 | **Drop Vault** | Per-item actions on shelved files: strip EXIF/GPS, lossless WebP, OCR to clipboard, JSON/YAML formatting, copy path. |
 | **Media cockpit** | Title, artist, album art, live timeline, animated equaliser and prev / play-pause / next for the current Windows media session. |
+| **Mic mute** | One global toggle (**Ctrl+Alt+M**, or the Home card / the lock) mutes every microphone; while muted a bold red lock and red glow sit on the pill, whatever it is showing. |
+| **Battery cockpit** | On laptops: charge %, live charge / discharge power in watts, and a Saver / Balanced / Performance power-mode switch. |
 | **Privacy indicators** | A green dot while any app uses your camera, an orange dot for the microphone, with the app name when expanded. |
 | **Fullscreen aware** | Backs off to a hairline (or hides) when a game or video is fullscreen, with per-process allow/deny lists. |
 | **Fluid animation** | Spring-driven resize, content cross-fades, a morphing silhouette, state-coloured glow, and a frame clock that parks completely at idle. Honours Windows' "Animation effects" setting. |
@@ -120,14 +122,15 @@ A coloured glow reflects the state: blue running, green success, red failure, am
 
 ### Panels and tabs
 
-When expanded, the pill shows one **panel** at a time: **Tasks**, **Shelf**, **Media**, **Ports**, or a **Home** card when nothing else has content. If more than one panel has something to show, small tab dots appear along the bottom edge; click a dot to switch. Panels with attention-worthy content open first, and some events make the pill briefly **peek** open on their own: an agent asking for input (6 s) or a new item landing on the shelf (5 s).
+When expanded, the pill shows one **panel** at a time: **Tasks**, **Shelf**, **Media**, **Ports**, and the always-present **Home** card (microphone mute, plus battery and power mode on laptops). If more than one panel exists, small tab dots appear along the bottom edge; click a dot or **scroll the mouse wheel over the pill** to switch (it wraps around). Panels with attention-worthy content open first, and some events make the pill briefly **peek** open on their own: an agent asking for input (6 s) or a new item landing on the shelf (5 s).
 
 ### Hover and click behaviour
 
 - Rest the pointer on the pill for about **120 ms** and it expands. Leave and it collapses after **300 ms**; re-entering in that window cancels the collapse, so grazing the edge doesn't flicker.
 - **Click a task row** to bring the terminal that owns it to the front (works for `notch run`, shell-tracked commands and agents). Finished rows have a small ✕ to dismiss.
 - A failed task shows the last stderr lines with **Copy error** and **Dismiss**.
-- Media panel: click ⏮ ⏯ ⏭.
+- Media panel: click ⏮ ⏯ ⏭, or click the cover art / title to bring the playing app to the front.
+- Home card: **Mute / Unmute**, and the three power modes (laptops).
 - Hovering a button highlights it and the cursor becomes a hand.
 - The window never takes focus when clicked.
 
@@ -266,6 +269,14 @@ The result appears as a chip offering **Open / Copy / Dismiss**. Dropped files a
 
 Hytte reads Windows' System Media Transport Controls, the same source as the volume flyout, and updates on events rather than polling. Cover art is decoded once per track and cached at 64×64. While expanded, the timeline advances smoothly between updates, and the equaliser animates only while something is actually playing. Transport buttons control the current session.
 
+## Microphone mute
+
+**Ctrl+Alt+M** toggles every active capture device through the Windows audio endpoint API (the combo is skipped silently if another app owns it). The Home card has the same **Mute** button. While muted, a red lock sits at the right edge of the pill in every state, the glow turns red and the idle pill widens to fit it; click the lock to unmute. State changed elsewhere (a laptop mute key, Settings) is picked up within 2 s.
+
+## Battery and power mode
+
+On machines with a battery, the Home card shows the charge, whether it is charging or discharging and at how many watts (read from the battery driver; shown as *plugged in* when the driver reports no rate), and a **Saver / Balanced / Performance** switch that sets the Windows power mode. Desktops without a battery don't see this row.
+
 ## Privacy indicators
 
 A **green** dot means the camera is in use, an **orange** dot the microphone. Hytte watches the Windows `CapabilityAccessManager\ConsentStore` registry keys with change notifications, covering both Store apps and classic desktop apps (Zoom, OBS, browsers). The Home card names the app using the device. Dots stay still while the pill is collapsed (an open call costs no CPU) and gently breathe when expanded.
@@ -279,7 +290,7 @@ Hytte re-checks whenever the foreground window changes or moves, using the shell
 | `"sentinel"` (default) | Shrinks to a 3 px grey line at the top edge. Hover it and the notch reveals itself. |
 | `"hide"` | Fades out entirely. |
 
-`allow_list` (never suppress) and `deny_list` (always hide) take executable file names such as `"Code.exe"`. Set `suppress_fullscreen = false` to turn the feature off. Hytte is a plain topmost window with no injection or hooks into other processes, so it cannot draw over exclusive-fullscreen games; suppression just keeps it from interfering.
+`allow_list` (never suppress) and `deny_list` (always hide) take executable file names such as `"Code.exe"`. Set `suppress_fullscreen = false` to turn the feature off. Dragging a file toward the top edge still works while fullscreen is active: the pill steps out of the way of nothing, shows the drop zone, and peeks the shelf for 5 s after the drop (even in `hide` mode). Hytte is a plain topmost window with no injection or hooks into other processes, so it cannot draw over exclusive-fullscreen games; suppression just keeps it from interfering.
 
 ## Configuration
 
@@ -361,6 +372,8 @@ crates/
     src/shelf.rs         shelf items, persistence, shell thumbnails
     src/media.rs         media session events + album art
     src/privacy.rs       camera/mic registry watcher
+    src/mic.rs           global microphone mute
+    src/power.rs         battery, charge rate and power mode
     src/drop.rs          Drop Vault job queue + worker pool
     src/transforms.rs    image / JSON / YAML / OCR transforms
     src/fullscreen.rs    suppression decision
@@ -449,6 +462,7 @@ python -m http.server 3000                          # shows up in Ports
 - **Browser image drags** (which carry image data rather than a file) aren't handled; save the image first, or drop the file.
 - **Shell integrations:** PowerShell and the drag/agent/port features were exercised on a real desktop; the bash, zsh and Nushell scripts are written to the same protocol but have had less testing. Shell tasks have no stderr tail.
 - **Ports** are discovered by polling (10 s default); a very short-lived server may never appear.
+- **Power mode** uses Windows' power-mode overlay (the Settings → System → Power mode switch); it isn't the separate Battery Saver feature.
 - Unsigned binaries may trigger SmartScreen.
 - Not yet exercised against exclusive-fullscreen games or anti-cheat-protected titles.
 
