@@ -30,6 +30,7 @@ pub fn transform_file(path: &Path) -> Outcome {
         "webp" | "bmp" => transform_image(path, false),
         "json" => transform_json(path),
         "yaml" | "yml" => transform_yaml(path),
+        "txt" | "md" => transform_text(path),
         _ => {
             #[cfg(windows)]
             reveal_in_explorer(path);
@@ -39,6 +40,22 @@ pub fn transform_file(path: &Path) -> Outcome {
                 copy: Some(path.display().to_string()),
             }
         }
+    }
+}
+
+/// Shelved text snippet: copy it, formatting JSON on the way.
+fn transform_text(src: &Path) -> Outcome {
+    let text = match std::fs::read_to_string(src) {
+        Ok(t) => t,
+        Err(e) => return Outcome::msg(format!("Can't read file: {e}")),
+    };
+    match toggle_json(&text) {
+        Ok(out) => Outcome { summary: "JSON formatted · copied".into(), open: None, copy: Some(out) },
+        Err(_) => Outcome {
+            summary: format!("Text copied · {} chars", text.trim().chars().count()),
+            open: None,
+            copy: Some(text.trim().to_string()),
+        },
     }
 }
 

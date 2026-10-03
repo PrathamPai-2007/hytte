@@ -944,6 +944,7 @@ impl Renderer {
                 "png" | "jpg" | "jpeg" => "Clean · WebP · OCR",
                 "webp" | "bmp" => "OCR",
                 "json" | "yaml" | "yml" => "Format",
+                "txt" | "md" => "Copy text",
                 _ => "Copy path",
             };
             self.button(label, w / 2.0 - 60.0, 94.0, 120.0, 22.0, PURPLE, Action::ShelfOp(it.id));
@@ -982,8 +983,8 @@ impl Renderer {
         self.line((cx, cy - 8.0), (cx, cy + 6.0), self.cc(PURPLE, 1.0), 2.2);
         self.line((cx - 6.0, cy), (cx, cy + 7.0), self.cc(PURPLE, 1.0), 2.2);
         self.line((cx + 6.0, cy), (cx, cy + 7.0), self.cc(PURPLE, 1.0), 2.2);
-        self.text("Release to process", &self.f.big_c, 0.0, 50.0, w, 22.0, self.cc(WHITE, 0.97));
-        self.text("EXIF strip  ·  WebP  ·  OCR  ·  JSON / YAML", &self.f.small_c, 0.0, 74.0, w, 16.0, self.cc(GRAY, 1.0));
+        self.text("Drop to add to your shelf", &self.f.big_c, 0.0, 50.0, w, 22.0, self.cc(WHITE, 0.97));
+        self.text("Drag it back out anywhere later", &self.f.small_c, 0.0, 74.0, w, 16.0, self.cc(GRAY, 1.0));
         let _ = fr;
     }
 

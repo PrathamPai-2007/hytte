@@ -402,6 +402,12 @@ mod win {
                         crate::ports::request_refresh();
                     }
                 }
+                Action::OpenPort(port) | Action::KillPort(port, _) if !port_alive(&self.model, port) => {
+                    // The process is gone since the last scan: drop it instead of erroring.
+                    self.model.ports.retain(|p| p.port != port);
+                    self.model.kill_armed = None;
+                    crate::ports::request_refresh();
+                }
                 Action::OpenPort(port) => unsafe {
                     let url: Vec<u16> = format!("http://localhost:{port}\0").encode_utf16().collect();
                     ShellExecuteW(None, windows::core::w!("open"), windows::core::PCWSTR(url.as_ptr()), None, None, SW_SHOWNORMAL);
@@ -510,7 +516,6 @@ mod win {
                     return;
                 }
             };
-            let ui_cfg_shelf = cfg.shelf.drop_action != "process";
             let mut anim = Anim::new(120.0, 24.0);
             anim.reduce = reduce_motion();
             let mut ui = Ui {
@@ -549,7 +554,7 @@ mod win {
             ui.frame(hwnd);
             UI.with(|c| *c.borrow_mut() = Some(ui));
 
-            register_drop_target(hwnd, shared.clone(), ui_cfg_shelf);
+            register_drop_target(hwnd, shared.clone());
 
             let _ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
             let _ = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -607,6 +612,12 @@ mod win {
             let _ = RevokeDragDrop(hwnd);
             OleUninitialize();
         }
+    }
+
+    /// True while the process we listed is still the one listening on `port`.
+    fn port_alive(m: &Model, port: u16) -> bool {
+        let Some(p) = m.ports.iter().find(|p| p.port == port) else { return false };
+        hytte_proto::ports::listeners().contains(&(port, p.pid))
     }
 
     fn reduce_motion() -> bool {
@@ -691,7 +702,6 @@ mod win {
     #[windows::core::implement(IDropTarget)]
     struct Target {
         shared: Arc<Shared>,
-        to_shelf: bool,
     }
 
     fn query(data: &IDataObject, fmt: u16) -> FORMATETC {
@@ -788,25 +798,17 @@ mod win {
             push_event(&self.shared, UiEvent::DragLeave);
             if let Some(d) = data.as_ref() {
                 let job = extract(d);
-                if self.to_shelf {
-                    if !job.paths.is_empty() || job.text.is_some() {
-                        push_event(&self.shared, UiEvent::ShelfAdd(job));
-                    }
-                } else if !job.paths.is_empty() || job.text.is_some() {
-                    push_event(
-                        &self.shared,
-                        UiEvent::DropDone(crate::drop::DropResult { summary: "Working…".into(), open: None, copy: None }),
-                    );
-                    let _ = self.shared.drop_tx.send(job);
+                if !job.paths.is_empty() || job.text.is_some() {
+                    push_event(&self.shared, UiEvent::ShelfAdd(job));
                 }
             }
             Ok(())
         }
     }
 
-    fn register_drop_target(hwnd: HWND, shared: Arc<Shared>, to_shelf: bool) {
+    fn register_drop_target(hwnd: HWND, shared: Arc<Shared>) {
         unsafe {
-            let t: IDropTarget = Target { shared, to_shelf }.into();
+            let t: IDropTarget = Target { shared }.into();
             let _ = RegisterDragDrop(hwnd, &t);
         }
     }
@@ -1030,6 +1032,8 @@ mod win {
                     T_DWELL => {
                         if ui.inside {
                             ui.hover = true;
+                            // Opening the pill: make sure the port list is not stale.
+                            crate::ports::request_refresh();
                             ui.layout();
                             ui.kick();
                         }

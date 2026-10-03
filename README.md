@@ -112,7 +112,7 @@ npm run dev
 | **Task** | Spinner / check / cross, label, elapsed time or `%`, progress filament, a count badge if several tasks are visible | One or more tasks exist |
 | **Needs input** | Pulsing amber glow, ringing bell, the agent's name and message | An agent is waiting for you |
 | **Media** | Cover thumbnail, `Title — Artist`, animated equaliser | Audio is playing and no task is visible |
-| **Drop zone** | Dashed purple drop area, bobbing arrow | You are dragging a file or text over the notch |
+| **Drop zone** | Dashed purple drop area reading "Drop to add to your shelf" | You are dragging a file or text over the notch |
 | **Result chip** | What was done, plus **Open / Copy / Dismiss** | A transform or kill finished |
 | **Sentinel** | A 3 px grey line | Fullscreen is active and the mode is `sentinel` |
 
@@ -257,9 +257,10 @@ Drag a file, folder or selected text toward the top of the screen with the left 
 | **WebP / BMP** | OCR | OCR text copied to the clipboard |
 | **JSON** | Format | `name.pretty.json` if it was compact, `name.min.json` if already formatted; text also copied |
 | **YAML** | Format | `name.pretty.yaml` with trailing whitespace trimmed, tabs expanded, blank-line runs collapsed |
+| **Text snippet** (.txt / .md) | Copy text | Contents copied; JSON is formatted on the way |
 | **Anything else** | Copy path | Path copied, Explorer opens with the file selected |
 
-Set `drop_action = "process"` to skip the shelf and run these transforms immediately on drop, with a result chip offering **Open / Copy / Dismiss**. Dropped files are never executed.
+The result appears as a chip offering **Open / Copy / Dismiss**. Dropped files are never executed.
 
 ## Media cockpit
 
@@ -305,7 +306,6 @@ threshold_ms = 3000            # shell commands shorter than this never show
 ignore = ["vim", "nvim", "ssh", "less", "man", "top", "htop", "tmux", "fzf"]
 
 [shelf]
-drop_action = "shelf"          # "shelf" holds drops; "process" runs Drop Vault immediately
 mode = "reference"             # "reference" (point at the original) | "copy" (own copy)
 max_items = 12
 persist = true                 # remember the shelf across restarts
@@ -434,6 +434,7 @@ python -m http.server 3000                          # shows up in Ports
 | `notch: daemon not running (message dropped)` | Start `hytte.exe`. `notch run` still runs your command in the meantime. |
 | Shell commands never appear | Run `notch init <shell>` output in your profile, check `notch` is on `PATH`, and remember commands under 3 s (or in `[shell] ignore`) are hidden on purpose. |
 | Clicking an agent/task row does nothing | The owning terminal window couldn't be found from its process; pass `--pid` explicitly. Windows Terminal focuses the window but cannot pick a specific tab. |
+| A port you stopped still shows | The list refreshes whenever the pill opens and is re-checked on click; a stale entry is removed instead of erroring. |
 | A port isn't listed | Only `[ports] watch` ports are shown by default; add it or set `show_all = true`. Listeners bound to a specific non-loopback address are hidden. |
 | *OCR unavailable* | Install an OCR language pack in Windows language settings. Images larger than the engine's limit (about 4096 px) are skipped. |
 | No media controls | Hytte shows whatever Windows reports as the current media session; the app must publish one. |
