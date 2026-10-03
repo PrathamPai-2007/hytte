@@ -1,0 +1,13 @@
+[package]
+name = "notch"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "notch"
+path = "src/main.rs"
+
+[dependencies]
+hytte-proto = { path = "../proto" }
+serde_json = { workspace = true }
+windows = { workspace = true }
