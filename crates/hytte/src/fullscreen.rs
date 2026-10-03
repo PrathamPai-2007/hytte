@@ -32,7 +32,7 @@ pub fn decide(cfg: &General, fg_exe: Option<&str>, busy: bool, covers: bool) -> 
 pub fn evaluate(cfg: &General, monitor: (i32, i32, i32, i32)) -> Suppress {
     #[cfg(windows)]
     {
-        let exe = win::foreground_exe();
+        let exe = crate::proc::foreground_exe();
         let covers = win::foreground_covers(monitor);
         decide(cfg, exe.as_deref(), win::busy(), covers)
     }
@@ -45,10 +45,7 @@ pub fn evaluate(cfg: &General, monitor: (i32, i32, i32, i32)) -> Suppress {
 
 #[cfg(windows)]
 mod win {
-    use windows::Win32::Foundation::{CloseHandle, RECT};
-    use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
+    use windows::Win32::Foundation::RECT;
     use windows::Win32::UI::Shell::{
         SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
     };
@@ -60,25 +57,6 @@ mod win {
                 SHQueryUserNotificationState(),
                 Ok(q) if q == QUNS_RUNNING_D3D_FULL_SCREEN || q == QUNS_BUSY || q == QUNS_PRESENTATION_MODE
             )
-        }
-    }
-
-    pub fn foreground_exe() -> Option<String> {
-        unsafe {
-            let fg = GetForegroundWindow();
-            if fg.0.is_null() {
-                return None;
-            }
-            let mut pid = 0u32;
-            GetWindowThreadProcessId(fg, Some(&mut pid));
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
-            let mut buf = [0u16; 520];
-            let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len);
-            let _ = CloseHandle(h);
-            ok.ok()?;
-            let full = String::from_utf16_lossy(&buf[..len as usize]);
-            full.rsplit('\\').next().map(str::to_owned)
         }
     }
 
