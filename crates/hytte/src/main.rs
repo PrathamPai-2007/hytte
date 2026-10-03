@@ -1,5 +1,9 @@
 //! Hytte daemon — dynamic notch + ambient cockpit.
 
+// GUI subsystem: double-clicking hytte.exe must not open a console window.
+// Diagnostics go to %APPDATA%\Hytte\hytte.log (see logging.rs).
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod animation;
 mod config;
 mod drop;
