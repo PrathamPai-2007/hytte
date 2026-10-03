@@ -222,3 +222,34 @@ pub fn ensure_autostart(enable: bool) {
         let _ = enable;
     }
 }
+
+/// Start Menu shortcut so Windows search finds Hytte. Rewritten each launch so a moved exe self-heals.
+pub fn ensure_start_menu() {
+    #[cfg(windows)]
+    std::thread::spawn(|| unsafe {
+        use windows::core::{Interface, HSTRING};
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED,
+        };
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+        let (Ok(exe), Ok(appdata)) = (std::env::current_exe(), std::env::var("APPDATA")) else { return };
+        let dir = std::path::Path::new(&appdata).join(r"Microsoft\Windows\Start Menu\Programs");
+        if !dir.is_dir() {
+            return;
+        }
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let res = (|| -> windows::core::Result<()> {
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            link.SetPath(&HSTRING::from(exe.as_os_str()))?;
+            if let Some(d) = exe.parent() {
+                link.SetWorkingDirectory(&HSTRING::from(d.as_os_str()))?;
+            }
+            link.cast::<IPersistFile>()?.Save(&HSTRING::from(dir.join("Hytte.lnk").as_os_str()), true)
+        })();
+        if let Err(e) = res {
+            eprintln!("hytte: start menu shortcut failed: {e}");
+        }
+        CoUninitialize();
+    });
+}
