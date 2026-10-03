@@ -35,7 +35,7 @@ pub fn run(
 mod win {
     use super::*;
     use crate::render::{Action, Crop, Frame, Hit, Renderer};
-    use crate::ui_state::{Anim, Chip, Model, Scene};
+    use crate::ui_state::{Anim, Chip, Model, Panel, Scene};
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
@@ -51,8 +51,8 @@ mod win {
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::Controls::WM_MOUSELEAVE;
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-    use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
-    use windows::Win32::UI::Shell::DragQueryFileW;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
+    use windows::Win32::UI::Shell::{DragQueryFileW, IVirtualDesktopManager, ShellExecuteW, VirtualDesktopManager};
     use windows::Win32::UI::WindowsAndMessaging::*;
 
     const WM_TICK: u32 = 0x8002;
@@ -128,6 +128,10 @@ mod win {
         shown: bool,
         tracking: bool,
         over_hit: bool,
+        /// Mouse went down on a shelf tile: (item id, screen point). Becomes a drag past 4 px.
+        drag: Option<(u64, (i32, i32))>,
+        vdm: Option<IVirtualDesktopManager>,
+        thumb_req: std::collections::HashSet<u64>,
     }
 
     thread_local! {
@@ -219,7 +223,38 @@ mod win {
             let events: Vec<UiEvent> = std::mem::take(&mut *self.shared.pending.lock().unwrap());
             for e in events {
                 match e {
-                    UiEvent::Task(u) => self.model.apply_task(u, now),
+                    UiEvent::Task(mut u) => {
+                        if let crate::tasks::TaskUpdate::Upsert(s) = &mut u {
+                            if s.source == "shell" && s.delay_ms == 0 && s.event == hytte_proto::TaskEvent::Start {
+                                s.delay_ms = self.cfg.shell.threshold_ms;
+                            }
+                            if s.event == hytte_proto::TaskEvent::NeedsInput {
+                                self.model.peek(Panel::Tasks, now + Duration::from_secs(self.cfg.agent.peek_secs));
+                                if self.cfg.agent.sound {
+                                    unsafe {
+                                        let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(MB_ICONASTERISK);
+                                    }
+                                }
+                            }
+                        }
+                        self.model.apply_task(u, now)
+                    }
+                    UiEvent::Ports(p) => self.model.set_ports(p),
+                    UiEvent::ShelfAdd(job) => {
+                        let mut n = crate::shelf::add_paths(&self.cfg.shelf, &mut self.model.shelf, &job.paths);
+                        if let Some(t) = &job.text {
+                            n += crate::shelf::add_text(&self.cfg.shelf, &mut self.model.shelf, t);
+                        }
+                        if n > 0 {
+                            self.save_shelf();
+                            self.model.peek(Panel::Shelf, now + Duration::from_secs(5));
+                        }
+                    }
+                    UiEvent::Thumb(id, bmp) => {
+                        if let Some(b) = bmp {
+                            self.rend.set_thumb(id, &b);
+                        }
+                    }
                     UiEvent::Media(m) => self.model.apply_media(m, now),
                     UiEvent::MediaArt(a) => self.model.set_art(a),
                     UiEvent::Privacy(c, m, app) => {
@@ -238,6 +273,46 @@ mod win {
             self.after_model_change(hwnd);
         }
 
+        fn save_shelf(&self) {
+            if self.cfg.shelf.persist {
+                crate::shelf::save(&self.model.shelf);
+            }
+        }
+
+        /// Ask a worker for thumbnails of visible shelf tiles we do not have yet.
+        fn request_thumbs(&mut self) {
+            for id in self.rend.missing_thumbs(&self.model) {
+                if !self.thumb_req.insert(id) {
+                    continue;
+                }
+                if let Some(it) = self.model.shelf.iter().find(|i| i.id == id) {
+                    let path = it.path.clone();
+                    let sh = self.shared.clone();
+                    std::thread::spawn(move || {
+                        let b = crate::shelf::thumbnail(&path).map(Arc::new);
+                        push_event(&sh, UiEvent::Thumb(id, b));
+                    });
+                }
+            }
+        }
+
+        /// Keep the pill on the virtual desktop the user is looking at.
+        fn follow_desktop(&self, hwnd: HWND) {
+            let Some(vdm) = &self.vdm else { return };
+            unsafe {
+                if vdm.IsWindowOnCurrentVirtualDesktop(hwnd).map(|b| b.as_bool()).unwrap_or(true) {
+                    return;
+                }
+                let fg = GetForegroundWindow();
+                if fg.0.is_null() {
+                    return;
+                }
+                if let Ok(id) = vdm.GetWindowDesktopId(fg) {
+                    let _ = vdm.MoveWindowToDesktop(hwnd, &id);
+                }
+            }
+        }
+
         fn after_model_change(&mut self, hwnd: HWND) {
             let now = Instant::now();
             match self.model.expire(now) {
@@ -249,6 +324,7 @@ mod win {
                     let _ = KillTimer(Some(hwnd), T_EXPIRE);
                 },
             }
+            self.request_thumbs();
             self.layout();
             self.kick();
         }
@@ -301,7 +377,7 @@ mod win {
 
         fn hit_at(&self) -> Option<&Hit> {
             let (mx, my) = self.mouse_logical()?;
-            self.hits.iter().find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
+            self.hits.iter().rev().find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
         }
 
         fn run_action(&mut self, hwnd: HWND, a: Action) {
@@ -315,6 +391,51 @@ mod win {
                 Action::MediaPrev => crate::media::control(crate::media::Cmd::Prev),
                 Action::MediaToggle => crate::media::control(crate::media::Cmd::Toggle),
                 Action::MediaNext => crate::media::control(crate::media::Cmd::Next),
+                Action::FocusTerminal(pid) => {
+                    if let Some(h) = crate::proc::terminal_window_for(pid) {
+                        crate::proc::focus_window(h);
+                    }
+                }
+                Action::SelectPanel(p) => {
+                    self.model.selected = Some(p);
+                    if p == Panel::Ports {
+                        crate::ports::request_refresh();
+                    }
+                }
+                Action::OpenPort(port) => unsafe {
+                    let url: Vec<u16> = format!("http://localhost:{port}\0").encode_utf16().collect();
+                    ShellExecuteW(None, windows::core::w!("open"), windows::core::PCWSTR(url.as_ptr()), None, None, SW_SHOWNORMAL);
+                },
+                Action::KillPort(port, pid) => {
+                    if self.model.kill_armed.is_some_and(|(p, _)| p == port) {
+                        self.model.kill_armed = None;
+                        let msg = match hytte_proto::ports::kill(pid) {
+                            Ok(()) => format!("Stopped :{port}"),
+                            Err(e) => format!("Could not stop :{port} - {e}"),
+                        };
+                        self.model.chip = Some(Chip { summary: msg, open: None, copy: None, since: Instant::now() });
+                        crate::ports::request_refresh();
+                    } else {
+                        self.model.kill_armed = Some((port, Instant::now() + crate::ui_state::KILL_CONFIRM));
+                    }
+                }
+                Action::ShelfTile(id) => {
+                    self.model.shelf_sel = if self.model.shelf_sel == Some(id) { None } else { Some(id) };
+                }
+                Action::RemoveShelf(id) => {
+                    crate::shelf::remove(&mut self.model.shelf, id);
+                    if self.model.shelf_sel == Some(id) {
+                        self.model.shelf_sel = None;
+                    }
+                    self.save_shelf();
+                }
+                Action::ShelfOp(id) => {
+                    if let Some(it) = self.model.shelf.iter().find(|i| i.id == id) {
+                        let job = DropJob { paths: vec![it.path.clone()], text: None };
+                        self.model.chip = Some(Chip { summary: "Working…".into(), open: None, copy: None, since: Instant::now() });
+                        let _ = self.shared.drop_tx.send(job);
+                    }
+                }
             }
             self.after_model_change(hwnd);
         }
@@ -389,6 +510,7 @@ mod win {
                     return;
                 }
             };
+            let ui_cfg_shelf = cfg.shelf.drop_action != "process";
             let mut anim = Anim::new(120.0, 24.0);
             anim.reduce = reduce_motion();
             let mut ui = Ui {
@@ -412,7 +534,14 @@ mod win {
                 shown: false,
                 tracking: false,
                 over_hit: false,
+                drag: None,
+                vdm: windows::Win32::System::Com::CoCreateInstance(&VirtualDesktopManager, None, windows::Win32::System::Com::CLSCTX_ALL).ok(),
+                thumb_req: Default::default(),
             };
+            ui.model.ignore = ui.cfg.shell.ignore.iter().map(|s| s.to_ascii_lowercase()).collect();
+            if ui.cfg.shelf.persist {
+                ui.model.shelf = crate::shelf::load();
+            }
             ui.refresh_monitor();
             ui.layout();
             ui.anim.rect.snap();
@@ -420,7 +549,7 @@ mod win {
             ui.frame(hwnd);
             UI.with(|c| *c.borrow_mut() = Some(ui));
 
-            register_drop_target(hwnd, shared.clone());
+            register_drop_target(hwnd, shared.clone(), ui_cfg_shelf);
 
             let _ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
             let _ = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -562,6 +691,7 @@ mod win {
     #[windows::core::implement(IDropTarget)]
     struct Target {
         shared: Arc<Shared>,
+        to_shelf: bool,
     }
 
     fn query(data: &IDataObject, fmt: u16) -> FORMATETC {
@@ -658,7 +788,11 @@ mod win {
             push_event(&self.shared, UiEvent::DragLeave);
             if let Some(d) = data.as_ref() {
                 let job = extract(d);
-                if !job.paths.is_empty() || job.text.is_some() {
+                if self.to_shelf {
+                    if !job.paths.is_empty() || job.text.is_some() {
+                        push_event(&self.shared, UiEvent::ShelfAdd(job));
+                    }
+                } else if !job.paths.is_empty() || job.text.is_some() {
                     push_event(
                         &self.shared,
                         UiEvent::DropDone(crate::drop::DropResult { summary: "Working…".into(), open: None, copy: None }),
@@ -670,10 +804,50 @@ mod win {
         }
     }
 
-    fn register_drop_target(hwnd: HWND, shared: Arc<Shared>) {
+    fn register_drop_target(hwnd: HWND, shared: Arc<Shared>, to_shelf: bool) {
         unsafe {
-            let t: IDropTarget = Target { shared }.into();
+            let t: IDropTarget = Target { shared, to_shelf }.into();
             let _ = RegisterDragDrop(hwnd, &t);
+        }
+    }
+
+    // --------------------------------------------------------------- drag out
+
+    #[windows::core::implement(IDropSource)]
+    struct Source;
+
+    #[allow(non_snake_case)]
+    impl IDropSource_Impl for Source_Impl {
+        fn QueryContinueDrag(&self, escape: windows::core::BOOL, keys: MODIFIERKEYS_FLAGS) -> windows::core::HRESULT {
+            if escape.as_bool() {
+                DRAGDROP_S_CANCEL
+            } else if keys.0 & 1 == 0 {
+                DRAGDROP_S_DROP
+            } else {
+                windows::core::HRESULT(0)
+            }
+        }
+        fn GiveFeedback(&self, _effect: DROPEFFECT) -> windows::core::HRESULT {
+            DRAGDROP_S_USEDEFAULTCURSORS
+        }
+    }
+
+    /// Start an OLE drag of one file and return the effect the target applied.
+    fn shelf_drag(path: &std::path::Path) -> DROPEFFECT {
+        use windows::core::{Interface, HSTRING};
+        use windows::Win32::UI::Shell::{IShellItem, SHCreateItemFromParsingName, BHID_DataObject};
+        unsafe {
+            let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(&HSTRING::from(path.as_os_str()), None) else {
+                return DROPEFFECT_NONE;
+            };
+            let Ok(data) = item.BindToHandler::<_, IDataObject>(None, &BHID_DataObject) else {
+                return DROPEFFECT_NONE;
+            };
+            let src: IDropSource = Source.into();
+            let mut effect = DROPEFFECT_NONE;
+            let _ = DoDragDrop(&data, &src, DROPEFFECT_COPY | DROPEFFECT_MOVE, &mut effect);
+            let _ = Interface::as_raw(&data);
+            effect
         }
     }
 
@@ -719,6 +893,39 @@ mod win {
                 return LRESULT(0);
             }
             WM_MOUSEMOVE => {
+                // Past a 4 px threshold with the button held, a shelf tile becomes a real drag.
+                let start = with_ui(|ui| {
+                    ui.set_mouse_client(lparam);
+                    let (id, (sx, sy)) = ui.drag?;
+                    let (mx, my) = ui.mouse?;
+                    if wparam.0 & 1 == 0 {
+                        ui.drag = None;
+                        return None;
+                    }
+                    if (mx - sx).abs() <= 4 && (my - sy).abs() <= 4 {
+                        return None;
+                    }
+                    ui.drag = None;
+                    unsafe {
+                        let _ = ReleaseCapture();
+                    }
+                    let it = ui.model.shelf.iter().find(|i| i.id == id)?;
+                    Some((id, it.path.clone()))
+                })
+                .flatten();
+                if let Some((id, path)) = start {
+                    // DoDragDrop pumps messages: run it outside the UI borrow so frames keep flowing.
+                    let effect = shelf_drag(&path);
+                    with_ui(|ui| {
+                        if effect != DROPEFFECT_NONE && ui.cfg.shelf.remove_after_drag {
+                            crate::shelf::remove_keep_file(&mut ui.model.shelf, id);
+                            ui.save_shelf();
+                        }
+                        ui.model.shelf.retain(|i| i.path.exists());
+                        ui.after_model_change(hwnd);
+                    });
+                    return LRESULT(0);
+                }
                 with_ui(|ui| {
                     ui.set_mouse_client(lparam);
                     let inside = ui.pill_contains();
@@ -784,9 +991,30 @@ mod win {
                     return LRESULT(1);
                 }
             }
+            WM_LBUTTONDOWN => {
+                with_ui(|ui| {
+                    ui.set_mouse_client(lparam);
+                    ui.drag = match ui.hit_at().map(|h| h.action.clone()) {
+                        Some(Action::ShelfTile(id)) => ui.mouse.map(|p| (id, p)),
+                        _ => None,
+                    };
+                    if ui.drag.is_some() {
+                        // Capture so a fast flick off the pill still reaches us and starts the drag.
+                        unsafe {
+                            SetCapture(hwnd);
+                        }
+                    }
+                });
+                return LRESULT(0);
+            }
             WM_LBUTTONUP => {
                 with_ui(|ui| {
                     ui.set_mouse_client(lparam);
+                    // A press that never became a drag is a click.
+                    ui.drag = None;
+                    unsafe {
+                        let _ = ReleaseCapture();
+                    }
                     if let Some(a) = ui.hit_at().map(|h| h.action.clone()) {
                         ui.run_action(hwnd, a);
                     }
@@ -814,7 +1042,10 @@ mod win {
                         }
                     }
                     T_EXPIRE => ui.after_model_change(hwnd),
-                    T_FS => ui.evaluate_fullscreen(),
+                    T_FS => {
+                        ui.evaluate_fullscreen();
+                        ui.follow_desktop(hwnd);
+                    }
                     _ => {}
                 });
                 return LRESULT(0);

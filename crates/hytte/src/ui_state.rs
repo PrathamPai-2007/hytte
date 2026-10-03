@@ -5,13 +5,16 @@
 use crate::animation::{RectSpring, Spring};
 use crate::tasks::{TaskState, TaskUpdate};
 use hytte_proto::TaskEvent;
+use hytte_proto::ports::PortInfo;
 use std::path::PathBuf;
 use std::sync::Arc;
+use crate::shelf::ShelfItem;
 use std::time::{Duration, Instant};
 
 pub const SUCCESS_HOLD: Duration = Duration::from_secs(3);
 pub const LOST_HOLD: Duration = Duration::from_secs(5);
 pub const CHIP_HOLD: Duration = Duration::from_secs(10);
+pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
 
 /// Events marshalled from worker threads to the UI thread.
 #[derive(Debug, Clone)]
@@ -21,6 +24,10 @@ pub enum UiEvent {
     MediaArt(Option<Arc<ArtBitmap>>),
     Privacy(bool, bool, Option<String>),
     DropDone(crate::drop::DropResult),
+    Ports(Vec<PortInfo>),
+    /// Dropped onto the notch while the shelf is the drop target.
+    ShelfAdd(crate::drop::DropJob),
+    Thumb(u64, Option<Arc<ArtBitmap>>),
     SetClipboard(String),
     DragEnter,
     DragLeave,
@@ -50,18 +57,36 @@ pub struct TaskView {
     pub event: TaskEvent,
     pub progress: Option<u8>,
     pub duration_ms: Option<u64>,
+    pub exit_code: Option<i32>,
     pub stderr: Vec<String>,
+    pub pid: Option<u32>,
+    /// Agent message while `NeedsInput`.
+    pub attention: Option<String>,
     pub started: Instant,
     pub changed: Instant,
+    /// Hidden until this instant (shell hooks: fast commands never show).
+    pub visible_after: Instant,
 }
 
 impl TaskView {
     pub fn running(&self) -> bool {
-        matches!(self.event, TaskEvent::Start | TaskEvent::Progress)
+        matches!(self.event, TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed)
     }
     pub fn failed(&self) -> bool {
         self.event == TaskEvent::Failed
     }
+    pub fn needs_input(&self) -> bool {
+        self.event == TaskEvent::NeedsInput
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Panel {
+    Tasks,
+    Shelf,
+    Media,
+    Ports,
+    Home,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +105,8 @@ pub enum Scene {
     CompactMedia,
     ExpTasks,
     ExpMedia,
+    ExpPorts,
+    ExpShelf,
     ExpHome,
     ExpDrop,
     ExpChip,
@@ -97,10 +124,29 @@ pub struct Model {
     pub privacy_app: Option<String>,
     pub drop_over: bool,
     pub chip: Option<Chip>,
+    pub ports: Vec<PortInfo>,
+    /// Port whose Kill button is armed ("Kill?") and until when.
+    pub kill_armed: Option<(u16, Instant)>,
+    pub shelf: Vec<ShelfItem>,
+    pub shelf_sel: Option<u64>,
+    pub selected: Option<Panel>,
+    pub peek_until: Option<Instant>,
+    /// Last time the model was advanced; visibility rules compare against it.
+    pub now: Option<Instant>,
+    /// Lower-cased command names the daemon refuses to show (shell hooks).
+    pub ignore: Vec<String>,
+}
+
+/// First word of a command line, lower-cased, without path or `.exe`.
+pub fn command_name(label: &str) -> String {
+    let first = label.split_whitespace().next().unwrap_or("");
+    let base = first.rsplit(['\\', '/']).next().unwrap_or(first).to_ascii_lowercase();
+    base.strip_suffix(".exe").unwrap_or(&base).to_string()
 }
 
 impl Model {
     pub fn apply_task(&mut self, u: TaskUpdate, now: Instant) {
+        self.now = Some(now);
         match u {
             TaskUpdate::Upsert(s) => self.upsert(s, now),
             TaskUpdate::Lost(id) => {
@@ -114,19 +160,43 @@ impl Model {
     }
 
     fn upsert(&mut self, s: TaskState, now: Instant) {
+        let shell = s.source == "shell";
+        let terminal = matches!(s.event, TaskEvent::Done | TaskEvent::Failed);
+        if shell && self.ignore.contains(&command_name(&s.label)) {
+            return;
+        }
+        let existing = self.tasks.iter().position(|t| t.id == s.task_id);
+        // Shell command that ended before the threshold, or was Ctrl-C'd: never shown.
+        if shell && terminal {
+            let hidden = existing.map(|i| now < self.tasks[i].visible_after).unwrap_or(true);
+            if hidden || s.exit_code == Some(130) {
+                if let Some(i) = existing {
+                    self.tasks.remove(i);
+                }
+                return;
+            }
+        }
         let stderr: Vec<String> = s
             .stderr_tail
             .as_deref()
             .map(|t| t.lines().map(str::to_owned).collect())
             .unwrap_or_default();
-        if let Some(t) = self.tasks.iter_mut().find(|t| t.id == s.task_id) {
+        let attention = match s.event {
+            TaskEvent::NeedsInput => Some(s.message.clone().unwrap_or_else(|| "Needs your input".into())),
+            _ => None,
+        };
+        if let Some(i) = existing {
+            let t = &mut self.tasks[i];
             if !s.label.is_empty() {
                 t.label = s.label;
             }
             t.event = s.event;
             t.progress = s.progress.or(t.progress);
             t.duration_ms = s.duration_ms;
+            t.exit_code = s.exit_code;
             t.stderr = stderr;
+            t.attention = attention;
+            t.pid = s.pid.or(t.pid);
             t.changed = now;
         } else {
             self.tasks.push(TaskView {
@@ -135,9 +205,13 @@ impl Model {
                 event: s.event,
                 progress: s.progress,
                 duration_ms: s.duration_ms,
+                exit_code: s.exit_code,
                 stderr,
+                pid: s.pid,
+                attention,
                 started: now,
                 changed: now,
+                visible_after: now + Duration::from_millis(s.delay_ms as u64),
             });
         }
     }
@@ -155,18 +229,41 @@ impl Model {
         self.art_gen = self.art_gen.wrapping_add(1);
     }
 
+    pub fn set_ports(&mut self, p: Vec<PortInfo>) {
+        self.ports = p;
+        if let Some((port, _)) = self.kill_armed {
+            if !self.ports.iter().any(|x| x.port == port) {
+                self.kill_armed = None;
+            }
+        }
+    }
+
+    pub fn peek(&mut self, panel: Panel, until: Instant) {
+        self.selected = Some(panel);
+        self.peek_until = Some(until);
+    }
+
+    fn visible(&self, t: &TaskView) -> bool {
+        self.now.map_or(true, |n| n >= t.visible_after)
+    }
+
     /// Drop finished tasks / chips past their hold time. Returns the next
-    /// instant something expires, so the caller can arm a single timer.
+    /// instant something changes, so the caller can arm a single timer.
     pub fn expire(&mut self, now: Instant) -> Option<Instant> {
+        self.now = Some(now);
         self.tasks.retain(|t| match t.event {
             TaskEvent::Done => now.duration_since(t.changed) < SUCCESS_HOLD,
             TaskEvent::Lost => now.duration_since(t.changed) < LOST_HOLD,
-            _ => true, // running + failed persist
+            _ => true, // running, waiting and failed persist
         });
-        if let Some(c) = &self.chip {
-            if now.duration_since(c.since) >= CHIP_HOLD {
-                self.chip = None;
-            }
+        if self.chip.as_ref().is_some_and(|c| now.duration_since(c.since) >= CHIP_HOLD) {
+            self.chip = None;
+        }
+        if self.peek_until.is_some_and(|p| now >= p) {
+            self.peek_until = None;
+        }
+        if self.kill_armed.is_some_and(|(_, t)| now >= t) {
+            self.kill_armed = None;
         }
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
@@ -176,9 +273,18 @@ impl Model {
                 TaskEvent::Lost => keep(t.changed + LOST_HOLD),
                 _ => {}
             }
+            if t.visible_after > now {
+                keep(t.visible_after);
+            }
         }
         if let Some(c) = &self.chip {
             keep(c.since + CHIP_HOLD);
+        }
+        if let Some(p) = self.peek_until {
+            keep(p);
+        }
+        if let Some((_, t)) = self.kill_armed {
+            keep(t);
         }
         next
     }
@@ -195,22 +301,60 @@ impl Model {
         self.cam || self.mic
     }
 
-    /// Rows for the expanded task list: failed, running, then finished.
+    /// Visible tasks: waiting-on-you first, then failed, running, finished.
     pub fn rows(&self) -> Vec<&TaskView> {
-        let mut v: Vec<&TaskView> = self.tasks.iter().collect();
+        let mut v: Vec<&TaskView> = self.tasks.iter().filter(|t| self.visible(t)).collect();
         let rank = |t: &TaskView| match t.event {
-            TaskEvent::Failed => 0,
-            TaskEvent::Start | TaskEvent::Progress => 1,
-            _ => 2,
+            TaskEvent::NeedsInput => 0,
+            TaskEvent::Failed => 1,
+            TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed => 2,
+            _ => 3,
         };
         v.sort_by(|a, b| rank(a).cmp(&rank(b)).then(b.changed.cmp(&a.changed)));
         v.truncate(4);
         v
     }
 
+    pub fn visible_count(&self) -> usize {
+        self.tasks.iter().filter(|t| self.visible(t)).count()
+    }
+
     /// The task shown in the compact pill.
     pub fn primary(&self) -> Option<&TaskView> {
         self.rows().into_iter().next()
+    }
+
+    /// Panels that currently have something to show, in priority order.
+    pub fn panels(&self) -> Vec<Panel> {
+        let mut v = vec![];
+        if self.visible_count() > 0 {
+            v.push(Panel::Tasks);
+        }
+        if !self.shelf.is_empty() {
+            v.push(Panel::Shelf);
+        }
+        if self.media.is_some() {
+            v.push(Panel::Media);
+        }
+        if !self.ports.is_empty() {
+            v.push(Panel::Ports);
+        }
+        if v.is_empty() {
+            v.push(Panel::Home);
+        }
+        v
+    }
+
+    pub fn panel(&self) -> Panel {
+        let ps = self.panels();
+        match self.selected {
+            Some(p) if ps.contains(&p) => p,
+            _ => ps[0],
+        }
+    }
+
+    pub fn tabs(&self) -> bool {
+        self.panels().len() > 1
     }
 
     pub fn scene(&self, hover: bool, suppressed: bool) -> Scene {
@@ -223,15 +367,17 @@ impl Model {
         if self.chip.is_some() {
             return Scene::ExpChip;
         }
-        if hover {
-            if !self.tasks.is_empty() {
-                Scene::ExpTasks
-            } else if self.media.is_some() {
-                Scene::ExpMedia
-            } else {
-                Scene::ExpHome
-            }
-        } else if !self.tasks.is_empty() {
+        let peeking = self.now.zip(self.peek_until).is_some_and(|(n, p)| n < p);
+        if hover || peeking {
+            return match self.panel() {
+                Panel::Tasks => Scene::ExpTasks,
+                Panel::Shelf => Scene::ExpShelf,
+                Panel::Media => Scene::ExpMedia,
+                Panel::Ports => Scene::ExpPorts,
+                Panel::Home => Scene::ExpHome,
+            };
+        }
+        if self.visible_count() > 0 {
             Scene::CompactTask
         } else if self.media.as_ref().is_some_and(|m| m.playing) {
             Scene::CompactMedia
@@ -242,22 +388,38 @@ impl Model {
 
     /// Target pill size in logical px.
     pub fn size(&self, scene: Scene) -> (f64, f64) {
+        let tab = if self.tabs() { 14.0 } else { 0.0 };
         match scene {
             Scene::Sentinel => (96.0, 2.5),
-            Scene::Idle => (if self.privacy_active() { 150.0 } else { 120.0 }, 24.0),
+            Scene::Idle => {
+                let chips = (!self.ports.is_empty()) as u8 + (!self.shelf.is_empty()) as u8;
+                let w = match (chips, self.privacy_active()) {
+                    (0, false) => 120.0,
+                    (0, true) => 150.0,
+                    (n, p) => 64.0 + 58.0 * n as f64 + if p { 34.0 } else { 0.0 },
+                };
+                (w, 24.0)
+            }
             Scene::CompactTask => (292.0, 32.0),
             Scene::CompactMedia => (240.0, 32.0),
-            Scene::ExpMedia => (380.0, 128.0),
+            Scene::ExpMedia => (380.0, 128.0 + tab),
             Scene::ExpHome => (320.0, 84.0),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip => (380.0, 96.0),
+            Scene::ExpPorts => (380.0, 20.0 + self.ports.len().min(5) as f64 * 34.0 + tab),
+            Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpTasks => {
                 let rows = self.rows();
-                let mut h = 22.0 + rows.len() as f64 * 34.0;
+                let mut h = 22.0 + rows.len() as f64 * 34.0 + tab;
+                for t in &rows {
+                    if t.needs_input() {
+                        h += 20.0;
+                    }
+                }
                 if let Some(f) = rows.iter().find(|t| t.failed()) {
                     h += f.stderr.len().min(4) as f64 * 15.0 + 34.0;
                 }
-                (380.0, h.min(280.0))
+                (380.0, h.min(290.0))
             }
         }
     }
@@ -268,12 +430,14 @@ impl Model {
         const GREEN: [f32; 3] = [0.20, 0.82, 0.48];
         const BLUE: [f32; 3] = [0.35, 0.63, 1.0];
         const PURPLE: [f32; 3] = [0.65, 0.54, 0.98];
+        const AMBER: [f32; 3] = [1.0, 0.72, 0.20];
         match scene {
             Scene::Sentinel | Scene::Idle => ([1.0; 3], 0.0),
             Scene::ExpDrop => (PURPLE, 1.0),
-            Scene::ExpChip => (PURPLE, 0.6),
-            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome => ([1.0; 3], 0.10),
+            Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
+            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
+                Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),
                 Some(TaskEvent::Done) => (GREEN, 0.6),
                 Some(TaskEvent::Lost) => ([0.7; 3], 0.3),
@@ -284,7 +448,7 @@ impl Model {
 
     /// True while something needs a steady (ambient) frame clock.
     pub fn ambient(&self, scene: Scene) -> bool {
-        self.tasks.iter().any(|t| t.running() || t.failed())
+        self.tasks.iter().any(|t| self.visible(t) && (t.running() || t.failed() || t.needs_input()))
             // Privacy dots only breathe while expanded; collapsed they are static
             // so an active camera/mic doesn't cost a 30 fps render loop.
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
@@ -369,7 +533,30 @@ mod tests {
             progress: None,
             event: ev,
             duration_ms: Some(10),
-            stderr_tail: Some("boom\nbang".into()),
+            stderr_tail: Some("boom
+bang".into()),
+            source: "run".into(),
+            pid: None,
+            delay_ms: 0,
+            message: None,
+            exit_code: None,
+            updated: now,
+        })
+    }
+
+    fn shell(id: &str, label: &str, ev: TaskEvent, delay: u32, now: Instant) -> TaskUpdate {
+        TaskUpdate::Upsert(TaskState {
+            task_id: id.into(),
+            label: label.into(),
+            progress: None,
+            event: ev,
+            duration_ms: None,
+            stderr_tail: None,
+            source: "shell".into(),
+            pid: Some(1),
+            delay_ms: delay,
+            message: None,
+            exit_code: None,
             updated: now,
         })
     }
@@ -419,5 +606,70 @@ mod tests {
         a.set_scene(Scene::ExpHome, (320.0, 84.0), ([1.0; 3], 0.1));
         assert_eq!(a.rect.w.pos, 320.0);
         assert!(!a.step(0.016));
+    }
+
+    #[test]
+    fn shell_task_hidden_until_threshold() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(shell("s", "cargo build", TaskEvent::Start, 3000, t0), t0);
+        assert_eq!(m.scene(false, false), Scene::Idle, "not shown yet");
+        let next = m.expire(t0 + Duration::from_millis(100)).unwrap();
+        assert_eq!(next, t0 + Duration::from_millis(3000), "timer armed for the threshold");
+        m.expire(t0 + Duration::from_millis(3100));
+        assert_eq!(m.scene(false, false), Scene::CompactTask);
+    }
+
+    #[test]
+    fn fast_shell_command_never_shows() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(shell("s", "ls", TaskEvent::Start, 3000, t0), t0);
+        let t1 = t0 + Duration::from_millis(500);
+        m.apply_task(shell("s", "ls", TaskEvent::Done, 0, t1), t1);
+        assert!(m.tasks.is_empty());
+    }
+
+    #[test]
+    fn ignored_shell_commands_are_dropped() {
+        let t0 = Instant::now();
+        let mut m = Model { ignore: vec!["vim".into()], ..Default::default() };
+        m.apply_task(shell("s", r"C:\tools\Vim.exe file.txt", TaskEvent::Start, 0, t0), t0);
+        assert!(m.tasks.is_empty());
+    }
+
+    #[test]
+    fn attention_outranks_and_peeks() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(st("a", TaskEvent::Failed, t0), t0);
+        let mut u = match st("b", TaskEvent::NeedsInput, t0) {
+            TaskUpdate::Upsert(s) => s,
+            _ => unreachable!(),
+        };
+        u.message = Some("approve edit?".into());
+        m.apply_task(TaskUpdate::Upsert(u), t0);
+        assert_eq!(m.primary().unwrap().id, "b");
+        assert!(m.rows()[0].needs_input());
+        m.peek(Panel::Tasks, t0 + Duration::from_secs(6));
+        assert_eq!(m.scene(false, false), Scene::ExpTasks);
+        m.expire(t0 + Duration::from_secs(7));
+        assert_eq!(m.scene(false, false), Scene::CompactTask);
+        assert!(m.tasks.iter().any(|t| t.needs_input()), "attention persists after the peek");
+    }
+
+    #[test]
+    fn panels_and_selection() {
+        let mut m = Model::default();
+        assert_eq!(m.panels(), vec![Panel::Home]);
+        m.ports = vec![PortInfo { port: 3000, pid: 9, exe: "node.exe".into() }];
+        m.shelf = vec![ShelfItem { id: 1, path: "a".into(), name: "a".into(), is_dir: false, owned: false }];
+        assert_eq!(m.panels(), vec![Panel::Shelf, Panel::Ports]);
+        assert!(m.tabs());
+        assert_eq!(m.panel(), Panel::Shelf);
+        m.selected = Some(Panel::Ports);
+        assert_eq!(m.panel(), Panel::Ports);
+        m.ports.clear();
+        assert_eq!(m.panel(), Panel::Shelf, "stale selection falls back");
     }
 }

@@ -7,7 +7,11 @@ mod fullscreen;
 mod logging;
 mod media;
 mod pipe_server;
+mod ports;
+#[cfg(windows)]
+mod proc;
 mod privacy;
+mod shelf;
 mod single_instance;
 mod tasks;
 mod transforms;
@@ -43,6 +47,7 @@ fn main() {
     let (ui_tx, ui_rx) = unbounded::<ui_state::UiEvent>();
     media::spawn_watcher(ui_tx.clone());
     privacy::spawn_watcher(ui_tx.clone());
+    ports::spawn_watcher(cfg.ports.clone(), ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();
     drop::spawn_workers(drop_rx, ui_tx.clone());

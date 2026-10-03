@@ -9,7 +9,7 @@
 //! pill hangs from the top-centre of a fixed transparent canvas, and only the
 //! pill (plus its soft glow) has non-zero alpha.
 
-use crate::ui_state::{Anim, Model, Scene, TaskView};
+use crate::ui_state::{Anim, Model, Panel, Scene, TaskView};
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -40,6 +40,16 @@ pub enum Action {
     MediaPrev,
     MediaToggle,
     MediaNext,
+    /// Click on a task row: bring its terminal to the front.
+    FocusTerminal(u32),
+    SelectPanel(Panel),
+    OpenPort(u16),
+    /// First click arms ("Kill?"), second confirms.
+    KillPort(u16, u32),
+    ShelfTile(u64),
+    RemoveShelf(u64),
+    /// Run a Drop Vault transform on a shelf item.
+    ShelfOp(u64),
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +83,7 @@ struct Fmts {
     body: IDWriteTextFormat,
     small: IDWriteTextFormat,
     small_r: IDWriteTextFormat,
+    small_l: IDWriteTextFormat,
     mono: IDWriteTextFormat,
     big: IDWriteTextFormat,
     btn: IDWriteTextFormat,
@@ -102,6 +113,7 @@ pub struct Renderer {
     hits: RefCell<Vec<Hit>>,
     shown: RefCell<HashMap<String, f32>>,
     art: RefCell<Option<ID2D1Bitmap>>,
+    thumbs: RefCell<HashMap<u64, ID2D1Bitmap>>,
     art_gen: Cell<u32>,
 }
 
@@ -113,6 +125,7 @@ const PURPLE: [f32; 3] = [0.65, 0.54, 0.98];
 const ORANGE: [f32; 3] = [1.0, 0.62, 0.04];
 const CAM: [f32; 3] = [0.19, 0.82, 0.35];
 const GRAY: [f32; 3] = [0.62, 0.62, 0.68];
+const AMBER: [f32; 3] = [1.0, 0.72, 0.20];
 
 fn color(c: [f32; 3], a: f32) -> D2D1_COLOR_F {
     D2D1_COLOR_F { r: c[0], g: c[1], b: c[2], a: a.clamp(0.0, 1.0) }
@@ -128,7 +141,8 @@ fn mat(s: f32, tx: f32, ty: f32) -> Matrix3x2 {
 }
 fn task_color(t: &TaskView) -> [f32; 3] {
     match t.event {
-        TaskEvent::Start | TaskEvent::Progress => BLUE,
+        TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed => BLUE,
+        TaskEvent::NeedsInput => AMBER,
         TaskEvent::Done => GREEN,
         TaskEvent::Failed => RED,
         TaskEvent::Lost => GRAY,
@@ -204,6 +218,7 @@ impl Renderer {
                 hits: RefCell::new(vec![]),
                 shown: RefCell::new(HashMap::new()),
                 art: RefCell::new(None),
+                thumbs: RefCell::new(HashMap::new()),
                 art_gen: Cell::new(u32::MAX),
             })
         }
@@ -437,7 +452,10 @@ impl Renderer {
         let Some(g) = self.pill_geometry(w, h, rb, e) else { return };
         unsafe {
             // Soft glow: stacked widening strokes under the body.
-            let gl = an.glow.pos as f32;
+            let mut gl = an.glow.pos as f32;
+            if fr.model.primary().is_some_and(|t| t.needs_input()) && matches!(an.scene, Scene::CompactTask | Scene::ExpTasks) {
+                gl *= 0.72 + 0.28 * (self.t.get() * 4.0).sin();
+            }
             if gl > 0.01 {
                 for i in 1..=9 {
                     let k = 1.0 - i as f32 / 10.0;
@@ -495,9 +513,14 @@ impl Renderer {
             Scene::CompactMedia => self.compact_media(fr, w, h, pad_r),
             Scene::ExpTasks => self.exp_tasks(fr, w, h),
             Scene::ExpMedia => self.exp_media(fr, w, h),
+            Scene::ExpPorts => self.exp_ports(fr, w, h),
+            Scene::ExpShelf => self.exp_shelf(fr, w, h),
             Scene::ExpHome => self.exp_home(fr, w, h),
             Scene::ExpDrop => self.exp_drop(fr, w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
+        }
+        if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf) {
+            self.tabs(m, w, h);
         }
         if m.privacy_active() {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
@@ -505,8 +528,27 @@ impl Renderer {
         }
     }
 
-    fn idle(&self, _fr: &Frame, w: f32, h: f32) {
-        self.fill_rr(w / 2.0 - 13.0, h / 2.0 - 1.5, 26.0, 3.0, 1.5, self.cc(WHITE, 0.16));
+    fn idle(&self, fr: &Frame, w: f32, h: f32) {
+        let m = fr.model;
+        let chips = (!m.ports.is_empty()) as u8 + (!m.shelf.is_empty()) as u8;
+        if chips == 0 {
+            self.fill_rr(w / 2.0 - 13.0, h / 2.0 - 1.5, 26.0, 3.0, 1.5, self.cc(WHITE, 0.16));
+            return;
+        }
+        let right_pad = if m.privacy_active() { 34.0 } else { 0.0 };
+        let mut x = (w - right_pad - 58.0 * chips as f32) / 2.0 + 4.0;
+        let cy = h / 2.0;
+        if let Some(p) = m.ports.first() {
+            self.circle(x + 3.0, cy, 2.6, self.cc(GREEN, 1.0));
+            let t = if m.ports.len() > 1 { format!(":{} +{}", p.port, m.ports.len() - 1) } else { format!(":{}", p.port) };
+            self.text(&t, &self.f.small_l, x + 10.0, cy - 8.0, 52.0, 16.0, self.cc(WHITE, 0.82));
+            x += 58.0;
+        }
+        if !m.shelf.is_empty() {
+            self.fill_rr(x, cy - 3.5, 9.0, 8.0, 2.0, self.cc(PURPLE, 0.45));
+            self.fill_rr(x + 2.0, cy - 5.5, 9.0, 8.0, 2.0, self.cc(PURPLE, 1.0));
+            self.text(&m.shelf.len().to_string(), &self.f.small_l, x + 15.0, cy - 8.0, 28.0, 16.0, self.cc(WHITE, 0.82));
+        }
     }
 
     fn privacy_dots(&self, m: &Model, right: f32, cy: f32, pulse: bool) {
@@ -529,7 +571,7 @@ impl Renderer {
         let draw_p = (since / 0.28).clamp(0.0, 1.0);
         let tm = self.t.get();
         match t.event {
-            TaskEvent::Start | TaskEvent::Progress => {
+            TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed => {
                 self.ring(cx, cy, 6.5, self.cc(col, 0.18), 1.8);
                 let a0 = tm * 5.5;
                 let n = 14;
@@ -558,6 +600,18 @@ impl Renderer {
                 self.line((cx - d, cy - d), (cx + d, cy + d), self.cc(col, 1.0), 2.0);
                 self.line((cx - d, cy + d), (cx + d, cy - d), self.cc(col, 1.0), 2.0);
             }
+            TaskEvent::NeedsInput => {
+                // Pulsing halo + bell that rings in short bursts.
+                let pulse = (tm * 4.0).sin() * 0.5 + 0.5;
+                self.circle(cx, cy, 8.0 + 2.0 * pulse, self.cc(col, 0.14 + 0.16 * pulse));
+                let burst = ((tm * 0.9) % 1.0 < 0.3) as u8 as f32;
+                let sw = (tm * 22.0).sin() * 0.28 * burst;
+                let (s, c) = (sw.sin(), sw.cos());
+                let p = |x: f32, y: f32| (cx + x * c - y * s, cy - 1.5 + x * s + y * c);
+                self.poly(&[p(-4.2, 3.0), p(-2.6, -2.6), p(0.0, -4.6), p(2.6, -2.6), p(4.2, 3.0)], self.cc(col, 1.0));
+                self.line(p(-5.2, 3.2), p(5.2, 3.2), self.cc(col, 1.0), 1.8);
+                self.circle(cx + 0.0, cy + 5.2, 1.5, self.cc(col, 1.0));
+            }
             TaskEvent::Lost => {
                 self.circle(cx, cy, 8.0, self.cc(col, 0.16));
                 self.text("?", &self.f.center, cx - 8.0, cy - 8.0, 16.0, 16.0, self.cc(col, 1.0));
@@ -567,12 +621,16 @@ impl Renderer {
 
     fn task_right_text(&self, t: &TaskView, now: Instant) -> String {
         match t.event {
-            TaskEvent::Start | TaskEvent::Progress => match t.progress {
+            TaskEvent::NeedsInput => "waiting".into(),
+            TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed => match t.progress {
                 Some(p) => format!("{p}%"),
                 None => fmt_dur(now.saturating_duration_since(t.started).as_millis() as u64),
             },
             TaskEvent::Done => fmt_dur(t.duration_ms.unwrap_or(0)),
-            TaskEvent::Failed => format!("failed · {}", fmt_dur(t.duration_ms.unwrap_or(0))),
+            TaskEvent::Failed => match (t.stderr.is_empty(), t.exit_code) {
+                (true, Some(c)) => format!("exit {c} · {}", fmt_dur(t.duration_ms.unwrap_or(0))),
+                _ => format!("failed · {}", fmt_dur(t.duration_ms.unwrap_or(0))),
+            },
             TaskEvent::Lost => "lost".into(),
         }
     }
@@ -634,7 +692,7 @@ impl Renderer {
         }
         self.status_icon(t, 20.0, h / 2.0 - 1.5, now);
         let mut right = w - 14.0 - pad_r;
-        let n = m.tasks.len();
+        let n = m.visible_count();
         if n > 1 {
             self.fill_rr(right - 20.0, h / 2.0 - 9.0, 20.0, 16.0, 8.0, self.cc(WHITE, 0.14));
             self.text(&n.to_string(), &self.f.btn, right - 20.0, h / 2.0 - 9.0, 20.0, 16.0, self.cc(WHITE, 0.9));
@@ -693,11 +751,20 @@ impl Renderer {
         let mut y = 10.0;
         for t in fr.model.rows() {
             let cy = y + 17.0;
-            self.status_icon(t, 24.0, cy, now);
             let finished = !t.running();
             let right_w = 74.0;
             let close_w = if finished { 24.0 } else { 0.0 };
-            self.text(&t.label, &self.f.title, 42.0, y + 7.0, w - 42.0 - right_w - close_w - 22.0, 20.0, self.cc(WHITE, 0.95));
+            let label_w = w - 42.0 - right_w - close_w - 22.0;
+            // Whole row focuses the owning terminal (buttons below win the hit test).
+            let row_hov = match t.pid {
+                Some(pid) => self.hit(8.0, y + 2.0, w - 16.0, 32.0, Action::FocusTerminal(pid)),
+                None => false,
+            };
+            if row_hov {
+                self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(WHITE, 0.05));
+            }
+            self.status_icon(t, 24.0, cy, now);
+            self.text(&t.label, &self.f.title, 42.0, y + 7.0, label_w, 20.0, self.cc(WHITE, 0.95));
             self.text(
                 &self.task_right_text(t, now),
                 &self.f.small_r,
@@ -713,6 +780,10 @@ impl Renderer {
                 let (cx, cyy) = (w - 26.0, cy);
                 self.line((cx - 3.0, cyy - 3.0), (cx + 3.0, cyy + 3.0), self.cc(WHITE, a), 1.5);
                 self.line((cx - 3.0, cyy + 3.0), (cx + 3.0, cyy - 3.0), self.cc(WHITE, a), 1.5);
+            }
+            if let Some(msg) = &t.attention {
+                self.text(msg, &self.f.small, 42.0, y + 26.0, w - 42.0 - 22.0, 16.0, self.cc(AMBER, 0.95));
+                y += 20.0;
             }
             if t.running() {
                 self.filament(t, 42.0, y + 30.0, w - 42.0 - 20.0, fr.dt);
@@ -782,6 +853,105 @@ impl Renderer {
         }
     }
 
+    // ------------------------------------------------------- tabs / ports / shelf
+
+    fn tabs(&self, m: &Model, w: f32, h: f32) {
+        let ps = m.panels();
+        let cur = m.panel();
+        let step = 16.0;
+        let total = step * ps.len() as f32;
+        let mut x = (w - total) / 2.0;
+        let cy = h - 8.0;
+        for p in ps {
+            let hov = self.hit(x, cy - 7.0, step, 14.0, Action::SelectPanel(p));
+            let on = p == cur;
+            let bw = if on { 12.0 } else { 5.0 };
+            let a = if on { 0.9 } else if hov { 0.6 } else { 0.28 };
+            self.fill_rr(x + (step - bw) / 2.0, cy - 2.0, bw, 4.0, 2.0, self.cc(WHITE, a));
+            x += step;
+        }
+    }
+
+    fn exp_ports(&self, fr: &Frame, w: f32, _h: f32) {
+        let m = fr.model;
+        let mut y = 10.0;
+        for p in m.ports.iter().take(5) {
+            let cy = y + 17.0;
+            self.circle(24.0, cy, 3.2, self.cc(GREEN, 1.0));
+            self.text(&format!(":{}", p.port), &self.f.big, 36.0, y + 5.0, 70.0, 24.0, self.cc(WHITE, 0.97));
+            self.text(&p.exe, &self.f.body, 106.0, y + 8.0, w - 106.0 - 140.0, 18.0, self.cc(GRAY, 1.0));
+            let armed = m.kill_armed.is_some_and(|(port, _)| port == p.port);
+            self.button("Open", w - 16.0 - 56.0 - 8.0 - 56.0, y + 5.0, 56.0, 24.0, BLUE, Action::OpenPort(p.port));
+            self.button(
+                if armed { "Kill?" } else { "Kill" },
+                w - 16.0 - 56.0,
+                y + 5.0,
+                56.0,
+                24.0,
+                RED,
+                Action::KillPort(p.port, p.pid),
+            );
+            y += 34.0;
+        }
+    }
+
+    fn exp_shelf(&self, fr: &Frame, w: f32, _h: f32) {
+        let m = fr.model;
+        let thumbs = self.thumbs.borrow();
+        for (i, it) in m.shelf.iter().take(5).enumerate() {
+            let (x, y, s) = (20.0 + i as f32 * 70.0, 14.0, 60.0);
+            let sel = m.shelf_sel == Some(it.id);
+            let hov = self.hit(x, y, s, s, Action::ShelfTile(it.id));
+            self.fill_rr(x, y, s, s, 11.0, self.cc(if sel { PURPLE } else { WHITE }, if sel { 0.22 } else if hov { 0.11 } else { 0.07 }));
+            if sel {
+                self.stroke_rr(x + 0.5, y + 0.5, s - 1.0, s - 1.0, 11.0, self.cc(PURPLE, 0.8), 1.2, false);
+            }
+            if let Some(b) = thumbs.get(&it.id) {
+                unsafe {
+                    let props = D2D1_BRUSH_PROPERTIES {
+                        opacity: self.ca.get(),
+                        transform: Matrix3x2 { M11: 48.0 / 64.0, M12: 0.0, M21: 0.0, M22: 48.0 / 64.0, M31: x + 6.0, M32: y + 6.0 },
+                    };
+                    if let Ok(br) = self.rt.CreateBitmapBrush(b, None, Some(&props)) {
+                        let rr = D2D1_ROUNDED_RECT { rect: rect(x + 6.0, y + 6.0, 48.0, 48.0), radiusX: 7.0, radiusY: 7.0 };
+                        self.rt.FillRoundedRectangle(&rr, &br);
+                    }
+                }
+            } else if it.is_dir {
+                self.fill_rr(x + 14.0, y + 20.0, 32.0, 22.0, 4.0, self.cc(AMBER, 0.85));
+                self.fill_rr(x + 14.0, y + 16.0, 14.0, 8.0, 3.0, self.cc(AMBER, 0.85));
+            } else {
+                self.fill_rr(x + 18.0, y + 12.0, 24.0, 32.0, 4.0, self.cc(WHITE, 0.82));
+                for k in 0..3 {
+                    self.fill_rr(x + 22.0, y + 19.0 + k as f32 * 7.0, 16.0, 2.0, 1.0, self.cc([0.2; 3], 0.8));
+                }
+            }
+            self.text(&it.name, &self.f.small_c, x - 5.0, y + s + 2.0, s + 10.0, 14.0, self.cc(WHITE, 0.85));
+            if hov || sel {
+                let h2 = self.hit(x + s - 14.0, y - 5.0, 18.0, 18.0, Action::RemoveShelf(it.id));
+                self.circle(x + s - 5.0, y + 4.0, 7.5, self.cc([0.12; 3], 1.0));
+                let a = if h2 { 1.0 } else { 0.7 };
+                self.line((x + s - 8.0, y + 1.0), (x + s - 2.0, y + 7.0), self.cc(WHITE, a), 1.4);
+                self.line((x + s - 8.0, y + 7.0), (x + s - 2.0, y + 1.0), self.cc(WHITE, a), 1.4);
+            }
+        }
+        if m.shelf.len() > 5 {
+            self.text(&format!("+{}", m.shelf.len() - 5), &self.f.small_r, w - 44.0, 4.0, 34.0, 14.0, self.cc(PURPLE, 1.0));
+        }
+        if let Some(it) = m.shelf_sel.and_then(|id| m.shelf.iter().find(|i| i.id == id)) {
+            let ext = it.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            let label = match ext.as_str() {
+                "png" | "jpg" | "jpeg" => "Clean · WebP · OCR",
+                "webp" | "bmp" => "OCR",
+                "json" | "yaml" | "yml" => "Format",
+                _ => "Copy path",
+            };
+            self.button(label, w / 2.0 - 60.0, 94.0, 120.0, 22.0, PURPLE, Action::ShelfOp(it.id));
+        } else {
+            self.text("Drag a tile out to drop it anywhere", &self.f.small_c, 0.0, 96.0, w, 16.0, self.cc(GRAY, 0.7));
+        }
+    }
+
     fn exp_home(&self, fr: &Frame, w: f32, _h: f32) {
         let m = fr.model;
         self.text("Hytte", &self.f.big, 20.0, 12.0, 120.0, 22.0, self.cc(WHITE, 0.97));
@@ -836,6 +1006,31 @@ impl Renderer {
     }
 
     // -------------------------------------------------------------- album art
+
+    /// Shelf item ids that still need a thumbnail (and forget stale ones).
+    pub fn missing_thumbs(&self, m: &Model) -> Vec<u64> {
+        let mut t = self.thumbs.borrow_mut();
+        t.retain(|id, _| m.shelf.iter().any(|i| i.id == *id));
+        m.shelf.iter().take(5).filter(|i| !t.contains_key(&i.id)).map(|i| i.id).collect()
+    }
+
+    pub fn set_thumb(&self, id: u64, a: &crate::ui_state::ArtBitmap) {
+        let props = D2D1_BITMAP_PROPERTIES {
+            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+            dpiX: 96.0,
+            dpiY: 96.0,
+        };
+        unsafe {
+            if let Ok(b) = self.rt.CreateBitmap(
+                D2D_SIZE_U { width: a.w, height: a.h },
+                Some(a.bgra.as_ptr() as *const _),
+                a.w * 4,
+                &props,
+            ) {
+                self.thumbs.borrow_mut().insert(id, b);
+            }
+        }
+    }
 
     fn sync_art(&self, m: &Model) {
         if self.art_gen.get() == m.art_gen {
@@ -902,6 +1097,7 @@ impl Fmts {
             let small = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             let small_r = mk(ui, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             small_r.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING)?;
+            let small_l = mk(ui, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             let mono = mk(w!("Cascadia Mono"), 10.0, DWRITE_FONT_WEIGHT_NORMAL)?;
             let big = mk(ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             let btn = mk(ui, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
@@ -915,7 +1111,7 @@ impl Fmts {
             big_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             let small_c = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             small_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
-            Ok(Self { title, body, small, small_r, mono, big, btn, wrap, center, big_c, small_c })
+            Ok(Self { title, body, small, small_r, small_l, mono, big, btn, wrap, center, big_c, small_c })
         }
     }
 }
