@@ -1,0 +1,22 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --workspace
+      - name: Zip
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          Compress-Archive target\release\hytte.exe, target\release\notch.exe "hytte-$v-x64.zip"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: hytte-*-x64.zip
+          generate_release_notes: true
