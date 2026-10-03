@@ -4,6 +4,11 @@ A dynamic notch and ambient cockpit for **Windows 11**, written in Rust.
 
 Hytte hangs a small pill from the top-centre of your screen. It stays out of the way until something happens — a build finishes, an AI agent needs you, a dev server starts, music plays, you drag a file near the top edge — then it springs open, shows what matters, and folds away again. It never steals focus, draws no frames while idle, and has no Electron, no web view, and no async runtime.
 
+<p align="center">
+  <img src="docs/img/task.png" alt="Compact pill showing two running tasks" width="420"><br>
+  <img src="docs/img/tasks-open.png" alt="Expanded task list with progress filaments" width="420">
+</p>
+
 ## Table of contents
 
 - [Features](#features)
@@ -51,7 +56,7 @@ Hytte hangs a small pill from the top-centre of your screen. It stays out of the
 | **Staging shelf** | Drag files or text onto the notch to park them. Switch folders, desktops or apps, then drag them back out of the pill into any destination. The shelf follows you across virtual desktops and survives restarts. |
 | **Drop Vault** | Per-item actions on shelved files: strip EXIF/GPS, lossless WebP, OCR to clipboard, JSON/YAML formatting, copy path. |
 | **Media cockpit** | Title, artist, album art, live timeline, animated equaliser and prev / play-pause / next for the current Windows media session. |
-| **Mic mute** | One global toggle (**Ctrl+Alt+M**, or the Home card / the lock) mutes every microphone; while muted a bold red lock and red glow sit on the pill, whatever it is showing. |
+| **Mic mute** | One global toggle (the Home card's **Mute** button, or click the lock) mutes every microphone; while muted a bold red lock and red glow sit on the pill, whatever it is showing. |
 | **Battery cockpit** | On laptops: charge %, live charge / discharge power in watts, and a Saver / Balanced / Performance power-mode switch. |
 | **Privacy indicators** | A green dot while any app uses your camera, an orange dot for the microphone, with the app name when expanded. |
 | **Fullscreen aware** | Backs off to a hairline (or hides) when a game or video is fullscreen, with per-process allow/deny lists. |
@@ -118,6 +123,10 @@ npm run dev
 | **Result chip** | What was done, plus **Open / Copy / Dismiss** | A transform or kill finished |
 | **Sentinel** | A 3 px grey line | Fullscreen is active and the mode is `sentinel` |
 
+| Idle | Home card | Muted | Muted, expanded |
+|---|---|---|---|
+| <img src="docs/img/idle.png" width="200"> | <img src="docs/img/home.png" width="200"> | <img src="docs/img/muted.png" width="200"> | <img src="docs/img/muted-open.png" width="200"> |
+
 A coloured glow reflects the state: blue running, green success, red failure, amber waiting for you, purple shelf and drops.
 
 ### Panels and tabs
@@ -127,7 +136,7 @@ When expanded, the pill shows one **panel** at a time: **Tasks**, **Shelf**, **M
 ### Hover and click behaviour
 
 - Rest the pointer on the pill for about **120 ms** and it expands. Leave and it collapses after **300 ms**; re-entering in that window cancels the collapse, so grazing the edge doesn't flicker.
-- **Click a task row** to bring the terminal that owns it to the front (works for `notch run`, shell-tracked commands and agents). Finished rows have a small ✕ to dismiss.
+- **Click a task row** to bring the terminal that owns it to the front (works for `notch run`, shell-tracked commands and agents). In **Windows Terminal** it also switches to the tab the task was started in. Finished rows have a small ✕ to dismiss.
 - A failed task shows the last stderr lines with **Copy error** and **Dismiss**.
 - Media panel: click ⏮ ⏯ ⏭, or click the cover art / title to bring the playing app to the front.
 - Home card: **Mute / Unmute**, and the three power modes (laptops).
@@ -239,7 +248,7 @@ notch kill :3000       # asks "Stop node.exe (pid 1234) listening on :3000? [y/N
 notch kill :3000 --force
 ```
 
-Windows has no cheap "a socket started listening" event, so the daemon re-scans every `poll_secs` (default 10 s, one cheap syscall) and updates the UI only when the set changes; opening the Ports tab refreshes immediately.
+Windows has no cheap "a socket started listening" event, so the daemon re-scans every `poll_secs` (default 5 s, one cheap syscall) and updates the UI only when the set changes; opening the Ports tab refreshes immediately.
 
 ## Staging shelf and Drop Vault
 
@@ -271,7 +280,7 @@ Hytte reads Windows' System Media Transport Controls, the same source as the vol
 
 ## Microphone mute
 
-**Ctrl+Alt+M** toggles every active capture device through the Windows audio endpoint API (the combo is skipped silently if another app owns it). The Home card has the same **Mute** button. While muted, a red lock sits at the right edge of the pill in every state, the glow turns red and the idle pill widens to fit it; click the lock to unmute. State changed elsewhere (a laptop mute key, Settings) is picked up within 2 s.
+The Home card's **Mute** button toggles every active capture device through the Windows audio endpoint API. While muted, a red lock sits at the right edge of the pill in every state, the glow turns red and the idle pill widens to fit it; click the lock to unmute. State changed elsewhere (a laptop mute key, Settings) is picked up within 2 s.
 
 ## Battery and power mode
 
@@ -325,7 +334,7 @@ remove_after_drag = true       # drop the tile once it has been dragged out
 [ports]
 watch = [3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888]
 show_all = false               # true: every non-system listener
-poll_secs = 10
+poll_secs = 5
 
 [agent]
 peek_secs = 6                  # how long the pill stays open for an attention event
@@ -446,7 +455,7 @@ python -m http.server 3000                          # shows up in Ports
 | Nothing shows up | A fullscreen or monitor-sized window triggers suppression; look for the 3 px grey line, or set `suppress_fullscreen = false`. Check the tray **Pause** state. |
 | `notch: daemon not running (message dropped)` | Start `hytte.exe`. `notch run` still runs your command in the meantime. |
 | Shell commands never appear | Run `notch init <shell>` output in your profile, check `notch` is on `PATH`, and remember commands under 3 s (or in `[shell] ignore`) are hidden on purpose. |
-| Clicking an agent/task row does nothing | The owning terminal window couldn't be found from its process; pass `--pid` explicitly. Windows Terminal focuses the window but cannot pick a specific tab. |
+| Clicking an agent/task row does nothing | The owning terminal window couldn't be found from its process; pass `--pid` explicitly. In Windows Terminal the tab is selected too, as long as the task was first seen while its tab was active. |
 | A port you stopped still shows | The list refreshes whenever the pill opens and is re-checked on click; a stale entry is removed instead of erroring. |
 | A port isn't listed | Only `[ports] watch` ports are shown by default; add it or set `show_all = true`. Listeners bound to a specific non-loopback address are hidden. |
 | *OCR unavailable* | Install an OCR language pack in Windows language settings. Images larger than the engine's limit (about 4096 px) are skipped. |
@@ -461,8 +470,9 @@ python -m http.server 3000                          # shows up in Ports
 - **Lossless WebP only**; lossy WebP and AVIF are not included.
 - **Browser image drags** (which carry image data rather than a file) aren't handled; save the image first, or drop the file.
 - **Shell integrations:** PowerShell and the drag/agent/port features were exercised on a real desktop; the bash, zsh and Nushell scripts are written to the same protocol but have had less testing. Shell tasks have no stderr tail.
-- **Ports** are discovered by polling (10 s default); a very short-lived server may never appear.
+- **Ports** are discovered by polling (5 s default); a very short-lived server may never appear.
 - **Power mode** uses Windows' power-mode overlay (the Settings → System → Power mode switch); it isn't the separate Battery Saver feature.
+- **Windows Terminal tab targeting** is best effort: Hytte records the selected tab when it first sees a task, so a task started from a background tab (for example an agent launched, then you switched away before it reported in) may select the wrong tab. Other terminals get window focus only.
 - Unsigned binaries may trigger SmartScreen.
 - Not yet exercised against exclusive-fullscreen games or anti-cheat-protected titles.
 
