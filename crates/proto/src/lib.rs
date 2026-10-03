@@ -3,6 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod ports;
+pub mod sys;
+
 /// Protocol version. Bump on breaking change.
 pub const PROTOCOL_VERSION: u32 = 1;
 /// Canonical pipe name.
@@ -17,6 +20,10 @@ pub enum TaskEvent {
     Done,
     Failed,
     Lost,
+    /// An agent/long task is blocked waiting for a human.
+    NeedsInput,
+    /// A previously blocked agent continues running.
+    Resumed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +42,20 @@ pub struct HytteMessage {
     pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stderr_tail: Option<String>,
+    /// Who sent this: "run", "shell" or "agent". Additive; absent = "run".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Owning process (the terminal's shell/agent), used for click-to-focus and liveness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// Daemon shows the task only after this many ms (shell hooks use 3000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay_ms: Option<u32>,
+    /// Free text, e.g. why an agent needs input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 impl HytteMessage {
@@ -48,6 +69,11 @@ impl HytteMessage {
             exit_code: None,
             duration_ms: None,
             stderr_tail: None,
+            source: None,
+            pid: None,
+            delay_ms: None,
+            message: None,
+            cwd: None,
         }
     }
 
@@ -71,6 +97,12 @@ impl HytteMessage {
             if s.len() > 8192 {
                 return false;
             }
+        }
+        if self.message.as_ref().is_some_and(|m| m.len() > 1024)
+            || self.cwd.as_ref().is_some_and(|c| c.len() > 1024)
+            || self.source.as_ref().is_some_and(|c| c.len() > 16)
+        {
+            return false;
         }
         true
     }
@@ -116,6 +148,16 @@ mod tests {
         assert!(line.ends_with('\n'));
         let back: HytteMessage = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(back.task_id, "abc");
+    }
+
+    #[test]
+    fn old_messages_still_parse() {
+        let old = r#"{"v":1,"task_id":"t","event":"Done","label":"x","duration_ms":5}"#;
+        let m: HytteMessage = serde_json::from_str(old).unwrap();
+        assert!(m.validate() && m.pid.is_none() && m.source.is_none());
+        let new = r#"{"v":1,"task_id":"a","event":"NeedsInput","message":"approve?","pid":42,"source":"agent"}"#;
+        let m: HytteMessage = serde_json::from_str(new).unwrap();
+        assert_eq!((m.event, m.pid), (TaskEvent::NeedsInput, Some(42)));
     }
 
     #[test]
