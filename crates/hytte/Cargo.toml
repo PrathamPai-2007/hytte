@@ -1,0 +1,23 @@
+[package]
+name = "hytte"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "hytte"
+path = "src/main.rs"
+
+[dependencies]
+hytte-proto = { path = "../proto" }
+windows = { workspace = true }
+windows-core = "0.62.2"
+windows-numerics = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+crossbeam-channel = { workspace = true }
+toml = { workspace = true }
+image = { workspace = true }
+
+[build-dependencies]
+embed-manifest = "1"
