@@ -45,6 +45,7 @@ fn main() {
 
     let cfg = config::load();
     config::ensure_autostart(cfg.general.autostart);
+    config::ensure_start_menu();
 
     let (msg_tx, msg_rx) = unbounded::<hytte_proto::HytteMessage>();
     let (task_tx, task_rx) = unbounded::<tasks::TaskUpdate>();
