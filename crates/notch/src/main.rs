@@ -2,6 +2,10 @@
 //! Fast shell startup: std + windows + serde_json only.
 //! `notch run -- <cmd...>` still runs the command even if the daemon is absent.
 
+mod agent;
+mod hook;
+mod portscmd;
+
 use hytte_proto::{HytteMessage, TaskEvent, PIPE_NAME};
 use std::collections::VecDeque;
 use std::io::Write;
@@ -14,6 +18,10 @@ fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  notch run -- <cmd...>                  # run cmd, report to notch");
     eprintln!("  notch set --progress <0-100> --label \"...\" [--task <id>]");
+    eprintln!("  notch agent <start|needs-input|resume|done|fail|hooks> ...   # AI agent / long-task monitor");
+    eprintln!("  notch init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s");
+    eprintln!("  notch ports [--all]                    # list dev-server listeners");
+    eprintln!("  notch kill :PORT [--force]             # stop whatever listens on PORT");
     std::process::exit(2);
 }
 
@@ -75,7 +83,11 @@ fn cmd_run(args: &[String]) {
     let label = cmd_args.join(" ");
     let truncated: String = label.chars().take(128).collect();
 
-    let start = HytteMessage::start(id.clone(), truncated.clone());
+    let tag = |mut m: HytteMessage| {
+        m.pid = Some(std::process::id());
+        m
+    };
+    let start = tag(HytteMessage::start(id.clone(), truncated.clone()));
     let _ = send_msg(&start);
 
     let t0 = Instant::now();
@@ -89,7 +101,7 @@ fn cmd_run(args: &[String]) {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap_or_else(|e| {
-            let mut fail = HytteMessage::start(id.clone(), truncated.clone());
+            let mut fail = tag(HytteMessage::start(id.clone(), truncated.clone()));
             fail.event = TaskEvent::Failed;
             fail.duration_ms = Some(t0.elapsed().as_millis() as u64);
             fail.stderr_tail = Some(format!("spawn failed: {e}"));
@@ -123,7 +135,7 @@ fn cmd_run(args: &[String]) {
     });
     let code = status.code().unwrap_or(-1);
     let dur = t0.elapsed().as_millis() as u64;
-    let mut done = HytteMessage::start(id.clone(), truncated);
+    let mut done = tag(HytteMessage::start(id.clone(), truncated));
     done.duration_ms = Some(dur);
     if status.success() {
         done.event = TaskEvent::Done;
@@ -192,6 +204,14 @@ fn main() {
     match args[0].as_str() {
         "run" => cmd_run(&args[1..]),
         "set" => cmd_set(&args[1..]),
+        "agent" => agent::run(&args[1..], send_msg),
+        "hook" => hook::run(&args[1..], send_msg),
+        "init" => match args.get(1) {
+            Some(sh) => hook::init(sh),
+            None => hook::usage(),
+        },
+        "ports" => portscmd::list(&args[1..]),
+        "kill" => portscmd::kill_cmd(&args[1..]),
         _ => usage(),
     }
 }
