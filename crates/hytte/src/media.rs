@@ -187,7 +187,8 @@ mod imp {
             dur_ms = tl.EndTime().map(ms).unwrap_or(0).saturating_sub(start);
             pos_ms = tl.Position().map(ms).unwrap_or(0).saturating_sub(start);
         }
-        Some((MediaInfo { title, artist, playing, pos_ms, dur_ms }, props))
+        let app = s.SourceAppUserModelId().map(|h| h.to_string()).unwrap_or_default();
+        Some((MediaInfo { title, artist, playing, app, pos_ms, dur_ms }, props))
     }
 
     fn thumbnail(props: &Props) -> Option<Vec<u8>> {

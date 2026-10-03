@@ -10,7 +10,9 @@ mod drop;
 mod fullscreen;
 mod logging;
 mod media;
+mod mic;
 mod pipe_server;
+mod power;
 mod ports;
 #[cfg(windows)]
 mod proc;
@@ -51,6 +53,8 @@ fn main() {
     let (ui_tx, ui_rx) = unbounded::<ui_state::UiEvent>();
     media::spawn_watcher(ui_tx.clone());
     privacy::spawn_watcher(ui_tx.clone());
+    mic::spawn_watcher(ui_tx.clone());
+    power::spawn_watcher(ui_tx.clone());
     ports::spawn_watcher(cfg.ports.clone(), ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();

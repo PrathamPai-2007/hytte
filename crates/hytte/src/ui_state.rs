@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 pub const SUCCESS_HOLD: Duration = Duration::from_secs(3);
 pub const LOST_HOLD: Duration = Duration::from_secs(5);
 pub const CHIP_HOLD: Duration = Duration::from_secs(10);
+/// Width the red mute lock takes from the pill's right edge.
+pub const LOCK_W: f32 = 26.0;
 pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
 
 /// Events marshalled from worker threads to the UI thread.
@@ -23,6 +25,8 @@ pub enum UiEvent {
     Media(Option<MediaInfo>),
     MediaArt(Option<Arc<ArtBitmap>>),
     Privacy(bool, bool, Option<String>),
+    MicMute(bool),
+    Power(Option<crate::power::Battery>),
     DropDone(crate::drop::DropResult),
     Ports(Vec<PortInfo>),
     /// Dropped onto the notch while the shelf is the drop target.
@@ -38,6 +42,8 @@ pub struct MediaInfo {
     pub title: String,
     pub artist: String,
     pub playing: bool,
+    /// Source app's AppUserModelId, used to bring it to the front.
+    pub app: String,
     pub pos_ms: u64,
     pub dur_ms: u64,
 }
@@ -122,6 +128,11 @@ pub struct Model {
     pub cam: bool,
     pub mic: bool,
     pub privacy_app: Option<String>,
+    pub mic_muted: bool,
+    /// None on machines without a battery.
+    pub power: Option<crate::power::Battery>,
+    /// A user-initiated drop keeps the pill visible even while fullscreen suppresses it.
+    pub force_until: Option<Instant>,
     pub drop_over: bool,
     pub chip: Option<Chip>,
     pub ports: Vec<PortInfo>,
@@ -265,6 +276,9 @@ impl Model {
         if self.kill_armed.is_some_and(|(_, t)| now >= t) {
             self.kill_armed = None;
         }
+        if self.force_until.is_some_and(|f| now >= f) {
+            self.force_until = None;
+        }
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
         for t in &self.tasks {
@@ -285,6 +299,9 @@ impl Model {
         }
         if let Some((_, t)) = self.kill_armed {
             keep(t);
+        }
+        if let Some(f) = self.force_until {
+            keep(f);
         }
         next
     }
@@ -339,10 +356,23 @@ impl Model {
         if !self.ports.is_empty() {
             v.push(Panel::Ports);
         }
-        if v.is_empty() {
-            v.push(Panel::Home);
-        }
+        // System card (mic, battery) is always reachable.
+        v.push(Panel::Home);
         v
+    }
+
+    /// Move the selection by `dir` panels (wraps); used by the mouse wheel.
+    pub fn step_panel(&mut self, dir: i32) -> Panel {
+        let ps = self.panels();
+        let i = ps.iter().position(|p| *p == self.panel()).unwrap_or(0) as i32;
+        let p = ps[(i + dir).rem_euclid(ps.len() as i32) as usize];
+        self.selected = Some(p);
+        p
+    }
+
+    /// Drag-over or a fresh drop: the user is interacting, so ignore fullscreen suppression.
+    pub fn forced(&self) -> bool {
+        self.drop_over || self.now.zip(self.force_until).is_some_and(|(n, f)| n < f)
     }
 
     pub fn panel(&self) -> Panel {
@@ -358,7 +388,7 @@ impl Model {
     }
 
     pub fn scene(&self, hover: bool, suppressed: bool) -> Scene {
-        if suppressed && !hover {
+        if suppressed && !hover && !self.forced() {
             return Scene::Sentinel;
         }
         if self.drop_over {
@@ -398,12 +428,12 @@ impl Model {
                     (0, true) => 150.0,
                     (n, p) => 64.0 + 58.0 * n as f64 + if p { 34.0 } else { 0.0 },
                 };
-                (w, 24.0)
+                (w + if self.mic_muted { LOCK_W as f64 } else { 0.0 }, 24.0)
             }
             Scene::CompactTask => (292.0, 32.0),
             Scene::CompactMedia => (240.0, 32.0),
             Scene::ExpMedia => (380.0, 128.0 + tab),
-            Scene::ExpHome => (320.0, 84.0),
+            Scene::ExpHome => (380.0, if self.power.is_some() { 132.0 } else { 86.0 } + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip => (380.0, 96.0),
             Scene::ExpPorts => (380.0, 20.0 + self.ports.len().min(5) as f64 * 34.0 + tab),
@@ -431,6 +461,9 @@ impl Model {
         const BLUE: [f32; 3] = [0.35, 0.63, 1.0];
         const PURPLE: [f32; 3] = [0.65, 0.54, 0.98];
         const AMBER: [f32; 3] = [1.0, 0.72, 0.20];
+        if self.mic_muted && matches!(scene, Scene::Idle | Scene::CompactMedia | Scene::ExpHome | Scene::ExpMedia | Scene::ExpPorts) {
+            return (RED, 0.8);
+        }
         match scene {
             Scene::Sentinel | Scene::Idle => ([1.0; 3], 0.0),
             Scene::ExpDrop => (PURPLE, 1.0),
@@ -662,14 +695,51 @@ bang".into()),
     fn panels_and_selection() {
         let mut m = Model::default();
         assert_eq!(m.panels(), vec![Panel::Home]);
+        assert!(!m.tabs());
         m.ports = vec![PortInfo { port: 3000, pid: 9, exe: "node.exe".into() }];
         m.shelf = vec![ShelfItem { id: 1, path: "a".into(), name: "a".into(), is_dir: false, owned: false }];
-        assert_eq!(m.panels(), vec![Panel::Shelf, Panel::Ports]);
+        assert_eq!(m.panels(), vec![Panel::Shelf, Panel::Ports, Panel::Home]);
         assert!(m.tabs());
         assert_eq!(m.panel(), Panel::Shelf);
         m.selected = Some(Panel::Ports);
         assert_eq!(m.panel(), Panel::Ports);
         m.ports.clear();
         assert_eq!(m.panel(), Panel::Shelf, "stale selection falls back");
+    }
+
+    #[test]
+    fn wheel_steps_and_wraps() {
+        let mut m = Model::default();
+        m.ports = vec![PortInfo { port: 3000, pid: 9, exe: "node.exe".into() }];
+        assert_eq!(m.panels(), vec![Panel::Ports, Panel::Home]);
+        assert_eq!(m.step_panel(1), Panel::Home);
+        assert_eq!(m.step_panel(1), Panel::Ports, "wraps forward");
+        assert_eq!(m.step_panel(-1), Panel::Home, "wraps backward");
+    }
+
+    #[test]
+    fn drop_breaks_through_fullscreen_suppression() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.now = Some(t0);
+        assert_eq!(m.scene(false, true), Scene::Sentinel);
+        m.drop_over = true;
+        assert_eq!(m.scene(false, true), Scene::ExpDrop, "drag over the notch while fullscreen");
+        m.drop_over = false;
+        m.shelf = vec![ShelfItem { id: 1, path: "a".into(), name: "a".into(), is_dir: false, owned: false }];
+        m.force_until = Some(t0 + Duration::from_secs(4));
+        m.peek(Panel::Shelf, t0 + Duration::from_secs(4));
+        assert_eq!(m.scene(false, true), Scene::ExpShelf, "feedback after the drop");
+        m.expire(t0 + Duration::from_secs(5));
+        assert_eq!(m.scene(false, true), Scene::Sentinel);
+    }
+
+    #[test]
+    fn muted_mic_widens_idle_and_glows_red() {
+        let mut m = Model::default();
+        let w0 = m.size(Scene::Idle).0;
+        m.mic_muted = true;
+        assert_eq!(m.size(Scene::Idle).0, w0 + LOCK_W as f64);
+        assert_eq!(m.glow(Scene::Idle).1, 0.8);
     }
 }

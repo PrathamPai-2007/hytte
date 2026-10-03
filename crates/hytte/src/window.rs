@@ -37,7 +37,7 @@ mod win {
     use crate::render::{Action, Crop, Frame, Hit, Renderer};
     use crate::ui_state::{Anim, Chip, Model, Panel, Scene};
     use std::cell::RefCell;
-    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
     use windows::Win32::Foundation::*;
@@ -60,6 +60,7 @@ mod win {
     const WM_FG: u32 = 0x8004;
     const WM_DRAG_ARM: u32 = 0x8005;
     const WM_DRAG_END: u32 = 0x8006;
+    const HOTKEY_MIC: i32 = 1;
 
     const T_DWELL: usize = 1;
     const T_COLLAPSE: usize = 2;
@@ -87,6 +88,8 @@ mod win {
     static ZONE_R: AtomicI32 = AtomicI32::new(0);
     static ZONE_B: AtomicI32 = AtomicI32::new(0);
     static HWND_ADDR: AtomicIsize = AtomicIsize::new(0);
+    /// Registered `TaskbarCreated` message: Explorer restarted and our tray icon is gone.
+    static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 
     fn hwnd_of(addr: isize) -> HWND {
         HWND(addr as *mut _)
@@ -132,6 +135,8 @@ mod win {
         drag: Option<(u64, (i32, i32))>,
         vdm: Option<IVirtualDesktopManager>,
         thumb_req: std::collections::HashSet<u64>,
+        /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
+        wheel: i32,
     }
 
     thread_local! {
@@ -158,7 +163,9 @@ mod win {
         }
 
         fn hidden(&self) -> bool {
-            self.paused || (self.fs_hidden && self.cfg.general.fullscreen_mode == "hide")
+            // A drag near the top edge or a fresh drop must stay reachable even over fullscreen.
+            self.paused
+                || (self.fs_hidden && self.cfg.general.fullscreen_mode == "hide" && !self.armed && !self.model.forced())
         }
 
         fn layout(&mut self) {
@@ -248,6 +255,7 @@ mod win {
                         if n > 0 {
                             self.save_shelf();
                             self.model.peek(Panel::Shelf, now + Duration::from_secs(5));
+                            self.model.force_until = Some(now + Duration::from_secs(5));
                         }
                     }
                     UiEvent::Thumb(id, bmp) => {
@@ -257,6 +265,8 @@ mod win {
                     }
                     UiEvent::Media(m) => self.model.apply_media(m, now),
                     UiEvent::MediaArt(a) => self.model.set_art(a),
+                    UiEvent::MicMute(m) => self.model.mic_muted = m,
+                    UiEvent::Power(p) => self.model.power = p,
                     UiEvent::Privacy(c, m, app) => {
                         self.model.cam = c;
                         self.model.mic = m;
@@ -396,12 +406,13 @@ mod win {
                         crate::proc::focus_window(h);
                     }
                 }
-                Action::SelectPanel(p) => {
-                    self.model.selected = Some(p);
-                    if p == Panel::Ports {
-                        crate::ports::request_refresh();
-                    }
+                Action::SelectPanel(p) => self.select_panel(p),
+                Action::ToggleMic => self.toggle_mic(),
+                Action::SetPowerMode(m) => {
+                    crate::power::set_mode(m);
+                    self.model.power = crate::power::read();
                 }
+                Action::FocusMedia(app) => crate::proc::focus_app(&app),
                 Action::OpenPort(port) | Action::KillPort(port, _) if !port_alive(&self.model, port) => {
                     // The process is gone since the last scan: drop it instead of erroring.
                     self.model.ports.retain(|p| p.port != port);
@@ -444,6 +455,37 @@ mod win {
                 }
             }
             self.after_model_change(hwnd);
+        }
+
+        fn select_panel(&mut self, p: Panel) {
+            self.model.selected = Some(p);
+            match p {
+                Panel::Ports => crate::ports::request_refresh(),
+                Panel::Home => self.model.power = crate::power::read().or(self.model.power),
+                _ => {}
+            }
+        }
+
+        fn toggle_mic(&mut self) {
+            if let Some(m) = crate::mic::toggle() {
+                self.model.mic_muted = m;
+            }
+        }
+
+        /// Wheel over the pill flips panes; one step per notch.
+        fn wheel(&mut self, delta: i32) {
+            self.wheel += delta;
+            let steps = self.wheel / 120;
+            if steps == 0 {
+                return;
+            }
+            self.wheel -= steps * 120;
+            // Wheel down = next pane. Collapsed pills peek open so the change is visible.
+            let p = self.model.step_panel(-steps.signum());
+            self.select_panel(p);
+            if !self.hover {
+                self.model.peek(p, Instant::now() + Duration::from_secs(3));
+            }
         }
 
         fn evaluate_fullscreen(&mut self) {
@@ -542,6 +584,7 @@ mod win {
                 drag: None,
                 vdm: windows::Win32::System::Com::CoCreateInstance(&VirtualDesktopManager, None, windows::Win32::System::Com::CLSCTX_ALL).ok(),
                 thumb_req: Default::default(),
+                wheel: 0,
             };
             ui.model.ignore = ui.cfg.shell.ignore.iter().map(|s| s.to_ascii_lowercase()).collect();
             if ui.cfg.shelf.persist {
@@ -555,6 +598,16 @@ mod win {
             UI.with(|c| *c.borrow_mut() = Some(ui));
 
             register_drop_target(hwnd, shared.clone());
+            // Ctrl+Alt+M: global mic mute. Silently skipped when another app owns the combo.
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey(
+                Some(hwnd),
+                HOTKEY_MIC,
+                windows::Win32::UI::Input::KeyboardAndMouse::MOD_CONTROL
+                    | windows::Win32::UI::Input::KeyboardAndMouse::MOD_ALT
+                    | windows::Win32::UI::Input::KeyboardAndMouse::MOD_NOREPEAT,
+                0x4D,
+            );
+            TASKBAR_CREATED.store(RegisterWindowMessageW(windows::core::w!("TaskbarCreated")), Ordering::Relaxed);
 
             let _ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
             let _ = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -609,6 +662,7 @@ mod win {
                 let _ = UnhookWindowsHookEx(h);
             }
             tray.remove();
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(Some(hwnd), HOTKEY_MIC);
             let _ = RevokeDragDrop(hwnd);
             OleUninitialize();
         }
@@ -966,6 +1020,21 @@ mod win {
                 });
                 return LRESULT(0);
             }
+            WM_HOTKEY if wparam.0 as i32 == HOTKEY_MIC => {
+                with_ui(|ui| {
+                    ui.toggle_mic();
+                    ui.after_model_change(hwnd);
+                });
+                return LRESULT(0);
+            }
+            WM_MOUSEWHEEL => {
+                let delta = (wparam.0 >> 16) as i16 as i32;
+                with_ui(|ui| {
+                    ui.wheel(delta);
+                    ui.after_model_change(hwnd);
+                });
+                return LRESULT(0);
+            }
             WM_MOUSELEAVE => {
                 with_ui(|ui| {
                     ui.tracking = false;
@@ -1104,6 +1173,10 @@ mod win {
                     }
                     _ => {}
                 }
+                return LRESULT(0);
+            }
+            x if x != 0 && x == TASKBAR_CREATED.load(Ordering::Relaxed) => {
+                crate::tray::Tray::new(hwnd).add();
                 return LRESULT(0);
             }
             WM_DESTROY => {

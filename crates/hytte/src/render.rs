@@ -9,7 +9,8 @@
 //! pill hangs from the top-centre of a fixed transparent canvas, and only the
 //! pill (plus its soft glow) has non-zero alpha.
 
-use crate::ui_state::{Anim, Model, Panel, Scene, TaskView};
+use crate::power::Mode;
+use crate::ui_state::{Anim, Model, Panel, Scene, TaskView, LOCK_W};
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -50,6 +51,10 @@ pub enum Action {
     RemoveShelf(u64),
     /// Run a Drop Vault transform on a shelf item.
     ShelfOp(u64),
+    ToggleMic,
+    SetPowerMode(Mode),
+    /// Bring the media app (AppUserModelId) to the front.
+    FocusMedia(String),
 }
 
 #[derive(Debug, Clone)]
@@ -505,7 +510,8 @@ impl Renderer {
         self.ca.set(c * (((h - 14.0) / 10.0).clamp(0.0, 1.0)));
         unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0)) };
         let m = fr.model;
-        let pad_r = if m.privacy_active() { 12.0 + 14.0 * (m.cam as u8 + m.mic as u8) as f32 } else { 0.0 };
+        let lock = if m.mic_muted { LOCK_W } else { 0.0 };
+        let pad_r = lock + if m.privacy_active() { 12.0 + 14.0 * (m.cam as u8 + m.mic as u8) as f32 } else { 0.0 };
         match an.scene {
             Scene::Sentinel => {}
             Scene::Idle => self.idle(fr, w, h),
@@ -519,23 +525,28 @@ impl Renderer {
             Scene::ExpDrop => self.exp_drop(fr, w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
         }
-        if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf) {
+        if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf | Scene::ExpHome) {
             self.tabs(m, w, h);
         }
         if m.privacy_active() {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
-            self.privacy_dots(m, w - 14.0, cy, !matches!(an.scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia));
+            self.privacy_dots(m, w - 14.0 - lock, cy, !matches!(an.scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia));
+        }
+        if m.mic_muted && !matches!(an.scene, Scene::ExpDrop | Scene::ExpChip) {
+            let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
+            self.mute_badge(w - 14.0 - 6.0, cy);
         }
     }
 
     fn idle(&self, fr: &Frame, w: f32, h: f32) {
         let m = fr.model;
         let chips = (!m.ports.is_empty()) as u8 + (!m.shelf.is_empty()) as u8;
+        let lock = if m.mic_muted { LOCK_W } else { 0.0 };
         if chips == 0 {
-            self.fill_rr(w / 2.0 - 13.0, h / 2.0 - 1.5, 26.0, 3.0, 1.5, self.cc(WHITE, 0.16));
+            self.fill_rr((w - lock) / 2.0 - 13.0, h / 2.0 - 1.5, 26.0, 3.0, 1.5, self.cc(WHITE, 0.16));
             return;
         }
-        let right_pad = if m.privacy_active() { 34.0 } else { 0.0 };
+        let right_pad = lock + if m.privacy_active() { 34.0 } else { 0.0 };
         let mut x = (w - right_pad - 58.0 * chips as f32) / 2.0 + 4.0;
         let cy = h / 2.0;
         if let Some(p) = m.ports.first() {
@@ -549,6 +560,21 @@ impl Renderer {
             self.fill_rr(x + 2.0, cy - 5.5, 9.0, 8.0, 2.0, self.cc(PURPLE, 1.0));
             self.text(&m.shelf.len().to_string(), &self.f.small_l, x + 15.0, cy - 8.0, 28.0, 16.0, self.cc(WHITE, 0.82));
         }
+    }
+
+    /// Padlock: filled body plus a stroked shackle.
+    fn lock_icon(&self, cx: f32, cy: f32, col: [f32; 3], a: f32) {
+        self.stroke_rr(cx - 3.2, cy - 6.2, 6.4, 9.0, 3.2, self.cc(col, a), 1.7, false);
+        self.fill_rr(cx - 5.5, cy - 1.5, 11.0, 8.5, 2.2, self.cc(col, a));
+        self.circle(cx, cy + 2.2, 1.3, self.cc([0.05; 3], a));
+    }
+
+    /// Bold red lock shown on every scene while the microphone is muted; click unmutes.
+    fn mute_badge(&self, cx: f32, cy: f32) {
+        let hov = self.hit(cx - 11.0, cy - 11.0, 22.0, 22.0, Action::ToggleMic);
+        let p = (self.t.get() * 2.5).sin() * 0.5 + 0.5;
+        self.circle(cx, cy, 10.0, self.cc(RED, if hov { 0.34 } else { 0.20 + 0.04 * p }));
+        self.lock_icon(cx, cy, RED, 1.0);
     }
 
     fn privacy_dots(&self, m: &Model, right: f32, cy: f32, pulse: bool) {
@@ -811,6 +837,14 @@ impl Renderer {
         self.art_tile(fr.model, 16.0, 16.0, 72.0, 12.0);
         let tx = 102.0;
         let right = w - 16.0;
+        // Art + title open the playing app.
+        if !md.app.is_empty() {
+            let hov = self.hit(16.0, 12.0, 72.0, 76.0, Action::FocusMedia(md.app.clone()))
+                | self.hit(tx, 12.0, right - tx - 34.0, 48.0, Action::FocusMedia(md.app.clone()));
+            if hov {
+                self.fill_rr(16.0, 16.0, 72.0, 72.0, 12.0, self.cc(WHITE, 0.10));
+            }
+        }
         self.text(&md.title, &self.f.big, tx, 14.0, right - tx - 34.0, 22.0, self.cc(WHITE, 0.97));
         self.text(&md.artist, &self.f.body, tx, 37.0, right - tx - 34.0, 18.0, self.cc(GRAY, 1.0));
         self.eq_bars(right - 18.0, 18.0, 14.0, md.playing, GREEN);
@@ -955,8 +989,20 @@ impl Renderer {
 
     fn exp_home(&self, fr: &Frame, w: f32, _h: f32) {
         let m = fr.model;
-        self.text("Hytte", &self.f.big, 20.0, 12.0, 120.0, 22.0, self.cc(WHITE, 0.97));
-        let sub = if m.cam || m.mic {
+        // Microphone row.
+        let muted = m.mic_muted;
+        let col = if muted { RED } else { GRAY };
+        self.fill_rr(12.0, 8.0, w - 24.0, 38.0, 12.0, self.cc(col, if muted { 0.16 } else { 0.06 }));
+        if muted {
+            self.lock_icon(32.0, 27.0, RED, 1.0);
+        } else {
+            self.fill_rr(28.0, 17.0, 8.0, 13.0, 4.0, self.cc(WHITE, 0.85));
+            self.stroke_rr(25.0, 21.0, 14.0, 11.0, 7.0, self.cc(WHITE, 0.85), 1.4, false);
+            self.line((32.0, 33.0), (32.0, 36.0), self.cc(WHITE, 0.85), 1.4);
+        }
+        let sub = if muted {
+            "Muted · apps hear nothing".to_string()
+        } else if m.cam || m.mic {
             let what = match (m.cam, m.mic) {
                 (true, true) => "Camera + microphone",
                 (true, false) => "Camera",
@@ -967,10 +1013,41 @@ impl Renderer {
                 None => format!("{what} in use"),
             }
         } else {
-            "All quiet. Nothing running.".to_string()
+            "Live · Ctrl+Alt+M to mute".to_string()
         };
-        self.text(&sub, &self.f.body, 20.0, 35.0, w - 60.0, 18.0, self.cc(GRAY, 1.0));
-        self.text("Drop files here  ·  notch run -- <cmd>", &self.f.small, 20.0, 57.0, w - 40.0, 16.0, self.cc(GRAY, 0.6));
+        self.text("Microphone", &self.f.title, 52.0, 10.0, w - 52.0 - 100.0, 20.0, self.cc(WHITE, 0.97));
+        self.text(&sub, &self.f.small, 52.0, 27.0, w - 52.0 - 100.0, 16.0, self.cc(if muted { RED } else { GRAY }, 1.0));
+        self.button(if muted { "Unmute" } else { "Mute" }, w - 24.0 - 68.0, 15.0, 68.0, 24.0, if muted { RED } else { WHITE }, Action::ToggleMic);
+        let mut hint_y = 56.0;
+        // Battery row (laptops only).
+        if let Some(b) = &m.power {
+            let low = b.pct <= 20 && !b.plugged;
+            let bc = if low { RED } else if b.plugged { GREEN } else { WHITE };
+            self.stroke_rr(20.5, 59.5, 24.0, 12.0, 3.0, self.cc(WHITE, 0.7), 1.2, false);
+            self.fill_rr(45.0, 63.0, 2.5, 5.0, 1.0, self.cc(WHITE, 0.7));
+            self.fill_rr(22.5, 61.5, (20.0 * b.pct as f32 / 100.0).max(2.0), 8.0, 1.8, self.cc(bc, 0.95));
+            self.text(&b.status(), &self.f.body, 58.0, 56.0, w - 58.0 - 16.0, 20.0, self.cc(WHITE, 0.92));
+            let modes = [(Mode::Saver, "Saver"), (Mode::Balanced, "Balanced"), (Mode::Performance, "Performance")];
+            let (bw, gap) = (96.0, 6.0);
+            let mut x = (w - (bw * 3.0 + gap * 2.0)) / 2.0;
+            for (mode, label) in modes {
+                let on = b.mode == mode;
+                let hov = self.hit(x, 82.0, bw, 24.0, Action::SetPowerMode(mode));
+                let accent = match mode {
+                    Mode::Saver => GREEN,
+                    Mode::Balanced => BLUE,
+                    Mode::Performance => ORANGE,
+                };
+                self.fill_rr(x, 82.0, bw, 24.0, 12.0, self.cc(accent, if on { 0.34 } else if hov { 0.16 } else { 0.07 }));
+                if on {
+                    self.stroke_rr(x + 0.5, 82.5, bw - 1.0, 23.0, 11.5, self.cc(accent, 0.8), 1.2, false);
+                }
+                self.text(label, &self.f.btn, x, 82.0, bw, 24.0, self.cc(WHITE, if on { 1.0 } else { 0.78 }));
+                x += bw + gap;
+            }
+            hint_y = 110.0;
+        }
+        self.text("Drop files here  ·  notch run -- <cmd>", &self.f.small_c, 0.0, hint_y, w, 16.0, self.cc(GRAY, 0.6));
     }
 
     fn exp_drop(&self, fr: &Frame, w: f32, h: f32) {
