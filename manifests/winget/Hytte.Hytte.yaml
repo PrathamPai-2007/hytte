@@ -1,0 +1,32 @@
+# Hytte winget manifest. Single-file reference manifest;
+# split into version/installer/locale files when submitting to winget-pkgs.
+PackageIdentifier: Hytte.Hytte
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Hytte
+PackageName: Hytte
+License: MIT
+ShortDescription: Lightweight dynamic notch and ambient cockpit for Windows 11.
+Description: >-
+  Hytte is a lightweight dynamic notch for Windows 11. It never steals focus,
+  idles near zero CPU, and hosts a Drop Vault plus a Process Sentinel
+  (`notch run`) for ambient background-task awareness.
+Moniker: hytte
+Tags:
+  - notch
+  - overlay
+  - productivity
+  - ocr
+MinimumOSVersion: 10.0.22621.0
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://example.invalid/hytte-0.1.0-x64.zip
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: hytte.exe
+        PortableCommandAlias: hytte
+      - RelativeFilePath: notch.exe
+        PortableCommandAlias: notch
+ManifestType: singleton
+ManifestVersion: 1.6.0
