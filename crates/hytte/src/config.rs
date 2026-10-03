@@ -111,7 +111,7 @@ fn d_watch() -> Vec<u16> {
     vec![3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888]
 }
 fn d_poll() -> u64 {
-    10
+    5
 }
 impl Default for Ports {
     fn default() -> Self {

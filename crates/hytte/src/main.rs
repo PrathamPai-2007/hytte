@@ -19,6 +19,8 @@ mod proc;
 mod privacy;
 mod shelf;
 mod single_instance;
+#[cfg(windows)]
+mod tabs;
 mod tasks;
 mod transforms;
 mod tray;

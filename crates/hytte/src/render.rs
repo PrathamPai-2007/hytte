@@ -42,7 +42,8 @@ pub enum Action {
     MediaToggle,
     MediaNext,
     /// Click on a task row: bring its terminal to the front.
-    FocusTerminal(u32),
+    /// (owner pid, task id): focus the terminal window, then its tab when known.
+    FocusTerminal(u32, String),
     SelectPanel(Panel),
     OpenPort(u16),
     /// First click arms ("Kill?"), second confirms.
@@ -528,11 +529,13 @@ impl Renderer {
         if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf | Scene::ExpHome) {
             self.tabs(m, w, h);
         }
-        if m.privacy_active() {
+        // The Home card already spells out mic/camera state.
+        let home = an.scene == Scene::ExpHome;
+        if m.privacy_active() && !home {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.privacy_dots(m, w - 14.0 - lock, cy, !matches!(an.scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia));
         }
-        if m.mic_muted && !matches!(an.scene, Scene::ExpDrop | Scene::ExpChip) {
+        if m.mic_muted && !home && !matches!(an.scene, Scene::ExpDrop | Scene::ExpChip) {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.mute_badge(w - 14.0 - 6.0, cy);
         }
@@ -783,7 +786,7 @@ impl Renderer {
             let label_w = w - 42.0 - right_w - close_w - 22.0;
             // Whole row focuses the owning terminal (buttons below win the hit test).
             let row_hov = match t.pid {
-                Some(pid) => self.hit(8.0, y + 2.0, w - 16.0, 32.0, Action::FocusTerminal(pid)),
+                Some(pid) => self.hit(8.0, y + 2.0, w - 16.0, 32.0, Action::FocusTerminal(pid, t.id.clone())),
                 None => false,
             };
             if row_hov {
@@ -1013,7 +1016,7 @@ impl Renderer {
                 None => format!("{what} in use"),
             }
         } else {
-            "Live · Ctrl+Alt+M to mute".to_string()
+            "Live · click Mute to silence every mic".to_string()
         };
         self.text("Microphone", &self.f.title, 52.0, 10.0, w - 52.0 - 100.0, 20.0, self.cc(WHITE, 0.97));
         self.text(&sub, &self.f.small, 52.0, 27.0, w - 52.0 - 100.0, 16.0, self.cc(if muted { RED } else { GRAY }, 1.0));

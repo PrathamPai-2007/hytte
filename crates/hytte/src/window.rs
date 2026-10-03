@@ -60,7 +60,6 @@ mod win {
     const WM_FG: u32 = 0x8004;
     const WM_DRAG_ARM: u32 = 0x8005;
     const WM_DRAG_END: u32 = 0x8006;
-    const HOTKEY_MIC: i32 = 1;
 
     const T_DWELL: usize = 1;
     const T_COLLAPSE: usize = 2;
@@ -135,6 +134,7 @@ mod win {
         drag: Option<(u64, (i32, i32))>,
         vdm: Option<IVirtualDesktopManager>,
         thumb_req: std::collections::HashSet<u64>,
+        tabs: Sender<crate::tabs::Cmd>,
         /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
         wheel: i32,
     }
@@ -242,6 +242,12 @@ mod win {
                                         let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(MB_ICONASTERISK);
                                     }
                                 }
+                            }
+                        }
+                        // First sight of a task with an owner: remember which terminal tab it ran in.
+                        if let crate::tasks::TaskUpdate::Upsert(s) = &u {
+                            if let (Some(pid), false) = (s.pid, self.model.tasks.iter().any(|t| t.id == s.task_id)) {
+                                let _ = self.tabs.send(crate::tabs::Cmd::Snap(s.task_id.clone(), pid));
                             }
                         }
                         self.model.apply_task(u, now)
@@ -401,9 +407,10 @@ mod win {
                 Action::MediaPrev => crate::media::control(crate::media::Cmd::Prev),
                 Action::MediaToggle => crate::media::control(crate::media::Cmd::Toggle),
                 Action::MediaNext => crate::media::control(crate::media::Cmd::Next),
-                Action::FocusTerminal(pid) => {
+                Action::FocusTerminal(pid, id) => {
                     if let Some(h) = crate::proc::terminal_window_for(pid) {
                         crate::proc::focus_window(h);
+                        let _ = self.tabs.send(crate::tabs::Cmd::Select(id));
                     }
                 }
                 Action::SelectPanel(p) => self.select_panel(p),
@@ -584,6 +591,7 @@ mod win {
                 drag: None,
                 vdm: windows::Win32::System::Com::CoCreateInstance(&VirtualDesktopManager, None, windows::Win32::System::Com::CLSCTX_ALL).ok(),
                 thumb_req: Default::default(),
+                tabs: crate::tabs::spawn(),
                 wheel: 0,
             };
             ui.model.ignore = ui.cfg.shell.ignore.iter().map(|s| s.to_ascii_lowercase()).collect();
@@ -598,15 +606,6 @@ mod win {
             UI.with(|c| *c.borrow_mut() = Some(ui));
 
             register_drop_target(hwnd, shared.clone());
-            // Ctrl+Alt+M: global mic mute. Silently skipped when another app owns the combo.
-            let _ = windows::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey(
-                Some(hwnd),
-                HOTKEY_MIC,
-                windows::Win32::UI::Input::KeyboardAndMouse::MOD_CONTROL
-                    | windows::Win32::UI::Input::KeyboardAndMouse::MOD_ALT
-                    | windows::Win32::UI::Input::KeyboardAndMouse::MOD_NOREPEAT,
-                0x4D,
-            );
             TASKBAR_CREATED.store(RegisterWindowMessageW(windows::core::w!("TaskbarCreated")), Ordering::Relaxed);
 
             let _ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -662,7 +661,6 @@ mod win {
                 let _ = UnhookWindowsHookEx(h);
             }
             tray.remove();
-            let _ = windows::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(Some(hwnd), HOTKEY_MIC);
             let _ = RevokeDragDrop(hwnd);
             OleUninitialize();
         }
@@ -1017,13 +1015,6 @@ mod win {
                     ui.over_hit = over;
                     ui.layout();
                     ui.kick();
-                });
-                return LRESULT(0);
-            }
-            WM_HOTKEY if wparam.0 as i32 == HOTKEY_MIC => {
-                with_ui(|ui| {
-                    ui.toggle_mic();
-                    ui.after_model_change(hwnd);
                 });
                 return LRESULT(0);
             }
