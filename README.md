@@ -122,7 +122,7 @@ To do it by hand, or for zsh and Nushell, add the line for your shell, then open
 
 Using Starship? In bash, put the line *before* the `starship init` line. In PowerShell, put it *after*. `notch setup` does this for you.
 
-If Windows PowerShell says running scripts is disabled, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+If Windows PowerShell says running scripts is disabled (or never loads the hook), Windows' default policy is blocking your profile. The tray setup offers to fix it; or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
 Commands under 3 seconds never show up, and editors and pagers such as `vim`, `less` and `ssh` are ignored, so the pill doesn't flicker.
 
@@ -161,6 +161,7 @@ The ones people change most:
 [general]
 autostart = false              # start with Windows
 fullscreen_mode = "sentinel"   # "sentinel" = thin line, "hide" = disappear completely
+finish_peek_secs = 5            # how long the pill opens when a task finishes (0 = never)
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]
 deny_list = []                 # apps that always hide Hytte, e.g. ["game.exe"]
 output_folder = "D:\\Hytte"    # where file actions save results (default: next to the file)
