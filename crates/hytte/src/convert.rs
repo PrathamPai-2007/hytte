@@ -37,7 +37,18 @@ fn open(path: &Path) -> Result<DynamicImage, String> {
 
 /// Composite onto white so transparent PNGs do not turn black as JPEG.
 fn flatten(img: &DynamicImage) -> RgbImage {
-    let rgba = img.to_rgba8();
+    // Opaque images convert directly; RGBA8 is read in place. Either way no
+    // full-size RGBA copy is made (a 60 MP image would cost another 240 MB).
+    if !img.color().has_alpha() {
+        return img.to_rgb8();
+    }
+    match img {
+        DynamicImage::ImageRgba8(rgba) => composite_white(rgba),
+        _ => composite_white(&img.to_rgba8()),
+    }
+}
+
+fn composite_white(rgba: &image::RgbaImage) -> RgbImage {
     let mut out = RgbImage::new(rgba.width(), rgba.height());
     for (o, p) in out.pixels_mut().zip(rgba.pixels()) {
         let a = p[3] as u32;
@@ -61,13 +72,15 @@ fn jpeg(img: &RgbImage, q: u8) -> Vec<u8> {
 }
 
 /// Highest JPEG quality in `MIN_QUALITY..=START_QUALITY` that fits, by bisection (<= 6 encodes).
-fn best_quality(img: &RgbImage, max: u64) -> Option<Vec<u8>> {
+/// When even `MIN_QUALITY` is too big, returns that encode's size instead.
+fn best_quality(img: &RgbImage, max: u64) -> Result<Vec<u8>, usize> {
     let top = jpeg(img, START_QUALITY);
     if top.len() as u64 <= max {
-        return Some(top);
+        return Ok(top);
     }
-    if jpeg(img, MIN_QUALITY).len() as u64 > max {
-        return None;
+    let floor = jpeg(img, MIN_QUALITY);
+    if floor.len() as u64 > max {
+        return Err(floor.len());
     }
     let (mut lo, mut hi) = (MIN_QUALITY, START_QUALITY); // lo fits, hi does not
     let mut best = None;
@@ -81,18 +94,19 @@ fn best_quality(img: &RgbImage, max: u64) -> Option<Vec<u8>> {
             hi = mid;
         }
     }
-    best.or_else(|| Some(jpeg(img, lo)))
+    // `best` is unset only if `lo` never moved off MIN_QUALITY, whose encode is `floor`.
+    Ok(best.unwrap_or(floor))
 }
 
 /// Encode as JPEG no larger than `max` bytes: lower quality first, then shrink the image.
-pub fn fit_jpeg(img: &DynamicImage, max: u64) -> Option<Vec<u8>> {
-    let mut rgb = flatten(img);
+/// Takes the flattened image by value so callers can drop the decoded original first.
+pub fn fit_jpeg(mut rgb: RgbImage, max: u64) -> Option<Vec<u8>> {
     for _ in 0..4 {
-        if let Some(b) = best_quality(&rgb, max) {
-            return Some(b);
-        }
+        let size = match best_quality(&rgb, max) {
+            Ok(b) => return Some(b),
+            Err(size) => size as f64,
+        };
         // Even the lowest quality is too big: scale by the area ratio, with headroom.
-        let size = jpeg(&rgb, MIN_QUALITY).len() as f64;
         let f = (max as f64 / size).sqrt() * 0.95;
         let (w, h) = (
             ((rgb.width() as f64 * f) as u32).max(1),
@@ -115,7 +129,9 @@ pub fn compress(
         return Err(format!("Already under {max_mb} MB ({})", fmt_size(before)));
     }
     let img = open(src)?;
-    let bytes = fit_jpeg(&img, max).ok_or("Couldn't get it that small")?;
+    let rgb = flatten(&img);
+    drop(img); // only the RGB copy is needed from here: halves peak memory on big images
+    let bytes = fit_jpeg(rgb, max).ok_or("Couldn't get it that small")?;
     let path = dst(&format!("-{max_mb}mb"), "jpg");
     std::fs::write(&path, &bytes).map_err(|e| format!("Write failed: {e}"))?;
     Ok(Converted {
@@ -218,14 +234,13 @@ pub fn pdf_from_pages(pages: &[PdfPage]) -> Vec<u8> {
 }
 
 fn page_for(src: &Path) -> Result<PdfPage, String> {
-    let img = open(src)?;
-    let (w, h) = (img.width(), img.height());
     let is_jpeg = src
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg"));
-    let gray = img.color().channel_count() <= 2;
     if is_jpeg {
+        // The header is enough: size and colour type, without decoding any pixels.
+        let (w, h, gray) = jpeg_header(src)?;
         // Pass the original bytes through: no recompression, no quality loss.
         return Ok(PdfPage {
             w,
@@ -235,7 +250,11 @@ fn page_for(src: &Path) -> Result<PdfPage, String> {
             data: std::fs::read(src).map_err(|e| e.to_string())?,
         });
     }
-    let raw = flatten(&img).into_raw();
+    let img = open(src)?;
+    let (w, h) = (img.width(), img.height());
+    let rgb = flatten(&img);
+    drop(img);
+    let raw = rgb.into_raw();
     Ok(PdfPage {
         w,
         h,
@@ -243,6 +262,22 @@ fn page_for(src: &Path) -> Result<PdfPage, String> {
         dct: false,
         data: miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
     })
+}
+
+/// Width, height and grayness of a JPEG from its header (same size limit as `open`).
+fn jpeg_header(path: &Path) -> Result<(u32, u32, bool), String> {
+    use image::ImageDecoder;
+    let err = |e: image::ImageError| format!("Can't read image: {e}");
+    // Format comes from the extension, as with `image::open`.
+    let dec = image::ImageReader::open(path)
+        .map_err(|e| format!("Can't read image: {e}"))?
+        .into_decoder()
+        .map_err(err)?;
+    let (w, h) = dec.dimensions();
+    if w as u64 * h as u64 > MAX_PIXELS {
+        return Err(format!("Image too large ({w}x{h})"));
+    }
+    Ok((w, h, dec.color_type().channel_count() <= 2))
 }
 
 /// One page per image, in order. Output name comes from `dst`.
@@ -295,11 +330,11 @@ mod tests {
         let img = noisy(600, 600);
         let big = jpeg(&flatten(&img), START_QUALITY).len() as u64;
         // Reachable by quality alone.
-        let b = fit_jpeg(&img, big * 3 / 4).expect("quality pass");
+        let b = fit_jpeg(flatten(&img), big * 3 / 4).expect("quality pass");
         assert!(b.len() as u64 <= big * 3 / 4);
         // Needs shrinking: far below what MIN_QUALITY can reach at full size.
         let tiny = 20_000;
-        let b = fit_jpeg(&img, tiny).expect("scale pass");
+        let b = fit_jpeg(flatten(&img), tiny).expect("scale pass");
         assert!(b.len() as u64 <= tiny);
         let d = image::load_from_memory(&b).unwrap();
         assert!(d.width() < 600, "image was scaled down");
@@ -418,5 +453,23 @@ mod tests {
         let c = to_pdf(&[src], |_, _| out.clone()).unwrap();
         let bytes = std::fs::read(&c.path).unwrap();
         assert!(bytes.starts_with(b"%PDF-") && c.after == bytes.len() as u64);
+    }
+
+    #[test]
+    fn jpeg_pages_pass_through_from_the_header() {
+        let dir = std::env::temp_dir().join("hytte-convert-jpg");
+        let _ = std::fs::create_dir_all(&dir);
+        let src = dir.join("a.jpg");
+        noisy(64, 32).save(&src).unwrap();
+        let p = page_for(&src).unwrap();
+        assert_eq!((p.w, p.h, p.gray, p.dct), (64, 32, false, true));
+        assert_eq!(
+            p.data,
+            std::fs::read(&src).unwrap(),
+            "original bytes, not re-encoded"
+        );
+        let bad = dir.join("not-a.jpg");
+        std::fs::write(&bad, b"definitely not a jpeg").unwrap();
+        assert!(page_for(&bad).is_err());
     }
 }
