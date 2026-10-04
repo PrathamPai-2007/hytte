@@ -351,7 +351,28 @@ mod win {
                                     .send(crate::tabs::Cmd::Snap(s.task_id.clone(), pid));
                             }
                         }
-                        self.model.apply_task(u, now)
+                        let finished = match &u {
+                            crate::tasks::TaskUpdate::Upsert(s)
+                                if matches!(
+                                    s.event,
+                                    hytte_proto::TaskEvent::Done | hytte_proto::TaskEvent::Failed
+                                ) =>
+                            {
+                                Some(s.task_id.clone())
+                            }
+                            _ => None,
+                        };
+                        self.model.apply_task(u, now);
+                        // Open the pill on the result, unless the task was hidden (a short
+                        // shell command, or Ctrl-C) and so never made it into the list.
+                        let secs = self.cfg.general.finish_peek_secs;
+                        if secs > 0
+                            && finished
+                                .is_some_and(|id| self.model.tasks.iter().any(|t| t.id == id))
+                        {
+                            self.model
+                                .peek(Panel::Tasks, now + Duration::from_secs(secs));
+                        }
                     }
                     UiEvent::Ports(p) => self.model.set_ports(p),
                     UiEvent::ShelfAdd(job) => {
