@@ -408,9 +408,28 @@ mod win {
                     UiEvent::SetClipboard(s) => set_clipboard(hwnd, &s),
                     UiEvent::DragEnter => self.model.drop_over = true,
                     UiEvent::DragLeave => self.model.drop_over = false,
+                    UiEvent::Config(cfg) => self.apply_config(*cfg),
                 }
             }
             self.after_model_change(hwnd);
+        }
+
+        /// A live edit of `config.toml`. Most settings are read where they're used, so only
+        /// state derived from the config needs refreshing. Lowering `[shelf] max_items` keeps
+        /// the tiles already there and only limits new ones.
+        fn apply_config(&mut self, new: Config) {
+            if new.general.autostart != self.cfg.general.autostart {
+                crate::config::ensure_autostart(new.general.autostart);
+            }
+            if new.ports != self.cfg.ports {
+                crate::ports::reconfigure(new.ports.clone());
+            }
+            self.model.ignore = ignore_list(&new);
+            let general = new.general != self.cfg.general;
+            self.cfg = new;
+            if general {
+                self.evaluate_fullscreen();
+            }
         }
 
         fn save_shelf(&self) {
@@ -752,6 +771,14 @@ mod win {
         }
     }
 
+    fn ignore_list(cfg: &Config) -> Vec<String> {
+        cfg.shell
+            .ignore
+            .iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect()
+    }
+
     pub fn run_windows(
         cfg: Config,
         task_rx: Receiver<TaskUpdate>,
@@ -851,13 +878,7 @@ mod win {
                 tabs: crate::tabs::spawn(),
                 wheel: 0,
             };
-            ui.model.ignore = ui
-                .cfg
-                .shell
-                .ignore
-                .iter()
-                .map(|s| s.to_ascii_lowercase())
-                .collect();
+            ui.model.ignore = ignore_list(&ui.cfg);
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
             }
