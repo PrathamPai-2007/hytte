@@ -12,6 +12,9 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 | `%APPDATA%\Hytte\timer.json` | `timer::save` | The running timer, so it survives a restart. Deleted when the timer stops or finishes. |
 | `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics, and frame telemetry when `HYTTE_PERF=1`. Not written during normal operation. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. |
+| `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `notch` resolves in new terminals (`[general] add_to_path`). |
+| `%APPDATA%\Hytte\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
+| PowerShell profiles, `~/.bashrc` | `setup::setup_shells` | Only when the user chooses **Set up terminal integration** or runs `notch setup`: a block between `# >>> hytte >>>` and `# <<< hytte <<<`. |
 | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Hytte.lnk` | `config::ensure_start_menu` | A Start Menu shortcut so Windows Search finds Hytte. Rewritten on every launch, so it heals itself if the exe moves. |
 
 `config::data_dir()` (the folder of `config.toml`) is the base for every Hytte file. If `APPDATA` isn't set, it falls back to the current directory.
@@ -35,6 +38,7 @@ The daemon reads the config **once at startup**. Users must restart Hytte after 
 | Key | Default | Meaning |
 |---|---|---|
 | `autostart` | `false` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
+| `add_to_path` | `true` | At startup, add the folder holding `notch.exe` to the user's `PATH` if `notch` isn't found already. Set to `false` to manage `PATH` yourself. |
 | `monitor` | `"primary"` | Reserved; only the primary monitor is supported. |
 | `solid_pill` | `true` | Reserved. |
 | `acrylic` | `false` | Draw the pill body at 84 % opacity instead of solid. There is no blur behind it. |
