@@ -1,6 +1,6 @@
 # 6. The UI model
 
-`crates/hytte/src/ui_state.rs` is the brain of the pill. It decides *what* to show, as plain Rust with no Win32 calls, so almost all of its behaviour is unit-tested. The window layer ([section 7](7-window-and-input.md)) feeds it events and clock ticks, and the renderer ([section 8](8-rendering-and-animation.md)) reads it to draw.
+`crates/hytte/src/ui_state.rs` is the brain of the pill. It decides *what* to show, as plain Rust with no Win32 calls, so almost all of its behaviour is unit-tested. The window layer ([section 7](07-window-and-input.md)) feeds it events and clock ticks, and the renderer ([section 8](08-rendering-and-animation.md)) reads it to draw.
 
 It has three parts:
 
@@ -12,7 +12,7 @@ It has three parts:
 
 | Variant | Sent by | Effect |
 |---|---|---|
-| `Task(TaskUpdate)` | task registry (via the bridge) | `Model::apply_task` ([section 4](4-ipc-protocol.md)) |
+| `Task(TaskUpdate)` | task registry (via the bridge) | `Model::apply_task` ([section 4](04-ipc-protocol.md)) |
 | `Media(Option<MediaInfo>)` | media watcher | Sets or clears `media`. Clearing also clears the album art. |
 | `MediaArt(Option<Arc<ArtBitmap>>)` | media watcher | Sets `art` and bumps `art_gen` so the renderer re-uploads it. |
 | `Privacy(cam, mic, app)` | privacy watcher | The camera / mic dots and the app name. |
@@ -135,7 +135,7 @@ The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant
 - `Model::rows()` lists the visible tasks in this order: waiting for input, failed, running, everything else. Newest comes first within each group, and the list is truncated to 4. The expanded Tasks panel draws exactly these rows.
 - `Model::primary()` is the first of those rows, chosen without building the list (it runs several times per frame). The compact pill shows it.
 - `Model::visible_count()` drives the count badge on the compact pill.
-- `Model::ambient(scene, now)` answers "does anything need continuous frames right now?". It returns true for a running or waiting task, a failed task whose red pulse is still fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, or playing media in a media scene. It is always false for the `Sentinel`, which never moves. [Section 8](8-rendering-and-animation.md) explains why this matters.
+- `Model::ambient(scene, now)` answers "does anything need continuous frames right now?". It returns true for a running or waiting task, a failed task whose red pulse is still fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, or playing media in a media scene. It is always false for the `Sentinel`, which never moves. [Section 8](08-rendering-and-animation.md) explains why this matters.
 
 ## `Anim`: animation state
 
@@ -158,4 +158,4 @@ The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant
 
 `ui_state.rs` has the largest test module in the project: scene priority, expiry, shell thresholds, ignored commands, attention peeking, panels and the wheel, fullscreen break-through on drops, the timer, the mic lock, ambient rules, and the cross-fade. When you change a rule above, change or add a test next to it. These tests need no Windows APIs.
 
-Next: [7. Window, input and timers](7-window-and-input.md)
+Next: [7. Window, input and timers](07-window-and-input.md)

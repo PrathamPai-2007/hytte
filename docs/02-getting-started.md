@@ -94,4 +94,4 @@ cargo test --workspace
 
 Then try the states you touched by hand (see the commands above). Several features, such as drag and drop, focus behaviour and fullscreen suppression, can only be verified on a real desktop.
 
-Next: [3. Architecture](3-architecture.md)
+Next: [3. Architecture](03-architecture.md)

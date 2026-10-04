@@ -2,7 +2,7 @@
 
 The **shelf** holds files and text snippets the user drops on the pill, so they can be dragged out again later. The **Drop Vault** is the set of one-click actions offered for a selected shelf item.
 
-Code: `crates/hytte/src/shelf.rs`, `drop.rs`, `transforms.rs`, `convert.rs`. The drag-and-drop plumbing itself is in `window.rs` ([section 7](7-window-and-input.md#drag-and-drop)).
+Code: `crates/hytte/src/shelf.rs`, `drop.rs`, `transforms.rs`, `convert.rs`. The drag-and-drop plumbing itself is in `window.rs` ([section 7](07-window-and-input.md#drag-and-drop)).
 
 ## Shelf items
 

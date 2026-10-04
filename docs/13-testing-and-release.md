@@ -8,7 +8,7 @@ On Windows:
 cargo test --workspace
 ```
 
-On other operating systems, see [section 2](2-getting-started.md#working-from-macos-or-linux). You can type-check and lint everything, and run `hytte-proto`'s tests, but not the `hytte` crate's tests.
+On other operating systems, see [section 2](02-getting-started.md#working-from-macos-or-linux). You can type-check and lint everything, and run `hytte-proto`'s tests, but not the `hytte` crate's tests.
 
 Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, next to the code they cover. There is no separate `tests/` folder.
 
@@ -36,7 +36,7 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 
 ### What isn't covered by automated tests
 
-Anything that needs a real desktop: drawing, hover timing, drag and drop in and out, focus behaviour, fullscreen detection, the tray, virtual desktops, media sessions, OCR, and the shell scripts inside real shells. Check these by hand before a release, using the commands in [section 2](2-getting-started.md#putting-the-pill-into-every-state).
+Anything that needs a real desktop: drawing, hover timing, drag and drop in and out, focus behaviour, fullscreen detection, the tray, virtual desktops, media sessions, OCR, and the shell scripts inside real shells. Check these by hand before a release, using the commands in [section 2](02-getting-started.md#putting-the-pill-into-every-state).
 
 ### Writing tests
 
@@ -49,7 +49,7 @@ Anything that needs a real desktop: drawing, hover timing, drag and drop in and 
 1. `cargo fmt --all --check`
 2. `cargo clippy --workspace --all-targets -- -D warnings`
 3. `cargo test --workspace`
-4. A manual pass over every scene ([section 2](2-getting-started.md#putting-the-pill-into-every-state)), on a high-DPI monitor if you have one.
+4. A manual pass over every scene ([section 2](02-getting-started.md#putting-the-pill-into-every-state)), on a high-DPI monitor if you have one.
 5. An idle check ([section 12](12-performance.md#cpu-and-memory)): about 0 % CPU when collapsed.
 6. Bump the version in `crates/proto/Cargo.toml` and `crates/hytte/Cargo.toml` (they share a version), and in `manifests/winget/Hytte.Hytte.yaml`.
 

@@ -14,7 +14,7 @@ Hytte draws with **Direct2D** into an `ID2D1DCRenderTarget` bound to a 32-bit pr
 
 ## The frame clock
 
-[Section 3](3-architecture.md#the-frame-clock) introduced the ticker thread. Its two speeds:
+[Section 3](03-architecture.md#the-frame-clock) introduced the ticker thread. Its two speeds:
 
 | State (`Shared`) | Ticker behaviour | Used for |
 |---|---|---|
@@ -27,7 +27,7 @@ Right after each `DwmFlush`, the ticker samples DWM's composition timing (`DwmGe
 ## One frame: `Ui::frame`
 
 1. **Time step.** Compute `dt` (above).
-2. **Layout.** `layout()` refreshes every spring's target from the model ([section 6](6-ui-model.md)).
+2. **Layout.** `layout()` refreshes every spring's target from the model ([section 6](06-ui-model.md)).
 3. **Step.** `anim.step(dt)` advances all springs and reports whether anything is still moving.
 4. **Visibility.** Show the window if it should become visible. Hide it once the `vis` fade-out has reached ~0.
 5. **Crop.** `Renderer::plan(w, h, armed)` sizes the region to draw: the pill plus 28 px of margin for the glow on the sides and bottom, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels.
@@ -126,4 +126,4 @@ Never in the `Sentinel` (fullscreen) scene, never while hidden, and never with r
 
 When you add motion, make it a function of `self.t` (animation time) or `Frame::now`, decide when it may stop, and add that condition to `Model::ambient`. **An animation with no stop condition runs the CPU forever.**
 
-Next: [9. Background workers](9-workers.md)
+Next: [9. Background workers](09-workers.md)
