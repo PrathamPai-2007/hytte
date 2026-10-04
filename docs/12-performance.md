@@ -32,6 +32,7 @@ When adding a feature, check it doesn't add a row here without a good reason.
 | Mic watcher | every 2 s | Reads the cached endpoints' mute state; re-enumerates only after a device change notification. |
 | Power watcher | every 10 s | `GetSystemPowerStatus`. On laptops, also two IOCTLs on the cached battery device. |
 | Privacy watcher | on registry change, or 10 s safety timeout | |
+| Config watcher | on a file change in `%APPDATA%\Hytte` | Reads `config.toml` (a few KB); writes to `shelf.json` / `timer.json` also wake it. |
 | Media watcher | on WinRT event, or 30 s safety timeout | |
 | Task registry | every 5 s **only while tasks exist** | Checks owner liveness. |
 | Countdown timer | 1 Hz **only while a timer runs unpaused** | Redraws the fuse. |

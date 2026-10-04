@@ -151,7 +151,7 @@ notch kill :3000       # stop whatever is on port 3000 (asks first)
 
 ## Settings
 
-Settings live in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**). The file is created on first run, every setting is optional, and you need to restart Hytte after editing it.
+Settings live in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**). The file is created on first run, and every setting is optional. Changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
 
 The ones people change most:
 

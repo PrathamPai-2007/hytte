@@ -13,6 +13,7 @@ Each worker watches one part of the system and reports changes to the UI thread 
 | Microphone | `mic.rs` | 2 s poll of cached endpoints; device changes by notification | `MicMute` |
 | Battery | `power.rs` | 10 s poll | `Power` |
 | Ports | `ports.rs` | `poll_secs` poll, woken early on demand | `Ports` |
+| Config | `config.rs` | Directory change notification (no polling) | `Config` ([section 11](11-configuration-and-files.md#live-reload)) |
 | Terminal tabs | `tabs.rs` | Command channel (no polling) | none: it answers commands |
 | Thumbnails | `shelf.rs` (`thumbnail`) | One short-lived thread per tile | `Thumb` |
 
@@ -86,7 +87,7 @@ There is no cheap "a socket started listening" event in Windows (ETW would be th
 1. `listeners()` calls `GetExtendedTcpTable` for IPv4 and IPv6 listening sockets with owning pids. It keeps only sockets bound to "any" (`0.0.0.0` / `::`) or loopback (`127.x` / `::1`).
 2. `filter()` drops pid 0 / 4 and keeps only watched ports (or everything with `show_all`). It then looks up the exe name for each **remaining** row (that opens the process, so it is done last), drops known system hosts (`svchost.exe`, `lsass.exe`, `msedgewebview2.exe`, ...), removes duplicate IPv4/IPv6 rows, and sorts by port.
 3. If the list changed, it sends `UiEvent::Ports`.
-4. It waits on a condvar for `poll_secs` (default 5 s). `ports::request_refresh()` wakes it immediately; the UI calls it when the pill opens, when the Ports panel is selected, and after a kill.
+4. It waits on a condvar for `poll_secs` (default 5 s). `ports::request_refresh()` wakes it immediately; the UI calls it when the pill opens, when the Ports panel is selected, and after a kill. `ports::reconfigure()` (a config reload) stores new settings that the loop picks up before its next scan, then wakes it the same way.
 
 Before acting on **Open** or **Kill**, the UI re-checks that the same pid still listens on that port (`port_alive`), so a stale row is removed instead of killing the wrong process. `hytte_proto::ports::kill` refuses pids 0–4 and its own pid.
 
