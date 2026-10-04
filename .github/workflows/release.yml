@@ -2,6 +2,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Manual release: GitHub creates the tag at the chosen commit when the release is published.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.2.0"
+        required: true
 permissions:
   contents: write
 jobs:
@@ -14,9 +20,10 @@ jobs:
       - name: Zip
         shell: pwsh
         run: |
-          $v = "${{ github.ref_name }}".TrimStart("v")
+          $v = "${{ inputs.tag || github.ref_name }}".TrimStart("v")
           Compress-Archive target\release\hytte.exe, target\release\notch.exe "hytte-$v-x64.zip"
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: hytte-*-x64.zip
           generate_release_notes: true
