@@ -243,9 +243,10 @@ mod sys {
     use windows::core::{w, HSTRING};
     use windows::Win32::Foundation::{ERROR_SUCCESS, HWND, LPARAM, WPARAM};
     use windows::Win32::System::Registry::{
-        RegCloseKey, RegGetValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
-        HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_EXPAND_SZ,
-        REG_VALUE_TYPE, RRF_RT_REG_SZ,
+        RegCloseKey, RegCreateKeyExW, RegGetValueW, RegOpenKeyExW, RegQueryValueExW,
+        RegSetValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE,
+        KEY_SET_VALUE, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ, REG_VALUE_TYPE,
+        RRF_RT_REG_SZ,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
@@ -361,6 +362,35 @@ mod sys {
             .or_else(|| reg_str(HKEY_CURRENT_USER, SHELL, "ExecutionPolicy"))
             .or_else(|| reg_str(HKEY_LOCAL_MACHINE, SHELL, "ExecutionPolicy"))
             .unwrap_or_else(|| "Restricted".into())
+    }
+
+    /// What `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` does for Windows PowerShell.
+    pub fn allow_ps51_profiles() -> Result<(), String> {
+        unsafe {
+            let mut key = HKEY::default();
+            let r = RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                w!(r"Software\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell"),
+                None,
+                None,
+                REG_OPTION_NON_VOLATILE,
+                KEY_SET_VALUE,
+                None,
+                &mut key,
+                None,
+            );
+            if r != ERROR_SUCCESS {
+                return Err(format!("can't open the PowerShell policy key ({})", r.0));
+            }
+            let units: Vec<u16> = "RemoteSigned".encode_utf16().chain(Some(0)).collect();
+            let bytes = std::slice::from_raw_parts(units.as_ptr() as *const u8, units.len() * 2);
+            let r = RegSetValueExW(key, w!("ExecutionPolicy"), None, REG_SZ, Some(bytes));
+            let _ = RegCloseKey(key);
+            if r != ERROR_SUCCESS {
+                return Err(format!("can't write the policy ({})", r.0));
+            }
+        }
+        Ok(())
     }
 
     pub fn documents() -> Option<std::path::PathBuf> {
@@ -492,10 +522,8 @@ pub fn setup_shells(undo: bool) -> Vec<String> {
         return out;
     }
     let ps51 = profiles.iter().any(|p| p.shell == "Windows PowerShell");
-    let policy = sys::ps51_policy();
-    if ps51
-        && (policy.eq_ignore_ascii_case("Restricted") || policy.eq_ignore_ascii_case("AllSigned"))
-    {
+    if ps51 && blocked_by_policy() {
+        let policy = sys::ps51_policy();
         out.push(format!(
             "Windows PowerShell won't run profiles under the '{policy}' policy. To allow it, run:\n    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
         ));
@@ -507,11 +535,18 @@ pub fn setup_shells(undo: bool) -> Vec<String> {
     out
 }
 
+/// Whether Windows PowerShell's policy stops it from loading a profile.
+#[cfg(windows)]
+fn blocked_by_policy() -> bool {
+    let policy = sys::ps51_policy();
+    policy.eq_ignore_ascii_case("Restricted") || policy.eq_ignore_ascii_case("AllSigned")
+}
+
 /// The tray item: set up, or offer to undo if it's already set up. Shows the result in a message box.
 #[cfg(windows)]
 pub fn tray_setup() {
     std::thread::spawn(|| {
-        let lines = if is_set_up() {
+        let mut lines = if is_set_up() {
             if !sys::message(
                 "Terminal integration is already set up.\n\nRemove it from your shell profiles?",
                 true,
@@ -530,7 +565,24 @@ pub fn tray_setup() {
             lines.extend(setup_shells(false));
             lines
         };
-        sys::message(&lines.join("\n"), false);
+        if !is_set_up() || !blocked_by_policy() {
+            sys::message(&lines.join("\n"), false);
+            return;
+        }
+        // Windows PowerShell won't read the profile we just edited: offer the usual one-line fix.
+        lines.retain(|l| !l.starts_with("Windows PowerShell won't run"));
+        lines.push(
+            "\nWindows PowerShell's execution policy blocks profiles, so the hook wouldn't load.\n\
+             Allow it now? (sets the policy to RemoteSigned for your user only)"
+                .into(),
+        );
+        if sys::message(&lines.join("\n"), true) {
+            let done = match sys::allow_ps51_profiles() {
+                Ok(()) => "Done. Open a new PowerShell window to start using it.".to_string(),
+                Err(e) => format!("Couldn't change the policy: {e}\nRun this yourself:\n    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"),
+            };
+            sys::message(&done, false);
+        }
     });
 }
 
