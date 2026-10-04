@@ -22,6 +22,8 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 | `hytte/src/animation.rs` | Springs converge, settle and snap; frame-rate independence; velocity kept on retarget; collapse slower than expand and without overshoot. |
 | `hytte/src/convert.rs` | Compress hits its size limit by quality then by scaling; small files are skipped; transparency flattens to white; PDF structure and xref offsets; page fitting; PNG → PDF; JPEG pass-through from the header. |
 | `hytte/src/transforms.rs` | Never overwriting, JSON toggling, YAML normalising, image clean + WebP, chips per file type. |
+| `hytte/src/config.rs` | Editing `autostart` keeps comments and other keys, adds a missing key or section, and leaves invalid TOML alone. |
+| `hytte/src/setup.rs` | PATH append / remove (case, quotes, trailing slash, `%VAR%`), profile blocks (idempotent, round trip, above Starship), profile encodings. |
 | `hytte/src/shelf.rs` | Adding, de-duplication, removing (reference never deletes the original; owned copies are deleted), copy-mode staging and the limit re-check on insert. |
 | `hytte/src/timer.rs` | Surviving a sleep gap, pause and resume, extending and formatting, long-break spacing, wheel steps, persistence, the chime WAV. |
 | `hytte/src/media.rs` | Album art decoding and premultiplication. |

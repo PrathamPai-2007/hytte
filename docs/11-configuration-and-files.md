@@ -27,9 +27,25 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 - File present → parse it with `toml`. Every section and every key has a serde default, so a partial file is fine.
 - File present but **invalid** → use the defaults in memory, without overwriting the file, so a typo doesn't destroy the user's settings.
 
-The daemon reads the config **once at startup**. Users must restart Hytte after editing it. There is one exception: `[general] output_folder` is re-read each time a Drop Vault action runs.
+### Live reload
 
-`config::save()` is only used when the tray's **Launch at startup** item is toggled. It rewrites the whole file from the in-memory config, which **drops any comments** the user added.
+Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChangeNotificationW` for the data folder (last-write and file-name changes), so it costs nothing while nothing changes. On a notification it waits 150 ms for the editor to finish saving, re-reads `config.toml`, and sends `UiEvent::Config` only if the text changed and parses. Writes to `shelf.json` or `timer.json` in the same folder are filtered out by the text comparison. An invalid file mid-edit is ignored, and the current settings stay until it parses.
+
+On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was derived from it at startup:
+
+| Setting | How it takes effect |
+|---|---|
+| `[shell] ignore` | `model.ignore` is rebuilt. |
+| `[general] autostart` | `ensure_autostart` updates the `Run` value. |
+| `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
+| `[general]` fullscreen keys | `evaluate_fullscreen` runs again. |
+| Everything else | Already read at the point of use (`self.cfg`, or `config::load()` for `output_folder`). |
+
+Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path` only matters at the next startup.
+
+### Writing the file
+
+Hytte only writes `config.toml` in two cases: creating it on first run (`config::save`), and the tray's **Launch at startup** toggle (`config::set_autostart`). The toggle edits only the `autostart` key with `toml_edit`, so the user's comments, ordering and other keys are kept. If the file doesn't parse, it isn't touched. Both writes go through a temp file and a rename, so the watcher never sees a half-written file.
 
 ## Every setting
 
