@@ -74,16 +74,28 @@ fn send_line_best_effort(_line: &str) -> bool {
 #[cfg(windows)]
 fn start_daemon() -> bool {
     use std::os::windows::process::CommandExt;
-    let Some(exe) = std::env::current_exe().ok().map(|p| p.with_file_name("hytte.exe")).filter(|p| p.exists()) else {
+    let Some(exe) = std::env::current_exe()
+        .ok()
+        .map(|p| p.with_file_name("hytte.exe"))
+        .filter(|p| p.exists())
+    else {
         return false;
     };
     // DETACHED_PROCESS | CREATE_NO_WINDOW
-    if Command::new(exe).creation_flags(0x0800_0008).spawn().is_err() {
+    if Command::new(exe)
+        .creation_flags(0x0800_0008)
+        .spawn()
+        .is_err()
+    {
         return false;
     }
     for _ in 0..30 {
         std::thread::sleep(std::time::Duration::from_millis(100));
-        if std::fs::OpenOptions::new().write(true).open(PIPE_NAME).is_ok() {
+        if std::fs::OpenOptions::new()
+            .write(true)
+            .open(PIPE_NAME)
+            .is_ok()
+        {
             return true;
         }
     }

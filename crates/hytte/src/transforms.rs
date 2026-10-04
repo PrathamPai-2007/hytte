@@ -23,7 +23,11 @@ pub const TARGET_MB: u64 = 5;
 
 /// Chips offered for a shelf item, in order.
 pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
     match ext.as_str() {
         "png" | "jpg" | "jpeg" => vec![
             ("Compress", Conv::Under(TARGET_MB)),
@@ -31,7 +35,11 @@ pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
             ("Remove metadata", Conv::Clean),
             ("Read text", Conv::Ocr),
         ],
-        "webp" | "bmp" => vec![("Compress", Conv::Under(TARGET_MB)), ("To PDF", Conv::Pdf), ("Read text", Conv::Ocr)],
+        "webp" | "bmp" => vec![
+            ("Compress", Conv::Under(TARGET_MB)),
+            ("To PDF", Conv::Pdf),
+            ("Read text", Conv::Ocr),
+        ],
         "json" | "yaml" | "yml" => vec![("Format", Conv::Auto)],
         "txt" | "md" => vec![("Copy text", Conv::Auto)],
         _ => vec![("Copy path", Conv::Auto)],
@@ -54,7 +62,10 @@ pub fn run(op: Conv, src: &Path) -> Outcome {
     };
     match op {
         Conv::Under(mb) => done(convert::compress(src, mb, |s, e| place(src, s, e)), ""),
-        Conv::Pdf => done(convert::to_pdf(&[src.to_path_buf()], |s, e| place(src, s, e)), "PDF"),
+        Conv::Pdf => done(
+            convert::to_pdf(&[src.to_path_buf()], |s, e| place(src, s, e)),
+            "PDF",
+        ),
         Conv::Clean => clean_image(src),
         Conv::Ocr => match ocr_image(src) {
             Ok(t) if !t.trim().is_empty() => Outcome {
@@ -75,12 +86,28 @@ fn clean_image(src: &Path) -> Outcome {
         Ok(i) => i,
         Err(e) => return Outcome::msg(format!("Can't read image: {e}")),
     };
-    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
-    let ext = if ext == "jpeg" { "jpg".to_string() } else { ext };
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let ext = if ext == "jpeg" {
+        "jpg".to_string()
+    } else {
+        ext
+    };
     let clean = place(src, ".clean", &ext);
-    let saved = if ext == "jpg" { image::DynamicImage::ImageRgb8(img.to_rgb8()).save(&clean) } else { img.save(&clean) };
+    let saved = if ext == "jpg" {
+        image::DynamicImage::ImageRgb8(img.to_rgb8()).save(&clean)
+    } else {
+        img.save(&clean)
+    };
     match saved {
-        Ok(_) => Outcome { summary: "Location removed".into(), open: Some(clean), copy: None },
+        Ok(_) => Outcome {
+            summary: "Location removed".into(),
+            open: Some(clean),
+            copy: None,
+        },
         Err(e) => Outcome::msg(format!("Write failed: {e}")),
     }
 }
@@ -95,7 +122,10 @@ pub struct Outcome {
 
 impl Outcome {
     fn msg(s: impl Into<String>) -> Self {
-        Self { summary: s.into(), ..Default::default() }
+        Self {
+            summary: s.into(),
+            ..Default::default()
+        }
     }
 }
 
@@ -130,7 +160,11 @@ fn transform_text(src: &Path) -> Outcome {
         Err(e) => return Outcome::msg(format!("Can't read file: {e}")),
     };
     match toggle_json(&text) {
-        Ok(out) => Outcome { summary: "JSON formatted · copied".into(), open: None, copy: Some(out) },
+        Ok(out) => Outcome {
+            summary: "JSON formatted · copied".into(),
+            open: None,
+            copy: Some(out),
+        },
         Err(_) => Outcome {
             summary: format!("Text copied · {} chars", text.trim().chars().count()),
             open: None,
@@ -140,7 +174,10 @@ fn transform_text(src: &Path) -> Outcome {
 }
 
 fn file_name(p: &Path) -> String {
-    p.file_name().and_then(|s| s.to_str()).unwrap_or("file").to_string()
+    p.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file")
+        .to_string()
 }
 
 fn unique_in(dir: &Path, stem: &str, suffix: &str, ext: &str) -> PathBuf {
@@ -185,8 +222,16 @@ fn transform_image(src: &Path, strip: bool) -> Outcome {
     let mut parts: Vec<String> = vec![];
     let mut open = None;
     if strip {
-        let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
-        let ext = if ext == "jpeg" { "jpg".to_string() } else { ext };
+        let ext = src
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png")
+            .to_ascii_lowercase();
+        let ext = if ext == "jpeg" {
+            "jpg".to_string()
+        } else {
+            ext
+        };
         let clean = place(src, ".clean", &ext);
         let saved = if ext == "jpg" {
             image::DynamicImage::ImageRgb8(img.to_rgb8()).save(&clean)
@@ -198,11 +243,17 @@ fn transform_image(src: &Path, strip: bool) -> Outcome {
             open = Some(clean);
         }
     }
-    let is_webp = src.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("webp"));
+    let is_webp = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("webp"));
     if !is_webp {
         let webp = place(src, "", "webp");
         // image-webp encodes lossless only.
-        if image::DynamicImage::ImageRgba8(img.to_rgba8()).save(&webp).is_ok() {
+        if image::DynamicImage::ImageRgba8(img.to_rgba8())
+            .save(&webp)
+            .is_ok()
+        {
             parts.push("WebP (lossless)".into());
             open = Some(webp);
         }
@@ -216,7 +267,11 @@ fn transform_image(src: &Path, strip: bool) -> Outcome {
         Ok(_) => parts.push("OCR: no text".into()),
         Err(e) => parts.push(format!("OCR unavailable ({e})")),
     }
-    Outcome { summary: parts.join(" · "), open, copy }
+    Outcome {
+        summary: parts.join(" · "),
+        open,
+        copy,
+    }
 }
 
 /// Pretty if the input is a single line, minified otherwise.
@@ -326,12 +381,18 @@ fn ocr_windows(src: &Path) -> Result<String, String> {
     if let Some(stripped) = p.strip_prefix(r"\\?\") {
         p = stripped.to_string();
     }
-    let file = block_on(StorageFile::GetFileFromPathAsync(&HSTRING::from(p)).map_err(e("open"))?, T)
-        .ok_or("timeout")?
-        .map_err(e("open"))?;
-    let stream = block_on(file.OpenAsync(FileAccessMode::Read).map_err(e("stream"))?, T)
-        .ok_or("timeout")?
-        .map_err(e("stream"))?;
+    let file = block_on(
+        StorageFile::GetFileFromPathAsync(&HSTRING::from(p)).map_err(e("open"))?,
+        T,
+    )
+    .ok_or("timeout")?
+    .map_err(e("open"))?;
+    let stream = block_on(
+        file.OpenAsync(FileAccessMode::Read).map_err(e("stream"))?,
+        T,
+    )
+    .ok_or("timeout")?
+    .map_err(e("stream"))?;
     let decoder = block_on(BitmapDecoder::CreateAsync(&stream).map_err(e("decode"))?, T)
         .ok_or("timeout")?
         .map_err(e("decode"))?;
@@ -350,7 +411,9 @@ fn ocr_windows(src: &Path) -> Result<String, String> {
 
 #[cfg(windows)]
 fn reveal_in_explorer(path: &Path) {
-    let _ = std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn();
+    let _ = std::process::Command::new("explorer")
+        .arg(format!("/select,{}", path.display()))
+        .spawn();
 }
 
 #[cfg(test)]
@@ -387,7 +450,9 @@ mod tests {
         let dir = std::env::temp_dir().join("hytte-img");
         let _ = std::fs::create_dir_all(&dir);
         let src = dir.join("t.png");
-        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 20, 30, 255])).save(&src).unwrap();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 20, 30, 255]))
+            .save(&src)
+            .unwrap();
         let out = transform_image(&src, true);
         assert!(out.summary.contains("EXIF stripped"), "{}", out.summary);
         assert!(out.summary.contains("WebP"), "{}", out.summary);
@@ -395,15 +460,25 @@ mod tests {
 
     #[test]
     fn chips_follow_file_type_and_actions_are_separate() {
-        let labels = |f: &str| chips_for(Path::new(f)).iter().map(|c| c.0).collect::<Vec<_>>();
-        assert_eq!(labels("a.JPG"), ["Compress", "To PDF", "Remove metadata", "Read text"]);
+        let labels = |f: &str| {
+            chips_for(Path::new(f))
+                .iter()
+                .map(|c| c.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            labels("a.JPG"),
+            ["Compress", "To PDF", "Remove metadata", "Read text"]
+        );
         assert_eq!(labels("a.json"), ["Format"]);
         assert_eq!(labels("a.zip"), ["Copy path"]);
         // "Remove metadata" writes only the cleaned copy: no WebP or OCR side effects.
         let dir = std::env::temp_dir().join("hytte-chip");
         let _ = std::fs::create_dir_all(&dir);
         let src = dir.join("c.png");
-        image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255])).save(&src).unwrap();
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]))
+            .save(&src)
+            .unwrap();
         let o = run(Conv::Clean, &src);
         assert_eq!(o.summary, "Location removed");
         assert!(o.copy.is_none());

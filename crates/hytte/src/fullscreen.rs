@@ -47,7 +47,8 @@ pub fn evaluate(cfg: &General, monitor: (i32, i32, i32, i32)) -> Suppress {
 mod win {
     use windows::Win32::Foundation::RECT;
     use windows::Win32::UI::Shell::{
-        SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+        SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+        QUNS_RUNNING_D3D_FULL_SCREEN,
     };
     use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -70,7 +71,10 @@ mod win {
             let mut cls = [0u16; 64];
             let n = GetClassNameW(fg, &mut cls) as usize;
             let cls = String::from_utf16_lossy(&cls[..n]);
-            if matches!(cls.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "HyttePill") {
+            if matches!(
+                cls.as_str(),
+                "Progman" | "WorkerW" | "Shell_TrayWnd" | "HyttePill"
+            ) {
                 return false;
             }
             let mut r = RECT::default();

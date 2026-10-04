@@ -63,14 +63,31 @@ fn d_threshold() -> u32 {
     3000
 }
 fn d_ignore() -> Vec<String> {
-    ["vim", "nvim", "vi", "nano", "less", "more", "man", "ssh", "top", "htop", "tmux", "fzf", "git-credential-manager"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    [
+        "vim",
+        "nvim",
+        "vi",
+        "nano",
+        "less",
+        "more",
+        "man",
+        "ssh",
+        "top",
+        "htop",
+        "tmux",
+        "fzf",
+        "git-credential-manager",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 impl Default for Shell {
     fn default() -> Self {
-        Self { threshold_ms: d_threshold(), ignore: d_ignore() }
+        Self {
+            threshold_ms: d_threshold(),
+            ignore: d_ignore(),
+        }
     }
 }
 
@@ -94,7 +111,12 @@ fn d_max() -> usize {
 }
 impl Default for Shelf {
     fn default() -> Self {
-        Self { mode: d_ref(), max_items: d_max(), persist: true, remove_after_drag: true }
+        Self {
+            mode: d_ref(),
+            max_items: d_max(),
+            persist: true,
+            remove_after_drag: true,
+        }
     }
 }
 
@@ -115,7 +137,11 @@ fn d_poll() -> u64 {
 }
 impl Default for Ports {
     fn default() -> Self {
-        Self { watch: d_watch(), show_all: false, poll_secs: d_poll() }
+        Self {
+            watch: d_watch(),
+            show_all: false,
+            poll_secs: d_poll(),
+        }
     }
 }
 
@@ -131,7 +157,10 @@ fn d_peek() -> u64 {
 }
 impl Default for Agent {
     fn default() -> Self {
-        Self { peek_secs: d_peek(), sound: false }
+        Self {
+            peek_secs: d_peek(),
+            sound: false,
+        }
     }
 }
 
@@ -158,7 +187,12 @@ fn d_rounds() -> u32 {
 }
 impl Default for Timer {
     fn default() -> Self {
-        Self { sound: true, break_min: d_break(), long_break_min: d_long(), rounds: d_rounds() }
+        Self {
+            sound: true,
+            break_min: d_break(),
+            long_break_min: d_long(),
+            rounds: d_rounds(),
+        }
     }
 }
 
@@ -179,7 +213,10 @@ pub struct Config {
 }
 
 pub fn data_dir() -> PathBuf {
-    config_path().parent().map(|p| p.to_path_buf()).unwrap_or_default()
+    config_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default()
 }
 
 pub fn config_path() -> PathBuf {
@@ -215,18 +252,26 @@ pub fn ensure_autostart(enable: bool) {
     {
         use windows::Win32::Foundation::ERROR_SUCCESS;
         use windows::Win32::System::Registry::{
-            RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE,
-            REG_SZ,
+            RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+            KEY_SET_VALUE, REG_SZ,
         };
         let sub: Vec<u16> = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\0"
             .encode_utf16()
             .collect();
         let mut hkey = HKEY::default();
         unsafe {
-            if RegOpenKeyExW(HKEY_CURRENT_USER, windows::core::PCWSTR(sub.as_ptr()), None, KEY_SET_VALUE, &mut hkey) == ERROR_SUCCESS {
+            if RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                windows::core::PCWSTR(sub.as_ptr()),
+                None,
+                KEY_SET_VALUE,
+                &mut hkey,
+            ) == ERROR_SUCCESS
+            {
                 if enable {
                     if let Ok(exe) = std::env::current_exe() {
-                        let v: Vec<u16> = format!("\"{}\"\0", exe.display()).encode_utf16().collect();
+                        let v: Vec<u16> =
+                            format!("\"{}\"\0", exe.display()).encode_utf16().collect();
                         let name: Vec<u16> = "Hytte\0".encode_utf16().collect();
                         let bytes =
                             std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * 2);
@@ -262,7 +307,9 @@ pub fn ensure_start_menu() {
             COINIT_APARTMENTTHREADED,
         };
         use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
-        let (Ok(exe), Ok(appdata)) = (std::env::current_exe(), std::env::var("APPDATA")) else { return };
+        let (Ok(exe), Ok(appdata)) = (std::env::current_exe(), std::env::var("APPDATA")) else {
+            return;
+        };
         let dir = std::path::Path::new(&appdata).join(r"Microsoft\Windows\Start Menu\Programs");
         if !dir.is_dir() {
             return;
@@ -274,7 +321,8 @@ pub fn ensure_start_menu() {
             if let Some(d) = exe.parent() {
                 link.SetWorkingDirectory(&HSTRING::from(d.as_os_str()))?;
             }
-            link.cast::<IPersistFile>()?.Save(&HSTRING::from(dir.join("Hytte.lnk").as_os_str()), true)
+            link.cast::<IPersistFile>()?
+                .Save(&HSTRING::from(dir.join("Hytte.lnk").as_os_str()), true)
         })();
         if let Err(e) = res {
             eprintln!("hytte: start menu shortcut failed: {e}");

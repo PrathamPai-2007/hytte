@@ -13,7 +13,11 @@ const BATCH: usize = 240;
 impl Perf {
     pub fn new() -> Self {
         let on = std::env::var_os("HYTTE_PERF").is_some_and(|v| v != "0");
-        Self { on, cost_us: Vec::new(), gap_us: Vec::new() }
+        Self {
+            on,
+            cost_us: Vec::new(),
+            gap_us: Vec::new(),
+        }
     }
 
     pub fn record(&mut self, gap_us: u32, cost_us: u32) {
@@ -32,7 +36,11 @@ impl Perf {
     fn report(&mut self) -> String {
         let (c50, c99, cmax) = pct(&mut self.cost_us);
         let (g50, g99, gmax) = pct(&mut self.gap_us);
-        let missed = self.gap_us.iter().filter(|&&g| g as f64 > g50 as f64 * 1.5).count();
+        let missed = self
+            .gap_us
+            .iter()
+            .filter(|&&g| g as f64 > g50 as f64 * 1.5)
+            .count();
         format!(
             "perf n={} cost_us p50={c50} p99={c99} max={cmax} | gap_us p50={g50} p99={g99} max={gmax} | missed={missed}",
             self.cost_us.len()

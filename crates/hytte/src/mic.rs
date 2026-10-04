@@ -35,25 +35,39 @@ mod imp {
     use windows::core::GUID;
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{eCapture, IMMDeviceEnumerator, DEVICE_STATE_ACTIVE};
-    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
 
     const MM_DEVICE_ENUMERATOR: GUID = GUID::from_u128(0xbcde0395_e52f_467c_8e3d_c4579291692e);
 
     fn endpoints() -> Vec<IAudioEndpointVolume> {
         unsafe {
-            let Ok(en) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MM_DEVICE_ENUMERATOR, None, CLSCTX_ALL) else {
+            let Ok(en) =
+                CoCreateInstance::<_, IMMDeviceEnumerator>(&MM_DEVICE_ENUMERATOR, None, CLSCTX_ALL)
+            else {
                 return vec![];
             };
-            let Ok(col) = en.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE) else { return vec![] };
+            let Ok(col) = en.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE) else {
+                return vec![];
+            };
             let n = col.GetCount().unwrap_or(0);
             (0..n)
-                .filter_map(|i| col.Item(i).ok()?.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok())
+                .filter_map(|i| {
+                    col.Item(i)
+                        .ok()?
+                        .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+                        .ok()
+                })
                 .collect()
         }
     }
 
     fn muted(eps: &[IAudioEndpointVolume]) -> bool {
-        !eps.is_empty() && eps.iter().all(|e| unsafe { e.GetMute().map(|b| b.as_bool()).unwrap_or(false) })
+        !eps.is_empty()
+            && eps
+                .iter()
+                .all(|e| unsafe { e.GetMute().map(|b| b.as_bool()).unwrap_or(false) })
     }
 
     pub fn toggle() -> Option<bool> {

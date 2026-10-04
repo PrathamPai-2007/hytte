@@ -30,7 +30,12 @@ impl Spring {
 
     /// Spring for normalised 0..1 values (opacity, glow, progress).
     pub fn unit(pos: f64, zeta: f64, period: f64) -> Self {
-        Self { zeta, period, eps: 0.002, ..Self::new(pos) }
+        Self {
+            zeta,
+            period,
+            eps: 0.002,
+            ..Self::new(pos)
+        }
     }
 
     pub fn snap(&mut self) {
@@ -162,7 +167,10 @@ mod tests {
                 }
                 s.pos
             };
-            assert!((run(1.0 / 240.0) - run(1.0 / 30.0)).abs() < 1e-6, "zeta {zeta}");
+            assert!(
+                (run(1.0 / 240.0) - run(1.0 / 30.0)).abs() < 1e-6,
+                "zeta {zeta}"
+            );
         }
     }
 
@@ -175,6 +183,9 @@ mod tests {
         assert!(v > 0.0);
         s.set_target(0.0);
         s.advance(0.001);
-        assert!(s.vel > 0.0 && s.vel < v, "momentum carries through a reversal");
+        assert!(
+            s.vel > 0.0 && s.vel < v,
+            "momentum carries through a reversal"
+        );
     }
 }

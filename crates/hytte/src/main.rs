@@ -3,11 +3,12 @@
 // GUI subsystem: double-clicking hytte.exe must not open a console window.
 // Diagnostics go to %APPDATA%\Hytte\hytte.log (see logging.rs).
 #![cfg_attr(windows, windows_subsystem = "windows")]
+// Direct2D drawing helpers take geometry + colour; Win32 structs and test models are built field by field.
+#![allow(clippy::too_many_arguments, clippy::field_reassign_with_default)]
 
 mod animation;
 mod config;
 mod convert;
-mod timer;
 mod drop;
 mod fullscreen;
 mod logging;
@@ -15,22 +16,23 @@ mod media;
 mod mic;
 mod perf;
 mod pipe_server;
-mod power;
 mod ports;
+mod power;
+mod privacy;
 #[cfg(windows)]
 mod proc;
-mod privacy;
+#[cfg(windows)]
+mod render;
 mod shelf;
 mod single_instance;
 #[cfg(windows)]
 mod tabs;
 mod tasks;
+mod timer;
 mod transforms;
 mod tray;
 mod ui_state;
 mod window;
-#[cfg(windows)]
-mod render;
 #[cfg(windows)]
 mod winrt;
 

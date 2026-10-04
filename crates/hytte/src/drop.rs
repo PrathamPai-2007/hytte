@@ -53,16 +53,27 @@ fn handle_job(job: &DropJob) -> DropResult {
         open = o.open.or(open);
         copy = o.copy.or(copy);
     }
-    DropResult { summary: summaries.join(" | "), open, copy }
+    DropResult {
+        summary: summaries.join(" | "),
+        open,
+        copy,
+    }
 }
 
 fn handle_text(t: &str) -> crate::transforms::Outcome {
     let trimmed = t.trim();
     if trimmed.is_empty() {
-        return crate::transforms::Outcome { summary: "Empty text".into(), ..Default::default() };
+        return crate::transforms::Outcome {
+            summary: "Empty text".into(),
+            ..Default::default()
+        };
     }
     if let Ok(out) = crate::transforms::toggle_json(trimmed) {
-        let kind = if trimmed.contains('\n') { "minified" } else { "prettified" };
+        let kind = if trimmed.contains('\n') {
+            "minified"
+        } else {
+            "prettified"
+        };
         return crate::transforms::Outcome {
             summary: format!("JSON {kind} · copied"),
             open: None,
