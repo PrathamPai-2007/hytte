@@ -26,6 +26,9 @@ pub struct General {
     pub allow_list: Vec<String>,
     #[serde(default)]
     pub deny_list: Vec<String>,
+    /// Seconds the pill opens to show a finished or failed task (0 = don't open).
+    #[serde(default = "default_finish_peek")]
+    pub finish_peek_secs: u64,
 }
 
 fn default_monitor() -> String {
@@ -33,6 +36,9 @@ fn default_monitor() -> String {
 }
 fn default_true() -> bool {
     true
+}
+fn default_finish_peek() -> u64 {
+    5
 }
 fn default_sentinel() -> String {
     "sentinel".into()
@@ -51,6 +57,7 @@ impl Default for General {
             output_folder: None,
             allow_list: vec![],
             deny_list: vec![],
+            finish_peek_secs: default_finish_peek(),
         }
     }
 }
