@@ -46,13 +46,15 @@ if (-not $global:__notch) {
         if ($global:__notch_prompt) { & $global:__notch_prompt } else { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
     }
 
-    # Start event as soon as Enter is pressed (needs PSReadLine, which is the default).
-    if (Get-Module PSReadLine) {
+    # Start event as soon as Enter is pressed (needs PSReadLine, which is the default). Windows
+    # PowerShell 5.1 has not loaded PSReadLine yet while the profile runs, so don't test for it:
+    # calling Set-PSReadLineKeyHandler loads it on demand.
+    try {
         Set-PSReadLineKeyHandler -Key Enter -BriefDescription 'NotchAcceptLine' -ScriptBlock {
             $line = $null; $cursor = $null
             [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
             if ($line -and $line.Trim()) { __notch_start $line }
             [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
-        }
-    }
+        } -ErrorAction Stop
+    } catch { }   # no PSReadLine: commands just aren't tracked
 }
