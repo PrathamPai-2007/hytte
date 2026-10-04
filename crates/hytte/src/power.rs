@@ -96,15 +96,35 @@ mod imp {
     type GetOverlay = unsafe extern "system" fn(*mut GUID) -> u32;
     type SetOverlay = unsafe extern "system" fn(GUID) -> u32;
 
+    /// powrprof's overlay-scheme exports, resolved once (the DLL stays loaded).
+    struct Overlay {
+        get: Option<GetOverlay>,
+        set: Option<SetOverlay>,
+    }
+
+    fn overlay() -> &'static Overlay {
+        static O: std::sync::OnceLock<Overlay> = std::sync::OnceLock::new();
+        O.get_or_init(|| unsafe {
+            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else {
+                return Overlay {
+                    get: None,
+                    set: None,
+                };
+            };
+            Overlay {
+                get: GetProcAddress(lib, s!("PowerGetActualOverlayScheme"))
+                    .map(|f| std::mem::transmute::<_, GetOverlay>(f)),
+                set: GetProcAddress(lib, s!("PowerSetActiveOverlayScheme"))
+                    .map(|f| std::mem::transmute::<_, SetOverlay>(f)),
+            }
+        })
+    }
+
     fn mode() -> Mode {
         unsafe {
-            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else {
+            let Some(f) = overlay().get else {
                 return Mode::Balanced;
             };
-            let Some(f) = GetProcAddress(lib, s!("PowerGetActualOverlayScheme")) else {
-                return Mode::Balanced;
-            };
-            let f: GetOverlay = std::mem::transmute(f);
             let mut g = GUID::zeroed();
             if f(&mut g) != 0 {
                 return Mode::Balanced;
@@ -121,13 +141,9 @@ mod imp {
 
     pub fn set_mode(m: Mode) {
         unsafe {
-            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else {
+            let Some(f) = overlay().set else {
                 return;
             };
-            let Some(f) = GetProcAddress(lib, s!("PowerSetActiveOverlayScheme")) else {
-                return;
-            };
-            let f: SetOverlay = std::mem::transmute(f);
             f(match m {
                 Mode::Saver => SAVER,
                 Mode::Balanced => BALANCED,
@@ -153,8 +169,27 @@ mod imp {
         })
     }
 
+    /// Device path of the first battery, found once and reused; a failed query forgets
+    /// it so the next read looks the device up again (battery swapped, driver reloaded).
+    static BATTERY_PATH: std::sync::Mutex<Option<Vec<u16>>> = std::sync::Mutex::new(None);
+
     /// Signed charge rate in mW from the first battery device.
     fn rate_mw() -> Option<i32> {
+        let mut cached = BATTERY_PATH.lock().unwrap_or_else(|e| e.into_inner());
+        if cached.is_none() {
+            *cached = battery_path();
+        }
+        match query_rate(cached.as_ref()?) {
+            Some(rate) => rate,
+            None => {
+                *cached = None;
+                None
+            }
+        }
+    }
+
+    /// NUL-terminated device interface path of the first battery.
+    fn battery_path() -> Option<Vec<u16>> {
         unsafe {
             let set = SetupDiGetClassDevsW(
                 Some(&GUID_DEVICE_BATTERY),
@@ -179,57 +214,68 @@ mod imp {
                 let det = buf.as_mut_ptr() as *mut SP_DEVICE_INTERFACE_DETAIL_DATA_W;
                 (*det).cbSize = std::mem::size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32;
                 SetupDiGetDeviceInterfaceDetailW(set, &ifd, Some(det), need, None, None).ok()?;
-                let path = PCWSTR((&raw const (*det).DevicePath) as *const u16);
-                let h = CreateFileW(
-                    path,
-                    (GENERIC_READ | GENERIC_WRITE).0,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE,
-                    None,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    None,
-                )
-                .ok()?;
-                let out = (|| {
-                    let (mut tag, mut n) = (0u32, 0u32);
-                    let wait = 0u32;
-                    DeviceIoControl(
-                        h,
-                        IOCTL_BATTERY_QUERY_TAG,
-                        Some(&wait as *const _ as *const _),
-                        4,
-                        Some(&mut tag as *mut _ as *mut _),
-                        4,
-                        Some(&mut n),
-                        None,
-                    )
-                    .ok()?;
-                    if tag == 0 {
-                        return None;
-                    }
-                    let q = BATTERY_WAIT_STATUS {
-                        BatteryTag: tag,
-                        ..Default::default()
-                    };
-                    let mut s = BATTERY_STATUS::default();
-                    DeviceIoControl(
-                        h,
-                        IOCTL_BATTERY_QUERY_STATUS,
-                        Some(&q as *const _ as *const _),
-                        std::mem::size_of::<BATTERY_WAIT_STATUS>() as u32,
-                        Some(&mut s as *mut _ as *mut _),
-                        std::mem::size_of::<BATTERY_STATUS>() as u32,
-                        Some(&mut n),
-                        None,
-                    )
-                    .ok()?;
-                    (s.Rate as u32 != BATTERY_UNKNOWN_RATE).then_some(s.Rate)
-                })();
-                let _ = CloseHandle(h);
-                out
+                let p = (&raw const (*det).DevicePath) as *const u16;
+                let len = (0..).take_while(|&i| *p.add(i) != 0).count();
+                let mut path = std::slice::from_raw_parts(p, len).to_vec();
+                path.push(0);
+                Some(path)
             })();
             let _ = SetupDiDestroyDeviceInfoList(set);
             r
+        }
+    }
+
+    /// IOCTL_BATTERY_QUERY_STATUS on an already-located battery device.
+    /// Outer None: the device could not be queried. Inner None: the driver reports no rate.
+    fn query_rate(path: &[u16]) -> Option<Option<i32>> {
+        unsafe {
+            let h = CreateFileW(
+                PCWSTR(path.as_ptr()),
+                (GENERIC_READ | GENERIC_WRITE).0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None,
+            )
+            .ok()?;
+            let out = (|| {
+                let (mut tag, mut n) = (0u32, 0u32);
+                let wait = 0u32;
+                DeviceIoControl(
+                    h,
+                    IOCTL_BATTERY_QUERY_TAG,
+                    Some(&wait as *const _ as *const _),
+                    4,
+                    Some(&mut tag as *mut _ as *mut _),
+                    4,
+                    Some(&mut n),
+                    None,
+                )
+                .ok()?;
+                if tag == 0 {
+                    return None;
+                }
+                let q = BATTERY_WAIT_STATUS {
+                    BatteryTag: tag,
+                    ..Default::default()
+                };
+                let mut s = BATTERY_STATUS::default();
+                DeviceIoControl(
+                    h,
+                    IOCTL_BATTERY_QUERY_STATUS,
+                    Some(&q as *const _ as *const _),
+                    std::mem::size_of::<BATTERY_WAIT_STATUS>() as u32,
+                    Some(&mut s as *mut _ as *mut _),
+                    std::mem::size_of::<BATTERY_STATUS>() as u32,
+                    Some(&mut n),
+                    None,
+                )
+                .ok()?;
+                Some((s.Rate as u32 != BATTERY_UNKNOWN_RATE).then_some(s.Rate))
+            })();
+            let _ = CloseHandle(h);
+            out
         }
     }
 }
