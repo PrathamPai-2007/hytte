@@ -4,10 +4,10 @@
 
 use hytte_proto::{HytteMessage, TaskEvent};
 
-const PWSH: &str = include_str!("../shell/init.ps1");
-const BASH: &str = include_str!("../shell/init.bash");
-const ZSH: &str = include_str!("../shell/init.zsh");
-const NU: &str = include_str!("../shell/init.nu");
+const PWSH: &str = include_str!("shell/init.ps1");
+const BASH: &str = include_str!("shell/init.bash");
+const ZSH: &str = include_str!("shell/init.zsh");
+const NU: &str = include_str!("shell/init.nu");
 
 pub fn usage() -> ! {
     eprintln!("usage:");

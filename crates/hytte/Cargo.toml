@@ -1,12 +1,17 @@
 [package]
 name = "hytte"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 build = "build.rs"
 
 [[bin]]
 name = "hytte"
 path = "src/main.rs"
+
+# The console CLI ships in the same package and shares its version.
+[[bin]]
+name = "notch"
+path = "src/cli/main.rs"
 
 [dependencies]
 hytte-proto = { path = "../proto" }
@@ -18,6 +23,7 @@ serde_json = { workspace = true }
 crossbeam-channel = { workspace = true }
 toml = { workspace = true }
 image = { workspace = true }
+miniz_oxide = "0.8"
 
 [build-dependencies]
 embed-manifest = "1"
