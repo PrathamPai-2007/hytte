@@ -103,7 +103,7 @@ Practical consequences:
 
 - `notch run` sends its own pid, so closing the terminal mid-build turns the task into "lost" within about 5 s.
 - `notch set` sends no pid, so a script that reports progress must send an update at least every 30 s or the task goes grey.
-- Agents send the pid of their long-lived ancestor process (see [section 5](5-cli.md)), so a crashed agent is noticed.
+- Agents send the pid of their long-lived ancestor process (see [section 5](05-cli.md)), so a crashed agent is noticed.
 
 ## The UI side of a task
 
@@ -111,7 +111,7 @@ The bridge delivers `TaskUpdate`s as `UiEvent::Task` to `Ui::handle_events` (`wi
 
 1. **Shell threshold.** A `"shell"` task's `Start` with `delay_ms == 0` gets `delay_ms = [shell] threshold_ms` (3000 by default), so quick commands never appear.
 2. **Attention.** A `NeedsInput` event makes the Tasks panel peek open for `[agent] peek_secs` (6 s) and, if `[agent] sound = true`, plays the system asterisk sound.
-3. **Terminal tab.** The first time a task with a `pid` is seen, the terminal-tabs worker is asked to remember which Windows Terminal tab is active (see [section 9](9-workers.md)).
+3. **Terminal tab.** The first time a task with a `pid` is seen, the terminal-tabs worker is asked to remember which Windows Terminal tab is active (see [section 9](09-workers.md)).
 
 `Model::apply_task` then applies the update:
 
@@ -137,7 +137,7 @@ The bridge delivers `TaskUpdate`s as `UiEvent::Task` to `Ui::handle_events` (`wi
                      lost (grey ?) ── 5 s ──► gone
 ```
 
-The timed removals are done by `Model::expire` (see [section 6](6-ui-model.md)), driven by one Win32 timer armed for exactly the next deadline. There is no periodic sweep.
+The timed removals are done by `Model::expire` (see [section 6](06-ui-model.md)), driven by one Win32 timer armed for exactly the next deadline. There is no periodic sweep.
 
 `Model::dismiss_task` (the ✕ button, or **Dismiss** on a failure) removes a finished task. Running tasks can't be dismissed.
 
@@ -154,4 +154,4 @@ $c.Write($b, 0, $b.Length); $c.Dispose()
 
 Keep messages small, always end lines with `\n`, and remember to send a final `Done` or `Failed`, or include a `pid` so the registry can clean up after you.
 
-Next: [5. The `notch` CLI and shell integrations](5-cli.md)
+Next: [5. The `notch` CLI and shell integrations](05-cli.md)

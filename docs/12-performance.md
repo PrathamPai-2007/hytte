@@ -14,7 +14,7 @@ Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`) for 
 
 ## The rules
 
-1. **Render only on change.** A settled, static pill draws no frames. The frame clock parks ([section 8](8-rendering-and-animation.md)).
+1. **Render only on change.** A settled, static pill draws no frames. The frame clock parks ([section 8](08-rendering-and-animation.md)).
 2. **Every animation has a stop condition**, encoded in `Model::ambient`. No condition means 30 fps forever.
 3. **Prefer OS notifications to polling.** Where polling is unavoidable, use a long interval, document it with a `ponytail:` comment, and only send a `UiEvent` when the value changes.
 4. **Wake the UI thread once per burst.** Events are queued and drained together (`Ui::handle_events`); the frame clock keeps at most one `WM_TICK` in flight.

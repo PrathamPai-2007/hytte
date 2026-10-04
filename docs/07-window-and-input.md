@@ -15,7 +15,7 @@ Created once in `run_windows`:
 | `WS_EX_NOACTIVATE` | Never becomes the active window. Together with `WM_MOUSEACTIVATE → MA_NOACTIVATE`, clicking the pill never steals keyboard focus. |
 | Class `HyttePill`, `CS_DBLCLKS` | The class name is also how fullscreen detection recognises Hytte's own window. |
 
-The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the primary monitor's top edge. Only the part that holds the pill (plus margins for the glow) is actually drawn and presented each frame; see [section 8](8-rendering-and-animation.md).
+The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the primary monitor's top edge. Only the part that holds the pill (plus margins for the glow) is actually drawn and presented each frame; see [section 8](08-rendering-and-animation.md).
 
 ### Monitor and DPI
 
@@ -23,11 +23,11 @@ The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on t
 
 ## The `Ui` struct
 
-Thread-local UI state (accessed through `with_ui`; see [section 3](3-architecture.md#ownership-and-re-entrancy)):
+Thread-local UI state (accessed through `with_ui`; see [section 3](03-architecture.md#ownership-and-re-entrancy)):
 
 | Field(s) | Meaning |
 |---|---|
-| `cfg`, `model`, `anim`, `rend` | Config, the model ([section 6](6-ui-model.md)), animation state, and the renderer. |
+| `cfg`, `model`, `anim`, `rend` | Config, the model ([section 6](06-ui-model.md)), animation state, and the renderer. |
 | `scale`, `mon` | DPI scale and monitor rectangle. |
 | `hover` | The pill is "open because of the mouse" (set after the dwell delay). |
 | `inside` | The pointer is inside the pill shape right now. |
@@ -81,7 +81,7 @@ All are one-shot Win32 timers: the handler kills the timer first, so each fires 
 
 ## Clicks and actions
 
-The renderer records a list of **hit regions** while drawing each frame (`Hit { rect, action }`); see [section 8](8-rendering-and-animation.md). `Ui::hit_at` finds the topmost region under the pointer, and `Ui::run_action` executes its `Action`:
+The renderer records a list of **hit regions** while drawing each frame (`Hit { rect, action }`); see [section 8](08-rendering-and-animation.md). `Ui::hit_at` finds the topmost region under the pointer, and `Ui::run_action` executes its `Action`:
 
 | Action | Effect |
 |---|---|
@@ -148,4 +148,4 @@ On every `T_FS`, `Ui::follow_desktop` asks `IVirtualDesktopManager` whether the 
 
 `tray.rs` adds a notification-area icon whose callback message is `WM_TRAY`. Right-clicking it builds a popup menu (Pause and Launch at startup show check marks). `SetForegroundWindow` is called on Hytte's window first, because Windows requires it for the menu to close properly when you click elsewhere. The icon is re-added when Explorer restarts (`TaskbarCreated`) and removed on exit.
 
-Next: [8. Rendering and animation](8-rendering-and-animation.md)
+Next: [8. Rendering and animation](08-rendering-and-animation.md)

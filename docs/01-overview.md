@@ -106,4 +106,4 @@ manifests/winget/          winget package manifest template
 
 There is deliberately **no async runtime** (no tokio), no GUI framework and no web view. Everything is plain threads, channels and direct Windows API calls. When you add a dependency, it should be because the alternative is clearly worse, and it should keep `notch.exe` fast to start.
 
-Next: [2. Getting started](2-getting-started.md)
+Next: [2. Getting started](02-getting-started.md)

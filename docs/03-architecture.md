@@ -114,7 +114,7 @@ The ticker thread is the heartbeat:
 - While animating, it posts `WM_TICK` (at most one outstanding, thanks to `tick_pending`), then waits: on `DwmFlush()` (the next vblank) when springs are moving, or about 33 ms for ambient-only animation.
 - Each `WM_TICK` runs `Ui::frame`, which steps the springs, draws, presents, and then decides whether to keep animating. When nothing moves, it clears `animating` and the ticker parks again.
 
-[Section 8](8-rendering-and-animation.md) covers the frame in detail.
+[Section 8](08-rendering-and-animation.md) covers the frame in detail.
 
 ## Ownership and re-entrancy
 
@@ -140,4 +140,4 @@ Hytte is ambient. A failure in one feature must never take down the pill or bloc
 - The CLI never fails a shell prompt: if the daemon is down, messages are dropped silently (shell hooks) or with a one-line note (`notch set`, `notch agent`), and `notch run` still runs the command.
 - Panics in a worker thread end only that thread; the panic message goes to `hytte.log`.
 
-Next: [4. IPC protocol and task lifecycle](4-ipc-protocol.md)
+Next: [4. IPC protocol and task lifecycle](04-ipc-protocol.md)

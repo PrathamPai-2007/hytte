@@ -61,7 +61,7 @@ Example: let tasks carry a `url` to open when clicked.
 4. Carry it through `TaskState` (`tasks.rs`) → `TaskView` (`Model::upsert` in `ui_state.rs`).
 5. Teach the CLI to send it (`cli/main.rs` or `cli/agent.rs`).
 6. Use it in the renderer or in an action.
-7. Update the field table in [section 4](4-ipc-protocol.md#message-format).
+7. Update the field table in [section 4](04-ipc-protocol.md#message-format).
 
 Don't bump `PROTOCOL_VERSION` for an optional field.
 
@@ -86,7 +86,7 @@ Example: a "Clipboard history" panel.
 1. Add a variant to `render::Action`, carrying the data the click needs (an id, a path, ...).
 2. Register it while drawing: `self.button("Label", x, y, w, h, ACCENT, Action::MyThing(id))`, or `self.hit(...)` around a custom drawing.
 3. Handle it in `Ui::run_action` (`window.rs`). Anything slow (disk, network, COM calls into other processes) goes to a worker thread, reporting back with a `UiEvent`.
-4. If it brings another window to the front, call that **only** from `run_action` (a user click). Background focus changes are forbidden ([section 7](7-window-and-input.md#focusing-a-terminal)).
+4. If it brings another window to the front, call that **only** from `run_action` (a user click). Background focus changes are forbidden ([section 7](07-window-and-input.md#focusing-a-terminal)).
 
 ## Add a Drop Vault action
 
@@ -105,7 +105,7 @@ The job runs on a Drop Vault worker automatically; you don't need any threading 
 
 1. Add a match arm in `cli/main.rs::main`, ideally dispatching into its own module in `cli/`.
 2. Build a `HytteMessage` and call `send_msg`. Decide what happens when it returns `false` (daemon down): silent for anything a hook calls, at most one line otherwise.
-3. Add the command to `usage()`, to [section 5](5-cli.md), and to the README if users will type it.
+3. Add the command to `usage()`, to [section 5](05-cli.md), and to the README if users will type it.
 4. Keep startup fast: no config reads and no heavy dependencies.
 
 ## Add continuous motion
@@ -120,7 +120,7 @@ The job runs on a Drop Vault worker automatically; you don't need any threading 
 
 1. Write `cli/shell/init.<shell>`. It must: guard against double-loading; on command start, call `notch hook start --id <unique id> --cmd <command line> --pid <Windows pid of the shell> --cwd <dir>` in the background; when the prompt returns, call `notch hook end --id <same id> --code <exit code> --duration-ms <ms>` in the background; never print anything; never change the exit code it reports.
 2. Embed it in `cli/hook.rs` with `include_str!`, add it to `init()`'s match and to `usage()`, and add it to the `scripts_are_embedded` test.
-3. Document the profile line in the README and in [section 5](5-cli.md#how-the-shell-integrations-work).
+3. Document the profile line in the README and in [section 5](05-cli.md#how-the-shell-integrations-work).
 
 ## Before you commit any of these
 
