@@ -137,11 +137,32 @@ mod win {
     }
 
     fn post(msg: u32) {
+        post_w(msg, 0);
+    }
+
+    fn post_w(msg: u32, wparam: usize) {
         let a = HWND_ADDR.load(Ordering::Relaxed);
         if a != 0 {
             unsafe {
-                let _ = PostMessageW(Some(hwnd_of(a)), msg, WPARAM(0), LPARAM(0));
+                let _ = PostMessageW(Some(hwnd_of(a)), msg, WPARAM(wparam), LPARAM(0));
             }
+        }
+    }
+
+    /// `WM_FG` wparam: the foreground window only moved/resized (no z-order change).
+    const FG_MOVED: usize = 1;
+
+    fn reassert_topmost(hwnd: HWND) {
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
         }
     }
 
@@ -867,17 +888,22 @@ mod win {
             tray.add();
             post(WM_FG);
 
-            // Bridges: worker threads -> UI thread via queue + PostMessage.
+            // Bridge: worker threads -> UI thread via queue + PostMessage (one thread for both channels).
             let s2 = shared.clone();
             std::thread::spawn(move || {
-                while let Ok(u) = task_rx.recv() {
-                    push_event(&s2, UiEvent::Task(u));
-                }
-            });
-            let s3 = shared.clone();
-            std::thread::spawn(move || {
-                while let Ok(u) = ui_rx.recv() {
-                    push_event(&s3, u);
+                // A closed channel is swapped for one that never fires, so select! cannot spin on it.
+                let (mut tasks, mut events) = (task_rx, ui_rx);
+                loop {
+                    crossbeam_channel::select! {
+                        recv(tasks) -> u => match u {
+                            Ok(u) => push_event(&s2, UiEvent::Task(u)),
+                            Err(_) => tasks = crossbeam_channel::never(),
+                        },
+                        recv(events) -> u => match u {
+                            Ok(u) => push_event(&s2, u),
+                            Err(_) => events = crossbeam_channel::never(),
+                        },
+                    }
                 }
             });
 
@@ -970,9 +996,12 @@ mod win {
     ) {
         // LOCATIONCHANGE fires for every moving window and caret: only the
         // foreground window's own rect matters for fullscreen detection.
-        if event == EVENT_OBJECT_LOCATIONCHANGE
-            && (id_object != 0 || hwnd != unsafe { GetForegroundWindow() })
-        {
+        if event == EVENT_OBJECT_LOCATIONCHANGE {
+            if id_object != 0 || hwnd != unsafe { GetForegroundWindow() } {
+                return;
+            }
+            // Dragging a window fires this per mouse move: only re-arm the debounce.
+            post_w(WM_FG, FG_MOVED);
             return;
         }
         post(WM_FG);
@@ -1213,16 +1242,10 @@ mod win {
                 return LRESULT(0);
             }
             WM_FG => {
+                if wparam.0 != FG_MOVED {
+                    reassert_topmost(hwnd);
+                }
                 unsafe {
-                    let _ = SetWindowPos(
-                        hwnd,
-                        Some(HWND_TOPMOST),
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                    );
                     SetTimer(Some(hwnd), T_FS, 150, None);
                 }
                 return LRESULT(0);
@@ -1416,6 +1439,8 @@ mod win {
                     }
                     T_EXPIRE | T_TIMER => ui.after_model_change(hwnd),
                     T_FS => {
+                        // Settled after a foreground change or move: stay above it.
+                        reassert_topmost(hwnd);
                         ui.evaluate_fullscreen();
                         ui.follow_desktop(hwnd);
                     }
