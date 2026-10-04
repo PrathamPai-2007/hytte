@@ -130,6 +130,11 @@ pub struct Renderer {
     art: RefCell<Option<ID2D1Bitmap>>,
     thumbs: RefCell<HashMap<u64, ID2D1Bitmap>>,
     art_gen: Cell<u32>,
+    /// Cached gradient brushes (see `body_brush` / `shimmer_brush`).
+    body: RefCell<Option<(bool, ID2D1LinearGradientBrush)>>,
+    shimmer: RefCell<Option<([f32; 3], ID2D1LinearGradientBrush)>>,
+    /// UTF-16 scratch for `text`, reused across calls.
+    wide: RefCell<Vec<u16>>,
 }
 
 const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
@@ -255,6 +260,9 @@ impl Renderer {
                 art: RefCell::new(None),
                 thumbs: RefCell::new(HashMap::new()),
                 art_gen: Cell::new(u32::MAX),
+                body: RefCell::new(None),
+                shimmer: RefCell::new(None),
+                wide: RefCell::new(Vec::new()),
             })
         }
     }
@@ -309,8 +317,9 @@ impl Renderer {
         }
     }
 
-    /// Draw one frame; returns the clickable regions it laid out.
-    pub fn draw(&mut self, fr: &Frame, crop: Crop) -> Vec<Hit> {
+    /// Draw one frame into `hits`: the clickable regions it laid out. The caller's
+    /// previous list is recycled as next frame's scratch, so steady state allocates nothing.
+    pub fn draw(&mut self, fr: &Frame, crop: Crop, hits: &mut Vec<Hit>) {
         self.hits.borrow_mut().clear();
         self.mouse.set(fr.mouse);
         self.t.set(fr.anim.t as f32);
@@ -326,7 +335,8 @@ impl Renderer {
                 bottom: crop.h_px,
             };
             if self.rt.BindDC(self.mem, &rc).is_err() {
-                return vec![];
+                hits.clear();
+                return;
             }
             self.rt.BeginDraw();
             self.rt.Clear(Some(&color(WHITE, 0.0)));
@@ -347,7 +357,7 @@ impl Renderer {
         self.shown
             .borrow_mut()
             .retain(|k, _| fr.model.tasks.iter().any(|t| &t.id == k));
-        self.hits.borrow().clone()
+        std::mem::swap(hits, &mut *self.hits.borrow_mut());
     }
 
     /// Push the DIB to the layered window at screen position (x, y).
@@ -380,6 +390,77 @@ impl Renderer {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /// Pill body gradient, built once per acrylic setting; only its end point changes per frame.
+    fn body_brush(&self, acrylic: bool) -> Option<ID2D1LinearGradientBrush> {
+        let mut slot = self.body.borrow_mut();
+        if let Some((a, b)) = slot.as_ref() {
+            if *a == acrylic {
+                return Some(b.clone());
+            }
+        }
+        let alpha = if acrylic { 0.84 } else { 1.0 };
+        let stops = [
+            D2D1_GRADIENT_STOP {
+                position: 0.0,
+                color: color([0.027, 0.027, 0.035], alpha),
+            },
+            D2D1_GRADIENT_STOP {
+                position: 1.0,
+                color: color([0.075, 0.075, 0.095], alpha),
+            },
+        ];
+        let b = self.linear_brush(&stops)?;
+        *slot = Some((acrylic, b.clone()));
+        Some(b)
+    }
+
+    /// Shimmer for indeterminate progress, built once per colour; the content fade is
+    /// applied through the brush opacity and the position through its end points.
+    fn shimmer_brush(&self, col: [f32; 3]) -> Option<ID2D1LinearGradientBrush> {
+        let mut slot = self.shimmer.borrow_mut();
+        if let Some((c, b)) = slot.as_ref() {
+            if *c == col {
+                return Some(b.clone());
+            }
+        }
+        let stops = [
+            D2D1_GRADIENT_STOP {
+                position: 0.0,
+                color: color(col, 0.0),
+            },
+            D2D1_GRADIENT_STOP {
+                position: 0.5,
+                color: color(col, 1.0),
+            },
+            D2D1_GRADIENT_STOP {
+                position: 1.0,
+                color: color(col, 0.0),
+            },
+        ];
+        let b = self.linear_brush(&stops)?;
+        *slot = Some((col, b.clone()));
+        Some(b)
+    }
+
+    fn linear_brush(&self, stops: &[D2D1_GRADIENT_STOP]) -> Option<ID2D1LinearGradientBrush> {
+        unsafe {
+            let c = self
+                .rt
+                .CreateGradientStopCollection(stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
+                .ok()?;
+            self.rt
+                .CreateLinearGradientBrush(
+                    &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                        startPoint: v(0.0, 0.0),
+                        endPoint: v(0.0, 1.0),
+                    },
+                    None,
+                    &c,
+                )
+                .ok()
+        }
+    }
 
     fn solid(&self, c: D2D1_COLOR_F) -> &ID2D1SolidColorBrush {
         unsafe { self.br.SetColor(&c) };
@@ -480,7 +561,9 @@ impl Renderer {
         if w <= 1.0 {
             return;
         }
-        let wide: Vec<u16> = s.encode_utf16().collect();
+        let mut wide = self.wide.borrow_mut();
+        wide.clear();
+        wide.extend(s.encode_utf16());
         unsafe {
             self.rt.DrawText(
                 &wide,
@@ -602,32 +685,12 @@ impl Renderer {
             }
             // Body: near-black with a faint vertical gradient.
             let alpha = if fr.acrylic { 0.84 } else { 1.0 };
-            let stops = [
-                D2D1_GRADIENT_STOP {
-                    position: 0.0,
-                    color: color([0.027, 0.027, 0.035], alpha),
-                },
-                D2D1_GRADIENT_STOP {
-                    position: 1.0,
-                    color: color([0.075, 0.075, 0.095], alpha),
-                },
-            ];
-            let grad = self
-                .rt
-                .CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
-                .and_then(|c| {
-                    self.rt.CreateLinearGradientBrush(
-                        &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-                            startPoint: v(0.0, 0.0),
-                            endPoint: v(0.0, h.max(1.0)),
-                        },
-                        None,
-                        &c,
-                    )
-                });
-            match grad {
-                Ok(b) => self.rt.FillGeometry(&g, &b, None::<&ID2D1Brush>),
-                Err(_) => self.rt.FillGeometry(
+            match self.body_brush(fr.acrylic) {
+                Some(b) => {
+                    b.SetEndPoint(v(0.0, h.max(1.0)));
+                    self.rt.FillGeometry(&g, &b, None::<&ID2D1Brush>)
+                }
+                None => self.rt.FillGeometry(
                     &g,
                     self.solid(color([0.03, 0.03, 0.04], alpha)),
                     None::<&ID2D1Brush>,
@@ -969,34 +1032,10 @@ impl Renderer {
                 let ph = (self.t.get() * 0.85) % 1.0;
                 let seg = w * 0.35;
                 let sx = x - seg + (w + seg) * ph;
-                let stops = [
-                    D2D1_GRADIENT_STOP {
-                        position: 0.0,
-                        color: color(col, 0.0),
-                    },
-                    D2D1_GRADIENT_STOP {
-                        position: 0.5,
-                        color: color(col, self.ca.get()),
-                    },
-                    D2D1_GRADIENT_STOP {
-                        position: 1.0,
-                        color: color(col, 0.0),
-                    },
-                ];
-                if let Ok(gb) = self
-                    .rt
-                    .CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
-                    .and_then(|c| {
-                        self.rt.CreateLinearGradientBrush(
-                            &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-                                startPoint: v(sx, 0.0),
-                                endPoint: v(sx + seg, 0.0),
-                            },
-                            None,
-                            &c,
-                        )
-                    })
-                {
+                if let Some(gb) = self.shimmer_brush(col) {
+                    gb.SetStartPoint(v(sx, 0.0));
+                    gb.SetEndPoint(v(sx + seg, 0.0));
+                    gb.SetOpacity(self.ca.get().clamp(0.0, 1.0));
                     self.rt.PushAxisAlignedClip(
                         &rect(x, y, w, 2.0),
                         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
