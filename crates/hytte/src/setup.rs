@@ -503,14 +503,25 @@ fn profiles() -> Vec<Profile> {
     v
 }
 
+#[cfg(windows)]
+fn has_block(p: &Profile) -> bool {
+    std::fs::read(&p.path)
+        .map(|b| decode(&b).0.contains(BEGIN))
+        .unwrap_or(false)
+}
+
 /// Whether any shell profile already has the Hytte block.
 #[cfg(windows)]
+fn any_set_up() -> bool {
+    profiles().iter().any(has_block)
+}
+
+/// Whether every detected shell profile has the Hytte block. A shell set up by hand earlier
+/// (say Git Bash) must not hide that PowerShell still needs it.
+#[cfg(windows)]
 pub fn is_set_up() -> bool {
-    profiles().iter().any(|p| {
-        std::fs::read(&p.path)
-            .map(|b| decode(&b).0.contains(BEGIN))
-            .unwrap_or(false)
-    })
+    let p = profiles();
+    !p.is_empty() && p.iter().all(has_block)
 }
 
 /// Adds (or removes) the shell hook in every detected profile; one line per shell for the user.
@@ -565,7 +576,7 @@ pub fn tray_setup() {
             lines.extend(setup_shells(false));
             lines
         };
-        if !is_set_up() || !blocked_by_policy() {
+        if !any_set_up() || !blocked_by_policy() {
             sys::message(&lines.join("\n"), false);
             return;
         }
