@@ -1,7 +1,7 @@
 //! Task registry: validates pipe input, tracks concurrent tasks,
 //! times out stale tasks when the client dies.
 
-use crossbeam_channel::{tick, Receiver, Sender};
+use crossbeam_channel::{never, tick, Receiver, Sender};
 use hytte_proto::{HytteMessage, TaskEvent};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -26,7 +26,6 @@ pub struct TaskState {
 pub enum TaskUpdate {
     Upsert(TaskState),
     Lost(String),
-    Prune,
 }
 
 const STALE_AFTER: Duration = Duration::from_secs(30);
@@ -47,7 +46,10 @@ pub fn spawn_registry(
     std::thread::spawn(move || {
         let mut map: HashMap<String, TaskState> = HashMap::new();
         let ticker = tick(Duration::from_secs(5));
+        // Nothing tracked = nothing can go stale: block on messages only, no idle wake-ups.
+        let idle = never();
         loop {
+            let check = if map.is_empty() { &idle } else { &ticker };
             crossbeam_channel::select! {
                 recv(msg_rx) -> m => {
                     let Ok(msg) = m else { break };
@@ -74,7 +76,7 @@ pub fn spawn_registry(
                     }
                     let _ = task_tx.send(TaskUpdate::Upsert(st));
                 }
-                recv(ticker) -> _ => {
+                recv(check) -> _ => {
                     // Mark stale running tasks Lost (pipe disconnect = Lost).
                     let now = Instant::now();
                     let stale: Vec<String> = map.iter()
@@ -92,7 +94,6 @@ pub fn spawn_registry(
                         map.remove(&k);
                         let _ = task_tx.send(TaskUpdate::Lost(k));
                     }
-                    let _ = task_tx.send(TaskUpdate::Prune);
                 }
             }
         }

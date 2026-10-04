@@ -188,7 +188,6 @@ impl Model {
                     t.changed = now;
                 }
             }
-            TaskUpdate::Prune => {}
         }
     }
 
