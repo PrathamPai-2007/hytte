@@ -57,6 +57,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 crossbeam-channel = "0.5"
 toml = "0.8"
+# Already a dependency of `toml`; edits config.toml without losing the user's comments.
+toml_edit = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
 
 # Smaller, faster daemon: whole-program optimisation shrinks the binary and its resident code.

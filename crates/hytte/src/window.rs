@@ -1514,7 +1514,7 @@ mod win {
                             let g = &mut ui.cfg.general;
                             g.autostart = !g.autostart;
                             crate::config::ensure_autostart(g.autostart);
-                            let _ = crate::config::save(&ui.cfg);
+                            let _ = crate::config::set_autostart(g.autostart);
                         });
                     }
                     _ => {}

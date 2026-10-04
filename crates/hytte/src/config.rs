@@ -238,16 +238,62 @@ pub fn load() -> Config {
         let _ = save(&cfg);
         return cfg;
     }
-    toml::from_str(&text).unwrap_or_default()
+    parse(&text).unwrap_or_default()
+}
+
+/// `None` for invalid TOML, so a half-typed edit never replaces working settings.
+pub fn parse(text: &str) -> Option<Config> {
+    toml::from_str(text).ok()
 }
 
 pub fn save(cfg: &Config) -> std::io::Result<()> {
-    let path = config_path();
+    let text = toml::to_string_pretty(cfg).unwrap_or_default();
+    write_atomic(&config_path(), &text)
+}
+
+/// Temp file + rename, so the config watcher never reads a half-written file.
+fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p)?;
     }
-    let text = toml::to_string_pretty(cfg).unwrap_or_default();
-    std::fs::write(path, text)
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// Sets `[general] autostart` in place, keeping the user's comments and layout. An unparsable
+/// file is left alone (the setting still applies for this session).
+pub fn set_autostart(enable: bool) -> std::io::Result<()> {
+    let path = config_path();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        let mut cfg = Config::default();
+        cfg.general.autostart = enable;
+        return save(&cfg);
+    };
+    match with_autostart(&text, enable) {
+        Some(next) if next != text => write_atomic(&path, &next),
+        _ => Ok(()),
+    }
+}
+
+fn with_autostart(text: &str, enable: bool) -> Option<String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
+    let general = doc
+        .entry("general")
+        .or_insert_with(toml_edit::table)
+        .as_table_like_mut()?;
+    match general.get_mut("autostart").and_then(|i| i.as_value_mut()) {
+        // Keep the spacing and any trailing comment on the line.
+        Some(v) => {
+            let decor = v.decor().clone();
+            *v = enable.into();
+            *v.decor_mut() = decor;
+        }
+        None => {
+            general.insert("autostart", toml_edit::value(enable));
+        }
+    }
+    Some(doc.to_string())
 }
 
 /// Opt-in autostart via HKCU\...\Run. No-op off Windows.
@@ -333,4 +379,34 @@ pub fn ensure_start_menu() {
         }
         CoUninitialize();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn autostart_edit_keeps_comments_and_other_keys() {
+        let text = "# my settings\n[general]\nautostart = false # login\nacrylic = true\n\n[shell]\n# keep me\nthreshold_ms = 5000\n";
+        let next = with_autostart(text, true).unwrap();
+        assert_eq!(next, text.replace("autostart = false", "autostart = true"));
+        let cfg = parse(&next).unwrap();
+        assert!(cfg.general.autostart && cfg.general.acrylic);
+        assert_eq!(cfg.shell.threshold_ms, 5000);
+    }
+
+    #[test]
+    fn autostart_edit_adds_missing_key_or_section() {
+        let next = with_autostart("[shell]\nthreshold_ms = 1\n", true).unwrap();
+        assert!(parse(&next).unwrap().general.autostart);
+        let next = with_autostart("[general]\nacrylic = true\n", true).unwrap();
+        assert!(parse(&next).unwrap().general.autostart);
+    }
+
+    #[test]
+    fn invalid_toml_is_rejected_not_defaulted() {
+        assert!(parse("[general\nautostart = ").is_none());
+        assert!(with_autostart("[general\n", true).is_none());
+        assert!(parse("").is_some(), "an empty file is all defaults");
+    }
 }
