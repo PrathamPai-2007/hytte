@@ -39,3 +39,14 @@ pub fn line(msg: &str) {
         let _ = writeln!(f, "{msg}");
     }
 }
+
+/// Logs why the pill backs off, once per change, so a stuck "thin line" can be diagnosed.
+pub fn note_fullscreen(hide: bool, exe: Option<&str>, covers: bool, shell: bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LAST: AtomicBool = AtomicBool::new(false);
+    if LAST.swap(hide, Ordering::Relaxed) != hide {
+        line(&format!(
+            "fullscreen: hide={hide} foreground={exe:?} covers={covers} shell={shell}"
+        ));
+    }
+}
