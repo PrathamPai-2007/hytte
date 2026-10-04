@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct General {
     #[serde(default)]
     pub autostart: bool,
@@ -55,7 +55,7 @@ impl Default for General {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shell {
     /// Commands shorter than this never show (the daemon enforces it).
     #[serde(default = "d_threshold")]
@@ -95,7 +95,7 @@ impl Default for Shell {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shelf {
     /// "reference" keeps the original path; "copy" stashes a copy in %APPDATA%\Hytte\shelf.
     #[serde(default = "d_ref")]
@@ -124,7 +124,7 @@ impl Default for Shelf {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ports {
     #[serde(default = "d_watch")]
     pub watch: Vec<u16>,
@@ -149,7 +149,7 @@ impl Default for Ports {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Agent {
     #[serde(default = "d_peek")]
     pub peek_secs: u64,
@@ -168,7 +168,7 @@ impl Default for Agent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Timer {
     #[serde(default = "default_true")]
     pub sound: bool,
@@ -200,7 +200,7 @@ impl Default for Timer {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub timer: Timer,
@@ -259,6 +259,55 @@ fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, path)
+}
+
+/// Watches `config.toml` and sends every valid change to the UI. The thread sleeps on a directory
+/// change notification, so it costs nothing until a file in the data folder changes; writes to
+/// other files there (`shelf.json`, `timer.json`) are filtered out by comparing the text.
+pub fn spawn_watcher(ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>) {
+    #[cfg(windows)]
+    std::thread::spawn(move || unsafe {
+        use windows::core::HSTRING;
+        use windows::Win32::Foundation::WAIT_OBJECT_0;
+        use windows::Win32::Storage::FileSystem::{
+            FindFirstChangeNotificationW, FindNextChangeNotification, FILE_NOTIFY_CHANGE_FILE_NAME,
+            FILE_NOTIFY_CHANGE_LAST_WRITE,
+        };
+        use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE};
+        let Ok(h) = FindFirstChangeNotificationW(
+            &HSTRING::from(data_dir().as_os_str()),
+            false,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+        ) else {
+            return;
+        };
+        let mut last = std::fs::read_to_string(config_path()).unwrap_or_default();
+        while WaitForSingleObject(h, INFINITE) == WAIT_OBJECT_0 {
+            // Editors save in bursts (truncate, write, rename): let them finish.
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            if FindNextChangeNotification(h).is_err() {
+                return;
+            }
+            let Ok(text) = std::fs::read_to_string(config_path()) else {
+                continue;
+            };
+            if text == last || text.trim().is_empty() {
+                continue;
+            }
+            // A half-typed, invalid file keeps the current settings until it parses again.
+            if let Some(cfg) = parse(&text) {
+                if ui_tx
+                    .send(crate::ui_state::UiEvent::Config(Box::new(cfg)))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            last = text;
+        }
+    });
+    #[cfg(not(windows))]
+    let _ = ui_tx;
 }
 
 /// Sets `[general] autostart` in place, keeping the user's comments and layout. An unparsable
