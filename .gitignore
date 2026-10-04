@@ -2,3 +2,4 @@
 *.pdb
 *.log
 /dist
+/landing-page

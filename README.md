@@ -53,8 +53,9 @@ Hytte hangs a small pill from the top-centre of your screen. It stays out of the
 | **Automatic shell tracking** | One line in your shell profile (PowerShell, bash/Git Bash, zsh, Nushell) and any command that runs longer than 3 seconds appears in the pill automatically. No wrapper to remember. |
 | **AI agent monitor** | Unattended agents (Claude Code, Aider, eval scripts) report in; when one needs a human the pill turns amber, pulses, and one click brings that terminal to the front. |
 | **Port watcher** | Shows dev servers listening on `localhost` (3000, 5173, 8080, 5432, …) with one-click **Open** in the browser and a two-step **Kill** for hung processes. `notch kill :3000` does the same from a shell. |
+| **Timer** | Right-click the pill, scroll to set minutes, press **Timer** or **Focus** (Pomodoro with breaks). A glowing fuse burns down along the pill edge and replaces the idle dash; hover the pill for Pause / +5 min / Stop. A soft chime plays when it ends. Settings in `[timer]`. |
 | **Staging shelf** | Drag files or text onto the notch to park them. Switch folders, desktops or apps, then drag them back out of the pill into any destination. The shelf follows you across virtual desktops and survives restarts. |
-| **Drop Vault** | Per-item actions on shelved files: strip EXIF/GPS, lossless WebP, OCR to clipboard, JSON/YAML formatting, copy path. |
+| **Drop Vault** | Select a shelved file to get one-click actions: shrink an image **under 5 MB** (Discord/e-mail limits), **convert to PDF**, remove EXIF/GPS, lossless WebP, OCR to clipboard, JSON/YAML formatting, copy path. Results land next to the original; nothing is overwritten. |
 | **Media cockpit** | Title, artist, album art, live timeline, animated equaliser and prev / play-pause / next for the current Windows media session. |
 | **Mic mute** | One global toggle (the Home card's **Mute** button, or click the lock) mutes every microphone; while muted a bold red lock and red glow sit on the pill, whatever it is showing. |
 | **Battery cockpit** | On laptops: charge %, live charge / discharge power in watts, and a Saver / Balanced / Performance power-mode switch. |
@@ -83,7 +84,7 @@ This produces two binaries in `target\release\`:
 | Binary | Role |
 |---|---|
 | `hytte.exe` | The daemon that owns the notch window. Run it once; it lives in the tray. |
-| `notch.exe` | A tiny CLI client used from terminals, scripts and agent hooks. |
+| `notch.exe` | A tiny CLI client used from terminals, scripts and agent hooks. Built from the same package; `notch run` starts the daemon if it is not running. |
 
 Put both on your `PATH` (or copy them to a folder that is) so `notch` works from any shell.
 
