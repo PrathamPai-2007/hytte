@@ -383,16 +383,21 @@ impl Model {
         self.cam || self.mic
     }
 
-    /// Visible tasks: waiting-on-you first, then failed, running, finished.
-    pub fn rows(&self) -> Vec<&TaskView> {
-        let mut v: Vec<&TaskView> = self.tasks.iter().filter(|t| self.visible(t)).collect();
+    /// Row order: waiting-on-you first, then failed, running, finished; newest first within each.
+    fn row_order(a: &TaskView, b: &TaskView) -> std::cmp::Ordering {
         let rank = |t: &TaskView| match t.event {
             TaskEvent::NeedsInput => 0,
             TaskEvent::Failed => 1,
             TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed => 2,
             _ => 3,
         };
-        v.sort_by(|a, b| rank(a).cmp(&rank(b)).then(b.changed.cmp(&a.changed)));
+        rank(a).cmp(&rank(b)).then(b.changed.cmp(&a.changed))
+    }
+
+    /// Visible tasks: waiting-on-you first, then failed, running, finished.
+    pub fn rows(&self) -> Vec<&TaskView> {
+        let mut v: Vec<&TaskView> = self.tasks.iter().filter(|t| self.visible(t)).collect();
+        v.sort_by(|a, b| Self::row_order(a, b));
         v.truncate(4);
         v
     }
@@ -403,7 +408,12 @@ impl Model {
 
     /// The task shown in the compact pill.
     pub fn primary(&self) -> Option<&TaskView> {
-        self.rows().into_iter().next()
+        // Same pick as `rows()[0]` (min_by keeps the first of equals, like the stable sort),
+        // without allocating: this runs several times per frame.
+        self.tasks
+            .iter()
+            .filter(|t| self.visible(t))
+            .min_by(|a, b| Self::row_order(a, b))
     }
 
     /// Panels that currently have something to show, in priority order.
@@ -903,5 +913,38 @@ bang"
         m.mic_muted = true;
         assert_eq!(m.size(Scene::Idle).0, w0 + LOCK_W as f64);
         assert_eq!(m.glow(Scene::Idle).1, 0.8);
+    }
+
+    #[test]
+    fn idle_frames_stop_for_settled_failures_and_sentinel() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(st("a", TaskEvent::Failed, t0), t0);
+        assert!(m.ambient(Scene::CompactTask, t0), "fresh failure pulses");
+        let later = t0 + FAIL_PULSE;
+        assert!(!m.ambient(Scene::CompactTask, later), "then rests");
+        assert_eq!(m.tasks[0].fail_pulse(later), 0.0);
+        m.apply_task(st("b", TaskEvent::Start, t0), t0);
+        assert!(
+            m.ambient(Scene::CompactTask, later),
+            "running work still animates"
+        );
+        assert!(
+            !m.ambient(Scene::Sentinel, later),
+            "the sentinel bar is static"
+        );
+    }
+
+    #[test]
+    fn primary_is_first_row() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        // Same rank and timestamp: the first inserted wins in both.
+        m.apply_task(st("x", TaskEvent::Start, t0), t0);
+        m.apply_task(st("y", TaskEvent::Start, t0), t0);
+        assert_eq!(m.primary().unwrap().id, m.rows()[0].id);
+        m.apply_task(st("z", TaskEvent::Failed, t0), t0 + Duration::from_secs(1));
+        assert_eq!(m.primary().unwrap().id, "z");
+        assert_eq!(m.primary().unwrap().id, m.rows()[0].id);
     }
 }
