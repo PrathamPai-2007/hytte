@@ -135,8 +135,37 @@ impl Default for Agent {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Timer {
+    #[serde(default = "default_true")]
+    pub sound: bool,
+    #[serde(default = "d_break")]
+    pub break_min: u32,
+    #[serde(default = "d_long")]
+    pub long_break_min: u32,
+    /// Focus sessions before a long break.
+    #[serde(default = "d_rounds")]
+    pub rounds: u32,
+}
+fn d_break() -> u32 {
+    5
+}
+fn d_long() -> u32 {
+    15
+}
+fn d_rounds() -> u32 {
+    4
+}
+impl Default for Timer {
+    fn default() -> Self {
+        Self { sound: true, break_min: d_break(), long_break_min: d_long(), rounds: d_rounds() }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub timer: Timer,
     #[serde(default)]
     pub general: General,
     #[serde(default)]
