@@ -67,9 +67,11 @@ The zip contains two programs:
 notch run -- npm run build
 ```
 
-You'll see a spinner and a timer, then a green tick or a red cross. On failure, the last error lines appear with a **Copy error** button. Your command runs exactly as before; if Hytte isn't running, nothing changes.
+You'll see a spinner and a timer, then a green tick or a red cross. If the command prints its progress (like `45%`), the pill shows a filling bar instead of a spinner. On failure, the last error lines appear with a **Copy error** button. Your command runs exactly as before; if Hytte isn't running, nothing changes.
 
-**3. Track every slow command automatically.** Add one line to your shell (see [below](#track-every-command-automatically)). Anything that runs longer than 3 seconds then shows up without the `notch run` prefix.
+Some tools only print progress in a real terminal, so ask for it: `notch run -- git clone --progress <url>`. To ignore percentages a command prints, use `notch run --no-progress -- <cmd>`.
+
+**3. Track every slow command automatically.** Choose **Set up terminal integration** in the tray menu, or add one line to your shell yourself (see [below](#track-every-command-automatically)). Anything that runs longer than 3 seconds then shows up without the `notch run` prefix.
 
 **4. Park a file.** Drag a file toward the top of the screen and drop it on the pill. Later, drag it back out of the pill into Explorer, an email or a chat window. Click a file on the shelf to see what you can do with it.
 
