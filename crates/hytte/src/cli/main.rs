@@ -5,6 +5,7 @@
 mod agent;
 mod hook;
 mod portscmd;
+mod progress;
 // Shared with the daemon; its tray helpers go unused here.
 #[path = "../setup.rs"]
 #[allow(dead_code)]
@@ -14,13 +15,15 @@ use hytte_proto::{HytteMessage, TaskEvent, PIPE_NAME};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const TAIL_LINES: usize = 5;
+/// At most this often a progress update goes to the pipe.
+const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
 fn usage() -> ! {
     eprintln!("usage:");
-    eprintln!("  notch run -- <cmd...>                  # run cmd, report to notch");
+    eprintln!("  notch run [--no-progress] -- <cmd...>  # run cmd, report to notch (with progress read from its output)");
     eprintln!("  notch set --progress <0-100> --label \"...\" [--task <id>]");
     eprintln!("  notch agent <start|needs-input|resume|done|fail|hooks> ...   # AI agent / long-task monitor");
     eprintln!("  notch init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s");
@@ -119,6 +122,13 @@ fn cmd_run(args: &[String]) {
         Some(i) => args[i + 1..].to_vec(),
         None => args.to_vec(),
     };
+    let mut track = true;
+    for flag in dash.map_or(&[][..], |i| &args[..i]) {
+        match flag.as_str() {
+            "--no-progress" => track = false,
+            _ => usage(),
+        }
+    }
     if cmd_args.is_empty() {
         usage();
     }
@@ -156,22 +166,48 @@ fn cmd_run(args: &[String]) {
         });
 
     let mut tail: VecDeque<String> = VecDeque::with_capacity(TAIL_LINES + 1);
-    if let Some(stderr) = child.stderr.take() {
-        use std::io::{BufRead, BufReader};
-        let reader = BufReader::new(stderr);
-        let stderr_fd = std::io::stderr();
-        let mut lock = stderr_fd.lock();
-        for line in reader.lines() {
-            match line {
-                Ok(l) => {
-                    let _ = writeln!(lock, "{l}");
-                    tail.push_back(l);
-                    while tail.len() > TAIL_LINES {
-                        tail.pop_front();
-                    }
+    if let Some(mut stderr) = child.stderr.take() {
+        use std::io::Read;
+        // Raw bytes, not lines: `\r` progress bars reach the terminal as they're drawn, and
+        // output that isn't UTF-8 is passed through instead of ending the copy.
+        let mut out = std::io::stderr().lock();
+        let mut scan = track.then(progress::Scanner::default);
+        let mut line: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 4096];
+        let mut shown: Option<u8> = None;
+        let mut shown_at: Option<Instant> = None;
+        let mut daemon = true;
+        loop {
+            let n = match stderr.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            let chunk = &buf[..n];
+            let _ = out.write_all(chunk);
+            let _ = out.flush();
+            for &b in chunk {
+                if b == b'\n' {
+                    push_tail(&mut tail, &line);
+                    line.clear();
+                } else if line.len() < 4096 {
+                    line.push(b);
                 }
-                Err(_) => break,
             }
+            let Some(p) = scan.as_mut().and_then(|s| s.feed(chunk)) else {
+                continue;
+            };
+            let due = shown_at.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY);
+            if daemon && shown != Some(p) && due {
+                let mut m = tag(HytteMessage::start(id.clone(), truncated.clone()));
+                m.event = TaskEvent::Progress;
+                m.progress = Some(p);
+                daemon = send_msg(&m);
+                shown = Some(p);
+                shown_at = Some(Instant::now());
+            }
+        }
+        if !line.is_empty() {
+            push_tail(&mut tail, &line);
         }
     }
     let status = child.wait().unwrap_or_else(|e| {
@@ -195,6 +231,17 @@ fn cmd_run(args: &[String]) {
     }
     let _ = send_msg(&done);
     std::process::exit(code);
+}
+
+/// Keeps the last lines for a failure report, as the terminal showed them: only the text after
+/// the final `\r` of a redrawn line.
+fn push_tail(tail: &mut VecDeque<String>, line: &[u8]) {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let shown = line.rsplit(|&b| b == b'\r').next().unwrap_or(line);
+    tail.push_back(String::from_utf8_lossy(shown).into_owned());
+    while tail.len() > TAIL_LINES {
+        tail.pop_front();
+    }
 }
 
 fn cmd_set(args: &[String]) {
