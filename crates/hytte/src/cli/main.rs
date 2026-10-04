@@ -69,6 +69,32 @@ fn send_line_best_effort(_line: &str) -> bool {
     false
 }
 
+/// `hytte.exe` next to this exe, started detached; waits briefly for its pipe.
+/// Only `notch run` does this (shell hooks must stay instant and never spawn GUIs).
+#[cfg(windows)]
+fn start_daemon() -> bool {
+    use std::os::windows::process::CommandExt;
+    let Some(exe) = std::env::current_exe().ok().map(|p| p.with_file_name("hytte.exe")).filter(|p| p.exists()) else {
+        return false;
+    };
+    // DETACHED_PROCESS | CREATE_NO_WINDOW
+    if Command::new(exe).creation_flags(0x0800_0008).spawn().is_err() {
+        return false;
+    }
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if std::fs::OpenOptions::new().write(true).open(PIPE_NAME).is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(not(windows))]
+fn start_daemon() -> bool {
+    false
+}
+
 fn cmd_run(args: &[String]) {
     // Split at `--`.
     let dash = args.iter().position(|a| a == "--");
@@ -88,7 +114,9 @@ fn cmd_run(args: &[String]) {
         m
     };
     let start = tag(HytteMessage::start(id.clone(), truncated.clone()));
-    let _ = send_msg(&start);
+    if !send_msg(&start) && start_daemon() {
+        let _ = send_msg(&start);
+    }
 
     let t0 = Instant::now();
     // Spawn child with inherited stdio so the terminal behaves normally,
