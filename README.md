@@ -55,7 +55,7 @@ Hytte hangs a small pill from the top-centre of your screen. It stays out of the
 | **Port watcher** | Shows dev servers listening on `localhost` (3000, 5173, 8080, 5432, …) with one-click **Open** in the browser and a two-step **Kill** for hung processes. `notch kill :3000` does the same from a shell. |
 | **Timer** | Right-click the pill, scroll to set minutes, press **Timer** or **Focus** (Pomodoro with breaks). A glowing fuse burns down along the pill edge and replaces the idle dash; hover the pill for Pause / +5 min / Stop. A soft chime plays when it ends. Settings in `[timer]`. |
 | **Staging shelf** | Drag files or text onto the notch to park them. Switch folders, desktops or apps, then drag them back out of the pill into any destination. The shelf follows you across virtual desktops and survives restarts. |
-| **Drop Vault** | Select a shelved file to get one-click actions: **compress** an image to under 5 MB (Discord/e-mail limits), **convert to PDF**, **remove metadata** (EXIF/GPS), lossless WebP, OCR to clipboard, JSON/YAML formatting, copy path. Results land next to the original; nothing is overwritten. |
+| **Drop Vault** | Select a shelved file to get one-click actions: **Compress** an image to under 5 MB (Discord/e-mail limits), **To PDF**, **Remove metadata** (EXIF/GPS), **Read text** (OCR to clipboard), JSON/YAML formatting, copy path. Results land next to the original; nothing is overwritten. |
 | **Media cockpit** | Title, artist, album art, live timeline, animated equaliser and prev / play-pause / next for the current Windows media session. |
 | **Mic mute** | One global toggle (the Home card's **Mute** button, or click the lock) mutes every microphone; while muted a bold red lock and red glow sit on the pill, whatever it is showing. |
 | **Battery cockpit** | On laptops: charge %, live charge / discharge power in watts, and a Saver / Balanced / Performance power-mode switch. |
@@ -266,8 +266,8 @@ Drag a file, folder or selected text toward the top of the screen with the left 
 
 | Tile | Action | Result |
 |---|---|---|
-| **PNG / JPEG** | Clean · WebP · OCR | `name.clean.png|jpg` (re-encoded, so EXIF and GPS are gone), `name.webp` (lossless), OCR text copied to the clipboard |
-| **WebP / BMP** | OCR | OCR text copied to the clipboard |
+| **PNG / JPEG** | Compress · To PDF · Remove metadata · Read text | `name-5mb.jpg` (JPEG quality search, then downscale; skipped if already under 5 MB), `name.pdf` (one image per page), `name.clean.png|jpg` (re-encoded, so EXIF and GPS are gone), OCR text copied to the clipboard |
+| **WebP / BMP** | Compress · To PDF · Read text | As above, minus Remove metadata |
 | **JSON** | Format | `name.pretty.json` if it was compact, `name.min.json` if already formatted; text also copied |
 | **YAML** | Format | `name.pretty.yaml` with trailing whitespace trimmed, tabs expanded, blank-line runs collapsed |
 | **Text snippet** (.txt / .md) | Copy text | Contents copied; JSON is formatted on the way |
@@ -385,7 +385,9 @@ crates/
     src/mic.rs           global microphone mute
     src/power.rs         battery, charge rate and power mode
     src/drop.rs          Drop Vault job queue + worker pool
-    src/transforms.rs    image / JSON / YAML / OCR transforms
+    src/transforms.rs    shelf chips: image / JSON / YAML / OCR transforms
+    src/convert.rs       Compress (under 5 MB) and hand-written PDF export
+    src/timer.rs         Timer and Focus (Pomodoro) state
     src/fullscreen.rs    suppression decision
     src/tray.rs, config.rs, logging.rs, single_instance.rs, winrt.rs
 manifests/winget/        packaging template
