@@ -34,16 +34,16 @@ pub fn filter(
 ) -> Vec<PortInfo> {
     let mut out: Vec<PortInfo> = vec![];
     for &(port, pid) in rows {
-        if pid <= 4 || out.iter().any(|p| p.port == port) {
+        // Cheap checks first: resolving the exe opens the process, so only do it
+        // for ports we would actually show.
+        if pid <= 4 || !(show_all || watch.contains(&port)) || out.iter().any(|p| p.port == port) {
             continue;
         }
         let exe = exe_of(pid).unwrap_or_else(|| "?".into());
         if SYSTEM_EXES.contains(&exe.to_ascii_lowercase().as_str()) {
             continue;
         }
-        if show_all || watch.contains(&port) {
-            out.push(PortInfo { port, pid, exe });
-        }
+        out.push(PortInfo { port, pid, exe });
     }
     out.sort_by_key(|p| p.port);
     out
@@ -186,6 +186,13 @@ mod tests {
             all.iter().map(|p| p.port).collect::<Vec<_>>(),
             vec![3000, 5432, 9999]
         );
+        // Unwatched listeners are never looked up (each lookup opens the process).
+        let looked = std::cell::RefCell::new(vec![]);
+        filter(&rows, &[3000], false, |pid| {
+            looked.borrow_mut().push(pid);
+            exe(pid)
+        });
+        assert_eq!(*looked.borrow(), vec![10]);
     }
 
     #[cfg(windows)]
