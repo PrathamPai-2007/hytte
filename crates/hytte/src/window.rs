@@ -51,8 +51,12 @@ mod win {
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::Controls::WM_MOUSELEAVE;
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-    use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
-    use windows::Win32::UI::Shell::{DragQueryFileW, IVirtualDesktopManager, ShellExecuteW, VirtualDesktopManager};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    };
+    use windows::Win32::UI::Shell::{
+        DragQueryFileW, IVirtualDesktopManager, ShellExecuteW, VirtualDesktopManager,
+    };
     use windows::Win32::UI::WindowsAndMessaging::*;
 
     const WM_TICK: u32 = 0x8002;
@@ -88,7 +92,10 @@ mod win {
 
     /// Sample DWM's vblank clock. Called by the ticker right after `DwmFlush`.
     fn sample_vblank() {
-        let mut ti = DWM_TIMING_INFO { cbSize: std::mem::size_of::<DWM_TIMING_INFO>() as u32, ..Default::default() };
+        let mut ti = DWM_TIMING_INFO {
+            cbSize: std::mem::size_of::<DWM_TIMING_INFO>() as u32,
+            ..Default::default()
+        };
         // SAFETY: ti is a valid, correctly sized out-struct. A null HWND asks for the desktop compositor.
         if unsafe { DwmGetCompositionTimingInfo(HWND::default(), &mut ti) }.is_ok()
             && ti.qpcRefreshPeriod > 0
@@ -105,7 +112,10 @@ mod win {
 
     /// Seconds between two vblanks, from DWM's own clock (None if unavailable or implausible).
     fn vblank_dt(prev: u64, now: u64) -> Option<f64> {
-        let (period, refresh) = (VPERIOD.load(Ordering::Relaxed), f64::from_bits(REFRESH_S.load(Ordering::Relaxed)));
+        let (period, refresh) = (
+            VPERIOD.load(Ordering::Relaxed),
+            f64::from_bits(REFRESH_S.load(Ordering::Relaxed)),
+        );
         if prev == 0 || now <= prev || period == 0 || refresh <= 0.0 {
             return None;
         }
@@ -199,7 +209,10 @@ mod win {
         fn hidden(&self) -> bool {
             // A drag near the top edge or a fresh drop must stay reachable even over fullscreen.
             self.paused
-                || (self.fs_hidden && self.cfg.general.fullscreen_mode == "hide" && !self.armed && !self.model.forced())
+                || (self.fs_hidden
+                    && self.cfg.general.fullscreen_mode == "hide"
+                    && !self.armed
+                    && !self.model.forced())
         }
 
         fn layout(&mut self) {
@@ -207,14 +220,25 @@ mod win {
             let size = self.model.size(scene);
             let glow = self.model.glow(scene);
             self.anim.set_scene(scene, size, glow);
-            self.anim.hover.set_target(if self.inside && scene != Scene::Sentinel { 1.0 } else { 0.0 });
-            self.anim.vis.set_target(if self.hidden() { 0.0 } else { 1.0 });
+            self.anim
+                .hover
+                .set_target(if self.inside && scene != Scene::Sentinel {
+                    1.0
+                } else {
+                    0.0
+                });
+            self.anim
+                .vis
+                .set_target(if self.hidden() { 0.0 } else { 1.0 });
         }
 
         /// Cursor in the coordinates of the last drawn frame (logical px).
         fn mouse_logical(&self) -> Option<(f32, f32)> {
             let (sx, sy) = self.mouse?;
-            Some(((sx - self.origin.0) as f32 / self.scale, (sy - self.origin.1) as f32 / self.scale))
+            Some((
+                (sx - self.origin.0) as f32 / self.scale,
+                (sy - self.origin.1) as f32 / self.scale,
+            ))
         }
 
         fn set_mouse_client(&mut self, lparam: LPARAM) {
@@ -222,7 +246,9 @@ mod win {
         }
 
         fn pill_contains(&self) -> bool {
-            let Some((mx, my)) = self.mouse_logical() else { return false };
+            let Some((mx, my)) = self.mouse_logical() else {
+                return false;
+            };
             let pw = self.anim.rect.w.pos as f32;
             let ph = (self.anim.rect.h.pos as f32).max(6.0);
             let ox = (self.crop_w - pw) / 2.0;
@@ -230,7 +256,11 @@ mod win {
         }
 
         fn crop(&self) -> Crop {
-            self.rend.plan(self.anim.rect.w.pos as f32, self.anim.rect.h.pos as f32, self.armed)
+            self.rend.plan(
+                self.anim.rect.w.pos as f32,
+                self.anim.rect.h.pos as f32,
+                self.armed,
+            )
         }
 
         fn origin_for(&self, crop: Crop) -> (i32, i32) {
@@ -241,7 +271,10 @@ mod win {
         fn refresh_monitor(&mut self) {
             unsafe {
                 let hmon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-                let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
                 if GetMonitorInfoW(hmon, &mut mi).as_bool() {
                     let r = mi.rcMonitor;
                     self.mon = (r.left, r.top, r.right, r.bottom);
@@ -266,29 +299,46 @@ mod win {
                 match e {
                     UiEvent::Task(mut u) => {
                         if let crate::tasks::TaskUpdate::Upsert(s) = &mut u {
-                            if s.source == "shell" && s.delay_ms == 0 && s.event == hytte_proto::TaskEvent::Start {
+                            if s.source == "shell"
+                                && s.delay_ms == 0
+                                && s.event == hytte_proto::TaskEvent::Start
+                            {
                                 s.delay_ms = self.cfg.shell.threshold_ms;
                             }
                             if s.event == hytte_proto::TaskEvent::NeedsInput {
-                                self.model.peek(Panel::Tasks, now + Duration::from_secs(self.cfg.agent.peek_secs));
+                                self.model.peek(
+                                    Panel::Tasks,
+                                    now + Duration::from_secs(self.cfg.agent.peek_secs),
+                                );
                                 if self.cfg.agent.sound {
                                     unsafe {
-                                        let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(MB_ICONASTERISK);
+                                        let _ =
+                                            windows::Win32::System::Diagnostics::Debug::MessageBeep(
+                                                MB_ICONASTERISK,
+                                            );
                                     }
                                 }
                             }
                         }
                         // First sight of a task with an owner: remember which terminal tab it ran in.
                         if let crate::tasks::TaskUpdate::Upsert(s) = &u {
-                            if let (Some(pid), false) = (s.pid, self.model.tasks.iter().any(|t| t.id == s.task_id)) {
-                                let _ = self.tabs.send(crate::tabs::Cmd::Snap(s.task_id.clone(), pid));
+                            if let (Some(pid), false) =
+                                (s.pid, self.model.tasks.iter().any(|t| t.id == s.task_id))
+                            {
+                                let _ = self
+                                    .tabs
+                                    .send(crate::tabs::Cmd::Snap(s.task_id.clone(), pid));
                             }
                         }
                         self.model.apply_task(u, now)
                     }
                     UiEvent::Ports(p) => self.model.set_ports(p),
                     UiEvent::ShelfAdd(job) => {
-                        let mut n = crate::shelf::add_paths(&self.cfg.shelf, &mut self.model.shelf, &job.paths);
+                        let mut n = crate::shelf::add_paths(
+                            &self.cfg.shelf,
+                            &mut self.model.shelf,
+                            &job.paths,
+                        );
                         if let Some(t) = &job.text {
                             n += crate::shelf::add_text(&self.cfg.shelf, &mut self.model.shelf, t);
                         }
@@ -313,7 +363,12 @@ mod win {
                         self.model.privacy_app = app;
                     }
                     UiEvent::DropDone(r) => {
-                        self.model.chip = Some(Chip { summary: r.summary, open: r.open, copy: r.copy, since: now });
+                        self.model.chip = Some(Chip {
+                            summary: r.summary,
+                            open: r.open,
+                            copy: r.copy,
+                            since: now,
+                        });
                     }
                     UiEvent::SetClipboard(s) => set_clipboard(hwnd, &s),
                     UiEvent::DragEnter => self.model.drop_over = true,
@@ -350,7 +405,11 @@ mod win {
         fn follow_desktop(&self, hwnd: HWND) {
             let Some(vdm) = &self.vdm else { return };
             unsafe {
-                if vdm.IsWindowOnCurrentVirtualDesktop(hwnd).map(|b| b.as_bool()).unwrap_or(true) {
+                if vdm
+                    .IsWindowOnCurrentVirtualDesktop(hwnd)
+                    .map(|b| b.as_bool())
+                    .unwrap_or(true)
+                {
                     return;
                 }
                 let fg = GetForegroundWindow();
@@ -368,7 +427,12 @@ mod win {
             let wall = crate::timer::now_ms();
             if self.model.finish_timer(wall, now).is_some() {
                 let t = &self.cfg.timer;
-                self.model.timer_break = crate::timer::break_minutes(self.model.focus_done, t.rounds, t.break_min, t.long_break_min);
+                self.model.timer_break = crate::timer::break_minutes(
+                    self.model.focus_done,
+                    t.rounds,
+                    t.break_min,
+                    t.long_break_min,
+                );
                 self.model.timer_panel = false;
                 self.model.force_until = Some(now + Duration::from_secs(8));
                 if t.sound {
@@ -379,7 +443,12 @@ mod win {
             // 1 Hz redraw for the fuse, only while a timer runs; no timer = no wake-ups.
             match &self.model.timer {
                 Some(t) if t.paused_ms.is_none() => unsafe {
-                    SetTimer(Some(hwnd), T_TIMER, t.remaining_ms(wall).min(1000) as u32 + 15, None);
+                    SetTimer(
+                        Some(hwnd),
+                        T_TIMER,
+                        t.remaining_ms(wall).min(1000) as u32 + 15,
+                        None,
+                    );
                 },
                 _ => unsafe {
                     let _ = KillTimer(Some(hwnd), T_TIMER);
@@ -404,8 +473,14 @@ mod win {
             let gap = now.saturating_duration_since(self.last);
             // While springs move the ticker paces on vblank: use DWM's own clock so dt is a
             // whole number of refresh periods instead of scheduler-jittered wall time.
-            let vb = if self.shared.fast.load(Ordering::Relaxed) { VBLANK.load(Ordering::Relaxed) } else { 0 };
-            let dt = vblank_dt(self.prev_vblank, vb).map_or(gap.as_secs_f32(), |d| d as f32).min(0.05);
+            let vb = if self.shared.fast.load(Ordering::Relaxed) {
+                VBLANK.load(Ordering::Relaxed)
+            } else {
+                0
+            };
+            let dt = vblank_dt(self.prev_vblank, vb)
+                .map_or(gap.as_secs_f32(), |d| d as f32)
+                .min(0.05);
             self.prev_vblank = vb;
             self.last = now;
             self.layout();
@@ -445,7 +520,8 @@ mod win {
                 self.rend.present(hwnd, crop, origin.0, origin.1, a);
                 // Skip the first frame after idle: its gap is the idle time, not a frame.
                 if moving && gap.as_millis() < 100 {
-                    self.perf.record(gap.as_micros() as u32, now.elapsed().as_micros() as u32);
+                    self.perf
+                        .record(gap.as_micros() as u32, now.elapsed().as_micros() as u32);
                 }
             }
             let ambient = !self.anim.reduce && self.shown && self.model.ambient(self.anim.scene);
@@ -456,7 +532,10 @@ mod win {
 
         fn hit_at(&self) -> Option<&Hit> {
             let (mx, my) = self.mouse_logical()?;
-            self.hits.iter().rev().find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
+            self.hits
+                .iter()
+                .rev()
+                .find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
         }
 
         fn run_action(&mut self, hwnd: HWND, a: Action) {
@@ -505,15 +584,26 @@ mod win {
                     self.model.power = crate::power::read();
                 }
                 Action::FocusMedia(app) => crate::proc::focus_app(&app),
-                Action::OpenPort(port) | Action::KillPort(port, _) if !port_alive(&self.model, port) => {
+                Action::OpenPort(port) | Action::KillPort(port, _)
+                    if !port_alive(&self.model, port) =>
+                {
                     // The process is gone since the last scan: drop it instead of erroring.
                     self.model.ports.retain(|p| p.port != port);
                     self.model.kill_armed = None;
                     crate::ports::request_refresh();
                 }
                 Action::OpenPort(port) => unsafe {
-                    let url: Vec<u16> = format!("http://localhost:{port}\0").encode_utf16().collect();
-                    ShellExecuteW(None, windows::core::w!("open"), windows::core::PCWSTR(url.as_ptr()), None, None, SW_SHOWNORMAL);
+                    let url: Vec<u16> = format!("http://localhost:{port}\0")
+                        .encode_utf16()
+                        .collect();
+                    ShellExecuteW(
+                        None,
+                        windows::core::w!("open"),
+                        windows::core::PCWSTR(url.as_ptr()),
+                        None,
+                        None,
+                        SW_SHOWNORMAL,
+                    );
                 },
                 Action::KillPort(port, pid) => {
                     if self.model.kill_armed.is_some_and(|(p, _)| p == port) {
@@ -522,14 +612,24 @@ mod win {
                             Ok(()) => format!("Stopped :{port}"),
                             Err(e) => format!("Could not stop :{port} - {e}"),
                         };
-                        self.model.chip = Some(Chip { summary: msg, open: None, copy: None, since: Instant::now() });
+                        self.model.chip = Some(Chip {
+                            summary: msg,
+                            open: None,
+                            copy: None,
+                            since: Instant::now(),
+                        });
                         crate::ports::request_refresh();
                     } else {
-                        self.model.kill_armed = Some((port, Instant::now() + crate::ui_state::KILL_CONFIRM));
+                        self.model.kill_armed =
+                            Some((port, Instant::now() + crate::ui_state::KILL_CONFIRM));
                     }
                 }
                 Action::ShelfTile(id) => {
-                    self.model.shelf_sel = if self.model.shelf_sel == Some(id) { None } else { Some(id) };
+                    self.model.shelf_sel = if self.model.shelf_sel == Some(id) {
+                        None
+                    } else {
+                        Some(id)
+                    };
                 }
                 Action::RemoveShelf(id) => {
                     crate::shelf::remove(&mut self.model.shelf, id);
@@ -540,8 +640,17 @@ mod win {
                 }
                 Action::ShelfOp(id, op) => {
                     if let Some(it) = self.model.shelf.iter().find(|i| i.id == id) {
-                        let job = DropJob { paths: vec![it.path.clone()], text: None, op: Some(op) };
-                        self.model.chip = Some(Chip { summary: "Working…".into(), open: None, copy: None, since: Instant::now() });
+                        let job = DropJob {
+                            paths: vec![it.path.clone()],
+                            text: None,
+                            op: Some(op),
+                        };
+                        self.model.chip = Some(Chip {
+                            summary: "Working…".into(),
+                            open: None,
+                            copy: None,
+                            since: Instant::now(),
+                        });
                         let _ = self.shared.drop_tx.send(job);
                     }
                 }
@@ -594,7 +703,8 @@ mod win {
         }
 
         fn evaluate_fullscreen(&mut self) {
-            let hide = crate::fullscreen::evaluate(&self.cfg.general, self.mon) == crate::fullscreen::Suppress::Hide;
+            let hide = crate::fullscreen::evaluate(&self.cfg.general, self.mon)
+                == crate::fullscreen::Suppress::Hide;
             if hide != self.fs_hidden {
                 self.fs_hidden = hide;
                 if !hide {
@@ -606,7 +716,12 @@ mod win {
         }
     }
 
-    pub fn run_windows(cfg: Config, task_rx: Receiver<TaskUpdate>, ui_rx: Receiver<UiEvent>, drop_tx: Sender<DropJob>) {
+    pub fn run_windows(
+        cfg: Config,
+        task_rx: Receiver<TaskUpdate>,
+        ui_rx: Receiver<UiEvent>,
+        drop_tx: Sender<DropJob>,
+    ) {
         let shared = Arc::new(Shared {
             pending: Mutex::new(vec![]),
             animating: AtomicBool::new(false),
@@ -620,7 +735,8 @@ mod win {
 
         unsafe {
             let _ = OleInitialize(None);
-            let hinst = windows::Win32::System::LibraryLoader::GetModuleHandleW(None).unwrap_or_default();
+            let hinst =
+                windows::Win32::System::LibraryLoader::GetModuleHandleW(None).unwrap_or_default();
             let hinstance = HINSTANCE(hinst.0);
             let cls = windows::core::w!("HyttePill");
             let wc = WNDCLASSW {
@@ -689,12 +805,23 @@ mod win {
                 tracking: false,
                 over_hit: false,
                 drag: None,
-                vdm: windows::Win32::System::Com::CoCreateInstance(&VirtualDesktopManager, None, windows::Win32::System::Com::CLSCTX_ALL).ok(),
+                vdm: windows::Win32::System::Com::CoCreateInstance(
+                    &VirtualDesktopManager,
+                    None,
+                    windows::Win32::System::Com::CLSCTX_ALL,
+                )
+                .ok(),
                 thumb_req: Default::default(),
                 tabs: crate::tabs::spawn(),
                 wheel: 0,
             };
-            ui.model.ignore = ui.cfg.shell.ignore.iter().map(|s| s.to_ascii_lowercase()).collect();
+            ui.model.ignore = ui
+                .cfg
+                .shell
+                .ignore
+                .iter()
+                .map(|s| s.to_ascii_lowercase())
+                .collect();
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
             }
@@ -708,12 +835,32 @@ mod win {
             UI.with(|c| *c.borrow_mut() = Some(ui));
 
             register_drop_target(hwnd, shared.clone());
-            TASKBAR_CREATED.store(RegisterWindowMessageW(windows::core::w!("TaskbarCreated")), Ordering::Relaxed);
+            TASKBAR_CREATED.store(
+                RegisterWindowMessageW(windows::core::w!("TaskbarCreated")),
+                Ordering::Relaxed,
+            );
 
-            let _ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
-            let _ = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
+            let _ = SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                None,
+                Some(win_event),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
+            let _ = SetWinEventHook(
+                EVENT_OBJECT_LOCATIONCHANGE,
+                EVENT_OBJECT_LOCATIONCHANGE,
+                None,
+                Some(win_event),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
             // ponytail: permanent LL hook with an O(1) callback; install only on drag if it ever shows in profiles
-            let mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_ll), Some(hinstance), 0).ok();
+            let mouse_hook =
+                SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_ll), Some(hinstance), 0).ok();
 
             let mut tray = crate::tray::Tray::new(hwnd);
             tray.add();
@@ -771,7 +918,9 @@ mod win {
 
     /// True while the process we listed is still the one listening on `port`.
     fn port_alive(m: &Model, port: u16) -> bool {
-        let Some(p) = m.ports.iter().find(|p| p.port == port) else { return false };
+        let Some(p) = m.ports.iter().find(|p| p.port == port) else {
+            return false;
+        };
         hytte_proto::ports::listeners().contains(&(port, p.pid))
     }
 
@@ -820,7 +969,9 @@ mod win {
     ) {
         // LOCATIONCHANGE fires for every moving window and caret: only the
         // foreground window's own rect matters for fullscreen detection.
-        if event == EVENT_OBJECT_LOCATIONCHANGE && (id_object != 0 || hwnd != unsafe { GetForegroundWindow() }) {
+        if event == EVENT_OBJECT_LOCATIONCHANGE
+            && (id_object != 0 || hwnd != unsafe { GetForegroundWindow() })
+        {
             return;
         }
         post(WM_FG);
@@ -861,7 +1012,13 @@ mod win {
 
     fn query(data: &IDataObject, fmt: u16) -> FORMATETC {
         let _ = data;
-        FORMATETC { cfFormat: fmt, ptd: std::ptr::null_mut(), dwAspect: DVASPECT_CONTENT.0, lindex: -1, tymed: TYMED_HGLOBAL.0 as u32 }
+        FORMATETC {
+            cfFormat: fmt,
+            ptd: std::ptr::null_mut(),
+            dwAspect: DVASPECT_CONTENT.0,
+            lindex: -1,
+            tymed: TYMED_HGLOBAL.0 as u32,
+        }
     }
 
     const CF_UNICODETEXT: u16 = 13;
@@ -869,12 +1026,17 @@ mod win {
 
     fn accepts(data: &IDataObject) -> bool {
         unsafe {
-            data.QueryGetData(&query(data, CF_HDROP)).is_ok() || data.QueryGetData(&query(data, CF_UNICODETEXT)).is_ok()
+            data.QueryGetData(&query(data, CF_HDROP)).is_ok()
+                || data.QueryGetData(&query(data, CF_UNICODETEXT)).is_ok()
         }
     }
 
     fn extract(data: &IDataObject) -> DropJob {
-        let mut job = DropJob { paths: vec![], text: None, op: None };
+        let mut job = DropJob {
+            paths: vec![],
+            text: None,
+            op: None,
+        };
         unsafe {
             if let Ok(mut stg) = data.GetData(&query(data, CF_HDROP)) {
                 let h = windows::Win32::UI::Shell::HDROP(stg.u.hGlobal.0);
@@ -896,7 +1058,8 @@ mod win {
                         while *p.add(len) != 0 && len < 4 * 1024 * 1024 {
                             len += 1;
                         }
-                        job.text = Some(String::from_utf16_lossy(std::slice::from_raw_parts(p, len)));
+                        job.text =
+                            Some(String::from_utf16_lossy(std::slice::from_raw_parts(p, len)));
                         let _ = GlobalUnlock(h);
                     }
                     ReleaseStgMedium(&mut stg);
@@ -926,7 +1089,12 @@ mod win {
             }
             Ok(())
         }
-        fn DragOver(&self, _k: MODIFIERKEYS_FLAGS, _pt: &POINTL, effect: *mut DROPEFFECT) -> windows::core::Result<()> {
+        fn DragOver(
+            &self,
+            _k: MODIFIERKEYS_FLAGS,
+            _pt: &POINTL,
+            effect: *mut DROPEFFECT,
+        ) -> windows::core::Result<()> {
             unsafe {
                 if !effect.is_null() && *effect != DROPEFFECT_NONE {
                     *effect = DROPEFFECT_COPY;
@@ -975,7 +1143,11 @@ mod win {
 
     #[allow(non_snake_case)]
     impl IDropSource_Impl for Source_Impl {
-        fn QueryContinueDrag(&self, escape: windows::core::BOOL, keys: MODIFIERKEYS_FLAGS) -> windows::core::HRESULT {
+        fn QueryContinueDrag(
+            &self,
+            escape: windows::core::BOOL,
+            keys: MODIFIERKEYS_FLAGS,
+        ) -> windows::core::HRESULT {
             if escape.as_bool() {
                 DRAGDROP_S_CANCEL
             } else if keys.0 & 1 == 0 {
@@ -992,9 +1164,12 @@ mod win {
     /// Start an OLE drag of one file and return the effect the target applied.
     fn shelf_drag(path: &std::path::Path) -> DROPEFFECT {
         use windows::core::{Interface, HSTRING};
-        use windows::Win32::UI::Shell::{IShellItem, SHCreateItemFromParsingName, BHID_DataObject};
+        use windows::Win32::UI::Shell::{BHID_DataObject, IShellItem, SHCreateItemFromParsingName};
         unsafe {
-            let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(&HSTRING::from(path.as_os_str()), None) else {
+            let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(
+                &HSTRING::from(path.as_os_str()),
+                None,
+            ) else {
                 return DROPEFFECT_NONE;
             };
             let Ok(data) = item.BindToHandler::<_, IDataObject>(None, &BHID_DataObject) else {
@@ -1017,7 +1192,12 @@ mod win {
         ((l.0 >> 16) & 0xFFFF) as i16 as i32
     }
 
-    unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe extern "system" fn wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
         match msg {
             WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
             WM_TICK => {
@@ -1033,7 +1213,15 @@ mod win {
             }
             WM_FG => {
                 unsafe {
-                    let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    let _ = SetWindowPos(
+                        hwnd,
+                        Some(HWND_TOPMOST),
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                    );
                     SetTimer(Some(hwnd), T_FS, 150, None);
                 }
                 return LRESULT(0);
@@ -1252,7 +1440,8 @@ mod win {
             x if x == WM_TRAY => {
                 let code = (lparam.0 & 0xFFFF) as u32;
                 if code == WM_RBUTTONUP {
-                    let (paused, auto) = with_ui(|ui| (ui.paused, ui.cfg.general.autostart)).unwrap_or((false, false));
+                    let (paused, auto) = with_ui(|ui| (ui.paused, ui.cfg.general.autostart))
+                        .unwrap_or((false, false));
                     crate::tray::Tray::new(hwnd).popup(paused, auto);
                 }
                 return LRESULT(0);
@@ -1271,7 +1460,11 @@ mod win {
                     }
                     11 => {
                         let _ = std::process::Command::new("explorer")
-                            .arg(crate::config::config_path().parent().unwrap_or(std::path::Path::new(".")))
+                            .arg(
+                                crate::config::config_path()
+                                    .parent()
+                                    .unwrap_or(std::path::Path::new(".")),
+                            )
                             .spawn();
                     }
                     13 => {

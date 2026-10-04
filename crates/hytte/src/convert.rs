@@ -51,7 +51,12 @@ fn flatten(img: &DynamicImage) -> RgbImage {
 fn jpeg(img: &RgbImage, q: u8) -> Vec<u8> {
     let mut buf = Vec::new();
     // Encoding into a Vec cannot fail for a valid RGB buffer.
-    let _ = JpegEncoder::new_with_quality(&mut buf, q).encode(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgb8);
+    let _ = JpegEncoder::new_with_quality(&mut buf, q).encode(
+        img.as_raw(),
+        img.width(),
+        img.height(),
+        ExtendedColorType::Rgb8,
+    );
     buf
 }
 
@@ -89,14 +94,21 @@ pub fn fit_jpeg(img: &DynamicImage, max: u64) -> Option<Vec<u8>> {
         // Even the lowest quality is too big: scale by the area ratio, with headroom.
         let size = jpeg(&rgb, MIN_QUALITY).len() as f64;
         let f = (max as f64 / size).sqrt() * 0.95;
-        let (w, h) = (((rgb.width() as f64 * f) as u32).max(1), ((rgb.height() as f64 * f) as u32).max(1));
+        let (w, h) = (
+            ((rgb.width() as f64 * f) as u32).max(1),
+            ((rgb.height() as f64 * f) as u32).max(1),
+        );
         rgb = image::imageops::resize(&rgb, w, h, FilterType::Triangle);
     }
     None
 }
 
 /// "Make under N MB". Writes `<name>-<N>mb.jpg` beside the source (or in the output folder).
-pub fn compress(src: &Path, max_mb: u64, dst: impl FnOnce(&str, &str) -> PathBuf) -> Result<Converted, String> {
+pub fn compress(
+    src: &Path,
+    max_mb: u64,
+    dst: impl FnOnce(&str, &str) -> PathBuf,
+) -> Result<Converted, String> {
     let before = std::fs::metadata(src).map_err(|e| e.to_string())?.len();
     let max = max_mb << 20;
     if before <= max {
@@ -106,7 +118,11 @@ pub fn compress(src: &Path, max_mb: u64, dst: impl FnOnce(&str, &str) -> PathBuf
     let bytes = fit_jpeg(&img, max).ok_or("Couldn't get it that small")?;
     let path = dst(&format!("-{max_mb}mb"), "jpg");
     std::fs::write(&path, &bytes).map_err(|e| format!("Write failed: {e}"))?;
-    Ok(Converted { path, before, after: bytes.len() as u64 })
+    Ok(Converted {
+        path,
+        before,
+        after: bytes.len() as u64,
+    })
 }
 
 // ───────────────────────────── PDF ─────────────────────────────
@@ -143,8 +159,13 @@ pub fn pdf_from_pages(pages: &[PdfPage]) -> Vec<u8> {
     };
     // 1 = catalog, 2 = pages, then (page, content, image) per page.
     obj(&mut out, b"<< /Type /Catalog /Pages 2 0 R >>");
-    let kids: String = (0..pages.len()).map(|i| format!("{} 0 R ", 3 + i * 3)).collect();
-    obj(&mut out, format!("<< /Type /Pages /Kids [{kids}] /Count {} >>", pages.len()).as_bytes());
+    let kids: String = (0..pages.len())
+        .map(|i| format!("{} 0 R ", 3 + i * 3))
+        .collect();
+    obj(
+        &mut out,
+        format!("<< /Type /Pages /Kids [{kids}] /Count {} >>", pages.len()).as_bytes(),
+    );
     for (i, p) in pages.iter().enumerate() {
         let (pg, (x, y, w, h)) = place(p.w, p.h);
         let n = 3 + i * 3;
@@ -160,7 +181,14 @@ pub fn pdf_from_pages(pages: &[PdfPage]) -> Vec<u8> {
             .as_bytes(),
         );
         let content = format!("q {w:.2} 0 0 {h:.2} {x:.2} {y:.2} cm /Im0 Do Q");
-        obj(&mut out, format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).as_bytes());
+        obj(
+            &mut out,
+            format!(
+                "<< /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            )
+            .as_bytes(),
+        );
         let mut img = format!(
             "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent 8 /Filter /{} /Length {} >>\nstream\n",
             p.w,
@@ -180,7 +208,11 @@ pub fn pdf_from_pages(pages: &[PdfPage]) -> Vec<u8> {
         out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
     }
     out.extend_from_slice(
-        format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", offs.len() + 1).as_bytes(),
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            offs.len() + 1
+        )
+        .as_bytes(),
     );
     out
 }
@@ -195,23 +227,49 @@ fn page_for(src: &Path) -> Result<PdfPage, String> {
     let gray = img.color().channel_count() <= 2;
     if is_jpeg {
         // Pass the original bytes through: no recompression, no quality loss.
-        return Ok(PdfPage { w, h, gray, dct: true, data: std::fs::read(src).map_err(|e| e.to_string())? });
+        return Ok(PdfPage {
+            w,
+            h,
+            gray,
+            dct: true,
+            data: std::fs::read(src).map_err(|e| e.to_string())?,
+        });
     }
     let raw = flatten(&img).into_raw();
-    Ok(PdfPage { w, h, gray: false, dct: false, data: miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6) })
+    Ok(PdfPage {
+        w,
+        h,
+        gray: false,
+        dct: false,
+        data: miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
+    })
 }
 
 /// One page per image, in order. Output name comes from `dst`.
-pub fn to_pdf(srcs: &[PathBuf], dst: impl FnOnce(&str, &str) -> PathBuf) -> Result<Converted, String> {
+pub fn to_pdf(
+    srcs: &[PathBuf],
+    dst: impl FnOnce(&str, &str) -> PathBuf,
+) -> Result<Converted, String> {
     if srcs.is_empty() {
         return Err("Nothing to convert".into());
     }
-    let pages = srcs.iter().map(|p| page_for(p)).collect::<Result<Vec<_>, _>>()?;
-    let before: u64 = srcs.iter().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.len()).sum();
+    let pages = srcs
+        .iter()
+        .map(|p| page_for(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let before: u64 = srcs
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum();
     let bytes = pdf_from_pages(&pages);
     let path = dst("", "pdf");
     std::fs::write(&path, &bytes).map_err(|e| format!("Write failed: {e}"))?;
-    Ok(Converted { path, before, after: bytes.len() as u64 })
+    Ok(Converted {
+        path,
+        before,
+        after: bytes.len() as u64,
+    })
 }
 
 #[cfg(test)]
@@ -252,37 +310,88 @@ mod tests {
         let dir = std::env::temp_dir().join("hytte-convert");
         let _ = std::fs::create_dir_all(&dir);
         let src = dir.join("small.png");
-        image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255])).save(&src).unwrap();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+            .save(&src)
+            .unwrap();
         let err = compress(&src, 5, |_, _| unreachable!()).err().unwrap();
         assert!(err.starts_with("Already under"), "{err}");
     }
 
     #[test]
     fn transparent_pixels_flatten_to_white() {
-        let img = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0])));
+        let img = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            1,
+            1,
+            image::Rgba([0, 0, 0, 0]),
+        ));
         assert_eq!(flatten(&img).get_pixel(0, 0).0, [255, 255, 255]);
     }
 
     #[test]
     fn pdf_structure_and_xref_offsets_resolve() {
-        let page = |w, h| PdfPage { w, h, gray: false, dct: true, data: vec![1, 2, 3] };
+        let page = |w, h| PdfPage {
+            w,
+            h,
+            gray: false,
+            dct: true,
+            data: vec![1, 2, 3],
+        };
         let pdf = pdf_from_pages(&[page(100, 200), page(300, 100)]);
         // Offsets are byte offsets; the header has non-UTF-8 bytes, so only slice the ASCII tail as text.
-        assert!(pdf.starts_with(b"%PDF-") && pdf.ends_with(b"%%EOF
-"));
-        let find = |needle: &[u8]| pdf.windows(needle.len()).rposition(|w| w == needle).unwrap();
-        let tail = String::from_utf8_lossy(&pdf[find(b"xref
-0 ")..]).into_owned();
-        let sx: usize = tail.rsplit("startxref
-").next().unwrap().lines().next().unwrap().parse().unwrap();
-        assert_eq!(sx, find(b"xref
-0 "), "startxref points at the table");
-        assert!(tail.starts_with("xref
+        assert!(
+            pdf.starts_with(b"%PDF-")
+                && pdf.ends_with(
+                    b"%%EOF
+"
+                )
+        );
+        let find = |needle: &[u8]| {
+            pdf.windows(needle.len())
+                .rposition(|w| w == needle)
+                .unwrap()
+        };
+        let tail = String::from_utf8_lossy(
+            &pdf[find(
+                b"xref
+0 ",
+            )..],
+        )
+        .into_owned();
+        let sx: usize = tail
+            .rsplit(
+                "startxref
+",
+            )
+            .next()
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(
+            sx,
+            find(
+                b"xref
+0 "
+            ),
+            "startxref points at the table"
+        );
+        assert!(
+            tail.starts_with(
+                "xref
 0 9
-"), "1 catalog + 1 pages + 2x3");
+"
+            ),
+            "1 catalog + 1 pages + 2x3"
+        );
         for (i, line) in tail.lines().skip(3).take(8).enumerate() {
             let off: usize = line[..10].parse().unwrap();
-            assert!(pdf[off..].starts_with(format!("{} 0 obj", i + 1).as_bytes()), "object {}", i + 1);
+            assert!(
+                pdf[off..].starts_with(format!("{} 0 obj", i + 1).as_bytes()),
+                "object {}",
+                i + 1
+            );
         }
         assert!(pdf.windows(8).any(|w| w == b"/Count 2"));
     }
@@ -291,7 +400,12 @@ mod tests {
     fn pages_are_fitted_inside_the_margins() {
         let (pg, (x, y, w, h)) = place(4000, 1000); // landscape
         assert_eq!(pg, (842.0, 595.0));
-        assert!(x >= MARGIN - 1e-9 && y >= 0.0 && x + w <= pg.0 - MARGIN + 1e-9 && y + h <= pg.1 - MARGIN + 1e-9);
+        assert!(
+            x >= MARGIN - 1e-9
+                && y >= 0.0
+                && x + w <= pg.0 - MARGIN + 1e-9
+                && y + h <= pg.1 - MARGIN + 1e-9
+        );
     }
 
     #[test]

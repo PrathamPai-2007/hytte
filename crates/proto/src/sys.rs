@@ -6,7 +6,10 @@ pub fn parent_pid(pid: u32) -> Option<u32> {
     use windows::Win32::System::Diagnostics::ToolHelp::*;
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
-        let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut e = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
         let mut out = None;
         if Process32FirstW(snap, &mut e).is_ok() {
             loop {
@@ -32,7 +35,15 @@ pub fn parent_pid(_pid: u32) -> Option<u32> {
 /// Shell wrappers that exit right after running a hook; an agent's real
 /// process is the first ancestor that is *not* one of these.
 pub const SHELL_EXES: &[&str] = &[
-    "cmd.exe", "sh.exe", "bash.exe", "zsh.exe", "fish.exe", "pwsh.exe", "powershell.exe", "nu.exe", "conhost.exe",
+    "cmd.exe",
+    "sh.exe",
+    "bash.exe",
+    "zsh.exe",
+    "fish.exe",
+    "pwsh.exe",
+    "powershell.exe",
+    "nu.exe",
+    "conhost.exe",
 ];
 
 /// The long-lived process behind a hook invocation: climb past throw-away shells.
@@ -40,8 +51,12 @@ pub const SHELL_EXES: &[&str] = &[
 pub fn owner_pid(start: u32) -> u32 {
     let mut cur = start;
     for _ in 0..6 {
-        let Some(parent) = parent_pid(cur).filter(|p| *p != 0 && *p != cur) else { break };
-        let exe = crate::ports::exe_name(parent).unwrap_or_default().to_ascii_lowercase();
+        let Some(parent) = parent_pid(cur).filter(|p| *p != 0 && *p != cur) else {
+            break;
+        };
+        let exe = crate::ports::exe_name(parent)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         cur = parent;
         if !SHELL_EXES.contains(&exe.as_str()) {
             break;

@@ -90,7 +90,11 @@ pub fn add_paths(cfg: &Shelf, items: &mut Vec<ShelfItem>, paths: &[PathBuf]) -> 
         if items.len() >= cfg.max_items || !p.exists() || items.iter().any(|i| &i.path == p) {
             continue;
         }
-        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("item").to_string();
+        let name = p
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("item")
+            .to_string();
         let (path, owned) = if cfg.mode == "copy" {
             let _ = std::fs::create_dir_all(store_dir());
             let dst = unique_in(&store_dir(), &name);
@@ -102,7 +106,13 @@ pub fn add_paths(cfg: &Shelf, items: &mut Vec<ShelfItem>, paths: &[PathBuf]) -> 
             (p.clone(), false)
         };
         let id = next_id(items);
-        items.push(ShelfItem { id, is_dir: path.is_dir(), path, name, owned });
+        items.push(ShelfItem {
+            id,
+            is_dir: path.is_dir(),
+            path,
+            name,
+            owned,
+        });
         n += 1;
     }
     n
@@ -120,14 +130,31 @@ pub fn add_text(cfg: &Shelf, items: &mut Vec<ShelfItem>, text: &str) -> usize {
         .filter(|c| c.is_alphanumeric() || *c == ' ')
         .take(24)
         .collect();
-    let name = format!("{}.txt", if first.trim().is_empty() { "snippet" } else { first.trim() });
+    let name = format!(
+        "{}.txt",
+        if first.trim().is_empty() {
+            "snippet"
+        } else {
+            first.trim()
+        }
+    );
     let path = unique_in(&store_dir(), &name);
     if std::fs::write(&path, text).is_err() {
         return 0;
     }
     let id = next_id(items);
-    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("snippet.txt").to_string();
-    items.push(ShelfItem { id, path, name, is_dir: false, owned: true });
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("snippet.txt")
+        .to_string();
+    items.push(ShelfItem {
+        id,
+        path,
+        name,
+        is_dir: false,
+        owned: true,
+    });
     1
 }
 
@@ -136,7 +163,11 @@ pub fn remove(items: &mut Vec<ShelfItem>, id: u64) {
     if let Some(i) = items.iter().position(|i| i.id == id) {
         let it = items.remove(i);
         if it.owned {
-            let _ = if it.is_dir { std::fs::remove_dir_all(&it.path) } else { std::fs::remove_file(&it.path) };
+            let _ = if it.is_dir {
+                std::fs::remove_dir_all(&it.path)
+            } else {
+                std::fs::remove_file(&it.path)
+            };
         }
     }
 }
@@ -147,12 +178,21 @@ pub fn thumbnail(path: &Path) -> Option<crate::ui_state::ArtBitmap> {
     use windows::core::HSTRING;
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::*;
-    use windows::Win32::UI::Shell::{IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_RESIZETOFIT};
+    use windows::Win32::UI::Shell::{
+        IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_RESIZETOFIT,
+    };
     unsafe {
-        let f: IShellItemImageFactory = SHCreateItemFromParsingName(&HSTRING::from(path.as_os_str()), None).ok()?;
-        let hbm = f.GetImage(SIZE { cx: 64, cy: 64 }, SIIGBF_RESIZETOFIT).ok()?;
+        let f: IShellItemImageFactory =
+            SHCreateItemFromParsingName(&HSTRING::from(path.as_os_str()), None).ok()?;
+        let hbm = f
+            .GetImage(SIZE { cx: 64, cy: 64 }, SIIGBF_RESIZETOFIT)
+            .ok()?;
         let mut bm = BITMAP::default();
-        GetObjectW(hbm.into(), std::mem::size_of::<BITMAP>() as i32, Some(&mut bm as *mut _ as *mut _));
+        GetObjectW(
+            hbm.into(),
+            std::mem::size_of::<BITMAP>() as i32,
+            Some(&mut bm as *mut _ as *mut _),
+        );
         let (w, h) = (bm.bmWidth.max(1), bm.bmHeight.max(1));
         let mut bi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -168,15 +208,26 @@ pub fn thumbnail(path: &Path) -> Option<crate::ui_state::ArtBitmap> {
         };
         let mut px = vec![0u8; (w * h * 4) as usize];
         let dc = CreateCompatibleDC(None);
-        let got = GetDIBits(dc, hbm, 0, h as u32, Some(px.as_mut_ptr() as *mut _), &mut bi, DIB_RGB_COLORS);
+        let got = GetDIBits(
+            dc,
+            hbm,
+            0,
+            h as u32,
+            Some(px.as_mut_ptr() as *mut _),
+            &mut bi,
+            DIB_RGB_COLORS,
+        );
         let _ = DeleteDC(dc);
         let _ = DeleteObject(hbm.into());
         if got == 0 {
             return None;
         }
         // Shell bitmaps are premultiplied ARGB; some carry no alpha at all.
-        if px.chunks_exact(4).all(|p| p[3] == 0) {
-            px.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+        if px.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
+            px.as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|p| p[3] = 255);
         }
         // Centre inside a 64x64 tile.
         let mut out = vec![0u8; 64 * 64 * 4];
@@ -188,7 +239,11 @@ pub fn thumbnail(path: &Path) -> Option<crate::ui_state::ArtBitmap> {
                 out[d..d + 4].copy_from_slice(&px[s..s + 4]);
             }
         }
-        Some(crate::ui_state::ArtBitmap { w: 64, h: 64, bgra: out })
+        Some(crate::ui_state::ArtBitmap {
+            w: 64,
+            h: 64,
+            bgra: out,
+        })
     }
 }
 
@@ -211,7 +266,7 @@ mod tests {
         let mut cfg = Shelf::default();
         let mut items = vec![];
         assert_eq!(add_paths(&cfg, &mut items, &[f.clone(), f.clone()]), 1);
-        assert_eq!(add_paths(&cfg, &mut items, &[f.clone()]), 0);
+        assert_eq!(add_paths(&cfg, &mut items, std::slice::from_ref(&f)), 0);
         assert_eq!(items[0].path, f);
         let id0 = items[0].id;
         remove(&mut items, id0);

@@ -10,7 +10,9 @@
 use crossbeam_channel::{unbounded, Sender};
 use std::collections::HashMap;
 use windows::core::Interface;
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClassNameW;
@@ -30,7 +32,9 @@ pub fn spawn() -> Sender<Cmd> {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
-        let Ok(uia) = (unsafe { CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }) else {
+        let Ok(uia) = (unsafe {
+            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+        }) else {
             return;
         };
         let mut tabs: HashMap<String, IUIAutomationElement> = HashMap::new();
@@ -65,7 +69,12 @@ fn selected_tab(uia: &IUIAutomation, pid: u32) -> Option<IUIAutomationElement> {
     let hwnd = crate::proc::terminal_window_for(pid).filter(|h| is_terminal_window(*h))?;
     unsafe {
         let root = uia.ElementFromHandle(hwnd).ok()?;
-        let cond = uia.CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_TabItemControlTypeId.0)).ok()?;
+        let cond = uia
+            .CreatePropertyCondition(
+                UIA_ControlTypePropertyId,
+                &VARIANT::from(UIA_TabItemControlTypeId.0),
+            )
+            .ok()?;
         let all = root.FindAll(TreeScope_Descendants, &cond).ok()?;
         for i in 0..all.Length().ok()? {
             let el = all.GetElement(i).ok()?;
@@ -106,14 +115,20 @@ mod tests {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
-        let uia: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).unwrap() };
+        let uia: IUIAutomation =
+            unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).unwrap() };
         let name = |e: &IUIAutomationElement| unsafe { e.CurrentName().unwrap().to_string() };
         let before = selected_tab(&uia, pid).expect("selected tab found");
         println!("selected before: {}", name(&before));
         let hwnd = crate::proc::terminal_window_for(pid).unwrap();
         unsafe {
             let root = uia.ElementFromHandle(hwnd).unwrap();
-            let cond = uia.CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_TabItemControlTypeId.0)).unwrap();
+            let cond = uia
+                .CreatePropertyCondition(
+                    UIA_ControlTypePropertyId,
+                    &VARIANT::from(UIA_TabItemControlTypeId.0),
+                )
+                .unwrap();
             let all = root.FindAll(TreeScope_Descendants, &cond).unwrap();
             let other = (0..all.Length().unwrap())
                 .map(|i| all.GetElement(i).unwrap())

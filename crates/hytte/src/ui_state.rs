@@ -3,12 +3,12 @@
 //! window layer feeds it events and clocks.
 
 use crate::animation::{RectSpring, Spring};
+use crate::shelf::ShelfItem;
 use crate::tasks::{TaskState, TaskUpdate};
-use hytte_proto::TaskEvent;
 use hytte_proto::ports::PortInfo;
+use hytte_proto::TaskEvent;
 use std::path::PathBuf;
 use std::sync::Arc;
-use crate::shelf::ShelfItem;
 use std::time::{Duration, Instant};
 
 pub const SUCCESS_HOLD: Duration = Duration::from_secs(3);
@@ -78,7 +78,10 @@ pub struct TaskView {
 
 impl TaskView {
     pub fn running(&self) -> bool {
-        matches!(self.event, TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed)
+        matches!(
+            self.event,
+            TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed
+        )
     }
     pub fn failed(&self) -> bool {
         self.event == TaskEvent::Failed
@@ -166,7 +169,11 @@ pub struct Model {
 /// First word of a command line, lower-cased, without path or `.exe`.
 pub fn command_name(label: &str) -> String {
     let first = label.split_whitespace().next().unwrap_or("");
-    let base = first.rsplit(['\\', '/']).next().unwrap_or(first).to_ascii_lowercase();
+    let base = first
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(first)
+        .to_ascii_lowercase();
     base.strip_suffix(".exe").unwrap_or(&base).to_string()
 }
 
@@ -194,7 +201,9 @@ impl Model {
         let existing = self.tasks.iter().position(|t| t.id == s.task_id);
         // Shell command that ended before the threshold, or was Ctrl-C'd: never shown.
         if shell && terminal {
-            let hidden = existing.map(|i| now < self.tasks[i].visible_after).unwrap_or(true);
+            let hidden = existing
+                .map(|i| now < self.tasks[i].visible_after)
+                .unwrap_or(true);
             if hidden || s.exit_code == Some(130) {
                 if let Some(i) = existing {
                     self.tasks.remove(i);
@@ -208,7 +217,11 @@ impl Model {
             .map(|t| t.lines().map(str::to_owned).collect())
             .unwrap_or_default();
         let attention = match s.event {
-            TaskEvent::NeedsInput => Some(s.message.clone().unwrap_or_else(|| "Needs your input".into())),
+            TaskEvent::NeedsInput => Some(
+                s.message
+                    .clone()
+                    .unwrap_or_else(|| "Needs your input".into()),
+            ),
             _ => None,
         };
         if let Some(i) = existing {
@@ -282,7 +295,11 @@ impl Model {
             TaskEvent::Lost => now.duration_since(t.changed) < LOST_HOLD,
             _ => true, // running, waiting and failed persist
         });
-        if self.chip.as_ref().is_some_and(|c| now.duration_since(c.since) >= CHIP_HOLD) {
+        if self
+            .chip
+            .as_ref()
+            .is_some_and(|c| now.duration_since(c.since) >= CHIP_HOLD)
+        {
             self.chip = None;
         }
         if self.peek_until.is_some_and(|p| now >= p) {
@@ -294,7 +311,10 @@ impl Model {
         if self.force_until.is_some_and(|f| now >= f) {
             self.force_until = None;
         }
-        if self.timer_done.is_some_and(|(_, s)| now.duration_since(s) >= TIMER_DONE_HOLD) {
+        if self
+            .timer_done
+            .is_some_and(|(_, s)| now.duration_since(s) >= TIMER_DONE_HOLD)
+        {
             self.timer_done = None;
         }
         let mut next: Option<Instant> = None;
@@ -329,7 +349,11 @@ impl Model {
 
     /// Move a due timer to the finished card. Returns its kind when it just fired.
     pub fn finish_timer(&mut self, wall_ms: u64, now: Instant) -> Option<crate::timer::TimerKind> {
-        if !self.timer.as_ref().is_some_and(|t| t.remaining_ms(wall_ms) == 0) {
+        if !self
+            .timer
+            .as_ref()
+            .is_some_and(|t| t.remaining_ms(wall_ms) == 0)
+        {
             return None;
         }
         let t = self.timer.take()?;
@@ -506,7 +530,16 @@ impl Model {
         const BLUE: [f32; 3] = [0.35, 0.63, 1.0];
         const PURPLE: [f32; 3] = [0.65, 0.54, 0.98];
         const AMBER: [f32; 3] = [1.0, 0.72, 0.20];
-        if self.mic_muted && matches!(scene, Scene::Idle | Scene::CompactMedia | Scene::ExpHome | Scene::ExpMedia | Scene::ExpPorts) {
+        if self.mic_muted
+            && matches!(
+                scene,
+                Scene::Idle
+                    | Scene::CompactMedia
+                    | Scene::ExpHome
+                    | Scene::ExpMedia
+                    | Scene::ExpPorts
+            )
+        {
             return (RED, 0.8);
         }
         match scene {
@@ -515,7 +548,9 @@ impl Model {
             Scene::ExpTimer => (BLUE, 0.30),
             Scene::ExpTimerDone => (GREEN, 0.8),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
-            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => ([1.0; 3], 0.10),
+            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => {
+                ([1.0; 3], 0.10)
+            }
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
                 Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),
@@ -613,8 +648,11 @@ mod tests {
             progress: None,
             event: ev,
             duration_ms: Some(10),
-            stderr_tail: Some("boom
-bang".into()),
+            stderr_tail: Some(
+                "boom
+bang"
+                    .into(),
+            ),
             source: "run".into(),
             pid: None,
             delay_ms: 0,
@@ -695,7 +733,11 @@ bang".into()),
         m.apply_task(shell("s", "cargo build", TaskEvent::Start, 3000, t0), t0);
         assert_eq!(m.scene(false, false), Scene::Idle, "not shown yet");
         let next = m.expire(t0 + Duration::from_millis(100)).unwrap();
-        assert_eq!(next, t0 + Duration::from_millis(3000), "timer armed for the threshold");
+        assert_eq!(
+            next,
+            t0 + Duration::from_millis(3000),
+            "timer armed for the threshold"
+        );
         m.expire(t0 + Duration::from_millis(3100));
         assert_eq!(m.scene(false, false), Scene::CompactTask);
     }
@@ -713,8 +755,14 @@ bang".into()),
     #[test]
     fn ignored_shell_commands_are_dropped() {
         let t0 = Instant::now();
-        let mut m = Model { ignore: vec!["vim".into()], ..Default::default() };
-        m.apply_task(shell("s", r"C:\tools\Vim.exe file.txt", TaskEvent::Start, 0, t0), t0);
+        let mut m = Model {
+            ignore: vec!["vim".into()],
+            ..Default::default()
+        };
+        m.apply_task(
+            shell("s", r"C:\tools\Vim.exe file.txt", TaskEvent::Start, 0, t0),
+            t0,
+        );
         assert!(m.tasks.is_empty());
     }
 
@@ -735,7 +783,10 @@ bang".into()),
         assert_eq!(m.scene(false, false), Scene::ExpTasks);
         m.expire(t0 + Duration::from_secs(7));
         assert_eq!(m.scene(false, false), Scene::CompactTask);
-        assert!(m.tasks.iter().any(|t| t.needs_input()), "attention persists after the peek");
+        assert!(
+            m.tasks.iter().any(|t| t.needs_input()),
+            "attention persists after the peek"
+        );
     }
 
     #[test]
@@ -744,8 +795,18 @@ bang".into()),
         let mut m = Model::default();
         assert_eq!(m.panels(), vec![Panel::Home]);
         assert!(!m.tabs());
-        m.ports = vec![PortInfo { port: 3000, pid: 9, exe: "node.exe".into() }];
-        m.shelf = vec![ShelfItem { id: 1, path: "a".into(), name: "a".into(), is_dir: false, owned: false }];
+        m.ports = vec![PortInfo {
+            port: 3000,
+            pid: 9,
+            exe: "node.exe".into(),
+        }];
+        m.shelf = vec![ShelfItem {
+            id: 1,
+            path: "a".into(),
+            name: "a".into(),
+            is_dir: false,
+            owned: false,
+        }];
         assert_eq!(m.panels(), vec![Panel::Shelf, Panel::Ports, Panel::Home]);
         assert!(m.tabs());
         assert_eq!(m.panel(), Panel::Shelf);
@@ -758,7 +819,11 @@ bang".into()),
     #[test]
     fn wheel_steps_and_wraps() {
         let mut m = Model::default();
-        m.ports = vec![PortInfo { port: 3000, pid: 9, exe: "node.exe".into() }];
+        m.ports = vec![PortInfo {
+            port: 3000,
+            pid: 9,
+            exe: "node.exe".into(),
+        }];
         assert_eq!(m.panels(), vec![Panel::Ports, Panel::Home]);
         assert_eq!(m.step_panel(1), Panel::Home);
         assert_eq!(m.step_panel(1), Panel::Ports, "wraps forward");
@@ -772,12 +837,26 @@ bang".into()),
         m.now = Some(t0);
         assert_eq!(m.scene(false, true), Scene::Sentinel);
         m.drop_over = true;
-        assert_eq!(m.scene(false, true), Scene::ExpDrop, "drag over the notch while fullscreen");
+        assert_eq!(
+            m.scene(false, true),
+            Scene::ExpDrop,
+            "drag over the notch while fullscreen"
+        );
         m.drop_over = false;
-        m.shelf = vec![ShelfItem { id: 1, path: "a".into(), name: "a".into(), is_dir: false, owned: false }];
+        m.shelf = vec![ShelfItem {
+            id: 1,
+            path: "a".into(),
+            name: "a".into(),
+            is_dir: false,
+            owned: false,
+        }];
         m.force_until = Some(t0 + Duration::from_secs(4));
         m.peek(Panel::Shelf, t0 + Duration::from_secs(4));
-        assert_eq!(m.scene(false, true), Scene::ExpShelf, "feedback after the drop");
+        assert_eq!(
+            m.scene(false, true),
+            Scene::ExpShelf,
+            "feedback after the drop"
+        );
         m.expire(t0 + Duration::from_secs(5));
         assert_eq!(m.scene(false, true), Scene::Sentinel);
     }
@@ -786,9 +865,16 @@ bang".into()),
     fn timer_fires_once_and_card_expires() {
         let t0 = Instant::now();
         let mut m = Model::default();
-        m.timer = Some(crate::timer::Timer::start(crate::timer::TimerKind::Focus, 1, 1_000));
+        m.timer = Some(crate::timer::Timer::start(
+            crate::timer::TimerKind::Focus,
+            1,
+            1_000,
+        ));
         assert_eq!(m.finish_timer(30_000, t0), None, "not due yet");
-        assert_eq!(m.finish_timer(61_000, t0), Some(crate::timer::TimerKind::Focus));
+        assert_eq!(
+            m.finish_timer(61_000, t0),
+            Some(crate::timer::TimerKind::Focus)
+        );
         assert_eq!((m.focus_done, m.timer.is_none()), (1, true));
         assert_eq!(m.finish_timer(99_000, t0), None, "only fires once");
         assert_eq!(m.scene(false, false), Scene::ExpTimerDone);

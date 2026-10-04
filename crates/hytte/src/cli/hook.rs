@@ -67,7 +67,11 @@ fn build(start: bool, o: &Opts) -> HytteMessage {
     m.cwd = o.cwd.clone();
     if !start {
         let code = o.code.unwrap_or(0);
-        m.event = if code == 0 { TaskEvent::Done } else { TaskEvent::Failed };
+        m.event = if code == 0 {
+            TaskEvent::Done
+        } else {
+            TaskEvent::Failed
+        };
         m.exit_code = Some(code);
         m.duration_ms = o.duration_ms;
     }
@@ -90,7 +94,12 @@ mod tests {
 
     #[test]
     fn end_maps_exit_code() {
-        let o = Opts { id: "1".into(), code: Some(3), duration_ms: Some(4000), ..Default::default() };
+        let o = Opts {
+            id: "1".into(),
+            code: Some(3),
+            duration_ms: Some(4000),
+            ..Default::default()
+        };
         let m = build(false, &o);
         assert_eq!((m.event, m.exit_code), (TaskEvent::Failed, Some(3)));
         assert_eq!(build(true, &o).source.as_deref(), Some("shell"));

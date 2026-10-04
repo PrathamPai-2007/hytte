@@ -21,15 +21,13 @@ pub fn spawn_listener(tx: Sender<HytteMessage>) -> std::thread::JoinHandle<()> {
 
 #[cfg(windows)]
 fn run_windows_loop(tx: Sender<HytteMessage>) {
+    use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     };
     use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
-    use windows::Win32::Storage::FileSystem::{
-        FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND,
-    };
+    use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND};
     use windows::Win32::System::Pipes::*;
-    use windows::core::{HSTRING, PCWSTR};
 
     let sddl: Vec<u16> = "D:(A;;GA;;;OW)\0".encode_utf16().collect();
 
@@ -59,7 +57,11 @@ fn run_windows_loop(tx: Sender<HytteMessage>) {
         let h = unsafe {
             CreateNamedPipeW(
                 &HSTRING::from(PIPE_NAME),
-                if first { PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE } else { PIPE_ACCESS_INBOUND },
+                if first {
+                    PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE
+                } else {
+                    PIPE_ACCESS_INBOUND
+                },
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 8,
                 4096,

@@ -30,7 +30,11 @@ pub fn init() {
 
 /// Append one line to the log (best effort).
 pub fn line(msg: &str) {
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
         use std::io::Write;
         let _ = writeln!(f, "{msg}");
     }

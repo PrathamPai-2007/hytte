@@ -7,7 +7,8 @@
 use crate::ui_state::UiEvent;
 use crossbeam_channel::Sender;
 
-const BASE: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\";
+const BASE: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\";
 
 pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
     std::thread::spawn(move || {
@@ -26,7 +27,11 @@ pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
 pub fn friendly_name(key: &str) -> String {
     if key.contains('#') {
         let file = key.rsplit('#').next().unwrap_or(key);
-        return file.strip_suffix(".exe").or_else(|| file.strip_suffix(".EXE")).unwrap_or(file).to_string();
+        return file
+            .strip_suffix(".exe")
+            .or_else(|| file.strip_suffix(".EXE"))
+            .unwrap_or(file)
+            .to_string();
     }
     let pkg = key.split('_').next().unwrap_or(key);
     pkg.rsplit('.').next().unwrap_or(pkg).to_string()
@@ -43,11 +48,22 @@ fn watch_loop(ui_tx: Sender<UiEvent>) {
         for sub in ["webcam", "microphone"] {
             let w: Vec<u16> = format!("{BASE}{sub}").encode_utf16().chain([0]).collect();
             let mut hkey = HKEY::default();
-            if RegOpenKeyExW(HKEY_CURRENT_USER, windows::core::PCWSTR(w.as_ptr()), None, KEY_NOTIFY, &mut hkey)
-                == ERROR_SUCCESS
+            if RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                windows::core::PCWSTR(w.as_ptr()),
+                None,
+                KEY_NOTIFY,
+                &mut hkey,
+            ) == ERROR_SUCCESS
             {
                 if let Ok(ev) = CreateEventW(None, false, false, None) {
-                    let _ = RegNotifyChangeKeyValue(hkey, true, REG_NOTIFY_CHANGE_LAST_SET, Some(ev), true);
+                    let _ = RegNotifyChangeKeyValue(
+                        hkey,
+                        true,
+                        REG_NOTIFY_CHANGE_LAST_SET,
+                        Some(ev),
+                        true,
+                    );
                     events.push(ev);
                     keys.push(hkey);
                 }
@@ -69,7 +85,13 @@ fn watch_loop(ui_tx: Sender<UiEvent>) {
             let i = rc.0 as usize;
             if i < events.len() {
                 // Re-arm only the key that fired.
-                let _ = RegNotifyChangeKeyValue(keys[i], true, REG_NOTIFY_CHANGE_LAST_SET, Some(events[i]), true);
+                let _ = RegNotifyChangeKeyValue(
+                    keys[i],
+                    true,
+                    REG_NOTIFY_CHANGE_LAST_SET,
+                    Some(events[i]),
+                    true,
+                );
             }
         }
         push_state(&ui_tx, &mut last);
@@ -95,7 +117,15 @@ fn in_use(device: &str) -> Option<String> {
     unsafe fn open(parent: HKEY, path: &str) -> Option<HKEY> {
         let w: Vec<u16> = path.encode_utf16().chain([0]).collect();
         let mut h = HKEY::default();
-        (unsafe { RegOpenKeyExW(parent, windows::core::PCWSTR(w.as_ptr()), None, KEY_READ, &mut h) } == ERROR_SUCCESS)
+        (unsafe {
+            RegOpenKeyExW(
+                parent,
+                windows::core::PCWSTR(w.as_ptr()),
+                None,
+                KEY_READ,
+                &mut h,
+            )
+        } == ERROR_SUCCESS)
             .then_some(h)
     }
     unsafe fn children(h: HKEY) -> Vec<String> {
@@ -105,7 +135,16 @@ fn in_use(device: &str) -> Option<String> {
             let mut buf = vec![0u16; 512];
             let mut len = buf.len() as u32;
             let rc = unsafe {
-                RegEnumKeyExW(h, i, Some(windows::core::PWSTR(buf.as_mut_ptr())), &mut len, None, None, None, None)
+                RegEnumKeyExW(
+                    h,
+                    i,
+                    Some(windows::core::PWSTR(buf.as_mut_ptr())),
+                    &mut len,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
             };
             if rc != ERROR_SUCCESS || i > 512 {
                 break;
@@ -154,7 +193,14 @@ fn active(k: windows::Win32::System::Registry::HKEY) -> bool {
         let mut data = [0u8; 8];
         let mut len = 8u32;
         let rc = unsafe {
-            RegQueryValueExW(k, windows::core::PCWSTR(n.as_ptr()), None, None, Some(data.as_mut_ptr()), Some(&mut len))
+            RegQueryValueExW(
+                k,
+                windows::core::PCWSTR(n.as_ptr()),
+                None,
+                None,
+                Some(data.as_mut_ptr()),
+                Some(&mut len),
+            )
         };
         (rc == ERROR_SUCCESS && len == 8).then(|| u64::from_le_bytes(data))
     }
@@ -167,7 +213,10 @@ mod tests {
 
     #[test]
     fn names() {
-        assert_eq!(friendly_name("Microsoft.WindowsCamera_8wekyb3d8bbwe"), "WindowsCamera");
+        assert_eq!(
+            friendly_name("Microsoft.WindowsCamera_8wekyb3d8bbwe"),
+            "WindowsCamera"
+        );
         assert_eq!(friendly_name("C:#Program Files#Zoom#bin#Zoom.exe"), "Zoom");
         assert_eq!(friendly_name("chrome"), "chrome");
     }

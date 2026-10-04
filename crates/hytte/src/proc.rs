@@ -26,7 +26,9 @@ pub fn foreground_exe() -> Option<String> {
 /// False once the process has exited (or can't be opened at all).
 pub fn is_alive(pid: u32) -> bool {
     unsafe {
-        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
         let mut code = 0u32;
         let ok = windows::Win32::System::Threading::GetExitCodeProcess(h, &mut code).is_ok();
         let _ = CloseHandle(h);
@@ -49,7 +51,9 @@ unsafe extern "system" fn enum_cb(h: HWND, lp: LPARAM) -> BOOL {
     let f = unsafe { &mut *(lp.0 as *mut Find) };
     // Visible, un-owned, captioned top-level windows only (skips tool/hidden helpers).
     if !unsafe { IsWindowVisible(h) }.as_bool()
-        || !unsafe { GetWindow(h, GW_OWNER) }.map(|o| o.0.is_null()).unwrap_or(true)
+        || !unsafe { GetWindow(h, GW_OWNER) }
+            .map(|o| o.0.is_null())
+            .unwrap_or(true)
         || unsafe { GetWindowTextW(h, &mut [0u16; 4]) } == 0
     {
         return BOOL(1);
@@ -57,7 +61,9 @@ unsafe extern "system" fn enum_cb(h: HWND, lp: LPARAM) -> BOOL {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
     let hit = match &f.stem {
-        Some(s) => exe_name(pid).is_some_and(|e| e.to_ascii_lowercase().trim_end_matches(".exe") == s),
+        Some(s) => {
+            exe_name(pid).is_some_and(|e| e.to_ascii_lowercase().trim_end_matches(".exe") == s)
+        }
         None => pid == f.pid,
     };
     if hit {
@@ -75,7 +81,11 @@ fn find_window(mut f: Find) -> Option<HWND> {
 }
 
 fn top_window_of(pid: u32) -> Option<HWND> {
-    find_window(Find { pid, stem: None, hwnd: HWND::default() })
+    find_window(Find {
+        pid,
+        stem: None,
+        hwnd: HWND::default(),
+    })
 }
 
 /// The window hosting the terminal/agent that owns `pid`: walk up the process
@@ -120,10 +130,16 @@ pub fn focus_app(aumid: &str) {
         return;
     }
     let stem = app_stem(aumid);
-    if let Some(h) = find_window(Find { pid: 0, stem: Some(stem), hwnd: HWND::default() }) {
+    if let Some(h) = find_window(Find {
+        pid: 0,
+        stem: Some(stem),
+        hwnd: HWND::default(),
+    }) {
         focus_window(h);
     } else if aumid.contains('!') {
-        let _ = std::process::Command::new("explorer").arg(format!("shell:AppsFolder\\{aumid}")).spawn();
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("shell:AppsFolder\\{aumid}"))
+            .spawn();
     }
 }
 
@@ -132,7 +148,10 @@ mod tests {
     #[test]
     fn app_stems() {
         assert_eq!(super::app_stem("Spotify.exe"), "spotify");
-        assert_eq!(super::app_stem("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify"), "spotify");
+        assert_eq!(
+            super::app_stem("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify"),
+            "spotify"
+        );
         assert_eq!(super::app_stem("Chrome"), "chrome");
     }
 

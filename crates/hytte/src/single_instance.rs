@@ -9,10 +9,10 @@ pub struct Guard {
 pub fn acquire(name: &str) -> Result<Guard, ()> {
     #[cfg(windows)]
     {
-        use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
-        use windows::Win32::System::Threading::CreateMutexW;
         use windows::core::HSTRING;
         use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+        use windows::Win32::System::Threading::CreateMutexW;
         unsafe {
             let h: HANDLE = CreateMutexW(None, false, &HSTRING::from(format!("Local\\{name}")))
                 .map_err(|_| ())?;

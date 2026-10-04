@@ -12,13 +12,26 @@ pub struct PortInfo {
 
 /// Executables that listen on ports but are never a dev server.
 const SYSTEM_EXES: &[&str] = &[
-    "svchost.exe", "system", "lsass.exe", "services.exe", "wininit.exe", "spoolsv.exe", "msedgewebview2.exe",
-    "searchhost.exe", "onedrive.exe", "dashost.exe",
+    "svchost.exe",
+    "system",
+    "lsass.exe",
+    "services.exe",
+    "wininit.exe",
+    "spoolsv.exe",
+    "msedgewebview2.exe",
+    "searchhost.exe",
+    "onedrive.exe",
+    "dashost.exe",
 ];
 
 /// Pure selection: keep `watch`ed ports (or every non-system listener when
 /// `show_all`), drop pid 0/4 and system hosts, de-duplicate v4/v6 pairs.
-pub fn filter(rows: &[(u16, u32)], watch: &[u16], show_all: bool, exe_of: impl Fn(u32) -> Option<String>) -> Vec<PortInfo> {
+pub fn filter(
+    rows: &[(u16, u32)],
+    watch: &[u16],
+    show_all: bool,
+    exe_of: impl Fn(u32) -> Option<String>,
+) -> Vec<PortInfo> {
     let mut out: Vec<PortInfo> = vec![];
     for &(port, pid) in rows {
         if pid <= 4 || out.iter().any(|p| p.port == port) {
@@ -53,13 +66,28 @@ mod win {
         unsafe {
             for af in [AF_INET.0 as u32, AF_INET6.0 as u32] {
                 let mut size = 0u32;
-                let _ = GetExtendedTcpTable(None, &mut size, false, af, TCP_TABLE_OWNER_PID_LISTENER, 0);
+                let _ = GetExtendedTcpTable(
+                    None,
+                    &mut size,
+                    false,
+                    af,
+                    TCP_TABLE_OWNER_PID_LISTENER,
+                    0,
+                );
                 if size == 0 {
                     continue;
                 }
                 let mut buf = vec![0u8; size as usize + 256];
                 size = buf.len() as u32;
-                if GetExtendedTcpTable(Some(buf.as_mut_ptr() as *mut _), &mut size, false, af, TCP_TABLE_OWNER_PID_LISTENER, 0) != 0 {
+                if GetExtendedTcpTable(
+                    Some(buf.as_mut_ptr() as *mut _),
+                    &mut size,
+                    false,
+                    af,
+                    TCP_TABLE_OWNER_PID_LISTENER,
+                    0,
+                ) != 0
+                {
                     continue;
                 }
                 let n = *(buf.as_ptr() as *const u32) as usize;
@@ -92,10 +120,18 @@ mod win {
             let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             let mut buf = [0u16; 520];
             let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len);
+            let ok = QueryFullProcessImageNameW(
+                h,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            );
             let _ = CloseHandle(h);
             ok.ok()?;
-            String::from_utf16_lossy(&buf[..len as usize]).rsplit('\\').next().map(str::to_owned)
+            String::from_utf16_lossy(&buf[..len as usize])
+                .rsplit('\\')
+                .next()
+                .map(str::to_owned)
         }
     }
 
@@ -109,7 +145,8 @@ mod win {
             return Err("refusing to kill a protected process".into());
         }
         unsafe {
-            let h = OpenProcess(PROCESS_TERMINATE, false, pid).map_err(|e| format!("can't open process: {e}"))?;
+            let h = OpenProcess(PROCESS_TERMINATE, false, pid)
+                .map_err(|e| format!("can't open process: {e}"))?;
             let r = TerminateProcess(h, 1).map_err(|e| format!("terminate failed: {e}"));
             let _ = CloseHandle(h);
             r
@@ -123,17 +160,32 @@ mod tests {
 
     #[test]
     fn filter_rules() {
-        let exe = |pid: u32| Some(match pid {
-            10 => "node.exe".to_string(),
-            11 => "svchost.exe".to_string(),
-            12 => "python.exe".to_string(),
-            _ => "x.exe".into(),
-        });
-        let rows = [(3000, 10), (135, 11), (9999, 12), (3000, 10), (80, 4), (5432, 13)];
+        let exe = |pid: u32| {
+            Some(match pid {
+                10 => "node.exe".to_string(),
+                11 => "svchost.exe".to_string(),
+                12 => "python.exe".to_string(),
+                _ => "x.exe".into(),
+            })
+        };
+        let rows = [
+            (3000, 10),
+            (135, 11),
+            (9999, 12),
+            (3000, 10),
+            (80, 4),
+            (5432, 13),
+        ];
         let got = filter(&rows, &[3000, 5432], false, exe);
-        assert_eq!(got.iter().map(|p| p.port).collect::<Vec<_>>(), vec![3000, 5432]);
+        assert_eq!(
+            got.iter().map(|p| p.port).collect::<Vec<_>>(),
+            vec![3000, 5432]
+        );
         let all = filter(&rows, &[3000], true, exe);
-        assert_eq!(all.iter().map(|p| p.port).collect::<Vec<_>>(), vec![3000, 5432, 9999]);
+        assert_eq!(
+            all.iter().map(|p| p.port).collect::<Vec<_>>(),
+            vec![3000, 5432, 9999]
+        );
     }
 
     #[cfg(windows)]
