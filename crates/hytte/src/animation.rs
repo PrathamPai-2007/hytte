@@ -93,6 +93,11 @@ impl Spring {
     }
 }
 
+/// Expanding: lively, with a small overshoot.
+const GROW: (f64, f64) = (0.78, 0.28);
+/// Collapsing: slower and critically damped, so the pill eases shut without a bounce.
+const SHRINK: (f64, f64) = (1.0, 0.40);
+
 /// Rectangular spring for window bounds (x is fixed centre; we animate w/h).
 #[derive(Debug, Clone, Copy)]
 pub struct RectSpring {
@@ -108,6 +113,16 @@ impl RectSpring {
         }
     }
     pub fn set_target(&mut self, w: f64, h: f64) {
+        // Pick the feel when the target changes (not every frame), so an
+        // expansion's overshoot is never re-read as a collapse.
+        if (w, h) != (self.w.target, self.h.target) {
+            let shrinking = w * h < self.w.target * self.h.target;
+            let (zeta, period) = if shrinking { SHRINK } else { GROW };
+            for s in [&mut self.w, &mut self.h] {
+                s.zeta = zeta;
+                s.period = period;
+            }
+        }
         self.w.set_target(w);
         self.h.set_target(h);
     }
@@ -172,6 +187,24 @@ mod tests {
                 "zeta {zeta}"
             );
         }
+    }
+
+    #[test]
+    fn collapse_is_slower_and_does_not_overshoot() {
+        let run = |from: (f64, f64), to: (f64, f64)| {
+            let mut r = RectSpring::new(from.0, from.1);
+            r.set_target(to.0, to.1);
+            let (mut t, mut dip) = (0.0, 0.0f64);
+            while r.advance(1.0 / 120.0) {
+                t += 1.0 / 120.0;
+                dip = dip.max(to.1 - r.h.pos);
+            }
+            (t, dip)
+        };
+        let (open, _) = run((120.0, 24.0), (380.0, 128.0));
+        let (close, dip) = run((380.0, 128.0), (120.0, 24.0));
+        assert!(close > open, "collapse {close:.2}s vs expand {open:.2}s");
+        assert!(dip < 0.01, "collapse dipped {dip:.2}px below its target");
     }
 
     #[test]
