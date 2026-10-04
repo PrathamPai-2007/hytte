@@ -355,14 +355,28 @@ mod win {
                     }
                     UiEvent::Ports(p) => self.model.set_ports(p),
                     UiEvent::ShelfAdd(job) => {
-                        let mut n = crate::shelf::add_paths(
-                            &self.cfg.shelf,
-                            &mut self.model.shelf,
-                            &job.paths,
-                        );
-                        if let Some(t) = &job.text {
-                            n += crate::shelf::add_text(&self.cfg.shelf, &mut self.model.shelf, t);
-                        }
+                        // Copying (shelf.mode = "copy") and writing text snippets can take
+                        // a while: do the file work on a worker so the pill keeps animating.
+                        let cfg = self.cfg.shelf.clone();
+                        let existing = crate::shelf::paths(&self.model.shelf);
+                        let room = crate::shelf::room(&cfg, &self.model.shelf);
+                        let sh = self.shared.clone();
+                        std::thread::spawn(move || {
+                            let staged = crate::shelf::stage(
+                                &cfg,
+                                &job.paths,
+                                job.text.as_deref(),
+                                &existing,
+                                room,
+                            );
+                            if !staged.is_empty() {
+                                push_event(&sh, UiEvent::ShelfStaged(staged));
+                            }
+                        });
+                    }
+                    UiEvent::ShelfStaged(staged) => {
+                        let n =
+                            crate::shelf::insert(&self.cfg.shelf, &mut self.model.shelf, staged);
                         if n > 0 {
                             self.save_shelf();
                             self.model.peek(Panel::Shelf, now + Duration::from_secs(5));
