@@ -7,6 +7,9 @@ use std::path::PathBuf;
 pub struct General {
     #[serde(default)]
     pub autostart: bool,
+    /// Put the folder holding `notch.exe` on the user's PATH at startup.
+    #[serde(default = "default_true")]
+    pub add_to_path: bool,
     #[serde(default = "default_monitor")]
     pub monitor: String,
     #[serde(default = "default_true")]
@@ -39,6 +42,7 @@ impl Default for General {
     fn default() -> Self {
         Self {
             autostart: false,
+            add_to_path: true,
             monitor: "primary".into(),
             solid_pill: true,
             acrylic: false,
