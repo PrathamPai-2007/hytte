@@ -41,7 +41,7 @@ Example: `[ports] open_https = false`.
    pub open_https: bool,
    ```
    For a non-zero default, use `#[serde(default = "fn_name")]` and a function returning it, **and** update that struct's `impl Default`.
-2. Read it where needed through `self.cfg` on the UI thread, or pass a clone to the worker that needs it.
+2. Read it where needed through `self.cfg` on the UI thread, so a live config edit takes effect at once. If you derive state from it at startup, or pass a clone to a worker, also refresh that state in `Ui::apply_config` ([section 11](11-configuration-and-files.md#live-reload)).
 3. Document it in [section 11](11-configuration-and-files.md#every-setting). If users will commonly change it, also add it to the main README's settings block.
 
 Old config files keep working because of the default. Never rename or remove a key without keeping the old name readable (`#[serde(alias = "old")]`).
