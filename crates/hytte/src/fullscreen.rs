@@ -13,7 +13,15 @@ pub enum Suppress {
 }
 
 /// Pure decision, separated from the OS queries so it can be tested.
-pub fn decide(cfg: &General, fg_exe: Option<&str>, busy: bool, covers: bool) -> Suppress {
+/// `shell` means the foreground is the desktop or taskbar (or there is no foreground window):
+/// nothing is fullscreen there, whatever the notification-state query says.
+pub fn decide(
+    cfg: &General,
+    fg_exe: Option<&str>,
+    busy: bool,
+    covers: bool,
+    shell: bool,
+) -> Suppress {
     let listed = |l: &[String]| fg_exe.is_some_and(|e| l.iter().any(|x| x.eq_ignore_ascii_case(e)));
     if listed(&cfg.deny_list) {
         return Suppress::Hide;
@@ -21,7 +29,7 @@ pub fn decide(cfg: &General, fg_exe: Option<&str>, busy: bool, covers: bool) -> 
     if !cfg.suppress_fullscreen || listed(&cfg.allow_list) {
         return Suppress::Show;
     }
-    if busy || covers {
+    if !shell && (busy || covers) {
         Suppress::Hide
     } else {
         Suppress::Show
@@ -33,8 +41,10 @@ pub fn evaluate(cfg: &General, monitor: (i32, i32, i32, i32)) -> Suppress {
     #[cfg(windows)]
     {
         let exe = crate::proc::foreground_exe();
-        let covers = win::foreground_covers(monitor);
-        decide(cfg, exe.as_deref(), win::busy(), covers)
+        let (covers, shell) = win::foreground(monitor);
+        let hide = decide(cfg, exe.as_deref(), win::busy(), covers, shell);
+        crate::logging::note_fullscreen(hide == Suppress::Hide, exe.as_deref(), covers, shell);
+        hide
     }
     #[cfg(not(windows))]
     {
@@ -61,28 +71,36 @@ mod win {
         }
     }
 
-    /// Foreground window covers the whole monitor and is not the shell.
-    pub fn foreground_covers(mon: (i32, i32, i32, i32)) -> bool {
+    /// `(covers, shell)` for the foreground window: whether it covers the whole monitor, and
+    /// whether it belongs to the shell (desktop, taskbar) or doesn't exist.
+    pub fn foreground(mon: (i32, i32, i32, i32)) -> (bool, bool) {
         unsafe {
             let fg = GetForegroundWindow();
             if fg.0.is_null() {
-                return false;
+                return (false, true);
             }
             let mut cls = [0u16; 64];
             let n = GetClassNameW(fg, &mut cls) as usize;
             let cls = String::from_utf16_lossy(&cls[..n]);
             if matches!(
                 cls.as_str(),
-                "Progman" | "WorkerW" | "Shell_TrayWnd" | "HyttePill"
+                "Progman"
+                    | "WorkerW"
+                    | "SHELLDLL_DefView"
+                    | "Shell_TrayWnd"
+                    | "Shell_SecondaryTrayWnd"
+                    | "HyttePill"
             ) {
-                return false;
+                return (false, true);
             }
             let mut r = RECT::default();
             if GetWindowRect(fg, &mut r).is_err() {
-                return false;
+                return (false, false);
             }
             let (mx, my, mw, mh) = mon;
-            r.left <= mx && r.top <= my && r.right - r.left >= mw && r.bottom - r.top >= mh
+            let covers =
+                r.left <= mx && r.top <= my && r.right - r.left >= mw && r.bottom - r.top >= mh;
+            (covers, false)
         }
     }
 }
@@ -94,14 +112,41 @@ mod tests {
     #[test]
     fn lists_override() {
         let mut g = General::default();
-        assert_eq!(decide(&g, Some("game.exe"), true, false), Suppress::Hide);
+        assert_eq!(
+            decide(&g, Some("game.exe"), true, false, false),
+            Suppress::Hide
+        );
         g.allow_list = vec!["GAME.exe".into()];
-        assert_eq!(decide(&g, Some("game.exe"), true, false), Suppress::Show);
+        assert_eq!(
+            decide(&g, Some("game.exe"), true, false, false),
+            Suppress::Show
+        );
         g.deny_list = vec!["game.exe".into()];
-        assert_eq!(decide(&g, Some("game.exe"), false, false), Suppress::Hide);
+        assert_eq!(
+            decide(&g, Some("game.exe"), false, false, false),
+            Suppress::Hide
+        );
         g.deny_list.clear();
         g.suppress_fullscreen = false;
         g.allow_list.clear();
-        assert_eq!(decide(&g, None, true, true), Suppress::Show);
+        assert_eq!(decide(&g, None, true, true, false), Suppress::Show);
+    }
+
+    #[test]
+    fn desktop_is_never_fullscreen() {
+        let mut g = General::default();
+        assert_eq!(
+            decide(&g, Some("explorer.exe"), true, true, true),
+            Suppress::Show
+        );
+        assert_eq!(
+            decide(&g, Some("game.exe"), true, false, false),
+            Suppress::Hide
+        );
+        g.deny_list = vec!["explorer.exe".into()];
+        assert_eq!(
+            decide(&g, Some("explorer.exe"), false, false, true),
+            Suppress::Hide
+        );
     }
 }
