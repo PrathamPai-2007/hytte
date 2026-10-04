@@ -35,6 +35,8 @@ pub enum UiEvent {
     Ports(Vec<PortInfo>),
     /// Dropped onto the notch while the shelf is the drop target.
     ShelfAdd(crate::drop::DropJob),
+    /// Drop items whose file work (copies, snippets) finished on a worker thread.
+    ShelfStaged(Vec<ShelfItem>),
     Thumb(u64, Option<Arc<ArtBitmap>>),
     SetClipboard(String),
     DragEnter,

@@ -83,11 +83,28 @@ fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Add dropped paths; returns how many were added (existing paths are skipped).
-pub fn add_paths(cfg: &Shelf, items: &mut Vec<ShelfItem>, paths: &[PathBuf]) -> usize {
-    let mut n = 0;
+/// File work for a drop, safe to run off the UI thread: in copy mode the paths
+/// are copied into the shelf folder, and dropped text is written as a snippet.
+/// Returns items without ids, in drop order; at most `room` of them, skipping
+/// missing paths and (reference mode) paths already in `existing`. Hand the
+/// result to [`insert`] on the thread that owns the shelf.
+pub fn stage(
+    cfg: &Shelf,
+    paths: &[PathBuf],
+    text: Option<&str>,
+    existing: &[PathBuf],
+    room: usize,
+) -> Vec<ShelfItem> {
+    // Serialises picking a free name and creating it, so two drops copying
+    // files with the same name at once cannot both pick `name.ext`.
+    static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let mut out: Vec<ShelfItem> = vec![];
     for p in paths {
-        if items.len() >= cfg.max_items || !p.exists() || items.iter().any(|i| &i.path == p) {
+        if out.len() >= room
+            || !p.exists()
+            || existing.contains(p)
+            || out.iter().any(|i| !i.owned && &i.path == p)
+        {
             continue;
         }
         let name = p
@@ -96,66 +113,111 @@ pub fn add_paths(cfg: &Shelf, items: &mut Vec<ShelfItem>, paths: &[PathBuf]) -> 
             .unwrap_or("item")
             .to_string();
         let (path, owned) = if cfg.mode == "copy" {
+            let _store = STORE.lock().unwrap_or_else(|e| e.into_inner());
             let _ = std::fs::create_dir_all(store_dir());
             let dst = unique_in(&store_dir(), &name);
             if copy_recursive(p, &dst).is_err() {
+                // Don't leave a half-copied folder behind.
+                let _ = if dst.is_dir() {
+                    std::fs::remove_dir_all(&dst)
+                } else {
+                    std::fs::remove_file(&dst)
+                };
                 continue;
             }
             (dst, true)
         } else {
             (p.clone(), false)
         };
-        let id = next_id(items);
-        items.push(ShelfItem {
-            id,
+        out.push(ShelfItem {
+            id: 0,
             is_dir: path.is_dir(),
             path,
             name,
             owned,
         });
+    }
+    if let Some(text) = text.filter(|t| out.len() < room && !t.trim().is_empty()) {
+        let _store = STORE.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = std::fs::create_dir_all(store_dir());
+        let first: String = text
+            .trim()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ')
+            .take(24)
+            .collect();
+        let name = format!(
+            "{}.txt",
+            if first.trim().is_empty() {
+                "snippet"
+            } else {
+                first.trim()
+            }
+        );
+        let path = unique_in(&store_dir(), &name);
+        if std::fs::write(&path, text).is_ok() {
+            let name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("snippet.txt")
+                .to_string();
+            out.push(ShelfItem {
+                id: 0,
+                path,
+                name,
+                is_dir: false,
+                owned: true,
+            });
+        }
+    }
+    out
+}
+
+/// Add staged items, assigning ids. The shelf may have changed while they were
+/// staged, so limits and duplicates are checked again; a copy that no longer
+/// fits is deleted. Returns how many were added.
+pub fn insert(cfg: &Shelf, items: &mut Vec<ShelfItem>, staged: Vec<ShelfItem>) -> usize {
+    let mut n = 0;
+    for mut it in staged {
+        if items.len() >= cfg.max_items || (!it.owned && items.iter().any(|i| i.path == it.path)) {
+            if it.owned {
+                let _ = if it.is_dir {
+                    std::fs::remove_dir_all(&it.path)
+                } else {
+                    std::fs::remove_file(&it.path)
+                };
+            }
+            continue;
+        }
+        it.id = next_id(items);
+        items.push(it);
         n += 1;
     }
     n
 }
 
+/// Free slots on the shelf.
+pub fn room(cfg: &Shelf, items: &[ShelfItem]) -> usize {
+    cfg.max_items.saturating_sub(items.len())
+}
+
+/// Paths already on the shelf (for [`stage`]'s duplicate check).
+pub fn paths(items: &[ShelfItem]) -> Vec<PathBuf> {
+    items.iter().map(|i| i.path.clone()).collect()
+}
+
+/// Stage and insert in one go (blocking); returns how many were added.
+#[cfg(test)]
+pub fn add_paths(cfg: &Shelf, items: &mut Vec<ShelfItem>, paths_in: &[PathBuf]) -> usize {
+    let staged = stage(cfg, paths_in, None, &paths(items), room(cfg, items));
+    insert(cfg, items, staged)
+}
+
 /// Stash dropped text as a snippet file so it can be dragged out like any file.
+#[cfg(test)]
 pub fn add_text(cfg: &Shelf, items: &mut Vec<ShelfItem>, text: &str) -> usize {
-    if items.len() >= cfg.max_items || text.trim().is_empty() {
-        return 0;
-    }
-    let _ = std::fs::create_dir_all(store_dir());
-    let first: String = text
-        .trim()
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ')
-        .take(24)
-        .collect();
-    let name = format!(
-        "{}.txt",
-        if first.trim().is_empty() {
-            "snippet"
-        } else {
-            first.trim()
-        }
-    );
-    let path = unique_in(&store_dir(), &name);
-    if std::fs::write(&path, text).is_err() {
-        return 0;
-    }
-    let id = next_id(items);
-    let name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("snippet.txt")
-        .to_string();
-    items.push(ShelfItem {
-        id,
-        path,
-        name,
-        is_dir: false,
-        owned: true,
-    });
-    1
+    let staged = stage(cfg, &[], Some(text), &[], room(cfg, items));
+    insert(cfg, items, staged)
 }
 
 /// Remove an item; deletes the file only if the shelf owns it.
@@ -281,5 +343,37 @@ mod tests {
         let id0 = items[0].id;
         remove(&mut items, id0);
         assert!(!p.exists());
+    }
+
+    #[test]
+    fn copy_mode_stages_then_inserts_within_limits() {
+        let dir = std::env::temp_dir().join("hytte-shelf-copy-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("folder")).unwrap();
+        let f = dir.join("b.txt");
+        std::fs::write(&f, "hi").unwrap();
+        std::fs::write(dir.join("folder").join("c.txt"), "x").unwrap();
+        let cfg = Shelf {
+            mode: "copy".into(),
+            max_items: 2,
+            ..Shelf::default()
+        };
+        let staged = stage(&cfg, &[f.clone(), dir.join("folder")], None, &[], 2);
+        assert_eq!(staged.len(), 2);
+        assert!(staged
+            .iter()
+            .all(|i| i.owned && i.path.exists() && i.path != f));
+        assert!(staged[1].is_dir && staged[1].path.join("c.txt").exists());
+        // The shelf filled up while copying: the copy that no longer fits is deleted.
+        let mut items = vec![];
+        add_text(&cfg, &mut items, "already here");
+        let late = staged[1].path.clone();
+        assert_eq!(insert(&cfg, &mut items, staged), 1);
+        assert_eq!(items.len(), 2);
+        assert!(!late.exists());
+        for it in items.clone() {
+            remove(&mut items, it.id);
+        }
+        assert!(f.exists(), "the original is untouched");
     }
 }
