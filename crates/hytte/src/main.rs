@@ -23,6 +23,7 @@ mod privacy;
 mod proc;
 #[cfg(windows)]
 mod render;
+mod setup;
 mod shelf;
 mod single_instance;
 #[cfg(windows)]
@@ -51,6 +52,14 @@ fn main() {
     let cfg = config::load();
     config::ensure_autostart(cfg.general.autostart);
     config::ensure_start_menu();
+    #[cfg(windows)]
+    if cfg.general.add_to_path {
+        std::thread::spawn(|| {
+            if let Err(e) = setup::ensure_on_path() {
+                eprintln!("hytte: PATH not updated: {e}");
+            }
+        });
+    }
 
     let (msg_tx, msg_rx) = unbounded::<hytte_proto::HytteMessage>();
     let (task_tx, task_rx) = unbounded::<tasks::TaskUpdate>();

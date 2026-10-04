@@ -1482,7 +1482,8 @@ mod win {
                 if code == WM_RBUTTONUP {
                     let (paused, auto) = with_ui(|ui| (ui.paused, ui.cfg.general.autostart))
                         .unwrap_or((false, false));
-                    crate::tray::Tray::new(hwnd).popup(paused, auto);
+                    let terminal = crate::setup::is_set_up();
+                    crate::tray::Tray::new(hwnd).popup(paused, auto, terminal);
                 }
                 return LRESULT(0);
             }
@@ -1507,6 +1508,7 @@ mod win {
                             )
                             .spawn();
                     }
+                    14 => crate::setup::tray_setup(),
                     13 => {
                         with_ui(|ui| {
                             let g = &mut ui.cfg.general;
