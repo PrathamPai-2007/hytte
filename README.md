@@ -399,7 +399,7 @@ manifests/winget/        packaging template
 - Only the **bounding box of the pill** is drawn and presented each frame, not the whole canvas.
 - Layout is in logical pixels and scaled for **per-monitor DPI**.
 - Size, corner radius, glow, hover brightness, content fade and visibility are **critically-damped springs** integrated with real frame deltas in small sub-steps. Scene changes cross-fade and slide the content in.
-- **No idle loop.** A ticker thread parks when nothing moves. During motion it is paced by `DwmFlush` (vsync); for ambient effects (spinner, equaliser, the amber pulse) it ticks at about 30 fps. With *Animation effects* off in Windows, springs snap and ambient motion stops.
+- **No idle loop.** A ticker thread parks when nothing moves. During motion it is paced by `DwmFlush` (vsync); for ambient effects (spinner, equaliser, the amber pulse, a fresh failure's red pulse, which settles after a few seconds) it ticks at about 30 fps. The fullscreen sentinel bar never animates. With *Animation effects* off in Windows, springs snap and ambient motion stops.
 
 ### Threading model
 

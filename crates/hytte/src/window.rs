@@ -524,7 +524,8 @@ mod win {
                         .record(gap.as_micros() as u32, now.elapsed().as_micros() as u32);
                 }
             }
-            let ambient = !self.anim.reduce && self.shown && self.model.ambient(self.anim.scene);
+            let ambient =
+                !self.anim.reduce && self.shown && self.model.ambient(self.anim.scene, now);
             let sh = &self.shared;
             sh.fast.store(moving, Ordering::Relaxed);
             sh.animating.store(moving || ambient, Ordering::SeqCst);
