@@ -607,6 +607,9 @@ pub struct Anim {
     pub vis: Spring,
     pub t: f64,
     pub scene: Scene,
+    /// The scene being left; its content fades out (`out`) under the new one.
+    pub prev: Scene,
+    pub out: Spring,
     pub reduce: bool,
 }
 
@@ -623,12 +626,20 @@ impl Anim {
             vis,
             t: 0.0,
             scene: Scene::Idle,
+            prev: Scene::Idle,
+            out: Spring::unit(0.0, 1.0, 0.16),
             reduce: false,
         }
     }
 
     pub fn set_scene(&mut self, scene: Scene, size: (f64, f64), glow: ([f32; 3], f32)) {
         if scene != self.scene {
+            // Fade the old content out from wherever its own fade-in had got to,
+            // instead of cutting it in one frame.
+            self.prev = self.scene;
+            self.out.pos = self.content.pos.clamp(0.0, 1.0);
+            self.out.vel = 0.0;
+            self.out.set_target(0.0);
             self.scene = scene;
             self.content.pos = 0.0;
             self.content.vel = 0.0;
@@ -641,6 +652,7 @@ impl Anim {
             self.rect.snap();
             self.glow.snap();
             self.content.snap();
+            self.out.snap();
         }
     }
 
@@ -657,7 +669,8 @@ impl Anim {
         let c = self.content.advance(dt);
         let d = self.hover.advance(dt);
         let e = self.vis.advance(dt);
-        a || b || c || d || e
+        let f = self.out.advance(dt);
+        a || b || c || d || e || f
     }
 }
 
@@ -739,6 +752,23 @@ bang"
         assert_eq!(m.scene(true, false), Scene::ExpTasks);
         m.drop_over = true;
         assert_eq!(m.scene(false, false), Scene::ExpDrop);
+    }
+
+    #[test]
+    fn leaving_a_scene_fades_its_content_out() {
+        let mut a = Anim::new(120.0, 24.0);
+        a.set_scene(Scene::ExpHome, (380.0, 86.0), ([1.0; 3], 0.1));
+        while a.step(1.0 / 60.0) {}
+        a.set_scene(Scene::Idle, (120.0, 24.0), ([1.0; 3], 0.0));
+        assert_eq!(
+            (a.prev, a.out.pos),
+            (Scene::ExpHome, 1.0),
+            "old content still fully shown"
+        );
+        a.step(0.05);
+        assert!(a.out.pos > 0.0 && a.out.pos < 1.0, "fading, not cut");
+        while a.step(1.0 / 60.0) {}
+        assert_eq!(a.out.pos, 0.0);
     }
 
     #[test]

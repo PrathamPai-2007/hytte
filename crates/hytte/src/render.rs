@@ -728,13 +728,6 @@ impl Renderer {
             let centre = an.scene == Scene::Idle && m.ports.is_empty() && m.shelf.is_empty();
             self.timer_filament(t, w, h, centre, if m.mic_muted { LOCK_W } else { 0.0 });
         }
-        // Content fades/slides in on scene change.
-        let c = an.content.pos.clamp(0.0, 1.0) as f32;
-        self.ca.set(c * (((h - 14.0) / 10.0).clamp(0.0, 1.0)));
-        unsafe {
-            self.rt
-                .SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0))
-        };
         let m = fr.model;
         let lock = if m.mic_muted { LOCK_W } else { 0.0 };
         let pad_r = lock
@@ -743,34 +736,35 @@ impl Renderer {
             } else {
                 0.0
             };
-        match an.scene {
-            Scene::Sentinel => {}
-            Scene::Idle => self.idle(fr, w, h),
-            Scene::CompactTask => self.compact_task(fr, w, h, pad_r),
-            Scene::CompactMedia => self.compact_media(fr, w, h, pad_r),
-            Scene::ExpTasks => self.exp_tasks(fr, w, h),
-            Scene::ExpMedia => self.exp_media(fr, w, h),
-            Scene::ExpPorts => self.exp_ports(fr, w, h),
-            Scene::ExpShelf => self.exp_shelf(fr, w, h),
-            Scene::ExpHome => self.exp_home(fr, w, h),
-            Scene::ExpDrop => self.exp_drop(fr, w, h),
-            Scene::ExpChip => self.exp_chip(fr, w, h),
-            Scene::ExpTimer => self.exp_timer(fr, w, h),
-            Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
+        let fit = ((h - 14.0) / 10.0).clamp(0.0, 1.0);
+        // The scene being left fades out and drifts up, clipped to the pill as it
+        // changes size. It is not interactive: no hover, and its hit areas are dropped.
+        let o = an.out.pos.clamp(0.0, 1.0) as f32;
+        if o > 0.01 && an.prev != an.scene && an.prev != Scene::Sentinel {
+            self.ca.set(o * fit);
+            let mouse = self.mouse.take();
+            let n = self.hits.borrow().len();
+            unsafe {
+                self.rt
+                    .SetTransform(&mat(self.scale, self.ox.get(), -(1.0 - o) * 4.0));
+                self.rt
+                    .PushAxisAlignedClip(&rect(0.0, 0.0, w, h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            }
+            // dt = 0: progress smoothing already advances once this frame, in the live scene.
+            let old = Frame { dt: 0.0, ..*fr };
+            self.content(&old, an.prev, w, h, pad_r);
+            unsafe { self.rt.PopAxisAlignedClip() };
+            self.hits.borrow_mut().truncate(n);
+            self.mouse.set(mouse);
         }
-        if m.tabs()
-            && matches!(
-                an.scene,
-                Scene::ExpTasks
-                    | Scene::ExpMedia
-                    | Scene::ExpPorts
-                    | Scene::ExpShelf
-                    | Scene::ExpHome
-                    | Scene::ExpTimer
-            )
-        {
-            self.tabs(m, w, h);
-        }
+        // Content fades/slides in on scene change.
+        let c = an.content.pos.clamp(0.0, 1.0) as f32;
+        self.ca.set(c * fit);
+        unsafe {
+            self.rt
+                .SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0))
+        };
+        self.content(fr, an.scene, w, h, pad_r);
         // The Home card already spells out mic/camera state.
         let home = an.scene == Scene::ExpHome;
         if m.privacy_active() && !home {
@@ -794,6 +788,38 @@ impl Renderer {
         {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.mute_badge(w - 14.0 - 6.0, cy);
+        }
+    }
+
+    /// Body of one scene (and its tab strip), in pill-local coordinates.
+    fn content(&self, fr: &Frame, scene: Scene, w: f32, h: f32, pad_r: f32) {
+        match scene {
+            Scene::Sentinel => {}
+            Scene::Idle => self.idle(fr, w, h),
+            Scene::CompactTask => self.compact_task(fr, w, h, pad_r),
+            Scene::CompactMedia => self.compact_media(fr, w, h, pad_r),
+            Scene::ExpTasks => self.exp_tasks(fr, w, h),
+            Scene::ExpMedia => self.exp_media(fr, w, h),
+            Scene::ExpPorts => self.exp_ports(fr, w, h),
+            Scene::ExpShelf => self.exp_shelf(fr, w, h),
+            Scene::ExpHome => self.exp_home(fr, w, h),
+            Scene::ExpDrop => self.exp_drop(fr, w, h),
+            Scene::ExpChip => self.exp_chip(fr, w, h),
+            Scene::ExpTimer => self.exp_timer(fr, w, h),
+            Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
+        }
+        if fr.model.tabs()
+            && matches!(
+                scene,
+                Scene::ExpTasks
+                    | Scene::ExpMedia
+                    | Scene::ExpPorts
+                    | Scene::ExpShelf
+                    | Scene::ExpHome
+                    | Scene::ExpTimer
+            )
+        {
+            self.tabs(fr.model, w, h);
         }
     }
 
