@@ -3,27 +3,37 @@
 
 use std::future::{Future as _, IntoFuture};
 use std::pin::pin;
-use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use std::sync::Arc;
+use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
-pub fn block_on<F: IntoFuture>(fut: F, timeout: Duration) -> Option<F::Output> {
-    unsafe fn clone(_: *const ()) -> RawWaker {
-        RawWaker::new(std::ptr::null(), &VTABLE)
+/// Wakes the blocked thread when the operation's `Completed` handler fires.
+struct Unpark(std::thread::Thread);
+
+impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
     }
-    unsafe fn noop(_: *const ()) {}
-    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
-    let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
+}
+
+pub fn block_on<F: IntoFuture>(fut: F, timeout: Duration) -> Option<F::Output> {
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
     let mut cx = Context::from_waker(&waker);
     let mut fut = pin!(fut.into_future());
-    let start = Instant::now();
+    let deadline = Instant::now() + timeout;
     loop {
         match fut.as_mut().poll(&mut cx) {
             Poll::Ready(v) => return Some(v),
             Poll::Pending => {
-                if start.elapsed() > timeout {
+                let left = deadline.checked_duration_since(Instant::now())?;
+                if left.is_zero() {
                     return None;
                 }
-                std::thread::sleep(Duration::from_millis(4));
+                // Sleeps until completion instead of polling; spurious wake-ups just re-poll.
+                std::thread::park_timeout(left);
             }
         }
     }
