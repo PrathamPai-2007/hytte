@@ -102,12 +102,13 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "hytte"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "crossbeam-channel",
  "embed-manifest",
  "hytte-proto",
  "image",
+ "miniz_oxide 0.8.9",
  "serde",
  "serde_json",
  "toml",
@@ -118,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "hytte-proto"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -201,15 +202,6 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "notch"
-version = "1.0.0"
-dependencies = [
- "hytte-proto",
- "serde_json",
- "windows",
 ]
 
 [[package]]
