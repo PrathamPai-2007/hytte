@@ -880,7 +880,7 @@ impl Renderer {
                 }
             }
             TaskEvent::Failed => {
-                let pulse = (tm * 3.2).sin() * 0.5 + 0.5;
+                let pulse = 0.5 + (tm * 3.2).sin() * 0.5 * t.fail_pulse(now);
                 self.circle(cx, cy, 8.0 + pulse, self.cc(col, 0.12 + 0.12 * pulse));
                 let d = 3.1;
                 self.line((cx - d, cy - d), (cx + d, cy + d), self.cc(col, 1.0), 2.0);
@@ -939,7 +939,7 @@ impl Renderer {
     }
 
     /// Thin bar under a running task: determinate (eased) or shimmer.
-    fn filament(&self, t: &TaskView, x: f32, y: f32, w: f32, dt: f32) {
+    fn filament(&self, t: &TaskView, x: f32, y: f32, w: f32, dt: f32, now: Instant) {
         let col = task_color(t);
         self.fill_rr(x, y, w, 2.0, 1.0, self.cc(WHITE, 0.08));
         if !t.running() {
@@ -950,7 +950,10 @@ impl Renderer {
                     w,
                     2.0,
                     1.0,
-                    self.cc(RED, 0.55 + 0.25 * (self.t.get() * 3.2).sin()),
+                    self.cc(
+                        RED,
+                        0.55 + 0.25 * (self.t.get() * 3.2).sin() * t.fail_pulse(now),
+                    ),
                 );
             }
             return;
@@ -1061,7 +1064,7 @@ impl Renderer {
             17.0,
             self.cc(WHITE, 0.94),
         );
-        self.filament(t, 14.0, h - 5.0, w - 28.0, fr.dt);
+        self.filament(t, 14.0, h - 5.0, w - 28.0, fr.dt, now);
     }
 
     fn eq_bars(&self, x: f32, y: f32, h: f32, playing: bool, col: [f32; 3]) {
@@ -1215,7 +1218,7 @@ impl Renderer {
                 y += 20.0;
             }
             if t.running() {
-                self.filament(t, 42.0, y + 30.0, w - 42.0 - 20.0, fr.dt);
+                self.filament(t, 42.0, y + 30.0, w - 42.0 - 20.0, fr.dt, now);
             }
             y += 34.0;
             if t.failed() {

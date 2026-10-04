@@ -19,6 +19,8 @@ pub const LOCK_W: f32 = 26.0;
 pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
 /// How long the timer-finished card waits before folding away on its own.
 pub const TIMER_DONE_HOLD: Duration = Duration::from_secs(30);
+/// How long a failed task's red pulse takes to fade to rest.
+pub const FAIL_PULSE: Duration = Duration::from_secs(8);
 
 /// Events marshalled from worker threads to the UI thread.
 #[derive(Debug, Clone)]
@@ -88,6 +90,12 @@ impl TaskView {
     }
     pub fn needs_input(&self) -> bool {
         self.event == TaskEvent::NeedsInput
+    }
+    /// Strength (1..0) of the red failure pulse: it fades out over [`FAIL_PULSE`]
+    /// and then rests, so a failed task left on screen costs no frames.
+    pub fn fail_pulse(&self, now: Instant) -> f32 {
+        let since = now.saturating_duration_since(self.changed).as_secs_f32();
+        (1.0 - since / FAIL_PULSE.as_secs_f32()).max(0.0)
     }
 }
 
@@ -561,8 +569,15 @@ impl Model {
     }
 
     /// True while something needs a steady (ambient) frame clock.
-    pub fn ambient(&self, scene: Scene) -> bool {
-        self.tasks.iter().any(|t| self.visible(t) && (t.running() || t.failed() || t.needs_input()))
+    pub fn ambient(&self, scene: Scene, now: Instant) -> bool {
+        // The fullscreen sentinel is a static bar: nothing in it moves.
+        if scene == Scene::Sentinel {
+            return false;
+        }
+        self.tasks.iter().any(|t| {
+            self.visible(t)
+                && (t.running() || t.needs_input() || (t.failed() && t.fail_pulse(now) > 0.0))
+        })
             // Privacy dots only breathe while expanded; collapsed they are static
             // so an active camera/mic doesn't cost a 30 fps render loop.
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
