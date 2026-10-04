@@ -26,12 +26,12 @@ pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
         "png" | "jpg" | "jpeg" => vec![
-            ("Under 5 MB", Conv::Under(TARGET_MB)),
+            ("Compress", Conv::Under(TARGET_MB)),
             ("To PDF", Conv::Pdf),
-            ("Remove location", Conv::Clean),
+            ("Remove metadata", Conv::Clean),
             ("Read text", Conv::Ocr),
         ],
-        "webp" | "bmp" => vec![("Under 5 MB", Conv::Under(TARGET_MB)), ("To PDF", Conv::Pdf), ("Read text", Conv::Ocr)],
+        "webp" | "bmp" => vec![("Compress", Conv::Under(TARGET_MB)), ("To PDF", Conv::Pdf), ("Read text", Conv::Ocr)],
         "json" | "yaml" | "yml" => vec![("Format", Conv::Auto)],
         "txt" | "md" => vec![("Copy text", Conv::Auto)],
         _ => vec![("Copy path", Conv::Auto)],
@@ -396,10 +396,10 @@ mod tests {
     #[test]
     fn chips_follow_file_type_and_actions_are_separate() {
         let labels = |f: &str| chips_for(Path::new(f)).iter().map(|c| c.0).collect::<Vec<_>>();
-        assert_eq!(labels("a.JPG"), ["Under 5 MB", "To PDF", "Remove location", "Read text"]);
+        assert_eq!(labels("a.JPG"), ["Compress", "To PDF", "Remove metadata", "Read text"]);
         assert_eq!(labels("a.json"), ["Format"]);
         assert_eq!(labels("a.zip"), ["Copy path"]);
-        // "Remove location" writes only the cleaned copy: no WebP or OCR side effects.
+        // "Remove metadata" writes only the cleaned copy: no WebP or OCR side effects.
         let dir = std::env::temp_dir().join("hytte-chip");
         let _ = std::fs::create_dir_all(&dir);
         let src = dir.join("c.png");
