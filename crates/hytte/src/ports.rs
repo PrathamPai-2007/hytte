@@ -17,6 +17,14 @@ fn wake() -> &'static (Mutex<bool>, Condvar) {
     WAKE.get_or_init(|| (Mutex::new(false), Condvar::new()))
 }
 
+static NEXT: Mutex<Option<Ports>> = Mutex::new(None);
+
+/// New `[ports]` settings from a config reload: used from the next scan, which starts now.
+pub fn reconfigure(cfg: Ports) {
+    *NEXT.lock().unwrap() = Some(cfg);
+    request_refresh();
+}
+
 /// Re-scan immediately (panel opened, a process was killed).
 pub fn request_refresh() {
     let (m, c) = wake();
@@ -24,11 +32,14 @@ pub fn request_refresh() {
     c.notify_one();
 }
 
-pub fn spawn_watcher(cfg: Ports, ui_tx: Sender<UiEvent>) {
+pub fn spawn_watcher(mut cfg: Ports, ui_tx: Sender<UiEvent>) {
     std::thread::spawn(move || {
         let mut last: Option<Vec<hytte_proto::ports::PortInfo>> = None;
-        let poll = Duration::from_secs(cfg.poll_secs.max(1));
         loop {
+            if let Some(next) = NEXT.lock().unwrap().take() {
+                cfg = next;
+            }
+            let poll = Duration::from_secs(cfg.poll_secs.max(1));
             let now = hytte_proto::ports::current(&cfg.watch, cfg.show_all);
             if last.as_ref() != Some(&now) {
                 last = Some(now.clone());
