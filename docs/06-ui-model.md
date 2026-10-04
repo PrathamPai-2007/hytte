@@ -77,7 +77,7 @@ When expanded, the pill shows one **panel**. `Model::panels()` lists the panels 
 
 **Forced visibility.** `Model::forced()` is true while something is dragged over the pill, or until `force_until`. Hytte sets `force_until` for 5 s after a drop lands and for 8 s after a timer finishes, so these stay visible even over a fullscreen app.
 
-**Peeking.** `Model::peek(panel, until)` selects a panel and opens the pill until the given instant. It is used when an agent needs input (`[agent] peek_secs`, 6 s), when items land on the shelf (5 s), and when the wheel scrolls a collapsed pill (3 s).
+**Peeking.** `Model::peek(panel, until)` selects a panel and opens the pill until the given instant. It is used when an agent needs input (`[agent] peek_secs`, 6 s), when items land on the shelf (5 s), when a tracked task finishes or fails (`[general] finish_peek_secs`, 5 s, `0` turns it off; the Tasks panel opens unless a shell command was too short to be shown), and when the wheel scrolls a collapsed pill (3 s).
 
 ## Size and glow
 

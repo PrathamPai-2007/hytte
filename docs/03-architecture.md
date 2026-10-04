@@ -42,7 +42,7 @@ Two rules hold everywhere:
 3. `config::load()` reads `config.toml`, creating it with defaults if it is missing. Then `ensure_autostart` writes or removes the `Run` registry value, and `ensure_start_menu` (on its own thread) refreshes the Start Menu shortcut.
 4. Two channels for the task pipeline are created: `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI).
 5. `pipe_server::spawn_listener` and `tasks::spawn_registry` start.
-6. A `UiEvent` channel is created and handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`.
+6. A `UiEvent` channel is created and handed to the workers: `media`, `privacy`, `mic`, `power`, `ports` and the `config` watcher. A background thread also runs `setup::ensure_on_path` unless `add_to_path = false`.
 7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
 8. `window::run` takes over the main thread and never returns until Quit.
 
@@ -72,12 +72,15 @@ Two rules hold everywhere:
 | Privacy watcher | `privacy::spawn_watcher` | whole process | registry change notifications (10 s safety timeout) |
 | Mic watcher | `mic::spawn_watcher` | whole process | a 2 s sleep (device changes arrive by notification) |
 | Power watcher | `power::spawn_watcher` | whole process | a 10 s sleep |
+| Config watcher | `config::spawn_watcher` | whole process | `FindFirstChangeNotificationW` on the data folder; applies edits to `config.toml` live |
 | Port watcher | `ports::spawn_watcher` | whole process | a condvar: woken early on demand, otherwise every `poll_secs` |
 | Drop Vault workers (2) | `drop::spawn_workers` | whole process | the job channel |
 | Terminal tabs | `tabs::spawn` | whole process | its command channel |
 | Thumbnail loader | `Ui::request_thumbs` | one thumbnail | the shell thumbnail call |
 | Shelf staging | `Ui::handle_events` (`ShelfAdd`) | one drop | file copies |
 | Start Menu shortcut | `config::ensure_start_menu` | a moment at startup | COM shell link calls |
+| PATH setup | `setup::ensure_on_path` | a moment at startup | one registry read and, if needed, write (`[general] add_to_path`) |
+| Terminal setup | `setup::tray_setup` | one tray click | profile file writes and message boxes |
 
 ## How threads talk to the UI thread
 
