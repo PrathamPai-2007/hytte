@@ -58,3 +58,8 @@ serde_json = "1"
 crossbeam-channel = "0.5"
 toml = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
+
+# Smaller, faster daemon: whole-program optimisation shrinks the binary and its resident code.
+[profile.release]
+lto = true
+codegen-units = 1
