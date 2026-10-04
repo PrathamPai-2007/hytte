@@ -10,7 +10,7 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 | `%APPDATA%\Hytte\shelf.json` | `shelf::save` | The shelf list, when `[shelf] persist = true`. |
 | `%APPDATA%\Hytte\shelf\` | `shelf::stage` | Copies (in `mode = "copy"`) and dropped text snippets. |
 | `%APPDATA%\Hytte\timer.json` | `timer::save` | The running timer, so it survives a restart. Deleted when the timer stops or finishes. |
-| `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics, and frame telemetry when `HYTTE_PERF=1`. Not written during normal operation. |
+| `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics, a line whenever the fullscreen decision changes, and frame telemetry when `HYTTE_PERF=1`. Nothing else is written during normal operation. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. |
 | `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `notch` resolves in new terminals (`[general] add_to_path`). |
 | `%APPDATA%\Hytte\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |

@@ -133,10 +133,12 @@ When `T_FS` fires, `Ui::evaluate_fullscreen` calls `fullscreen::evaluate`, which
 
 1. The foreground exe is on `deny_list` → **hide**.
 2. `suppress_fullscreen = false`, or the exe is on `allow_list` → **show**.
-3. The shell reports D3D fullscreen, presentation mode or "busy" (`SHQueryUserNotificationState`), **or** the foreground window covers the whole monitor and isn't the desktop, the taskbar or Hytte → **hide**.
+3. The shell reports D3D fullscreen, presentation mode or "busy" (`SHQueryUserNotificationState`), **or** the foreground window covers the whole monitor and isn't a shell window → **hide**. Shell windows are the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, and "no foreground window". The desktop covers the whole monitor and Windows can report "busy" while it is focused, so without this exemption the pill stayed a thin line on the desktop.
 4. Otherwise → **show**.
 
 "Hide" sets `fs_hidden`. With `fullscreen_mode = "sentinel"`, the scene becomes the 3 px `Sentinel` bar (hovering it still opens the pill). With `"hide"`, `Ui::hidden()` becomes true and the window fades out, unless a drag is armed or the model is forcing visibility.
+
+Every change of decision is logged once to `hytte.log` (`fullscreen: hide=… foreground=… covers=… shell=…`, via `logging::note_fullscreen`), so a pill that backs off unexpectedly can be explained from the log.
 
 `Ui::hidden()` combines everything that hides the window: the tray **Pause**, or fullscreen in hide mode. When hidden, the `vis` spring fades to 0, and the window is then actually hidden with `ShowWindow(SW_HIDE)`. It is shown again before fading back in.
 
