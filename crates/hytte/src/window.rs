@@ -515,7 +515,7 @@ mod win {
                     acrylic: self.cfg.general.acrylic,
                     armed: self.armed,
                 };
-                self.hits = self.rend.draw(&fr, crop);
+                self.rend.draw(&fr, crop, &mut self.hits);
                 let a = (self.anim.vis.pos.clamp(0.0, 1.0) * 255.0).round() as u8;
                 self.rend.present(hwnd, crop, origin.0, origin.1, a);
                 // Skip the first frame after idle: its gap is the idle time, not a frame.
