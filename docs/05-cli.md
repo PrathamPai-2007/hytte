@@ -17,12 +17,14 @@
 
 Dispatch is in `cli/main.rs::main`.
 
-### `notch run -- <cmd> [args...]` (`cmd_run`)
+### `notch run [--no-progress] -- <cmd> [args...]` (`cmd_run`)
 
 1. Creates a task id (`<pid>-<unix ms>`) and a label (the command line, truncated to 128 characters).
 2. Sends `Start` with `pid` = notch's own pid. If that fails and a `hytte.exe` exists **next to `notch.exe`**, it starts it detached (`DETACHED_PROCESS | CREATE_NO_WINDOW`), waits up to 3 s for the pipe to appear, and sends `Start` again.
 3. Spawns the command with **stdin and stdout inherited** (the terminal behaves exactly as normal) and **stderr piped**.
-4. Forwards each stderr line straight to its own stderr, keeping the last 5 lines in a ring buffer.
+4. Copies stderr to its own stderr as **raw bytes**, as they arrive, so `\r`-redrawn progress bars draw live and output that isn't UTF-8 passes through. Alongside, it keeps the last 5 lines in a ring buffer; for a redrawn line, only the text after its last `\r`, which is what the terminal showed.
+   - Unless `--no-progress` is given, each chunk also goes through `progress::Scanner`, which reports the newest percentage it finds. It understands **OSC 9;4** sequences (`ESC ] 9 ; 4 ; 1 ; <pct>`, the ones Windows Terminal shows as a tab progress bar) and plain **`NN%`** text (1–3 digits, optional fraction, at most 100) in the current line. A new value is sent as a `Progress` message, at most every 250 ms and only when it changed. Sending stops for the rest of the run if the daemon is gone. The scanner's buffers are capped (512-byte line, 32-byte OSC body).
+   - Trade-off: a percentage in an ordinary log line (`coverage: 73%`) also moves the bar; `--no-progress` opts out. Tools that hide progress when stderr isn't a terminal need their own flag, such as `git clone --progress`. Running the child in a pseudo-console (ConPTY) would remove that limit.
 5. On exit, sends `Done` (exit code 0) or `Failed` with the exit code, the duration and the stderr tail.
 6. Exits with the child's exit code. If the command couldn't be spawned, it reports `Failed` with "spawn failed: …" and exits `127`.
 

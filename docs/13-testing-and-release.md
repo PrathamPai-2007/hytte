@@ -33,6 +33,7 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 | `hytte/src/proc.rs` | App ids → exe stems; own process alive and named. |
 | `hytte/src/perf.rs` | Percentile maths. |
 | `hytte/src/cli/agent.rs` | Agent message shape; the Claude hooks JSON is valid. |
+| `hytte/src/cli/progress.rs` | OSC 9;4 with BEL and ST terminators, sequences split across reads, `\r` bars, implausible numbers ignored, bounded buffers. |
 | `hytte/src/cli/hook.rs` | Exit code mapping; scripts are embedded. |
 | `hytte/src/tabs.rs` | One **ignored** manual test that needs a Windows Terminal with two tabs: `HYTTE_WT_PID=<pid> cargo test -p hytte selects_other_tab -- --ignored`. |
 
