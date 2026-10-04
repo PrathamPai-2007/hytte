@@ -97,18 +97,23 @@ fn clean_image(src: &Path) -> Outcome {
         ext
     };
     let clean = place(src, ".clean", &ext);
-    let saved = if ext == "jpg" {
-        image::DynamicImage::ImageRgb8(img.to_rgb8()).save(&clean)
-    } else {
-        img.save(&clean)
-    };
-    match saved {
+    match save_clean(&img, &clean, &ext) {
         Ok(_) => Outcome {
             summary: "Location removed".into(),
             open: Some(clean),
             copy: None,
         },
         Err(e) => Outcome::msg(format!("Write failed: {e}")),
+    }
+}
+
+/// Re-encode without metadata. JPEG needs RGB8; an image already in that layout
+/// (the usual case for photos) is saved without a full-size copy.
+fn save_clean(img: &image::DynamicImage, dst: &Path, ext: &str) -> image::ImageResult<()> {
+    match img {
+        image::DynamicImage::ImageRgb8(_) => img.save(dst),
+        _ if ext == "jpg" => image::DynamicImage::ImageRgb8(img.to_rgb8()).save(dst),
+        _ => img.save(dst),
     }
 }
 
@@ -233,12 +238,7 @@ fn transform_image(src: &Path, strip: bool) -> Outcome {
             ext
         };
         let clean = place(src, ".clean", &ext);
-        let saved = if ext == "jpg" {
-            image::DynamicImage::ImageRgb8(img.to_rgb8()).save(&clean)
-        } else {
-            img.save(&clean)
-        };
-        if saved.is_ok() {
+        if save_clean(&img, &clean, &ext).is_ok() {
             parts.push("EXIF stripped".into());
             open = Some(clean);
         }
@@ -249,11 +249,12 @@ fn transform_image(src: &Path, strip: bool) -> Outcome {
         .is_some_and(|e| e.eq_ignore_ascii_case("webp"));
     if !is_webp {
         let webp = place(src, "", "webp");
-        // image-webp encodes lossless only.
-        if image::DynamicImage::ImageRgba8(img.to_rgba8())
-            .save(&webp)
-            .is_ok()
-        {
+        // image-webp encodes lossless only. RGBA8 is saved as is; anything else is converted.
+        let saved = match &img {
+            image::DynamicImage::ImageRgba8(_) => img.save(&webp),
+            _ => image::DynamicImage::ImageRgba8(img.to_rgba8()).save(&webp),
+        };
+        if saved.is_ok() {
             parts.push("WebP (lossless)".into());
             open = Some(webp);
         }
