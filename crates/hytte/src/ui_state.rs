@@ -41,6 +41,8 @@ pub enum UiEvent {
     SetClipboard(String),
     DragEnter,
     DragLeave,
+    /// `config.toml` was edited and parses.
+    Config(Box<crate::config::Config>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
