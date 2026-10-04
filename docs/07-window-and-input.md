@@ -63,7 +63,7 @@ Three methods do most of the work:
 | `WM_DISPLAYCHANGE`, `WM_DPICHANGED` | `refresh_monitor`, then re-evaluate fullscreen. |
 | `WM_SETTINGCHANGE` | Re-reads the Windows "Animation effects" setting (`reduce_motion`). |
 | `WM_TRAY` (custom) | Right-click on the tray icon: shows the menu. |
-| `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup. |
+| `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, which works on its own thread and reports in a message box). |
 | `TaskbarCreated` (registered) | Explorer restarted: re-adds the tray icon. |
 | `WM_DESTROY` | Ends the message loop. |
 
@@ -146,6 +146,6 @@ On every `T_FS`, `Ui::follow_desktop` asks `IVirtualDesktopManager` whether the 
 
 ## Tray
 
-`tray.rs` adds a notification-area icon whose callback message is `WM_TRAY`. Right-clicking it builds a popup menu (Pause and Launch at startup show check marks). `SetForegroundWindow` is called on Hytte's window first, because Windows requires it for the menu to close properly when you click elsewhere. The icon is re-added when Explorer restarts (`TaskbarCreated`) and removed on exit.
+`tray.rs` adds a notification-area icon whose callback message is `WM_TRAY`. Right-clicking it builds a popup menu (Pause, Launch at startup and Set up terminal integration show check marks). `SetForegroundWindow` is called on Hytte's window first, because Windows requires it for the menu to close properly when you click elsewhere. The icon is re-added when Explorer restarts (`TaskbarCreated`) and removed on exit.
 
 Next: [8. Rendering and animation](08-rendering-and-animation.md)

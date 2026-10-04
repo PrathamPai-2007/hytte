@@ -62,6 +62,16 @@ These talk to the OS directly through `hytte_proto::ports` and work without the 
 - `ports` lists listeners on the default watch list (the same ports as the config default), or every non-system listener with `--all`.
 - `kill` finds the listener on that port (from all listeners), asks `Stop node.exe (pid 1234) listening on :3000? [y/N]` unless `--force` is given, then terminates the process. Pids 0–4 and the CLI's own pid are refused.
 
+### `notch setup [--undo]` (`setup.rs`)
+
+Makes `notch` work without manual steps. `setup.rs` is shared with the daemon: `cli/main.rs` includes it with `#[path = "../setup.rs"]`, and the tray's **Set up terminal integration** calls the same functions.
+
+1. **PATH** (`ensure_on_path`): adds the folder holding `notch.exe` to the user's `HKCU\Environment\Path`, keeping the value's type (`REG_EXPAND_SZ` or `REG_SZ`), then broadcasts `WM_SETTINGCHANGE "Environment"` on a background thread so newly opened terminals see it. It does nothing if `notch.exe` already resolves on `PATH` (for example a winget alias) or under `cargo run`. The added folder is recorded in `%APPDATA%\Hytte\path.txt`, and if Hytte has since moved, the stale entry is removed. Entries compare case-insensitively, ignoring quotes and a trailing `\`, after `%VAR%` expansion (`path_with`, `path_without`).
+2. **Profiles** (`setup_shells`): adds a block between `# >>> hytte >>>` and `# <<< hytte <<<` to the Windows PowerShell 5.1 profile, the PowerShell 7 profile (if PowerShell 7 is installed) and `~/.bashrc` (if Git Bash is installed). The PowerShell line only runs if `notch` exists, so uninstalling never breaks the profile. The bash block is inserted **above** any `starship init` line (Starship chains an existing DEBUG trap); the PowerShell block is appended, so it loads **after** Starship (which replaces `prompt`). Files keep their encoding (UTF-8, UTF-8 with BOM, UTF-16 LE) and line endings, and are written through a temp file, except through symlinks. A second run changes nothing; `--undo` removes the blocks.
+3. If Windows PowerShell's execution policy is `Restricted` or `AllSigned`, the output says how to allow profiles. Setup never changes the policy itself.
+
+The daemon also runs step 1 at every startup unless `[general] add_to_path = false`.
+
 ### `notch init <pwsh|bash|zsh|nu>` and `notch hook <start|end> ...` (`cli/hook.rs`)
 
 `init` prints a shell integration script. The scripts live in `cli/shell/` and are embedded into the binary with `include_str!`, so the installed `notch.exe` is always in sync with its scripts.
