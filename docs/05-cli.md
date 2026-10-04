@@ -26,7 +26,7 @@ Dispatch is in `cli/main.rs::main`.
 5. On exit, sends `Done` (exit code 0) or `Failed` with the exit code, the duration and the stderr tail.
 6. Exits with the child's exit code. If the command couldn't be spawned, it reports `Failed` with "spawn failed: …" and exits `127`.
 
-Because the task's `pid` is the `notch` process, closing the terminal turns the task "lost" (see [section 4](4-ipc-protocol.md)), and clicking the row focuses the terminal hosting `notch`.
+Because the task's `pid` is the `notch` process, closing the terminal turns the task "lost" (see [section 4](04-ipc-protocol.md)), and clicking the row focuses the terminal hosting `notch`.
 
 ### `notch set --progress N --label L [--task ID]` (`cmd_set`)
 
@@ -70,7 +70,7 @@ These talk to the OS directly through `hytte_proto::ports` and work without the 
 
 ## How the shell integrations work
 
-All four scripts follow the same idea. Send a **start** event when a command is about to run, and an **end** event when the prompt comes back. The daemon applies the visibility threshold ([section 4](4-ipc-protocol.md)), so the scripts report *every* command and stay simple.
+All four scripts follow the same idea. Send a **start** event when a command is about to run, and an **end** event when the prompt comes back. The daemon applies the visibility threshold ([section 4](04-ipc-protocol.md)), so the scripts report *every* command and stay simple.
 
 | Shell | "Command starts" hook | "Prompt returns" hook | How it sends |
 |---|---|---|---|
@@ -94,4 +94,4 @@ Details worth knowing:
 - When you change a script in `cli/shell/`, rebuild `notch.exe`. Users get the new script the next time their shell starts, because the profile line runs `notch init` each time.
 - `cli/hook.rs` has a test that every embedded script mentions `notch`. Add behavioural tests next to the code you change.
 
-Next: [6. The UI model](6-ui-model.md)
+Next: [6. The UI model](06-ui-model.md)
