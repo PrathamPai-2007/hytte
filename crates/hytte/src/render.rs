@@ -51,8 +51,17 @@ pub enum Action {
     ShelfTile(u64),
     RemoveShelf(u64),
     /// Run a Drop Vault transform on a shelf item.
-    ShelfOp(u64),
+    ShelfOp(u64, crate::transforms::Conv),
     ToggleMic,
+    /// Set the minutes the timer panel will start with.
+    TimerMinutes(u32),
+    TimerStart(crate::timer::TimerKind),
+    /// Start a break of this many minutes.
+    TimerBreak(u32),
+    TimerAdd(u32),
+    TimerStop,
+    TimerPause,
+    TimerDismiss,
     SetPowerMode(Mode),
     /// Bring the media app (AppUserModelId) to the front.
     FocusMedia(String),
@@ -461,6 +470,7 @@ impl Renderer {
             let mut gl = an.glow.pos as f32;
             if fr.model.primary().is_some_and(|t| t.needs_input()) && matches!(an.scene, Scene::CompactTask | Scene::ExpTasks) {
                 gl *= 0.72 + 0.28 * (self.t.get() * 4.0).sin();
+
             }
             if gl > 0.01 {
                 for i in 1..=9 {
@@ -506,6 +516,11 @@ impl Renderer {
         if an.scene == Scene::Sentinel {
             return;
         }
+        if let Some(t) = fr.model.timer.as_ref().filter(|_| an.scene != Scene::ExpTimerDone) {
+            let m = fr.model;
+            let centre = an.scene == Scene::Idle && m.ports.is_empty() && m.shelf.is_empty();
+            self.timer_filament(t, w, h, centre, if m.mic_muted { LOCK_W } else { 0.0 });
+        }
         // Content fades/slides in on scene change.
         let c = an.content.pos.clamp(0.0, 1.0) as f32;
         self.ca.set(c * (((h - 14.0) / 10.0).clamp(0.0, 1.0)));
@@ -525,8 +540,10 @@ impl Renderer {
             Scene::ExpHome => self.exp_home(fr, w, h),
             Scene::ExpDrop => self.exp_drop(fr, w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
+            Scene::ExpTimer => self.exp_timer(fr, w, h),
+            Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
         }
-        if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf | Scene::ExpHome) {
+        if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf | Scene::ExpHome | Scene::ExpTimer) {
             self.tabs(m, w, h);
         }
         // The Home card already spells out mic/camera state.
@@ -535,7 +552,7 @@ impl Renderer {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.privacy_dots(m, w - 14.0 - lock, cy, !matches!(an.scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia));
         }
-        if m.mic_muted && !home && !matches!(an.scene, Scene::ExpDrop | Scene::ExpChip) {
+        if m.mic_muted && !home && !matches!(an.scene, Scene::ExpDrop | Scene::ExpChip | Scene::ExpTimer | Scene::ExpTimerDone) {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.mute_badge(w - 14.0 - 6.0, cy);
         }
@@ -546,6 +563,9 @@ impl Renderer {
         let chips = (!m.ports.is_empty()) as u8 + (!m.shelf.is_empty()) as u8;
         let lock = if m.mic_muted { LOCK_W } else { 0.0 };
         if chips == 0 {
+            if m.timer.is_some() {
+                return;
+            }
             self.fill_rr((w - lock) / 2.0 - 13.0, h / 2.0 - 1.5, 26.0, 3.0, 1.5, self.cc(WHITE, 0.16));
             return;
         }
@@ -976,15 +996,14 @@ impl Renderer {
             self.text(&format!("+{}", m.shelf.len() - 5), &self.f.small_r, w - 44.0, 4.0, 34.0, 14.0, self.cc(PURPLE, 1.0));
         }
         if let Some(it) = m.shelf_sel.and_then(|id| m.shelf.iter().find(|i| i.id == id)) {
-            let ext = it.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-            let label = match ext.as_str() {
-                "png" | "jpg" | "jpeg" => "Clean · WebP · OCR",
-                "webp" | "bmp" => "OCR",
-                "json" | "yaml" | "yml" => "Format",
-                "txt" | "md" => "Copy text",
-                _ => "Copy path",
-            };
-            self.button(label, w / 2.0 - 60.0, 94.0, 120.0, 22.0, PURPLE, Action::ShelfOp(it.id));
+            let chips = crate::transforms::chips_for(&it.path);
+            // Chip width from the label length; centred as a row.
+            let wid: Vec<f32> = chips.iter().map(|(l, _)| 28.0 + l.chars().count() as f32 * 6.0).collect();
+            let mut x = (w - wid.iter().sum::<f32>() - 6.0 * (chips.len() - 1) as f32) / 2.0;
+            for ((label, op), cw) in chips.iter().zip(&wid) {
+                self.button(label, x, 94.0, *cw, 22.0, PURPLE, Action::ShelfOp(it.id, *op));
+                x += cw + 6.0;
+            }
         } else {
             self.text("Drag a tile out to drop it anywhere", &self.f.small_c, 0.0, 96.0, w, 16.0, self.cc(GRAY, 0.7));
         }
@@ -1084,6 +1103,80 @@ impl Renderer {
             x += 70.0;
         }
         self.button("Dismiss", x, 60.0, 70.0, 24.0, WHITE, Action::DismissChip);
+    }
+
+    /// Hairline fuse along the bottom edge: burns down right to left, ember at the head.
+    fn timer_filament(&self, t: &crate::timer::Timer, w: f32, h: f32, centre: bool, lock: f32) {
+        let wall = crate::timer::now_ms();
+        let frac = t.frac(wall);
+        let col = if t.remaining_ms(wall) < 60_000 { RED } else if frac <= 0.2 { AMBER } else { BLUE };
+        // Collapsed and empty: the fuse replaces the idle grey dash, in the middle of the pill.
+        let (x0, y, side) = if centre { (20.0, h / 2.0, 20.0 + lock) } else { (14.0, h - 2.0, 14.0) };
+        let len = (w - x0 - side).max(1.0);
+        let head = x0 + len * frac;
+        unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), 0.0)) };
+        self.line((x0, y), (x0 + len, y), color(WHITE, 0.07), 1.5);
+        if frac > 0.0 {
+            self.line((x0, y), (head, y), color(col, 0.25), 4.0);
+            self.line((x0, y), (head, y), color(col, 0.95), 1.5);
+            self.circle(head, y, 4.0, color(col, 0.22));
+            self.circle(head, y, 1.8, color([1.0, 0.97, 0.9], 1.0));
+        }
+    }
+
+    fn exp_timer(&self, fr: &Frame, w: f32, _h: f32) {
+        let m = fr.model;
+        if let Some(t) = &m.timer {
+            let left = t.remaining_ms(crate::timer::now_ms());
+            self.text(&crate::timer::fmt(left), &self.f.big, 20.0, 10.0, 140.0, 28.0, self.cc(WHITE, 1.0));
+            self.text(&if t.paused_ms.is_some() { format!("{} · paused", t.kind.name()) } else { t.kind.name().to_string() }, &self.f.small_r, w - 190.0, 14.0, 150.0, 20.0, self.cc(GRAY, 1.0));
+            let pause = if t.paused_ms.is_some() { "Resume" } else { "Pause" };
+            self.button(pause, 16.0, 50.0, 70.0, 26.0, AMBER, Action::TimerPause);
+            self.button("+5 min", 92.0, 50.0, 66.0, 26.0, BLUE, Action::TimerAdd(5));
+            self.button("Stop", 164.0, 50.0, 56.0, 26.0, RED, Action::TimerStop);
+            return;
+        }
+        self.text(&format!("{} min", m.timer_min), &self.f.big, 20.0, 10.0, 140.0, 28.0, self.cc(WHITE, 1.0));
+        self.text("Scroll to adjust", &self.f.small_r, w - 190.0, 14.0, 150.0, 20.0, self.cc(GRAY, 1.0));
+        let mut x = 16.0;
+        for p in [5u32, 10, 15, 30, 45] {
+            let accent = if p == m.timer_min { BLUE } else { WHITE };
+            self.button(&p.to_string(), x, 50.0, 36.0, 26.0, accent, Action::TimerMinutes(p));
+            x += 40.0;
+        }
+        self.button("Timer", w - 16.0 - 62.0 - 6.0 - 62.0, 50.0, 62.0, 26.0, BLUE, Action::TimerStart(crate::timer::TimerKind::Plain));
+        self.button("Focus", w - 16.0 - 62.0, 50.0, 62.0, 26.0, GREEN, Action::TimerStart(crate::timer::TimerKind::Focus));
+    }
+
+    fn exp_timer_done(&self, fr: &Frame, w: f32, _h: f32) {
+        use crate::timer::TimerKind::*;
+        let m = fr.model;
+        let Some((kind, _)) = m.timer_done else { return };
+        self.circle(26.0, 24.0, 9.0, self.cc(GREEN, 0.2));
+        self.line((22.2, 24.4), (25.0, 27.4), self.cc(GREEN, 1.0), 2.0);
+        self.line((25.0, 27.4), (30.2, 21.2), self.cc(GREEN, 1.0), 2.0);
+        let title = match kind {
+            Plain => "Timer finished",
+            Focus => "Focus session finished",
+            Break => "Break is over",
+        };
+        self.text(title, &self.f.big, 46.0, 10.0, w - 60.0, 28.0, self.cc(WHITE, 0.97));
+        let mut x = 16.0;
+        match kind {
+            Focus => {
+                let label = format!("Start {} min break", m.timer_break);
+                let bw = 28.0 + 6.0 * label.len() as f32;
+                self.button(&label, x, 56.0, bw, 26.0, GREEN, Action::TimerBreak(m.timer_break));
+                x += bw + 8.0;
+            }
+            Break => {
+                self.button("Start focus", x, 56.0, 92.0, 26.0, GREEN, Action::TimerStart(Focus));
+                x += 100.0;
+            }
+            Plain => {}
+        }
+        self.button("+5 min", x, 56.0, 64.0, 26.0, BLUE, Action::TimerAdd(5));
+        self.button("Dismiss", x + 72.0, 56.0, 70.0, 26.0, WHITE, Action::TimerDismiss);
     }
 
     // -------------------------------------------------------------- album art

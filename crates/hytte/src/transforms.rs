@@ -5,6 +5,86 @@
 
 use std::path::{Path, PathBuf};
 
+/// One explicit shelf action (a chip), instead of "do everything" on click.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Conv {
+    /// Re-encode as JPEG no larger than this many MB.
+    Under(u64),
+    Pdf,
+    /// Re-encode to drop EXIF/GPS.
+    Clean,
+    Ocr,
+    /// The per-type default (prettify JSON, copy text, reveal path...).
+    Auto,
+}
+
+/// Size target of the "Make under N MB" chip.
+pub const TARGET_MB: u64 = 5;
+
+/// Chips offered for a shelf item, in order.
+pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" => vec![
+            ("Under 5 MB", Conv::Under(TARGET_MB)),
+            ("To PDF", Conv::Pdf),
+            ("Remove location", Conv::Clean),
+            ("Read text", Conv::Ocr),
+        ],
+        "webp" | "bmp" => vec![("Under 5 MB", Conv::Under(TARGET_MB)), ("To PDF", Conv::Pdf), ("Read text", Conv::Ocr)],
+        "json" | "yaml" | "yml" => vec![("Format", Conv::Auto)],
+        "txt" | "md" => vec![("Copy text", Conv::Auto)],
+        _ => vec![("Copy path", Conv::Auto)],
+    }
+}
+
+pub fn run(op: Conv, src: &Path) -> Outcome {
+    use crate::convert::{self, fmt_size};
+    let done = |r: Result<convert::Converted, String>, verb: &str| match r {
+        Ok(c) => Outcome {
+            summary: if verb.is_empty() {
+                format!("{} → {}", fmt_size(c.before), fmt_size(c.after))
+            } else {
+                format!("{verb} · {}", fmt_size(c.after))
+            },
+            open: Some(c.path),
+            copy: None,
+        },
+        Err(e) => Outcome::msg(e),
+    };
+    match op {
+        Conv::Under(mb) => done(convert::compress(src, mb, |s, e| place(src, s, e)), ""),
+        Conv::Pdf => done(convert::to_pdf(&[src.to_path_buf()], |s, e| place(src, s, e)), "PDF"),
+        Conv::Clean => clean_image(src),
+        Conv::Ocr => match ocr_image(src) {
+            Ok(t) if !t.trim().is_empty() => Outcome {
+                summary: format!("{} characters copied", t.trim().chars().count()),
+                open: None,
+                copy: Some(t.trim().to_string()),
+            },
+            Ok(_) => Outcome::msg("No text found"),
+            Err(e) => Outcome::msg(format!("Can't read text ({e})")),
+        },
+        Conv::Auto => transform_file(src),
+    }
+}
+
+/// Decode + re-encode drops EXIF/GPS.
+fn clean_image(src: &Path) -> Outcome {
+    let img = match image::open(src) {
+        Ok(i) => i,
+        Err(e) => return Outcome::msg(format!("Can't read image: {e}")),
+    };
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
+    let ext = if ext == "jpeg" { "jpg".to_string() } else { ext };
+    let clean = place(src, ".clean", &ext);
+    let saved = if ext == "jpg" { image::DynamicImage::ImageRgb8(img.to_rgb8()).save(&clean) } else { img.save(&clean) };
+    match saved {
+        Ok(_) => Outcome { summary: "Location removed".into(), open: Some(clean), copy: None },
+        Err(e) => Outcome::msg(format!("Write failed: {e}")),
+    }
+}
+
 /// What a transform produced, for the result chip.
 #[derive(Debug, Clone, Default)]
 pub struct Outcome {
@@ -311,5 +391,21 @@ mod tests {
         let out = transform_image(&src, true);
         assert!(out.summary.contains("EXIF stripped"), "{}", out.summary);
         assert!(out.summary.contains("WebP"), "{}", out.summary);
+    }
+
+    #[test]
+    fn chips_follow_file_type_and_actions_are_separate() {
+        let labels = |f: &str| chips_for(Path::new(f)).iter().map(|c| c.0).collect::<Vec<_>>();
+        assert_eq!(labels("a.JPG"), ["Under 5 MB", "To PDF", "Remove location", "Read text"]);
+        assert_eq!(labels("a.json"), ["Format"]);
+        assert_eq!(labels("a.zip"), ["Copy path"]);
+        // "Remove location" writes only the cleaned copy: no WebP or OCR side effects.
+        let dir = std::env::temp_dir().join("hytte-chip");
+        let _ = std::fs::create_dir_all(&dir);
+        let src = dir.join("c.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255])).save(&src).unwrap();
+        let o = run(Conv::Clean, &src);
+        assert_eq!(o.summary, "Location removed");
+        assert!(o.copy.is_none());
     }
 }

@@ -10,6 +10,8 @@ use std::path::PathBuf;
 pub struct DropJob {
     pub paths: Vec<PathBuf>,
     pub text: Option<String>,
+    /// Explicit shelf action for `paths`; `None` = per-type default.
+    pub op: Option<crate::transforms::Conv>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +48,7 @@ fn handle_job(job: &DropJob) -> DropResult {
         copy = o.copy.or(copy);
     }
     for p in &job.paths {
-        let o = crate::transforms::transform_file(p);
+        let o = crate::transforms::run(job.op.unwrap_or(crate::transforms::Conv::Auto), p);
         summaries.push(o.summary);
         open = o.open.or(open);
         copy = o.copy.or(copy);

@@ -37,11 +37,11 @@ mod win {
     use crate::render::{Action, Crop, Frame, Hit, Renderer};
     use crate::ui_state::{Anim, Chip, Model, Panel, Scene};
     use std::cell::RefCell;
-    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
     use windows::Win32::Foundation::*;
-    use windows::Win32::Graphics::Dwm::DwmFlush;
+    use windows::Win32::Graphics::Dwm::{DwmFlush, DwmGetCompositionTimingInfo, DWM_TIMING_INFO};
     use windows::Win32::Graphics::Gdi::*;
     use windows::Win32::System::Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
     use windows::Win32::System::DataExchange::*;
@@ -65,6 +65,7 @@ mod win {
     const T_COLLAPSE: usize = 2;
     const T_EXPIRE: usize = 3;
     const T_FS: usize = 4;
+    const T_TIMER: usize = 5;
     const DWELL_MS: u32 = 120;
     const COLLAPSE_MS: u32 = 300;
 
@@ -80,6 +81,37 @@ mod win {
     }
 
     static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
+    // Latest vblank from DWM (QPC ticks), its period in ticks, and the refresh period in seconds (f64 bits).
+    static VBLANK: AtomicU64 = AtomicU64::new(0);
+    static VPERIOD: AtomicU64 = AtomicU64::new(0);
+    static REFRESH_S: AtomicU64 = AtomicU64::new(0);
+
+    /// Sample DWM's vblank clock. Called by the ticker right after `DwmFlush`.
+    fn sample_vblank() {
+        let mut ti = DWM_TIMING_INFO { cbSize: std::mem::size_of::<DWM_TIMING_INFO>() as u32, ..Default::default() };
+        // SAFETY: ti is a valid, correctly sized out-struct. A null HWND asks for the desktop compositor.
+        if unsafe { DwmGetCompositionTimingInfo(HWND::default(), &mut ti) }.is_ok()
+            && ti.qpcRefreshPeriod > 0
+            && ti.rateRefresh.uiNumerator > 0
+        {
+            let hz = ti.rateRefresh.uiNumerator as f64 / ti.rateRefresh.uiDenominator.max(1) as f64;
+            REFRESH_S.store((1.0 / hz).to_bits(), Ordering::Relaxed);
+            VPERIOD.store(ti.qpcRefreshPeriod, Ordering::Relaxed);
+            VBLANK.store(ti.qpcVBlank, Ordering::Relaxed);
+        } else {
+            VBLANK.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// Seconds between two vblanks, from DWM's own clock (None if unavailable or implausible).
+    fn vblank_dt(prev: u64, now: u64) -> Option<f64> {
+        let (period, refresh) = (VPERIOD.load(Ordering::Relaxed), f64::from_bits(REFRESH_S.load(Ordering::Relaxed)));
+        if prev == 0 || now <= prev || period == 0 || refresh <= 0.0 {
+            return None;
+        }
+        let d = (now - prev) as f64 / period as f64 * refresh;
+        (d < 0.1).then_some(d)
+    }
     // Low-level mouse hook state (screen px zone around the top-centre).
     static LBTN: AtomicBool = AtomicBool::new(false);
     static ARMED: AtomicBool = AtomicBool::new(false);
@@ -124,6 +156,8 @@ mod win {
         crop_w: f32,
         hits: Vec<Hit>,
         last: Instant,
+        perf: crate::perf::Perf,
+        prev_vblank: u64,
         fs_hidden: bool,
         paused: bool,
         armed: bool,
@@ -331,6 +365,26 @@ mod win {
 
         fn after_model_change(&mut self, hwnd: HWND) {
             let now = Instant::now();
+            let wall = crate::timer::now_ms();
+            if self.model.finish_timer(wall, now).is_some() {
+                let t = &self.cfg.timer;
+                self.model.timer_break = crate::timer::break_minutes(self.model.focus_done, t.rounds, t.break_min, t.long_break_min);
+                self.model.timer_panel = false;
+                self.model.force_until = Some(now + Duration::from_secs(8));
+                if t.sound {
+                    crate::timer::play_chime();
+                }
+                crate::timer::save(None);
+            }
+            // 1 Hz redraw for the fuse, only while a timer runs; no timer = no wake-ups.
+            match &self.model.timer {
+                Some(t) if t.paused_ms.is_none() => unsafe {
+                    SetTimer(Some(hwnd), T_TIMER, t.remaining_ms(wall).min(1000) as u32 + 15, None);
+                },
+                _ => unsafe {
+                    let _ = KillTimer(Some(hwnd), T_TIMER);
+                },
+            }
             match self.model.expire(now) {
                 Some(next) => unsafe {
                     let ms = next.saturating_duration_since(now).as_millis() as u32 + 20;
@@ -347,7 +401,12 @@ mod win {
 
         fn frame(&mut self, hwnd: HWND) {
             let now = Instant::now();
-            let dt = now.saturating_duration_since(self.last).as_secs_f32().min(0.05);
+            let gap = now.saturating_duration_since(self.last);
+            // While springs move the ticker paces on vblank: use DWM's own clock so dt is a
+            // whole number of refresh periods instead of scheduler-jittered wall time.
+            let vb = if self.shared.fast.load(Ordering::Relaxed) { VBLANK.load(Ordering::Relaxed) } else { 0 };
+            let dt = vblank_dt(self.prev_vblank, vb).map_or(gap.as_secs_f32(), |d| d as f32).min(0.05);
+            self.prev_vblank = vb;
             self.last = now;
             self.layout();
             let moving = self.anim.step(dt as f64);
@@ -384,6 +443,10 @@ mod win {
                 self.hits = self.rend.draw(&fr, crop);
                 let a = (self.anim.vis.pos.clamp(0.0, 1.0) * 255.0).round() as u8;
                 self.rend.present(hwnd, crop, origin.0, origin.1, a);
+                // Skip the first frame after idle: its gap is the idle time, not a frame.
+                if moving && gap.as_millis() < 100 {
+                    self.perf.record(gap.as_micros() as u32, now.elapsed().as_micros() as u32);
+                }
             }
             let ambient = !self.anim.reduce && self.shown && self.model.ambient(self.anim.scene);
             let sh = &self.shared;
@@ -415,6 +478,28 @@ mod win {
                 }
                 Action::SelectPanel(p) => self.select_panel(p),
                 Action::ToggleMic => self.toggle_mic(),
+                Action::TimerMinutes(m) => self.model.timer_min = m,
+                Action::TimerStart(k) => self.start_timer(k, self.model.timer_min),
+                Action::TimerBreak(m) => self.start_timer(crate::timer::TimerKind::Break, m),
+                Action::TimerAdd(m) => {
+                    if let Some(t) = &mut self.model.timer {
+                        t.add_minutes(m as u64);
+                        crate::timer::save(Some(t));
+                    } else if self.model.timer_done.is_some() {
+                        self.start_timer(crate::timer::TimerKind::Plain, m);
+                    }
+                }
+                Action::TimerPause => {
+                    if let Some(t) = &mut self.model.timer {
+                        t.toggle_pause(crate::timer::now_ms());
+                        crate::timer::save(Some(t));
+                    }
+                }
+                Action::TimerStop => {
+                    self.model.timer = None;
+                    crate::timer::save(None);
+                }
+                Action::TimerDismiss => self.model.timer_done = None,
                 Action::SetPowerMode(m) => {
                     crate::power::set_mode(m);
                     self.model.power = crate::power::read();
@@ -453,9 +538,9 @@ mod win {
                     }
                     self.save_shelf();
                 }
-                Action::ShelfOp(id) => {
+                Action::ShelfOp(id, op) => {
                     if let Some(it) = self.model.shelf.iter().find(|i| i.id == id) {
-                        let job = DropJob { paths: vec![it.path.clone()], text: None };
+                        let job = DropJob { paths: vec![it.path.clone()], text: None, op: Some(op) };
                         self.model.chip = Some(Chip { summary: "Working…".into(), open: None, copy: None, since: Instant::now() });
                         let _ = self.shared.drop_tx.send(job);
                     }
@@ -464,7 +549,16 @@ mod win {
             self.after_model_change(hwnd);
         }
 
+        fn start_timer(&mut self, kind: crate::timer::TimerKind, minutes: u32) {
+            let t = crate::timer::Timer::start(kind, minutes, crate::timer::now_ms());
+            crate::timer::save(Some(&t));
+            self.model.timer = Some(t);
+            self.model.timer_done = None;
+            self.model.timer_panel = false;
+        }
+
         fn select_panel(&mut self, p: Panel) {
+            self.model.timer_panel = false;
             self.model.selected = Some(p);
             match p {
                 Panel::Ports => crate::ports::request_refresh(),
@@ -487,6 +581,10 @@ mod win {
                 return;
             }
             self.wheel -= steps * 120;
+            if self.model.timer_panel && self.model.timer.is_none() {
+                self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
+                return;
+            }
             // Wheel down = next pane. Collapsed pills peek open so the change is visible.
             let p = self.model.step_panel(-steps.signum());
             self.select_panel(p);
@@ -582,6 +680,8 @@ mod win {
                 crop_w: 0.0,
                 hits: vec![],
                 last: Instant::now(),
+                perf: crate::perf::Perf::new(),
+                prev_vblank: 0,
                 fs_hidden: false,
                 paused: false,
                 armed: false,
@@ -598,6 +698,8 @@ mod win {
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
             }
+            ui.model.timer_min = 25;
+            ui.model.timer = crate::timer::load();
             ui.refresh_monitor();
             ui.layout();
             ui.anim.rect.snap();
@@ -646,6 +748,7 @@ mod win {
                     }
                     if s4.fast.load(Ordering::Relaxed) {
                         let _ = DwmFlush();
+                        sample_vblank();
                     } else {
                         std::thread::sleep(Duration::from_millis(33));
                     }
@@ -771,7 +874,7 @@ mod win {
     }
 
     fn extract(data: &IDataObject) -> DropJob {
-        let mut job = DropJob { paths: vec![], text: None };
+        let mut job = DropJob { paths: vec![], text: None, op: None };
         unsafe {
             if let Ok(mut stg) = data.GetData(&query(data, CF_HDROP)) {
                 let h = windows::Win32::UI::Shell::HDROP(stg.u.hGlobal.0);
@@ -1083,6 +1186,22 @@ mod win {
                 });
                 return LRESULT(0);
             }
+            WM_RBUTTONUP => {
+                with_ui(|ui| {
+                    ui.set_mouse_client(lparam);
+                    if ui.pill_contains() {
+                        ui.model.timer_panel = !ui.model.timer_panel;
+                        if ui.model.timer_panel {
+                            ui.hover = true;
+                            unsafe {
+                                let _ = KillTimer(Some(hwnd), T_COLLAPSE);
+                            }
+                        }
+                        ui.after_model_change(hwnd);
+                    }
+                });
+                return LRESULT(0);
+            }
             WM_TIMER => {
                 let id = wparam.0;
                 unsafe {
@@ -1101,11 +1220,12 @@ mod win {
                     T_COLLAPSE => {
                         if !ui.inside {
                             ui.hover = false;
+                            ui.model.timer_panel = false;
                             ui.layout();
                             ui.kick();
                         }
                     }
-                    T_EXPIRE => ui.after_model_change(hwnd),
+                    T_EXPIRE | T_TIMER => ui.after_model_change(hwnd),
                     T_FS => {
                         ui.evaluate_fullscreen();
                         ui.follow_desktop(hwnd);

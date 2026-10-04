@@ -17,6 +17,8 @@ pub const CHIP_HOLD: Duration = Duration::from_secs(10);
 /// Width the red mute lock takes from the pill's right edge.
 pub const LOCK_W: f32 = 26.0;
 pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
+/// How long the timer-finished card waits before folding away on its own.
+pub const TIMER_DONE_HOLD: Duration = Duration::from_secs(30);
 
 /// Events marshalled from worker threads to the UI thread.
 #[derive(Debug, Clone)]
@@ -92,6 +94,7 @@ pub enum Panel {
     Shelf,
     Media,
     Ports,
+    Timer,
     Home,
 }
 
@@ -116,6 +119,8 @@ pub enum Scene {
     ExpHome,
     ExpDrop,
     ExpChip,
+    ExpTimer,
+    ExpTimerDone,
 }
 
 #[derive(Default)]
@@ -146,6 +151,16 @@ pub struct Model {
     pub now: Option<Instant>,
     /// Lower-cased command names the daemon refuses to show (shell hooks).
     pub ignore: Vec<String>,
+    pub timer: Option<crate::timer::Timer>,
+    /// Right-click panel (set or inspect the timer).
+    pub timer_panel: bool,
+    /// Minutes the panel will start with (wheel / presets).
+    pub timer_min: u32,
+    pub timer_done: Option<(crate::timer::TimerKind, Instant)>,
+    /// Length of the break offered after a finished focus session.
+    pub timer_break: u32,
+    /// Focus sessions finished, for long-break spacing.
+    pub focus_done: u32,
 }
 
 /// First word of a command line, lower-cased, without path or `.exe`.
@@ -255,7 +270,7 @@ impl Model {
     }
 
     fn visible(&self, t: &TaskView) -> bool {
-        self.now.map_or(true, |n| n >= t.visible_after)
+        self.now.is_none_or(|n| n >= t.visible_after)
     }
 
     /// Drop finished tasks / chips past their hold time. Returns the next
@@ -278,6 +293,9 @@ impl Model {
         }
         if self.force_until.is_some_and(|f| now >= f) {
             self.force_until = None;
+        }
+        if self.timer_done.is_some_and(|(_, s)| now.duration_since(s) >= TIMER_DONE_HOLD) {
+            self.timer_done = None;
         }
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
@@ -303,7 +321,23 @@ impl Model {
         if let Some(f) = self.force_until {
             keep(f);
         }
+        if let Some((_, s)) = self.timer_done {
+            keep(s + TIMER_DONE_HOLD);
+        }
         next
+    }
+
+    /// Move a due timer to the finished card. Returns its kind when it just fired.
+    pub fn finish_timer(&mut self, wall_ms: u64, now: Instant) -> Option<crate::timer::TimerKind> {
+        if !self.timer.as_ref().is_some_and(|t| t.remaining_ms(wall_ms) == 0) {
+            return None;
+        }
+        let t = self.timer.take()?;
+        if t.kind == crate::timer::TimerKind::Focus {
+            self.focus_done += 1;
+        }
+        self.timer_done = Some((t.kind, now));
+        Some(t.kind)
     }
 
     pub fn dismiss_task(&mut self, id: &str) {
@@ -346,6 +380,9 @@ impl Model {
         let mut v = vec![];
         if self.visible_count() > 0 {
             v.push(Panel::Tasks);
+        }
+        if self.timer.is_some() {
+            v.push(Panel::Timer);
         }
         if !self.shelf.is_empty() {
             v.push(Panel::Shelf);
@@ -397,6 +434,12 @@ impl Model {
         if self.chip.is_some() {
             return Scene::ExpChip;
         }
+        if self.timer_done.is_some() {
+            return Scene::ExpTimerDone;
+        }
+        if self.timer_panel {
+            return Scene::ExpTimer;
+        }
         let peeking = self.now.zip(self.peek_until).is_some_and(|(n, p)| n < p);
         if hover || peeking {
             return match self.panel() {
@@ -404,6 +447,7 @@ impl Model {
                 Panel::Shelf => Scene::ExpShelf,
                 Panel::Media => Scene::ExpMedia,
                 Panel::Ports => Scene::ExpPorts,
+                Panel::Timer => Scene::ExpTimer,
                 Panel::Home => Scene::ExpHome,
             };
         }
@@ -435,7 +479,8 @@ impl Model {
             Scene::ExpMedia => (380.0, 128.0 + tab),
             Scene::ExpHome => (380.0, if self.power.is_some() { 132.0 } else { 86.0 } + tab),
             Scene::ExpDrop => (380.0, 116.0),
-            Scene::ExpChip => (380.0, 96.0),
+            Scene::ExpChip | Scene::ExpTimerDone => (380.0, 96.0),
+            Scene::ExpTimer => (380.0, 92.0 + tab),
             Scene::ExpPorts => (380.0, 20.0 + self.ports.len().min(5) as f64 * 34.0 + tab),
             Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpTasks => {
@@ -467,6 +512,8 @@ impl Model {
         match scene {
             Scene::Sentinel | Scene::Idle => ([1.0; 3], 0.0),
             Scene::ExpDrop => (PURPLE, 1.0),
+            Scene::ExpTimer => (BLUE, 0.30),
+            Scene::ExpTimerDone => (GREEN, 0.8),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
             Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
@@ -693,6 +740,7 @@ bang".into()),
 
     #[test]
     fn panels_and_selection() {
+        // (a running timer adds its own pane)
         let mut m = Model::default();
         assert_eq!(m.panels(), vec![Panel::Home]);
         assert!(!m.tabs());
@@ -732,6 +780,20 @@ bang".into()),
         assert_eq!(m.scene(false, true), Scene::ExpShelf, "feedback after the drop");
         m.expire(t0 + Duration::from_secs(5));
         assert_eq!(m.scene(false, true), Scene::Sentinel);
+    }
+
+    #[test]
+    fn timer_fires_once_and_card_expires() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.timer = Some(crate::timer::Timer::start(crate::timer::TimerKind::Focus, 1, 1_000));
+        assert_eq!(m.finish_timer(30_000, t0), None, "not due yet");
+        assert_eq!(m.finish_timer(61_000, t0), Some(crate::timer::TimerKind::Focus));
+        assert_eq!((m.focus_done, m.timer.is_none()), (1, true));
+        assert_eq!(m.finish_timer(99_000, t0), None, "only fires once");
+        assert_eq!(m.scene(false, false), Scene::ExpTimerDone);
+        m.expire(t0 + TIMER_DONE_HOLD);
+        assert_eq!(m.scene(false, false), Scene::Idle);
     }
 
     #[test]

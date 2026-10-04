@@ -6,11 +6,14 @@
 
 mod animation;
 mod config;
+mod convert;
+mod timer;
 mod drop;
 mod fullscreen;
 mod logging;
 mod media;
 mod mic;
+mod perf;
 mod pipe_server;
 mod power;
 mod ports;
