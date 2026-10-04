@@ -85,9 +85,9 @@ mod imp {
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
     };
-    use windows::Win32::System::IO::DeviceIoControl;
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows::Win32::System::Power::*;
+    use windows::Win32::System::IO::DeviceIoControl;
 
     const SAVER: GUID = GUID::from_u128(0x961cc777_2547_4f9d_8174_7d86181b8a7a);
     const BALANCED: GUID = GUID::zeroed();
@@ -98,8 +98,12 @@ mod imp {
 
     fn mode() -> Mode {
         unsafe {
-            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else { return Mode::Balanced };
-            let Some(f) = GetProcAddress(lib, s!("PowerGetActualOverlayScheme")) else { return Mode::Balanced };
+            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else {
+                return Mode::Balanced;
+            };
+            let Some(f) = GetProcAddress(lib, s!("PowerGetActualOverlayScheme")) else {
+                return Mode::Balanced;
+            };
             let f: GetOverlay = std::mem::transmute(f);
             let mut g = GUID::zeroed();
             if f(&mut g) != 0 {
@@ -117,8 +121,12 @@ mod imp {
 
     pub fn set_mode(m: Mode) {
         unsafe {
-            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else { return };
-            let Some(f) = GetProcAddress(lib, s!("PowerSetActiveOverlayScheme")) else { return };
+            let Ok(lib) = LoadLibraryW(w!("powrprof.dll")) else {
+                return;
+            };
+            let Some(f) = GetProcAddress(lib, s!("PowerSetActiveOverlayScheme")) else {
+                return;
+            };
             let f: SetOverlay = std::mem::transmute(f);
             f(match m {
                 Mode::Saver => SAVER,
@@ -137,7 +145,12 @@ mod imp {
         }
         let plugged = st.ACLineStatus == 1;
         let watts = rate_mw().map(|mw| mw as f32 / 1000.0);
-        Some(Battery { pct: st.BatteryLifePercent, plugged, watts, mode: mode() })
+        Some(Battery {
+            pct: st.BatteryLifePercent,
+            plugged,
+            watts,
+            mode: mode(),
+        })
     }
 
     /// Signed charge rate in mW from the first battery device.
@@ -194,7 +207,10 @@ mod imp {
                     if tag == 0 {
                         return None;
                     }
-                    let q = BATTERY_WAIT_STATUS { BatteryTag: tag, ..Default::default() };
+                    let q = BATTERY_WAIT_STATUS {
+                        BatteryTag: tag,
+                        ..Default::default()
+                    };
                     let mut s = BATTERY_STATUS::default();
                     DeviceIoControl(
                         h,
@@ -227,12 +243,17 @@ mod tests {
         // Desktop: None. Laptop: a sane percentage.
         let b = read();
         println!("battery: {b:?}");
-        assert!(b.map_or(true, |b| b.pct <= 100));
+        assert!(b.is_none_or(|b| b.pct <= 100));
     }
 
     #[test]
     fn status_text() {
-        let b = |pct, plugged, watts| Battery { pct, plugged, watts, mode: Mode::Balanced };
+        let b = |pct, plugged, watts| Battery {
+            pct,
+            plugged,
+            watts,
+            mode: Mode::Balanced,
+        };
         assert_eq!(b(78, true, Some(24.46)).status(), "78%  ·  charging 24.5 W");
         assert_eq!(b(40, false, Some(-8.2)).status(), "40%  ·  using 8.2 W");
         assert_eq!(b(100, true, Some(0.0)).status(), "100%  ·  full");

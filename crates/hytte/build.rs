@@ -1,5 +1,7 @@
 fn main() {
-    use embed_manifest::{embed_manifest, manifest::DpiAwareness, manifest::MaxVersionTested, new_manifest};
+    use embed_manifest::{
+        embed_manifest, manifest::DpiAwareness, manifest::MaxVersionTested, new_manifest,
+    };
     if std::env::var_os("CARGO_CFG_WINDOWS").is_some() {
         let _ = embed_manifest(
             new_manifest("Hytte")

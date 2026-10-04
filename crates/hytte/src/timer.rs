@@ -33,16 +33,24 @@ pub struct Timer {
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 impl Timer {
     pub fn start(kind: TimerKind, minutes: u32, now: u64) -> Self {
         let total_ms = minutes.max(1) as u64 * 60_000;
-        Self { kind, total_ms, ends_ms: now + total_ms, paused_ms: None }
+        Self {
+            kind,
+            total_ms,
+            ends_ms: now + total_ms,
+            paused_ms: None,
+        }
     }
     pub fn remaining_ms(&self, now: u64) -> u64 {
-        self.paused_ms.unwrap_or_else(|| self.ends_ms.saturating_sub(now))
+        self.paused_ms
+            .unwrap_or_else(|| self.ends_ms.saturating_sub(now))
     }
     pub fn toggle_pause(&mut self, now: u64) {
         match self.paused_ms.take() {
@@ -75,7 +83,11 @@ pub fn fmt(ms: u64) -> String {
 
 /// Minutes of the break that follows focus session number `done` (1-based).
 pub fn break_minutes(done: u32, rounds: u32, short: u32, long: u32) -> u32 {
-    if rounds > 0 && done.is_multiple_of(rounds) { long } else { short }
+    if rounds > 0 && done.is_multiple_of(rounds) {
+        long
+    } else {
+        short
+    }
 }
 
 /// Wheel notches -> minutes: 1-minute steps under 10, 5-minute steps above.
@@ -121,7 +133,9 @@ pub fn chime_wav() -> Vec<u8> {
         for i in 0..n {
             let t = i as f32 / SR as f32;
             let env = (t / 0.01).min(1.0) * (-5.5 * t).exp();
-            pcm.push(((t * hz * std::f32::consts::TAU).sin() * env * 0.35 * i16::MAX as f32) as i16);
+            pcm.push(
+                ((t * hz * std::f32::consts::TAU).sin() * env * 0.35 * i16::MAX as f32) as i16,
+            );
         }
     }
     let data = (pcm.len() * 2) as u32;
@@ -151,7 +165,11 @@ pub fn play_chime() {
         static WAV: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
         let w = WAV.get_or_init(chime_wav);
         unsafe {
-            let _ = PlaySoundW(windows::core::PCWSTR(w.as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC);
+            let _ = PlaySoundW(
+                windows::core::PCWSTR(w.as_ptr() as *const u16),
+                None,
+                SND_MEMORY | SND_ASYNC,
+            );
         }
     }
 }
@@ -215,7 +233,10 @@ mod tests {
     fn chime_is_a_valid_wav() {
         let w = chime_wav();
         assert_eq!(&w[..4], b"RIFF");
-        assert_eq!(u32::from_le_bytes(w[4..8].try_into().unwrap()) as usize, w.len() - 8);
+        assert_eq!(
+            u32::from_le_bytes(w[4..8].try_into().unwrap()) as usize,
+            w.len() - 8
+        );
         assert!(w.len() < 100_000);
     }
 }

@@ -143,16 +143,33 @@ const GRAY: [f32; 3] = [0.62, 0.62, 0.68];
 const AMBER: [f32; 3] = [1.0, 0.72, 0.20];
 
 fn color(c: [f32; 3], a: f32) -> D2D1_COLOR_F {
-    D2D1_COLOR_F { r: c[0], g: c[1], b: c[2], a: a.clamp(0.0, 1.0) }
+    D2D1_COLOR_F {
+        r: c[0],
+        g: c[1],
+        b: c[2],
+        a: a.clamp(0.0, 1.0),
+    }
 }
 fn rect(x: f32, y: f32, w: f32, h: f32) -> D2D_RECT_F {
-    D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }
+    D2D_RECT_F {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
 }
 fn v(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 fn mat(s: f32, tx: f32, ty: f32) -> Matrix3x2 {
-    Matrix3x2 { M11: s, M12: 0.0, M21: 0.0, M22: s, M31: tx * s, M32: ty * s }
+    Matrix3x2 {
+        M11: s,
+        M12: 0.0,
+        M21: 0.0,
+        M22: s,
+        M31: tx * s,
+        M32: ty * s,
+    }
 }
 fn task_color(t: &TaskView) -> [f32; 3] {
     match t.event {
@@ -208,7 +225,10 @@ impl Renderer {
                 dashOffset: 0.0,
             };
             let round = factory.CreateStrokeStyle(&sp, None)?;
-            let dp = D2D1_STROKE_STYLE_PROPERTIES { dashStyle: D2D1_DASH_STYLE_CUSTOM, ..sp };
+            let dp = D2D1_STROKE_STYLE_PROPERTIES {
+                dashStyle: D2D1_DASH_STYLE_CUSTOM,
+                ..sp
+            };
             let dashed = factory.CreateStrokeStyle(&dp, Some(&[2.0, 3.0]))?;
 
             let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
@@ -282,7 +302,11 @@ impl Renderer {
         }
         let w_px = ((w * self.scale).ceil() as i32).min(self.px.0);
         let h_px = ((h * self.scale).ceil() as i32).min(self.px.1);
-        Crop { w_px, h_px, w_log: w_px as f32 / self.scale }
+        Crop {
+            w_px,
+            h_px,
+            w_log: w_px as f32 / self.scale,
+        }
     }
 
     /// Draw one frame; returns the clickable regions it laid out.
@@ -295,7 +319,12 @@ impl Renderer {
         let ox = (crop.w_log - pw) / 2.0;
         self.ox.set(ox);
         unsafe {
-            let rc = RECT { left: 0, top: 0, right: crop.w_px, bottom: crop.h_px };
+            let rc = RECT {
+                left: 0,
+                top: 0,
+                right: crop.w_px,
+                bottom: crop.h_px,
+            };
             if self.rt.BindDC(self.mem, &rc).is_err() {
                 return vec![];
             }
@@ -303,14 +332,21 @@ impl Renderer {
             self.rt.Clear(Some(&color(WHITE, 0.0)));
             self.rt.SetTransform(&mat(self.scale, 0.0, 0.0));
             if fr.armed {
-                self.rt.FillRectangle(&rect(0.0, 0.0, crop.w_log, HOT_ZONE_H), &*self.solid(color([0.0; 3], 0.008)));
+                // The deref picks the ID2D1Brush upcast; plain `&` does not satisfy the bound.
+                #[allow(clippy::borrow_deref_ref)]
+                self.rt.FillRectangle(
+                    &rect(0.0, 0.0, crop.w_log, HOT_ZONE_H),
+                    &*self.solid(color([0.0; 3], 0.008)),
+                );
             }
             self.rt.SetTransform(&mat(self.scale, ox, 0.0));
             self.scene(fr, pw, ph);
             let _ = self.rt.EndDraw(None, None);
         }
         // Prune progress smoothing for tasks that are gone.
-        self.shown.borrow_mut().retain(|k, _| fr.model.tasks.iter().any(|t| &t.id == k));
+        self.shown
+            .borrow_mut()
+            .retain(|k, _| fr.model.tasks.iter().any(|t| &t.id == k));
         self.hits.borrow().clone()
     }
 
@@ -318,7 +354,10 @@ impl Renderer {
     pub fn present(&self, hwnd: HWND, crop: Crop, x: i32, y: i32, alpha: u8) {
         unsafe {
             let dst = POINT { x, y };
-            let size = SIZE { cx: crop.w_px, cy: crop.h_px };
+            let size = SIZE {
+                cx: crop.w_px,
+                cy: crop.h_px,
+            };
             let src = POINT { x: 0, y: 0 };
             let blend = BLENDFUNCTION {
                 BlendOp: AC_SRC_OVER as u8,
@@ -353,34 +392,70 @@ impl Renderer {
     }
 
     fn fill_rr(&self, x: f32, y: f32, w: f32, h: f32, r: f32, c: D2D1_COLOR_F) {
-        let rr = D2D1_ROUNDED_RECT { rect: rect(x, y, w, h), radiusX: r, radiusY: r };
+        let rr = D2D1_ROUNDED_RECT {
+            rect: rect(x, y, w, h),
+            radiusX: r,
+            radiusY: r,
+        };
         unsafe { self.rt.FillRoundedRectangle(&rr, self.solid(c)) };
     }
 
-    fn stroke_rr(&self, x: f32, y: f32, w: f32, h: f32, r: f32, c: D2D1_COLOR_F, width: f32, dashed: bool) {
-        let rr = D2D1_ROUNDED_RECT { rect: rect(x, y, w, h), radiusX: r, radiusY: r };
+    fn stroke_rr(
+        &self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+        c: D2D1_COLOR_F,
+        width: f32,
+        dashed: bool,
+    ) {
+        let rr = D2D1_ROUNDED_RECT {
+            rect: rect(x, y, w, h),
+            radiusX: r,
+            radiusY: r,
+        };
         unsafe {
-            self.rt.DrawRoundedRectangle(&rr, self.solid(c), width, if dashed { &self.dashed } else { &self.round })
+            self.rt.DrawRoundedRectangle(
+                &rr,
+                self.solid(c),
+                width,
+                if dashed { &self.dashed } else { &self.round },
+            )
         };
     }
 
     fn circle(&self, cx: f32, cy: f32, r: f32, c: D2D1_COLOR_F) {
-        let e = D2D1_ELLIPSE { point: v(cx, cy), radiusX: r, radiusY: r };
+        let e = D2D1_ELLIPSE {
+            point: v(cx, cy),
+            radiusX: r,
+            radiusY: r,
+        };
         unsafe { self.rt.FillEllipse(&e, self.solid(c)) };
     }
 
     fn ring(&self, cx: f32, cy: f32, r: f32, c: D2D1_COLOR_F, width: f32) {
-        let e = D2D1_ELLIPSE { point: v(cx, cy), radiusX: r, radiusY: r };
+        let e = D2D1_ELLIPSE {
+            point: v(cx, cy),
+            radiusX: r,
+            radiusY: r,
+        };
         unsafe { self.rt.DrawEllipse(&e, self.solid(c), width, &self.round) };
     }
 
     fn line(&self, a: (f32, f32), b: (f32, f32), c: D2D1_COLOR_F, width: f32) {
-        unsafe { self.rt.DrawLine(v(a.0, a.1), v(b.0, b.1), self.solid(c), width, &self.round) };
+        unsafe {
+            self.rt
+                .DrawLine(v(a.0, a.1), v(b.0, b.1), self.solid(c), width, &self.round)
+        };
     }
 
     fn poly(&self, pts: &[(f32, f32)], c: D2D1_COLOR_F) {
         unsafe {
-            let Ok(g) = self.factory.CreatePathGeometry() else { return };
+            let Ok(g) = self.factory.CreatePathGeometry() else {
+                return;
+            };
             let Ok(s) = g.Open() else { return };
             s.BeginFigure(v(pts[0].0, pts[0].1), D2D1_FIGURE_BEGIN_FILLED);
             for p in &pts[1..] {
@@ -392,7 +467,16 @@ impl Renderer {
         }
     }
 
-    fn text(&self, s: &str, f: &IDWriteTextFormat, x: f32, y: f32, w: f32, h: f32, c: D2D1_COLOR_F) {
+    fn text(
+        &self,
+        s: &str,
+        f: &IDWriteTextFormat,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        c: D2D1_COLOR_F,
+    ) {
         if w <= 1.0 {
             return;
         }
@@ -412,15 +496,37 @@ impl Renderer {
     /// Register a clickable region (pill-relative); true when hovered.
     fn hit(&self, x: f32, y: f32, w: f32, h: f32, action: Action) -> bool {
         let ox = self.ox.get();
-        self.hits.borrow_mut().push(Hit { rect: (x + ox, y, x + ox + w, y + h), action });
-        self.mouse.get().is_some_and(|(mx, my)| mx >= x + ox && mx <= x + ox + w && my >= y && my <= y + h)
+        self.hits.borrow_mut().push(Hit {
+            rect: (x + ox, y, x + ox + w, y + h),
+            action,
+        });
+        self.mouse
+            .get()
+            .is_some_and(|(mx, my)| mx >= x + ox && mx <= x + ox + w && my >= y && my <= y + h)
     }
 
-    fn button(&self, label: &str, x: f32, y: f32, w: f32, h: f32, accent: [f32; 3], action: Action) {
+    fn button(
+        &self,
+        label: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        accent: [f32; 3],
+        action: Action,
+    ) {
         let hov = self.hit(x, y, w, h, action);
         let a = if hov { 0.26 } else { 0.13 };
         self.fill_rr(x, y, w, h, h / 2.0, self.cc(accent, a));
-        self.text(label, &self.f.btn, x, y, w, h, self.cc(WHITE, if hov { 1.0 } else { 0.86 }));
+        self.text(
+            label,
+            &self.f.btn,
+            x,
+            y,
+            w,
+            h,
+            self.cc(WHITE, if hov { 1.0 } else { 0.86 }),
+        );
     }
 
     // ------------------------------------------------------------------ shape
@@ -431,9 +537,16 @@ impl Renderer {
             let s = g.Open().ok()?;
             let arc = |x: f32, y: f32, r: f32, cw: bool| D2D1_ARC_SEGMENT {
                 point: v(x, y),
-                size: D2D_SIZE_F { width: r, height: r },
+                size: D2D_SIZE_F {
+                    width: r,
+                    height: r,
+                },
                 rotationAngle: 0.0,
-                sweepDirection: if cw { D2D1_SWEEP_DIRECTION_CLOCKWISE } else { D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE },
+                sweepDirection: if cw {
+                    D2D1_SWEEP_DIRECTION_CLOCKWISE
+                } else {
+                    D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE
+                },
                 arcSize: D2D1_ARC_SIZE_SMALL,
             };
             s.BeginFigure(v(-e, 0.0), D2D1_FIGURE_BEGIN_FILLED);
@@ -464,46 +577,72 @@ impl Renderer {
             self.fill_rr(0.0, 0.0, w, h, h / 2.0, color(WHITE, 0.30));
             return;
         }
-        let Some(g) = self.pill_geometry(w, h, rb, e) else { return };
+        let Some(g) = self.pill_geometry(w, h, rb, e) else {
+            return;
+        };
         unsafe {
             // Soft glow: stacked widening strokes under the body.
             let mut gl = an.glow.pos as f32;
-            if fr.model.primary().is_some_and(|t| t.needs_input()) && matches!(an.scene, Scene::CompactTask | Scene::ExpTasks) {
+            if fr.model.primary().is_some_and(|t| t.needs_input())
+                && matches!(an.scene, Scene::CompactTask | Scene::ExpTasks)
+            {
                 gl *= 0.72 + 0.28 * (self.t.get() * 4.0).sin();
-
             }
             if gl > 0.01 {
                 for i in 1..=9 {
                     let k = 1.0 - i as f32 / 10.0;
                     let a = gl * 0.075 * k * k;
-                    self.rt.DrawGeometry(&g, self.solid(color(an.glow_rgb, a)), i as f32 * 2.2, &self.round);
+                    self.rt.DrawGeometry(
+                        &g,
+                        self.solid(color(an.glow_rgb, a)),
+                        i as f32 * 2.2,
+                        &self.round,
+                    );
                 }
             }
             // Body: near-black with a faint vertical gradient.
             let alpha = if fr.acrylic { 0.84 } else { 1.0 };
             let stops = [
-                D2D1_GRADIENT_STOP { position: 0.0, color: color([0.027, 0.027, 0.035], alpha) },
-                D2D1_GRADIENT_STOP { position: 1.0, color: color([0.075, 0.075, 0.095], alpha) },
+                D2D1_GRADIENT_STOP {
+                    position: 0.0,
+                    color: color([0.027, 0.027, 0.035], alpha),
+                },
+                D2D1_GRADIENT_STOP {
+                    position: 1.0,
+                    color: color([0.075, 0.075, 0.095], alpha),
+                },
             ];
             let grad = self
                 .rt
                 .CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
                 .and_then(|c| {
                     self.rt.CreateLinearGradientBrush(
-                        &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: v(0.0, 0.0), endPoint: v(0.0, h.max(1.0)) },
+                        &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                            startPoint: v(0.0, 0.0),
+                            endPoint: v(0.0, h.max(1.0)),
+                        },
                         None,
                         &c,
                     )
                 });
             match grad {
                 Ok(b) => self.rt.FillGeometry(&g, &b, None::<&ID2D1Brush>),
-                Err(_) => self.rt.FillGeometry(&g, self.solid(color([0.03, 0.03, 0.04], alpha)), None::<&ID2D1Brush>),
+                Err(_) => self.rt.FillGeometry(
+                    &g,
+                    self.solid(color([0.03, 0.03, 0.04], alpha)),
+                    None::<&ID2D1Brush>,
+                ),
             }
             // Hairline rim + hover brighten.
-            self.rt.DrawGeometry(&g, self.solid(color(WHITE, 0.07)), 1.0, &self.round);
+            self.rt
+                .DrawGeometry(&g, self.solid(color(WHITE, 0.07)), 1.0, &self.round);
             let hv = an.hover.pos as f32;
             if hv > 0.01 {
-                self.rt.FillGeometry(&g, self.solid(color(WHITE, 0.025 * hv)), None::<&ID2D1Brush>);
+                self.rt.FillGeometry(
+                    &g,
+                    self.solid(color(WHITE, 0.025 * hv)),
+                    None::<&ID2D1Brush>,
+                );
             }
         }
     }
@@ -516,7 +655,12 @@ impl Renderer {
         if an.scene == Scene::Sentinel {
             return;
         }
-        if let Some(t) = fr.model.timer.as_ref().filter(|_| an.scene != Scene::ExpTimerDone) {
+        if let Some(t) = fr
+            .model
+            .timer
+            .as_ref()
+            .filter(|_| an.scene != Scene::ExpTimerDone)
+        {
             let m = fr.model;
             let centre = an.scene == Scene::Idle && m.ports.is_empty() && m.shelf.is_empty();
             self.timer_filament(t, w, h, centre, if m.mic_muted { LOCK_W } else { 0.0 });
@@ -524,10 +668,18 @@ impl Renderer {
         // Content fades/slides in on scene change.
         let c = an.content.pos.clamp(0.0, 1.0) as f32;
         self.ca.set(c * (((h - 14.0) / 10.0).clamp(0.0, 1.0)));
-        unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0)) };
+        unsafe {
+            self.rt
+                .SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0))
+        };
         let m = fr.model;
         let lock = if m.mic_muted { LOCK_W } else { 0.0 };
-        let pad_r = lock + if m.privacy_active() { 12.0 + 14.0 * (m.cam as u8 + m.mic as u8) as f32 } else { 0.0 };
+        let pad_r = lock
+            + if m.privacy_active() {
+                12.0 + 14.0 * (m.cam as u8 + m.mic as u8) as f32
+            } else {
+                0.0
+            };
         match an.scene {
             Scene::Sentinel => {}
             Scene::Idle => self.idle(fr, w, h),
@@ -543,16 +695,40 @@ impl Renderer {
             Scene::ExpTimer => self.exp_timer(fr, w, h),
             Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
         }
-        if m.tabs() && matches!(an.scene, Scene::ExpTasks | Scene::ExpMedia | Scene::ExpPorts | Scene::ExpShelf | Scene::ExpHome | Scene::ExpTimer) {
+        if m.tabs()
+            && matches!(
+                an.scene,
+                Scene::ExpTasks
+                    | Scene::ExpMedia
+                    | Scene::ExpPorts
+                    | Scene::ExpShelf
+                    | Scene::ExpHome
+                    | Scene::ExpTimer
+            )
+        {
             self.tabs(m, w, h);
         }
         // The Home card already spells out mic/camera state.
         let home = an.scene == Scene::ExpHome;
         if m.privacy_active() && !home {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
-            self.privacy_dots(m, w - 14.0 - lock, cy, !matches!(an.scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia));
+            self.privacy_dots(
+                m,
+                w - 14.0 - lock,
+                cy,
+                !matches!(
+                    an.scene,
+                    Scene::Idle | Scene::CompactTask | Scene::CompactMedia
+                ),
+            );
         }
-        if m.mic_muted && !home && !matches!(an.scene, Scene::ExpDrop | Scene::ExpChip | Scene::ExpTimer | Scene::ExpTimerDone) {
+        if m.mic_muted
+            && !home
+            && !matches!(
+                an.scene,
+                Scene::ExpDrop | Scene::ExpChip | Scene::ExpTimer | Scene::ExpTimerDone
+            )
+        {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.mute_badge(w - 14.0 - 6.0, cy);
         }
@@ -566,7 +742,14 @@ impl Renderer {
             if m.timer.is_some() {
                 return;
             }
-            self.fill_rr((w - lock) / 2.0 - 13.0, h / 2.0 - 1.5, 26.0, 3.0, 1.5, self.cc(WHITE, 0.16));
+            self.fill_rr(
+                (w - lock) / 2.0 - 13.0,
+                h / 2.0 - 1.5,
+                26.0,
+                3.0,
+                1.5,
+                self.cc(WHITE, 0.16),
+            );
             return;
         }
         let right_pad = lock + if m.privacy_active() { 34.0 } else { 0.0 };
@@ -574,20 +757,49 @@ impl Renderer {
         let cy = h / 2.0;
         if let Some(p) = m.ports.first() {
             self.circle(x + 3.0, cy, 2.6, self.cc(GREEN, 1.0));
-            let t = if m.ports.len() > 1 { format!(":{} +{}", p.port, m.ports.len() - 1) } else { format!(":{}", p.port) };
-            self.text(&t, &self.f.small_l, x + 10.0, cy - 8.0, 52.0, 16.0, self.cc(WHITE, 0.82));
+            let t = if m.ports.len() > 1 {
+                format!(":{} +{}", p.port, m.ports.len() - 1)
+            } else {
+                format!(":{}", p.port)
+            };
+            self.text(
+                &t,
+                &self.f.small_l,
+                x + 10.0,
+                cy - 8.0,
+                52.0,
+                16.0,
+                self.cc(WHITE, 0.82),
+            );
             x += 58.0;
         }
         if !m.shelf.is_empty() {
             self.fill_rr(x, cy - 3.5, 9.0, 8.0, 2.0, self.cc(PURPLE, 0.45));
             self.fill_rr(x + 2.0, cy - 5.5, 9.0, 8.0, 2.0, self.cc(PURPLE, 1.0));
-            self.text(&m.shelf.len().to_string(), &self.f.small_l, x + 15.0, cy - 8.0, 28.0, 16.0, self.cc(WHITE, 0.82));
+            self.text(
+                &m.shelf.len().to_string(),
+                &self.f.small_l,
+                x + 15.0,
+                cy - 8.0,
+                28.0,
+                16.0,
+                self.cc(WHITE, 0.82),
+            );
         }
     }
 
     /// Padlock: filled body plus a stroked shackle.
     fn lock_icon(&self, cx: f32, cy: f32, col: [f32; 3], a: f32) {
-        self.stroke_rr(cx - 3.2, cy - 6.2, 6.4, 9.0, 3.2, self.cc(col, a), 1.7, false);
+        self.stroke_rr(
+            cx - 3.2,
+            cy - 6.2,
+            6.4,
+            9.0,
+            3.2,
+            self.cc(col, a),
+            1.7,
+            false,
+        );
         self.fill_rr(cx - 5.5, cy - 1.5, 11.0, 8.5, 2.2, self.cc(col, a));
         self.circle(cx, cy + 2.2, 1.3, self.cc([0.05; 3], a));
     }
@@ -596,7 +808,12 @@ impl Renderer {
     fn mute_badge(&self, cx: f32, cy: f32) {
         let hov = self.hit(cx - 11.0, cy - 11.0, 22.0, 22.0, Action::ToggleMic);
         let p = (self.t.get() * 2.5).sin() * 0.5 + 0.5;
-        self.circle(cx, cy, 10.0, self.cc(RED, if hov { 0.34 } else { 0.20 + 0.04 * p }));
+        self.circle(
+            cx,
+            cy,
+            10.0,
+            self.cc(RED, if hov { 0.34 } else { 0.20 + 0.04 * p }),
+        );
         self.lock_icon(cx, cy, RED, 1.0);
     }
 
@@ -607,7 +824,11 @@ impl Renderer {
             if !on {
                 continue;
             }
-            let p = if pulse { (t * 2.2).sin() * 0.5 + 0.5 } else { 0.0 };
+            let p = if pulse {
+                (t * 2.2).sin() * 0.5 + 0.5
+            } else {
+                0.0
+            };
             self.circle(x, cy, 3.5 + 3.0 * p, self.cc(col, 0.22 * (1.0 - p)));
             self.circle(x, cy, 3.5, self.cc(col, 1.0));
             x -= 14.0;
@@ -628,18 +849,34 @@ impl Renderer {
                 for i in 1..=n {
                     let a = a0 + (i as f32 / n as f32) * 1.9;
                     let p = (cx + 6.5 * a.cos(), cy + 6.5 * a.sin());
-                    self.line(prev, p, self.cc(col, 0.35 + 0.65 * i as f32 / n as f32), 1.8);
+                    self.line(
+                        prev,
+                        p,
+                        self.cc(col, 0.35 + 0.65 * i as f32 / n as f32),
+                        1.8,
+                    );
                     prev = p;
                 }
             }
             TaskEvent::Done => {
                 self.circle(cx, cy, 8.0, self.cc(col, 0.16));
-                let pts = [(cx - 3.6, cy + 0.2), (cx - 1.0, cy + 3.0), (cx + 3.8, cy - 2.8)];
-                let seg = |a: (f32, f32), b: (f32, f32), k: f32| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
+                let pts = [
+                    (cx - 3.6, cy + 0.2),
+                    (cx - 1.0, cy + 3.0),
+                    (cx + 3.8, cy - 2.8),
+                ];
+                let seg = |a: (f32, f32), b: (f32, f32), k: f32| {
+                    (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k)
+                };
                 let p1 = (draw_p * 2.0).min(1.0);
                 self.line(pts[0], seg(pts[0], pts[1], p1), self.cc(col, 1.0), 2.0);
                 if draw_p > 0.5 {
-                    self.line(pts[1], seg(pts[1], pts[2], (draw_p - 0.5) * 2.0), self.cc(col, 1.0), 2.0);
+                    self.line(
+                        pts[1],
+                        seg(pts[1], pts[2], (draw_p - 0.5) * 2.0),
+                        self.cc(col, 1.0),
+                        2.0,
+                    );
                 }
             }
             TaskEvent::Failed => {
@@ -657,13 +894,30 @@ impl Renderer {
                 let sw = (tm * 22.0).sin() * 0.28 * burst;
                 let (s, c) = (sw.sin(), sw.cos());
                 let p = |x: f32, y: f32| (cx + x * c - y * s, cy - 1.5 + x * s + y * c);
-                self.poly(&[p(-4.2, 3.0), p(-2.6, -2.6), p(0.0, -4.6), p(2.6, -2.6), p(4.2, 3.0)], self.cc(col, 1.0));
+                self.poly(
+                    &[
+                        p(-4.2, 3.0),
+                        p(-2.6, -2.6),
+                        p(0.0, -4.6),
+                        p(2.6, -2.6),
+                        p(4.2, 3.0),
+                    ],
+                    self.cc(col, 1.0),
+                );
                 self.line(p(-5.2, 3.2), p(5.2, 3.2), self.cc(col, 1.0), 1.8);
                 self.circle(cx + 0.0, cy + 5.2, 1.5, self.cc(col, 1.0));
             }
             TaskEvent::Lost => {
                 self.circle(cx, cy, 8.0, self.cc(col, 0.16));
-                self.text("?", &self.f.center, cx - 8.0, cy - 8.0, 16.0, 16.0, self.cc(col, 1.0));
+                self.text(
+                    "?",
+                    &self.f.center,
+                    cx - 8.0,
+                    cy - 8.0,
+                    16.0,
+                    16.0,
+                    self.cc(col, 1.0),
+                );
             }
         }
     }
@@ -690,7 +944,14 @@ impl Renderer {
         self.fill_rr(x, y, w, 2.0, 1.0, self.cc(WHITE, 0.08));
         if !t.running() {
             if t.event == TaskEvent::Failed {
-                self.fill_rr(x, y, w, 2.0, 1.0, self.cc(RED, 0.55 + 0.25 * (self.t.get() * 3.2).sin()));
+                self.fill_rr(
+                    x,
+                    y,
+                    w,
+                    2.0,
+                    1.0,
+                    self.cc(RED, 0.55 + 0.25 * (self.t.get() * 3.2).sin()),
+                );
             }
             return;
         }
@@ -706,22 +967,37 @@ impl Renderer {
                 let seg = w * 0.35;
                 let sx = x - seg + (w + seg) * ph;
                 let stops = [
-                    D2D1_GRADIENT_STOP { position: 0.0, color: color(col, 0.0) },
-                    D2D1_GRADIENT_STOP { position: 0.5, color: color(col, self.ca.get()) },
-                    D2D1_GRADIENT_STOP { position: 1.0, color: color(col, 0.0) },
+                    D2D1_GRADIENT_STOP {
+                        position: 0.0,
+                        color: color(col, 0.0),
+                    },
+                    D2D1_GRADIENT_STOP {
+                        position: 0.5,
+                        color: color(col, self.ca.get()),
+                    },
+                    D2D1_GRADIENT_STOP {
+                        position: 1.0,
+                        color: color(col, 0.0),
+                    },
                 ];
                 if let Ok(gb) = self
                     .rt
                     .CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
                     .and_then(|c| {
                         self.rt.CreateLinearGradientBrush(
-                            &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: v(sx, 0.0), endPoint: v(sx + seg, 0.0) },
+                            &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                                startPoint: v(sx, 0.0),
+                                endPoint: v(sx + seg, 0.0),
+                            },
                             None,
                             &c,
                         )
                     })
                 {
-                    self.rt.PushAxisAlignedClip(&rect(x, y, w, 2.0), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                    self.rt.PushAxisAlignedClip(
+                        &rect(x, y, w, 2.0),
+                        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    );
                     self.rt.FillRectangle(&rect(sx, y, seg, 2.0), &gb);
                     self.rt.PopAxisAlignedClip();
                 }
@@ -737,20 +1013,54 @@ impl Renderer {
         let since = now.saturating_duration_since(t.changed).as_secs_f32();
         if t.failed() && since < 0.5 {
             let dx = (since * 55.0).sin() * 3.5 * (1.0 - since / 0.5);
-            unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get() + dx, 0.0)) };
+            unsafe {
+                self.rt
+                    .SetTransform(&mat(self.scale, self.ox.get() + dx, 0.0))
+            };
         }
         self.status_icon(t, 20.0, h / 2.0 - 1.5, now);
         let mut right = w - 14.0 - pad_r;
         let n = m.visible_count();
         if n > 1 {
-            self.fill_rr(right - 20.0, h / 2.0 - 9.0, 20.0, 16.0, 8.0, self.cc(WHITE, 0.14));
-            self.text(&n.to_string(), &self.f.btn, right - 20.0, h / 2.0 - 9.0, 20.0, 16.0, self.cc(WHITE, 0.9));
+            self.fill_rr(
+                right - 20.0,
+                h / 2.0 - 9.0,
+                20.0,
+                16.0,
+                8.0,
+                self.cc(WHITE, 0.14),
+            );
+            self.text(
+                &n.to_string(),
+                &self.f.btn,
+                right - 20.0,
+                h / 2.0 - 9.0,
+                20.0,
+                16.0,
+                self.cc(WHITE, 0.9),
+            );
             right -= 28.0;
         }
         let rt = self.task_right_text(t, now);
         let rw = 62.0;
-        self.text(&rt, &self.f.small_r, right - rw, h / 2.0 - 10.0, rw, 17.0, self.cc(task_color(t), 0.95));
-        self.text(&t.label, &self.f.title, 38.0, h / 2.0 - 10.0, right - rw - 46.0, 17.0, self.cc(WHITE, 0.94));
+        self.text(
+            &rt,
+            &self.f.small_r,
+            right - rw,
+            h / 2.0 - 10.0,
+            rw,
+            17.0,
+            self.cc(task_color(t), 0.95),
+        );
+        self.text(
+            &t.label,
+            &self.f.title,
+            38.0,
+            h / 2.0 - 10.0,
+            right - rw - 46.0,
+            17.0,
+            self.cc(WHITE, 0.94),
+        );
         self.filament(t, 14.0, h - 5.0, w - 28.0, fr.dt);
     }
 
@@ -763,7 +1073,14 @@ impl Renderer {
                 0.25
             };
             let bh = (h * k).max(2.0);
-            self.fill_rr(x + i as f32 * 4.5, y + h - bh, 2.6, bh, 1.3, self.cc(col, 0.95));
+            self.fill_rr(
+                x + i as f32 * 4.5,
+                y + h - bh,
+                2.6,
+                bh,
+                1.3,
+                self.cc(col, 0.95),
+            );
         }
     }
 
@@ -772,10 +1089,21 @@ impl Renderer {
             unsafe {
                 let props = D2D1_BRUSH_PROPERTIES {
                     opacity: self.ca.get(),
-                    transform: Matrix3x2 { M11: s / 64.0, M12: 0.0, M21: 0.0, M22: s / 64.0, M31: x, M32: y },
+                    transform: Matrix3x2 {
+                        M11: s / 64.0,
+                        M12: 0.0,
+                        M21: 0.0,
+                        M22: s / 64.0,
+                        M31: x,
+                        M32: y,
+                    },
                 };
                 if let Ok(b) = self.rt.CreateBitmapBrush(bmp, None, Some(&props)) {
-                    let rr = D2D1_ROUNDED_RECT { rect: rect(x, y, s, s), radiusX: r, radiusY: r };
+                    let rr = D2D1_ROUNDED_RECT {
+                        rect: rect(x, y, s, s),
+                        radiusX: r,
+                        radiusY: r,
+                    };
                     self.rt.FillRoundedRectangle(&rr, &b);
                     return;
                 }
@@ -787,12 +1115,26 @@ impl Renderer {
     }
 
     fn compact_media(&self, fr: &Frame, w: f32, h: f32, pad_r: f32) {
-        let Some(md) = fr.model.media.as_ref() else { return };
+        let Some(md) = fr.model.media.as_ref() else {
+            return;
+        };
         self.art_tile(fr.model, 8.0, h / 2.0 - 10.0, 20.0, 5.0);
         let right = w - 14.0 - pad_r;
         self.eq_bars(right - 16.0, h / 2.0 - 7.0, 14.0, md.playing, GREEN);
-        let label = if md.artist.is_empty() { md.title.clone() } else { format!("{} — {}", md.title, md.artist) };
-        self.text(&label, &self.f.body, 38.0, h / 2.0 - 9.0, right - 16.0 - 46.0, 17.0, self.cc(WHITE, 0.92));
+        let label = if md.artist.is_empty() {
+            md.title.clone()
+        } else {
+            format!("{} — {}", md.title, md.artist)
+        };
+        self.text(
+            &label,
+            &self.f.body,
+            38.0,
+            h / 2.0 - 9.0,
+            right - 16.0 - 46.0,
+            17.0,
+            self.cc(WHITE, 0.92),
+        );
     }
 
     fn exp_tasks(&self, fr: &Frame, w: f32, _h: f32) {
@@ -806,14 +1148,28 @@ impl Renderer {
             let label_w = w - 42.0 - right_w - close_w - 22.0;
             // Whole row focuses the owning terminal (buttons below win the hit test).
             let row_hov = match t.pid {
-                Some(pid) => self.hit(8.0, y + 2.0, w - 16.0, 32.0, Action::FocusTerminal(pid, t.id.clone())),
+                Some(pid) => self.hit(
+                    8.0,
+                    y + 2.0,
+                    w - 16.0,
+                    32.0,
+                    Action::FocusTerminal(pid, t.id.clone()),
+                ),
                 None => false,
             };
             if row_hov {
                 self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(WHITE, 0.05));
             }
             self.status_icon(t, 24.0, cy, now);
-            self.text(&t.label, &self.f.title, 42.0, y + 7.0, label_w, 20.0, self.cc(WHITE, 0.95));
+            self.text(
+                &t.label,
+                &self.f.title,
+                42.0,
+                y + 7.0,
+                label_w,
+                20.0,
+                self.cc(WHITE, 0.95),
+            );
             self.text(
                 &self.task_right_text(t, now),
                 &self.f.small_r,
@@ -824,14 +1180,38 @@ impl Renderer {
                 self.cc(task_color(t), 0.95),
             );
             if finished {
-                let hov = self.hit(w - 38.0, y + 6.0, 24.0, 24.0, Action::DismissTask(t.id.clone()));
+                let hov = self.hit(
+                    w - 38.0,
+                    y + 6.0,
+                    24.0,
+                    24.0,
+                    Action::DismissTask(t.id.clone()),
+                );
                 let a = if hov { 1.0 } else { 0.5 };
                 let (cx, cyy) = (w - 26.0, cy);
-                self.line((cx - 3.0, cyy - 3.0), (cx + 3.0, cyy + 3.0), self.cc(WHITE, a), 1.5);
-                self.line((cx - 3.0, cyy + 3.0), (cx + 3.0, cyy - 3.0), self.cc(WHITE, a), 1.5);
+                self.line(
+                    (cx - 3.0, cyy - 3.0),
+                    (cx + 3.0, cyy + 3.0),
+                    self.cc(WHITE, a),
+                    1.5,
+                );
+                self.line(
+                    (cx - 3.0, cyy + 3.0),
+                    (cx + 3.0, cyy - 3.0),
+                    self.cc(WHITE, a),
+                    1.5,
+                );
             }
             if let Some(msg) = &t.attention {
-                self.text(msg, &self.f.small, 42.0, y + 26.0, w - 42.0 - 22.0, 16.0, self.cc(AMBER, 0.95));
+                self.text(
+                    msg,
+                    &self.f.small,
+                    42.0,
+                    y + 26.0,
+                    w - 42.0 - 22.0,
+                    16.0,
+                    self.cc(AMBER, 0.95),
+                );
                 y += 20.0;
             }
             if t.running() {
@@ -844,32 +1224,80 @@ impl Renderer {
                     let bh = lines as f32 * 15.0 + 8.0;
                     self.fill_rr(14.0, y, w - 28.0, bh, 8.0, self.cc(WHITE, 0.055));
                     for (i, l) in t.stderr.iter().rev().take(lines).rev().enumerate() {
-                        self.text(l, &self.f.mono, 22.0, y + 4.0 + i as f32 * 15.0, w - 44.0, 15.0, self.cc(RED, 0.9));
+                        self.text(
+                            l,
+                            &self.f.mono,
+                            22.0,
+                            y + 4.0 + i as f32 * 15.0,
+                            w - 44.0,
+                            15.0,
+                            self.cc(RED, 0.9),
+                        );
                     }
                     y += bh + 6.0;
                 }
-                self.button("Copy error", 14.0, y, 78.0, 24.0, RED, Action::CopyText(t.stderr.join("\n")));
-                self.button("Dismiss", 100.0, y, 66.0, 24.0, WHITE, Action::DismissTask(t.id.clone()));
+                self.button(
+                    "Copy error",
+                    14.0,
+                    y,
+                    78.0,
+                    24.0,
+                    RED,
+                    Action::CopyText(t.stderr.join("\n")),
+                );
+                self.button(
+                    "Dismiss",
+                    100.0,
+                    y,
+                    66.0,
+                    24.0,
+                    WHITE,
+                    Action::DismissTask(t.id.clone()),
+                );
                 y += 28.0;
             }
         }
     }
 
     fn exp_media(&self, fr: &Frame, w: f32, h: f32) {
-        let Some(md) = fr.model.media.as_ref() else { return };
+        let Some(md) = fr.model.media.as_ref() else {
+            return;
+        };
         self.art_tile(fr.model, 16.0, 16.0, 72.0, 12.0);
         let tx = 102.0;
         let right = w - 16.0;
         // Art + title open the playing app.
         if !md.app.is_empty() {
             let hov = self.hit(16.0, 12.0, 72.0, 76.0, Action::FocusMedia(md.app.clone()))
-                | self.hit(tx, 12.0, right - tx - 34.0, 48.0, Action::FocusMedia(md.app.clone()));
+                | self.hit(
+                    tx,
+                    12.0,
+                    right - tx - 34.0,
+                    48.0,
+                    Action::FocusMedia(md.app.clone()),
+                );
             if hov {
                 self.fill_rr(16.0, 16.0, 72.0, 72.0, 12.0, self.cc(WHITE, 0.10));
             }
         }
-        self.text(&md.title, &self.f.big, tx, 14.0, right - tx - 34.0, 22.0, self.cc(WHITE, 0.97));
-        self.text(&md.artist, &self.f.body, tx, 37.0, right - tx - 34.0, 18.0, self.cc(GRAY, 1.0));
+        self.text(
+            &md.title,
+            &self.f.big,
+            tx,
+            14.0,
+            right - tx - 34.0,
+            22.0,
+            self.cc(WHITE, 0.97),
+        );
+        self.text(
+            &md.artist,
+            &self.f.body,
+            tx,
+            37.0,
+            right - tx - 34.0,
+            18.0,
+            self.cc(GRAY, 1.0),
+        );
         self.eq_bars(right - 18.0, 18.0, 14.0, md.playing, GREEN);
         // Timeline with live extrapolation while playing.
         let mut pos = md.pos_ms;
@@ -881,24 +1309,79 @@ impl Renderer {
         if md.dur_ms > 0 {
             pos = pos.min(md.dur_ms);
         }
-        let frac = if md.dur_ms > 0 { pos as f32 / md.dur_ms as f32 } else { 0.0 };
+        let frac = if md.dur_ms > 0 {
+            pos as f32 / md.dur_ms as f32
+        } else {
+            0.0
+        };
         let bx = tx;
         let bw = right - tx;
         self.fill_rr(bx, 66.0, bw, 4.0, 2.0, self.cc(WHITE, 0.14));
-        self.fill_rr(bx, 66.0, (bw * frac).max(if md.dur_ms > 0 { 3.0 } else { 0.0 }), 4.0, 2.0, self.cc(WHITE, 0.92));
-        self.text(&fmt_clock(pos), &self.f.small, bx, 73.0, 50.0, 14.0, self.cc(GRAY, 1.0));
-        self.text(&fmt_clock(md.dur_ms), &self.f.small_r, right - 50.0, 73.0, 50.0, 14.0, self.cc(GRAY, 1.0));
+        self.fill_rr(
+            bx,
+            66.0,
+            (bw * frac).max(if md.dur_ms > 0 { 3.0 } else { 0.0 }),
+            4.0,
+            2.0,
+            self.cc(WHITE, 0.92),
+        );
+        self.text(
+            &fmt_clock(pos),
+            &self.f.small,
+            bx,
+            73.0,
+            50.0,
+            14.0,
+            self.cc(GRAY, 1.0),
+        );
+        self.text(
+            &fmt_clock(md.dur_ms),
+            &self.f.small_r,
+            right - 50.0,
+            73.0,
+            50.0,
+            14.0,
+            self.cc(GRAY, 1.0),
+        );
         // Transport controls.
         let cx = tx + bw / 2.0;
         let cy = h - 26.0;
         let hov = self.hit(cx - 56.0, cy - 14.0, 28.0, 28.0, Action::MediaPrev);
         let a = if hov { 1.0 } else { 0.78 };
-        self.poly(&[(cx - 36.0, cy - 6.0), (cx - 44.0, cy), (cx - 36.0, cy + 6.0)], self.cc(WHITE, a));
-        self.poly(&[(cx - 44.0, cy - 6.0), (cx - 52.0, cy), (cx - 44.0, cy + 6.0)], self.cc(WHITE, a));
+        self.poly(
+            &[
+                (cx - 36.0, cy - 6.0),
+                (cx - 44.0, cy),
+                (cx - 36.0, cy + 6.0),
+            ],
+            self.cc(WHITE, a),
+        );
+        self.poly(
+            &[
+                (cx - 44.0, cy - 6.0),
+                (cx - 52.0, cy),
+                (cx - 44.0, cy + 6.0),
+            ],
+            self.cc(WHITE, a),
+        );
         let hov = self.hit(cx + 28.0, cy - 14.0, 28.0, 28.0, Action::MediaNext);
         let a = if hov { 1.0 } else { 0.78 };
-        self.poly(&[(cx + 36.0, cy - 6.0), (cx + 44.0, cy), (cx + 36.0, cy + 6.0)], self.cc(WHITE, a));
-        self.poly(&[(cx + 44.0, cy - 6.0), (cx + 52.0, cy), (cx + 44.0, cy + 6.0)], self.cc(WHITE, a));
+        self.poly(
+            &[
+                (cx + 36.0, cy - 6.0),
+                (cx + 44.0, cy),
+                (cx + 36.0, cy + 6.0),
+            ],
+            self.cc(WHITE, a),
+        );
+        self.poly(
+            &[
+                (cx + 44.0, cy - 6.0),
+                (cx + 52.0, cy),
+                (cx + 44.0, cy + 6.0),
+            ],
+            self.cc(WHITE, a),
+        );
         let hov = self.hit(cx - 16.0, cy - 16.0, 32.0, 32.0, Action::MediaToggle);
         self.circle(cx, cy, if hov { 16.0 } else { 15.0 }, self.cc(WHITE, 0.95));
         let dark = self.cc([0.04, 0.04, 0.05], 1.0);
@@ -906,7 +1389,10 @@ impl Renderer {
             self.fill_rr(cx - 5.0, cy - 6.0, 3.6, 12.0, 1.2, dark);
             self.fill_rr(cx + 1.4, cy - 6.0, 3.6, 12.0, 1.2, dark);
         } else {
-            self.poly(&[(cx - 3.5, cy - 7.0), (cx + 6.5, cy), (cx - 3.5, cy + 7.0)], dark);
+            self.poly(
+                &[(cx - 3.5, cy - 7.0), (cx + 6.5, cy), (cx - 3.5, cy + 7.0)],
+                dark,
+            );
         }
     }
 
@@ -923,8 +1409,21 @@ impl Renderer {
             let hov = self.hit(x, cy - 7.0, step, 14.0, Action::SelectPanel(p));
             let on = p == cur;
             let bw = if on { 12.0 } else { 5.0 };
-            let a = if on { 0.9 } else if hov { 0.6 } else { 0.28 };
-            self.fill_rr(x + (step - bw) / 2.0, cy - 2.0, bw, 4.0, 2.0, self.cc(WHITE, a));
+            let a = if on {
+                0.9
+            } else if hov {
+                0.6
+            } else {
+                0.28
+            };
+            self.fill_rr(
+                x + (step - bw) / 2.0,
+                cy - 2.0,
+                bw,
+                4.0,
+                2.0,
+                self.cc(WHITE, a),
+            );
             x += step;
         }
     }
@@ -935,10 +1434,34 @@ impl Renderer {
         for p in m.ports.iter().take(5) {
             let cy = y + 17.0;
             self.circle(24.0, cy, 3.2, self.cc(GREEN, 1.0));
-            self.text(&format!(":{}", p.port), &self.f.big, 36.0, y + 5.0, 70.0, 24.0, self.cc(WHITE, 0.97));
-            self.text(&p.exe, &self.f.body, 106.0, y + 8.0, w - 106.0 - 140.0, 18.0, self.cc(GRAY, 1.0));
+            self.text(
+                &format!(":{}", p.port),
+                &self.f.big,
+                36.0,
+                y + 5.0,
+                70.0,
+                24.0,
+                self.cc(WHITE, 0.97),
+            );
+            self.text(
+                &p.exe,
+                &self.f.body,
+                106.0,
+                y + 8.0,
+                w - 106.0 - 140.0,
+                18.0,
+                self.cc(GRAY, 1.0),
+            );
             let armed = m.kill_armed.is_some_and(|(port, _)| port == p.port);
-            self.button("Open", w - 16.0 - 56.0 - 8.0 - 56.0, y + 5.0, 56.0, 24.0, BLUE, Action::OpenPort(p.port));
+            self.button(
+                "Open",
+                w - 16.0 - 56.0 - 8.0 - 56.0,
+                y + 5.0,
+                56.0,
+                24.0,
+                BLUE,
+                Action::OpenPort(p.port),
+            );
             self.button(
                 if armed { "Kill?" } else { "Kill" },
                 w - 16.0 - 56.0,
@@ -959,18 +1482,54 @@ impl Renderer {
             let (x, y, s) = (20.0 + i as f32 * 70.0, 14.0, 60.0);
             let sel = m.shelf_sel == Some(it.id);
             let hov = self.hit(x, y, s, s, Action::ShelfTile(it.id));
-            self.fill_rr(x, y, s, s, 11.0, self.cc(if sel { PURPLE } else { WHITE }, if sel { 0.22 } else if hov { 0.11 } else { 0.07 }));
+            self.fill_rr(
+                x,
+                y,
+                s,
+                s,
+                11.0,
+                self.cc(
+                    if sel { PURPLE } else { WHITE },
+                    if sel {
+                        0.22
+                    } else if hov {
+                        0.11
+                    } else {
+                        0.07
+                    },
+                ),
+            );
             if sel {
-                self.stroke_rr(x + 0.5, y + 0.5, s - 1.0, s - 1.0, 11.0, self.cc(PURPLE, 0.8), 1.2, false);
+                self.stroke_rr(
+                    x + 0.5,
+                    y + 0.5,
+                    s - 1.0,
+                    s - 1.0,
+                    11.0,
+                    self.cc(PURPLE, 0.8),
+                    1.2,
+                    false,
+                );
             }
             if let Some(b) = thumbs.get(&it.id) {
                 unsafe {
                     let props = D2D1_BRUSH_PROPERTIES {
                         opacity: self.ca.get(),
-                        transform: Matrix3x2 { M11: 48.0 / 64.0, M12: 0.0, M21: 0.0, M22: 48.0 / 64.0, M31: x + 6.0, M32: y + 6.0 },
+                        transform: Matrix3x2 {
+                            M11: 48.0 / 64.0,
+                            M12: 0.0,
+                            M21: 0.0,
+                            M22: 48.0 / 64.0,
+                            M31: x + 6.0,
+                            M32: y + 6.0,
+                        },
                     };
                     if let Ok(br) = self.rt.CreateBitmapBrush(b, None, Some(&props)) {
-                        let rr = D2D1_ROUNDED_RECT { rect: rect(x + 6.0, y + 6.0, 48.0, 48.0), radiusX: 7.0, radiusY: 7.0 };
+                        let rr = D2D1_ROUNDED_RECT {
+                            rect: rect(x + 6.0, y + 6.0, 48.0, 48.0),
+                            radiusX: 7.0,
+                            radiusY: 7.0,
+                        };
                         self.rt.FillRoundedRectangle(&rr, &br);
                     }
                 }
@@ -980,32 +1539,93 @@ impl Renderer {
             } else {
                 self.fill_rr(x + 18.0, y + 12.0, 24.0, 32.0, 4.0, self.cc(WHITE, 0.82));
                 for k in 0..3 {
-                    self.fill_rr(x + 22.0, y + 19.0 + k as f32 * 7.0, 16.0, 2.0, 1.0, self.cc([0.2; 3], 0.8));
+                    self.fill_rr(
+                        x + 22.0,
+                        y + 19.0 + k as f32 * 7.0,
+                        16.0,
+                        2.0,
+                        1.0,
+                        self.cc([0.2; 3], 0.8),
+                    );
                 }
             }
-            self.text(&it.name, &self.f.small_c, x - 5.0, y + s + 2.0, s + 10.0, 14.0, self.cc(WHITE, 0.85));
+            self.text(
+                &it.name,
+                &self.f.small_c,
+                x - 5.0,
+                y + s + 2.0,
+                s + 10.0,
+                14.0,
+                self.cc(WHITE, 0.85),
+            );
             if hov || sel {
-                let h2 = self.hit(x + s - 14.0, y - 5.0, 18.0, 18.0, Action::RemoveShelf(it.id));
+                let h2 = self.hit(
+                    x + s - 14.0,
+                    y - 5.0,
+                    18.0,
+                    18.0,
+                    Action::RemoveShelf(it.id),
+                );
                 self.circle(x + s - 5.0, y + 4.0, 7.5, self.cc([0.12; 3], 1.0));
                 let a = if h2 { 1.0 } else { 0.7 };
-                self.line((x + s - 8.0, y + 1.0), (x + s - 2.0, y + 7.0), self.cc(WHITE, a), 1.4);
-                self.line((x + s - 8.0, y + 7.0), (x + s - 2.0, y + 1.0), self.cc(WHITE, a), 1.4);
+                self.line(
+                    (x + s - 8.0, y + 1.0),
+                    (x + s - 2.0, y + 7.0),
+                    self.cc(WHITE, a),
+                    1.4,
+                );
+                self.line(
+                    (x + s - 8.0, y + 7.0),
+                    (x + s - 2.0, y + 1.0),
+                    self.cc(WHITE, a),
+                    1.4,
+                );
             }
         }
         if m.shelf.len() > 5 {
-            self.text(&format!("+{}", m.shelf.len() - 5), &self.f.small_r, w - 44.0, 4.0, 34.0, 14.0, self.cc(PURPLE, 1.0));
+            self.text(
+                &format!("+{}", m.shelf.len() - 5),
+                &self.f.small_r,
+                w - 44.0,
+                4.0,
+                34.0,
+                14.0,
+                self.cc(PURPLE, 1.0),
+            );
         }
-        if let Some(it) = m.shelf_sel.and_then(|id| m.shelf.iter().find(|i| i.id == id)) {
+        if let Some(it) = m
+            .shelf_sel
+            .and_then(|id| m.shelf.iter().find(|i| i.id == id))
+        {
             let chips = crate::transforms::chips_for(&it.path);
             // Chip width from the label length; centred as a row.
-            let wid: Vec<f32> = chips.iter().map(|(l, _)| 28.0 + l.chars().count() as f32 * 6.0).collect();
+            let wid: Vec<f32> = chips
+                .iter()
+                .map(|(l, _)| 28.0 + l.chars().count() as f32 * 6.0)
+                .collect();
             let mut x = (w - wid.iter().sum::<f32>() - 6.0 * (chips.len() - 1) as f32) / 2.0;
             for ((label, op), cw) in chips.iter().zip(&wid) {
-                self.button(label, x, 94.0, *cw, 22.0, PURPLE, Action::ShelfOp(it.id, *op));
+                self.button(
+                    label,
+                    x,
+                    94.0,
+                    *cw,
+                    22.0,
+                    PURPLE,
+                    Action::ShelfOp(it.id, *op),
+                );
                 x += cw + 6.0;
             }
         } else {
-            self.text("Drag a tile out to drop it anywhere", &self.f.small_c, 0.0, 96.0, w, 16.0, self.cc(GRAY, 0.7));
+            self.text(
+                "Drag a tile out to drop it anywhere",
+                &self.f.small_c,
+                0.0,
+                96.0,
+                w,
+                16.0,
+                self.cc(GRAY, 0.7),
+            );
         }
     }
 
@@ -1014,12 +1634,28 @@ impl Renderer {
         // Microphone row.
         let muted = m.mic_muted;
         let col = if muted { RED } else { GRAY };
-        self.fill_rr(12.0, 8.0, w - 24.0, 38.0, 12.0, self.cc(col, if muted { 0.16 } else { 0.06 }));
+        self.fill_rr(
+            12.0,
+            8.0,
+            w - 24.0,
+            38.0,
+            12.0,
+            self.cc(col, if muted { 0.16 } else { 0.06 }),
+        );
         if muted {
             self.lock_icon(32.0, 27.0, RED, 1.0);
         } else {
             self.fill_rr(28.0, 17.0, 8.0, 13.0, 4.0, self.cc(WHITE, 0.85));
-            self.stroke_rr(25.0, 21.0, 14.0, 11.0, 7.0, self.cc(WHITE, 0.85), 1.4, false);
+            self.stroke_rr(
+                25.0,
+                21.0,
+                14.0,
+                11.0,
+                7.0,
+                self.cc(WHITE, 0.85),
+                1.4,
+                false,
+            );
             self.line((32.0, 33.0), (32.0, 36.0), self.cc(WHITE, 0.85), 1.4);
         }
         let sub = if muted {
@@ -1037,19 +1673,68 @@ impl Renderer {
         } else {
             "Live · click Mute to silence every mic".to_string()
         };
-        self.text("Microphone", &self.f.title, 52.0, 10.0, w - 52.0 - 100.0, 20.0, self.cc(WHITE, 0.97));
-        self.text(&sub, &self.f.small, 52.0, 27.0, w - 52.0 - 100.0, 16.0, self.cc(if muted { RED } else { GRAY }, 1.0));
-        self.button(if muted { "Unmute" } else { "Mute" }, w - 24.0 - 68.0, 15.0, 68.0, 24.0, if muted { RED } else { WHITE }, Action::ToggleMic);
+        self.text(
+            "Microphone",
+            &self.f.title,
+            52.0,
+            10.0,
+            w - 52.0 - 100.0,
+            20.0,
+            self.cc(WHITE, 0.97),
+        );
+        self.text(
+            &sub,
+            &self.f.small,
+            52.0,
+            27.0,
+            w - 52.0 - 100.0,
+            16.0,
+            self.cc(if muted { RED } else { GRAY }, 1.0),
+        );
+        self.button(
+            if muted { "Unmute" } else { "Mute" },
+            w - 24.0 - 68.0,
+            15.0,
+            68.0,
+            24.0,
+            if muted { RED } else { WHITE },
+            Action::ToggleMic,
+        );
         let mut hint_y = 56.0;
         // Battery row (laptops only).
         if let Some(b) = &m.power {
             let low = b.pct <= 20 && !b.plugged;
-            let bc = if low { RED } else if b.plugged { GREEN } else { WHITE };
+            let bc = if low {
+                RED
+            } else if b.plugged {
+                GREEN
+            } else {
+                WHITE
+            };
             self.stroke_rr(20.5, 59.5, 24.0, 12.0, 3.0, self.cc(WHITE, 0.7), 1.2, false);
             self.fill_rr(45.0, 63.0, 2.5, 5.0, 1.0, self.cc(WHITE, 0.7));
-            self.fill_rr(22.5, 61.5, (20.0 * b.pct as f32 / 100.0).max(2.0), 8.0, 1.8, self.cc(bc, 0.95));
-            self.text(&b.status(), &self.f.body, 58.0, 56.0, w - 58.0 - 16.0, 20.0, self.cc(WHITE, 0.92));
-            let modes = [(Mode::Saver, "Saver"), (Mode::Balanced, "Balanced"), (Mode::Performance, "Performance")];
+            self.fill_rr(
+                22.5,
+                61.5,
+                (20.0 * b.pct as f32 / 100.0).max(2.0),
+                8.0,
+                1.8,
+                self.cc(bc, 0.95),
+            );
+            self.text(
+                &b.status(),
+                &self.f.body,
+                58.0,
+                56.0,
+                w - 58.0 - 16.0,
+                20.0,
+                self.cc(WHITE, 0.92),
+            );
+            let modes = [
+                (Mode::Saver, "Saver"),
+                (Mode::Balanced, "Balanced"),
+                (Mode::Performance, "Performance"),
+            ];
             let (bw, gap) = (96.0, 6.0);
             let mut x = (w - (bw * 3.0 + gap * 2.0)) / 2.0;
             for (mode, label) in modes {
@@ -1060,46 +1745,145 @@ impl Renderer {
                     Mode::Balanced => BLUE,
                     Mode::Performance => ORANGE,
                 };
-                self.fill_rr(x, 82.0, bw, 24.0, 12.0, self.cc(accent, if on { 0.34 } else if hov { 0.16 } else { 0.07 }));
+                self.fill_rr(
+                    x,
+                    82.0,
+                    bw,
+                    24.0,
+                    12.0,
+                    self.cc(
+                        accent,
+                        if on {
+                            0.34
+                        } else if hov {
+                            0.16
+                        } else {
+                            0.07
+                        },
+                    ),
+                );
                 if on {
-                    self.stroke_rr(x + 0.5, 82.5, bw - 1.0, 23.0, 11.5, self.cc(accent, 0.8), 1.2, false);
+                    self.stroke_rr(
+                        x + 0.5,
+                        82.5,
+                        bw - 1.0,
+                        23.0,
+                        11.5,
+                        self.cc(accent, 0.8),
+                        1.2,
+                        false,
+                    );
                 }
-                self.text(label, &self.f.btn, x, 82.0, bw, 24.0, self.cc(WHITE, if on { 1.0 } else { 0.78 }));
+                self.text(
+                    label,
+                    &self.f.btn,
+                    x,
+                    82.0,
+                    bw,
+                    24.0,
+                    self.cc(WHITE, if on { 1.0 } else { 0.78 }),
+                );
                 x += bw + gap;
             }
             hint_y = 110.0;
         }
-        self.text("Drop files here  ·  notch run -- <cmd>", &self.f.small_c, 0.0, hint_y, w, 16.0, self.cc(GRAY, 0.6));
+        self.text(
+            "Drop files here  ·  notch run -- <cmd>",
+            &self.f.small_c,
+            0.0,
+            hint_y,
+            w,
+            16.0,
+            self.cc(GRAY, 0.6),
+        );
     }
 
     fn exp_drop(&self, fr: &Frame, w: f32, h: f32) {
         let t = self.t.get();
         let pulse = (t * 3.0).sin() * 0.5 + 0.5;
-        self.fill_rr(12.0, 12.0, w - 24.0, h - 24.0, 14.0, self.cc(PURPLE, 0.06 + 0.05 * pulse));
-        self.stroke_rr(12.0, 12.0, w - 24.0, h - 24.0, 14.0, self.cc(PURPLE, 0.55 + 0.35 * pulse), 1.6, true);
+        self.fill_rr(
+            12.0,
+            12.0,
+            w - 24.0,
+            h - 24.0,
+            14.0,
+            self.cc(PURPLE, 0.06 + 0.05 * pulse),
+        );
+        self.stroke_rr(
+            12.0,
+            12.0,
+            w - 24.0,
+            h - 24.0,
+            14.0,
+            self.cc(PURPLE, 0.55 + 0.35 * pulse),
+            1.6,
+            true,
+        );
         let bob = (t * 4.0).sin() * 2.5;
         let (cx, cy) = (w / 2.0, 34.0 + bob);
         self.line((cx, cy - 8.0), (cx, cy + 6.0), self.cc(PURPLE, 1.0), 2.2);
         self.line((cx - 6.0, cy), (cx, cy + 7.0), self.cc(PURPLE, 1.0), 2.2);
         self.line((cx + 6.0, cy), (cx, cy + 7.0), self.cc(PURPLE, 1.0), 2.2);
-        self.text("Drop to add to your shelf", &self.f.big_c, 0.0, 50.0, w, 22.0, self.cc(WHITE, 0.97));
-        self.text("Drag it back out anywhere later", &self.f.small_c, 0.0, 74.0, w, 16.0, self.cc(GRAY, 1.0));
+        self.text(
+            "Drop to add to your shelf",
+            &self.f.big_c,
+            0.0,
+            50.0,
+            w,
+            22.0,
+            self.cc(WHITE, 0.97),
+        );
+        self.text(
+            "Drag it back out anywhere later",
+            &self.f.small_c,
+            0.0,
+            74.0,
+            w,
+            16.0,
+            self.cc(GRAY, 1.0),
+        );
         let _ = fr;
     }
 
     fn exp_chip(&self, fr: &Frame, w: f32, _h: f32) {
-        let Some(c) = fr.model.chip.as_ref() else { return };
+        let Some(c) = fr.model.chip.as_ref() else {
+            return;
+        };
         self.circle(26.0, 24.0, 9.0, self.cc(PURPLE, 0.2));
         self.line((22.2, 24.4), (25.0, 27.4), self.cc(PURPLE, 1.0), 2.0);
         self.line((25.0, 27.4), (30.2, 21.2), self.cc(PURPLE, 1.0), 2.0);
-        self.text(&c.summary, &self.f.wrap, 46.0, 10.0, w - 46.0 - 20.0, 40.0, self.cc(WHITE, 0.95));
+        self.text(
+            &c.summary,
+            &self.f.wrap,
+            46.0,
+            10.0,
+            w - 46.0 - 20.0,
+            40.0,
+            self.cc(WHITE, 0.95),
+        );
         let mut x = 16.0;
         if let Some(p) = &c.open {
-            self.button("Open", x, 60.0, 62.0, 24.0, PURPLE, Action::OpenPath(p.clone()));
+            self.button(
+                "Open",
+                x,
+                60.0,
+                62.0,
+                24.0,
+                PURPLE,
+                Action::OpenPath(p.clone()),
+            );
             x += 70.0;
         }
         if let Some(t) = &c.copy {
-            self.button("Copy", x, 60.0, 62.0, 24.0, PURPLE, Action::CopyText(t.clone()));
+            self.button(
+                "Copy",
+                x,
+                60.0,
+                62.0,
+                24.0,
+                PURPLE,
+                Action::CopyText(t.clone()),
+            );
             x += 70.0;
         }
         self.button("Dismiss", x, 60.0, 70.0, 24.0, WHITE, Action::DismissChip);
@@ -1109,9 +1893,19 @@ impl Renderer {
     fn timer_filament(&self, t: &crate::timer::Timer, w: f32, h: f32, centre: bool, lock: f32) {
         let wall = crate::timer::now_ms();
         let frac = t.frac(wall);
-        let col = if t.remaining_ms(wall) < 60_000 { RED } else if frac <= 0.2 { AMBER } else { BLUE };
+        let col = if t.remaining_ms(wall) < 60_000 {
+            RED
+        } else if frac <= 0.2 {
+            AMBER
+        } else {
+            BLUE
+        };
         // Collapsed and empty: the fuse replaces the idle grey dash, in the middle of the pill.
-        let (x0, y, side) = if centre { (20.0, h / 2.0, 20.0 + lock) } else { (14.0, h - 2.0, 14.0) };
+        let (x0, y, side) = if centre {
+            (20.0, h / 2.0, 20.0 + lock)
+        } else {
+            (14.0, h - 2.0, 14.0)
+        };
         let len = (w - x0 - side).max(1.0);
         let head = x0 + len * frac;
         unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), 0.0)) };
@@ -1128,30 +1922,96 @@ impl Renderer {
         let m = fr.model;
         if let Some(t) = &m.timer {
             let left = t.remaining_ms(crate::timer::now_ms());
-            self.text(&crate::timer::fmt(left), &self.f.big, 20.0, 10.0, 140.0, 28.0, self.cc(WHITE, 1.0));
-            self.text(&if t.paused_ms.is_some() { format!("{} · paused", t.kind.name()) } else { t.kind.name().to_string() }, &self.f.small_r, w - 190.0, 14.0, 150.0, 20.0, self.cc(GRAY, 1.0));
-            let pause = if t.paused_ms.is_some() { "Resume" } else { "Pause" };
+            self.text(
+                &crate::timer::fmt(left),
+                &self.f.big,
+                20.0,
+                10.0,
+                140.0,
+                28.0,
+                self.cc(WHITE, 1.0),
+            );
+            self.text(
+                &if t.paused_ms.is_some() {
+                    format!("{} · paused", t.kind.name())
+                } else {
+                    t.kind.name().to_string()
+                },
+                &self.f.small_r,
+                w - 190.0,
+                14.0,
+                150.0,
+                20.0,
+                self.cc(GRAY, 1.0),
+            );
+            let pause = if t.paused_ms.is_some() {
+                "Resume"
+            } else {
+                "Pause"
+            };
             self.button(pause, 16.0, 50.0, 70.0, 26.0, AMBER, Action::TimerPause);
             self.button("+5 min", 92.0, 50.0, 66.0, 26.0, BLUE, Action::TimerAdd(5));
             self.button("Stop", 164.0, 50.0, 56.0, 26.0, RED, Action::TimerStop);
             return;
         }
-        self.text(&format!("{} min", m.timer_min), &self.f.big, 20.0, 10.0, 140.0, 28.0, self.cc(WHITE, 1.0));
-        self.text("Scroll to adjust", &self.f.small_r, w - 190.0, 14.0, 150.0, 20.0, self.cc(GRAY, 1.0));
+        self.text(
+            &format!("{} min", m.timer_min),
+            &self.f.big,
+            20.0,
+            10.0,
+            140.0,
+            28.0,
+            self.cc(WHITE, 1.0),
+        );
+        self.text(
+            "Scroll to adjust",
+            &self.f.small_r,
+            w - 190.0,
+            14.0,
+            150.0,
+            20.0,
+            self.cc(GRAY, 1.0),
+        );
         let mut x = 16.0;
         for p in [5u32, 10, 15, 30, 45] {
             let accent = if p == m.timer_min { BLUE } else { WHITE };
-            self.button(&p.to_string(), x, 50.0, 36.0, 26.0, accent, Action::TimerMinutes(p));
+            self.button(
+                &p.to_string(),
+                x,
+                50.0,
+                36.0,
+                26.0,
+                accent,
+                Action::TimerMinutes(p),
+            );
             x += 40.0;
         }
-        self.button("Timer", w - 16.0 - 62.0 - 6.0 - 62.0, 50.0, 62.0, 26.0, BLUE, Action::TimerStart(crate::timer::TimerKind::Plain));
-        self.button("Focus", w - 16.0 - 62.0, 50.0, 62.0, 26.0, GREEN, Action::TimerStart(crate::timer::TimerKind::Focus));
+        self.button(
+            "Timer",
+            w - 16.0 - 62.0 - 6.0 - 62.0,
+            50.0,
+            62.0,
+            26.0,
+            BLUE,
+            Action::TimerStart(crate::timer::TimerKind::Plain),
+        );
+        self.button(
+            "Focus",
+            w - 16.0 - 62.0,
+            50.0,
+            62.0,
+            26.0,
+            GREEN,
+            Action::TimerStart(crate::timer::TimerKind::Focus),
+        );
     }
 
     fn exp_timer_done(&self, fr: &Frame, w: f32, _h: f32) {
         use crate::timer::TimerKind::*;
         let m = fr.model;
-        let Some((kind, _)) = m.timer_done else { return };
+        let Some((kind, _)) = m.timer_done else {
+            return;
+        };
         self.circle(26.0, 24.0, 9.0, self.cc(GREEN, 0.2));
         self.line((22.2, 24.4), (25.0, 27.4), self.cc(GREEN, 1.0), 2.0);
         self.line((25.0, 27.4), (30.2, 21.2), self.cc(GREEN, 1.0), 2.0);
@@ -1160,23 +2020,55 @@ impl Renderer {
             Focus => "Focus session finished",
             Break => "Break is over",
         };
-        self.text(title, &self.f.big, 46.0, 10.0, w - 60.0, 28.0, self.cc(WHITE, 0.97));
+        self.text(
+            title,
+            &self.f.big,
+            46.0,
+            10.0,
+            w - 60.0,
+            28.0,
+            self.cc(WHITE, 0.97),
+        );
         let mut x = 16.0;
         match kind {
             Focus => {
                 let label = format!("Start {} min break", m.timer_break);
                 let bw = 28.0 + 6.0 * label.len() as f32;
-                self.button(&label, x, 56.0, bw, 26.0, GREEN, Action::TimerBreak(m.timer_break));
+                self.button(
+                    &label,
+                    x,
+                    56.0,
+                    bw,
+                    26.0,
+                    GREEN,
+                    Action::TimerBreak(m.timer_break),
+                );
                 x += bw + 8.0;
             }
             Break => {
-                self.button("Start focus", x, 56.0, 92.0, 26.0, GREEN, Action::TimerStart(Focus));
+                self.button(
+                    "Start focus",
+                    x,
+                    56.0,
+                    92.0,
+                    26.0,
+                    GREEN,
+                    Action::TimerStart(Focus),
+                );
                 x += 100.0;
             }
             Plain => {}
         }
         self.button("+5 min", x, 56.0, 64.0, 26.0, BLUE, Action::TimerAdd(5));
-        self.button("Dismiss", x + 72.0, 56.0, 70.0, 26.0, WHITE, Action::TimerDismiss);
+        self.button(
+            "Dismiss",
+            x + 72.0,
+            56.0,
+            70.0,
+            26.0,
+            WHITE,
+            Action::TimerDismiss,
+        );
     }
 
     // -------------------------------------------------------------- album art
@@ -1185,18 +2077,29 @@ impl Renderer {
     pub fn missing_thumbs(&self, m: &Model) -> Vec<u64> {
         let mut t = self.thumbs.borrow_mut();
         t.retain(|id, _| m.shelf.iter().any(|i| i.id == *id));
-        m.shelf.iter().take(5).filter(|i| !t.contains_key(&i.id)).map(|i| i.id).collect()
+        m.shelf
+            .iter()
+            .take(5)
+            .filter(|i| !t.contains_key(&i.id))
+            .map(|i| i.id)
+            .collect()
     }
 
     pub fn set_thumb(&self, id: u64, a: &crate::ui_state::ArtBitmap) {
         let props = D2D1_BITMAP_PROPERTIES {
-            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
             dpiX: 96.0,
             dpiY: 96.0,
         };
         unsafe {
             if let Ok(b) = self.rt.CreateBitmap(
-                D2D_SIZE_U { width: a.w, height: a.h },
+                D2D_SIZE_U {
+                    width: a.w,
+                    height: a.h,
+                },
                 Some(a.bgra.as_ptr() as *const _),
                 a.w * 4,
                 &props,
@@ -1215,13 +2118,19 @@ impl Renderer {
         *slot = None;
         let Some(a) = &m.art else { return };
         let props = D2D1_BITMAP_PROPERTIES {
-            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
             dpiX: 96.0,
             dpiY: 96.0,
         };
         unsafe {
             if let Ok(b) = self.rt.CreateBitmap(
-                D2D_SIZE_U { width: a.w, height: a.h },
+                D2D_SIZE_U {
+                    width: a.w,
+                    height: a.h,
+                },
                 Some(a.bgra.as_ptr() as *const _),
                 a.w * 4,
                 &props,
@@ -1247,7 +2156,10 @@ impl Drop for Renderer {
 impl Fmts {
     fn new(dw: &IDWriteFactory) -> windows::core::Result<Self> {
         unsafe {
-            let mk = |face: PCWSTR, size: f32, weight: DWRITE_FONT_WEIGHT| -> windows::core::Result<IDWriteTextFormat> {
+            let mk = |face: PCWSTR,
+                      size: f32,
+                      weight: DWRITE_FONT_WEIGHT|
+             -> windows::core::Result<IDWriteTextFormat> {
                 let f = dw.CreateTextFormat(
                     face,
                     None,
@@ -1259,7 +2171,11 @@ impl Fmts {
                 )?;
                 f.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
                 f.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
-                let trim = DWRITE_TRIMMING { granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0 };
+                let trim = DWRITE_TRIMMING {
+                    granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                    delimiter: 0,
+                    delimiterCount: 0,
+                };
                 if let Ok(sign) = dw.CreateEllipsisTrimmingSign(&f) {
                     f.SetTrimming(&trim, &sign)?;
                 }
@@ -1285,7 +2201,20 @@ impl Fmts {
             big_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             let small_c = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             small_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
-            Ok(Self { title, body, small, small_r, small_l, mono, big, btn, wrap, center, big_c, small_c })
+            Ok(Self {
+                title,
+                body,
+                small,
+                small_r,
+                small_l,
+                mono,
+                big,
+                btn,
+                wrap,
+                center,
+                big_c,
+                small_c,
+            })
         }
     }
 }

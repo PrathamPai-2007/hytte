@@ -35,7 +35,9 @@ pub fn control(cmd: Cmd) {
 /// Resize + premultiply decoded cover art for Direct2D (BGRA).
 pub fn art_from_bytes(bytes: &[u8]) -> Option<crate::ui_state::ArtBitmap> {
     let img = image::load_from_memory(bytes).ok()?;
-    let img = img.resize_to_fill(64, 64, image::imageops::FilterType::Triangle).to_rgba8();
+    let img = img
+        .resize_to_fill(64, 64, image::imageops::FilterType::Triangle)
+        .to_rgba8();
     let mut bgra = Vec::with_capacity(64 * 64 * 4);
     for p in img.pixels() {
         let a = p[3] as u32;
@@ -81,30 +83,37 @@ mod imp {
             let p2 = poke.clone();
             let p3 = poke.clone();
             let a = session
-                .MediaPropertiesChanged(&TypedEventHandler::<Session, MediaPropertiesChangedEventArgs>::new(
-                    move |_, _| {
-                        let _ = p1.send(());
-                        Ok(())
-                    },
-                ))
+                .MediaPropertiesChanged(&TypedEventHandler::<
+                    Session,
+                    MediaPropertiesChangedEventArgs,
+                >::new(move |_, _| {
+                    let _ = p1.send(());
+                    Ok(())
+                }))
                 .ok()?;
             let b = session
-                .PlaybackInfoChanged(&TypedEventHandler::<Session, PlaybackInfoChangedEventArgs>::new(
-                    move |_, _| {
-                        let _ = p2.send(());
-                        Ok(())
-                    },
-                ))
+                .PlaybackInfoChanged(
+                    &TypedEventHandler::<Session, PlaybackInfoChangedEventArgs>::new(
+                        move |_, _| {
+                            let _ = p2.send(());
+                            Ok(())
+                        },
+                    ),
+                )
                 .ok()?;
             let c = session
-                .TimelinePropertiesChanged(&TypedEventHandler::<Session, TimelinePropertiesChangedEventArgs>::new(
-                    move |_, _| {
-                        let _ = p3.send(());
-                        Ok(())
-                    },
-                ))
+                .TimelinePropertiesChanged(&TypedEventHandler::<
+                    Session,
+                    TimelinePropertiesChangedEventArgs,
+                >::new(move |_, _| {
+                    let _ = p3.send(());
+                    Ok(())
+                }))
                 .ok()?;
-            Some(Self { session, tokens: [a, b, c] })
+            Some(Self {
+                session,
+                tokens: [a, b, c],
+            })
         }
     }
 
@@ -125,12 +134,13 @@ mod imp {
             std::thread::sleep(Duration::from_secs(5));
         };
         let p = poke.clone();
-        let _ = mgr.CurrentSessionChanged(&TypedEventHandler::<Manager, CurrentSessionChangedEventArgs>::new(
-            move |_, _| {
-                let _ = p.send(());
-                Ok(())
-            },
-        ));
+        let _ = mgr.CurrentSessionChanged(&TypedEventHandler::<
+            Manager,
+            CurrentSessionChangedEventArgs,
+        >::new(move |_, _| {
+            let _ = p.send(());
+            Ok(())
+        }));
         let mut sub: Option<Sub> = None;
         let mut sub_id = String::new();
         let mut art_key = String::new();
@@ -138,7 +148,10 @@ mod imp {
         loop {
             match mgr.GetCurrentSession() {
                 Ok(s) => {
-                    let id = s.SourceAppUserModelId().map(|h| h.to_string()).unwrap_or_default();
+                    let id = s
+                        .SourceAppUserModelId()
+                        .map(|h| h.to_string())
+                        .unwrap_or_default();
                     if sub.is_none() || id != sub_id {
                         sub = Sub::new(s.clone(), &poke);
                         sub_id = id;
@@ -147,7 +160,9 @@ mod imp {
                         let key = format!("{}\u{1}{}\u{1}{}", sub_id, info.0.title, info.0.artist);
                         if key != art_key {
                             art_key = key;
-                            let art = thumbnail(&info.1).and_then(|b| art_from_bytes(&b)).map(Arc::new);
+                            let art = thumbnail(&info.1)
+                                .and_then(|b| art_from_bytes(&b))
+                                .map(Arc::new);
                             let _ = ui_tx.send(UiEvent::MediaArt(art));
                         }
                         let m = Some(info.0);
@@ -178,8 +193,16 @@ mod imp {
     fn read(s: &Session) -> Option<(MediaInfo, Props)> {
         let playing = s.GetPlaybackInfo().ok()?.PlaybackStatus().ok()? == Status::Playing;
         let props = block_on(s.TryGetMediaPropertiesAsync().ok()?, T)?.ok()?;
-        let title = props.Title().ok().map(|h| h.to_string()).unwrap_or_default();
-        let artist = props.Artist().ok().map(|h| h.to_string()).unwrap_or_default();
+        let title = props
+            .Title()
+            .ok()
+            .map(|h| h.to_string())
+            .unwrap_or_default();
+        let artist = props
+            .Artist()
+            .ok()
+            .map(|h| h.to_string())
+            .unwrap_or_default();
         let (mut pos_ms, mut dur_ms) = (0u64, 0u64);
         if let Ok(tl) = s.GetTimelineProperties() {
             let ms = |t: windows::Foundation::TimeSpan| (t.Duration.max(0) / 10_000) as u64;
@@ -187,8 +210,21 @@ mod imp {
             dur_ms = tl.EndTime().map(ms).unwrap_or(0).saturating_sub(start);
             pos_ms = tl.Position().map(ms).unwrap_or(0).saturating_sub(start);
         }
-        let app = s.SourceAppUserModelId().map(|h| h.to_string()).unwrap_or_default();
-        Some((MediaInfo { title, artist, playing, app, pos_ms, dur_ms }, props))
+        let app = s
+            .SourceAppUserModelId()
+            .map(|h| h.to_string())
+            .unwrap_or_default();
+        Some((
+            MediaInfo {
+                title,
+                artist,
+                playing,
+                app,
+                pos_ms,
+                dur_ms,
+            },
+            props,
+        ))
     }
 
     fn thumbnail(props: &Props) -> Option<Vec<u8>> {
@@ -208,7 +244,9 @@ mod imp {
 
     pub fn control(cmd: Cmd) {
         let Some(mgr) = manager() else { return };
-        let Ok(s) = mgr.GetCurrentSession() else { return };
+        let Ok(s) = mgr.GetCurrentSession() else {
+            return;
+        };
         match cmd {
             Cmd::Prev => {
                 if let Ok(op) = s.TrySkipPreviousAsync() {
@@ -234,9 +272,13 @@ mod tests {
     #[test]
     fn art_decodes_and_premultiplies() {
         let mut png = vec![];
-        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(10, 20, image::Rgba([200, 100, 50, 128])))
-            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-            .unwrap();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            10,
+            20,
+            image::Rgba([200, 100, 50, 128]),
+        ))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
         let a = super::art_from_bytes(&png).unwrap();
         assert_eq!((a.w, a.h, a.bgra.len()), (64, 64, 64 * 64 * 4));
         assert_eq!(a.bgra[3], 128);

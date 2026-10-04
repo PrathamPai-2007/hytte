@@ -47,14 +47,20 @@ impl Tray {
     }
 
     pub fn popup(&self, paused: bool, autostart: bool) {
-        use windows::Win32::UI::WindowsAndMessaging::*;
         use windows::core::w;
+        use windows::Win32::UI::WindowsAndMessaging::*;
         unsafe {
             let menu = CreatePopupMenu().unwrap_or_default();
             if menu.0.is_null() {
                 return;
             }
-            let chk = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
+            let chk = |on: bool| {
+                if on {
+                    MF_STRING | MF_CHECKED
+                } else {
+                    MF_STRING
+                }
+            };
             let _ = AppendMenuW(menu, chk(paused), 10, w!("Pause"));
             let _ = AppendMenuW(menu, chk(autostart), 13, w!("Launch at startup"));
             let _ = AppendMenuW(menu, MF_STRING, 11, w!("Open settings folder"));

@@ -55,9 +55,15 @@ fn message_from_stdin() -> Option<String> {
         return None;
     }
     let mut buf = String::new();
-    stdin.by_ref().take(64 * 1024).read_to_string(&mut buf).ok()?;
+    stdin
+        .by_ref()
+        .take(64 * 1024)
+        .read_to_string(&mut buf)
+        .ok()?;
     let v: serde_json::Value = serde_json::from_str(buf.trim()).ok()?;
-    v.get("message").and_then(|m| m.as_str()).map(|m| m.chars().take(300).collect())
+    v.get("message")
+        .and_then(|m| m.as_str())
+        .map(|m| m.chars().take(300).collect())
 }
 
 pub fn build(event: TaskEvent, o: &Opts) -> HytteMessage {
@@ -103,7 +109,11 @@ mod tests {
 
     #[test]
     fn builds_agent_message() {
-        let o = Opts { name: "Claude Code".into(), pid: 7, message: Some("approve?".into()) };
+        let o = Opts {
+            name: "Claude Code".into(),
+            pid: 7,
+            message: Some("approve?".into()),
+        };
         let m = build(TaskEvent::NeedsInput, &o);
         assert_eq!(m.task_id, "agent:Claude Code:7");
         assert_eq!((m.source.as_deref(), m.pid), (Some("agent"), Some(7)));
