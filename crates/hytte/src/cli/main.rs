@@ -5,6 +5,10 @@
 mod agent;
 mod hook;
 mod portscmd;
+// Shared with the daemon; its tray helpers go unused here.
+#[path = "../setup.rs"]
+#[allow(dead_code)]
+mod setup;
 
 use hytte_proto::{HytteMessage, TaskEvent, PIPE_NAME};
 use std::collections::VecDeque;
@@ -20,6 +24,7 @@ fn usage() -> ! {
     eprintln!("  notch set --progress <0-100> --label \"...\" [--task <id>]");
     eprintln!("  notch agent <start|needs-input|resume|done|fail|hooks> ...   # AI agent / long-task monitor");
     eprintln!("  notch init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s");
+    eprintln!("  notch setup [--undo]                   # put notch on PATH + add the hook to PowerShell / Git Bash");
     eprintln!("  notch ports [--all]                    # list dev-server listeners");
     eprintln!("  notch kill :PORT [--force]             # stop whatever listens on PORT");
     std::process::exit(2);
@@ -236,6 +241,31 @@ fn cmd_set(args: &[String]) {
     }
 }
 
+#[cfg(windows)]
+fn cmd_setup(args: &[String]) {
+    let undo = match args {
+        [] => false,
+        [a] if a == "--undo" => true,
+        _ => usage(),
+    };
+    if !undo {
+        match setup::ensure_on_path() {
+            Ok(true) => println!("PATH: added the notch folder (new terminals will find `notch`)"),
+            Ok(false) => {}
+            Err(e) => println!("PATH: {e}"),
+        }
+    }
+    for line in setup::setup_shells(undo) {
+        println!("{line}");
+    }
+}
+
+#[cfg(not(windows))]
+fn cmd_setup(_args: &[String]) {
+    eprintln!("notch setup is Windows-only; see `notch init <shell>`");
+    std::process::exit(2);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
@@ -252,6 +282,7 @@ fn main() {
         },
         "ports" => portscmd::list(&args[1..]),
         "kill" => portscmd::kill_cmd(&args[1..]),
+        "setup" => cmd_setup(&args[1..]),
         _ => usage(),
     }
 }
