@@ -31,8 +31,8 @@ You need **Windows 11 (22H2 or newer, 64-bit)**.
 
 1. Download the latest `hytte-<version>-x64.zip` from the [Releases](../../releases) page.
 2. Unzip it somewhere permanent, for example `C:\Tools\Hytte`.
-3. Add that folder to your `PATH` so the `notch` command works in any terminal.
-4. Run `hytte.exe`. The pill appears at the top of your screen and an icon appears in the system tray.
+3. Run `hytte.exe`. The pill appears at the top of your screen and an icon appears in the system tray. Hytte also adds its folder to your `PATH`, so the `notch` command works in any terminal you open from now on.
+4. Right-click the tray icon and choose **Set up terminal integration**. This makes your terminal report long-running commands to the pill (see [Track every command automatically](#track-every-command-automatically)).
 
 To start Hytte automatically, right-click the tray icon and tick **Launch at startup**.
 
@@ -101,13 +101,15 @@ You'll see a spinner and a timer, then a green tick or a red cross. On failure, 
 - **Kill** on a port asks once ("Kill?"); click again within 3 seconds to confirm.
 - Hytte never takes keyboard focus away from what you're doing.
 
-**Tray icon (right-click):** **Pause** hides the pill, **Launch at startup**, **Open settings folder**, **Quit**.
+**Tray icon (right-click):** **Pause** hides the pill, **Launch at startup**, **Set up terminal integration**, **Open settings folder**, **Quit**.
 
 ## Common setups
 
 ### Track every command automatically
 
-Add the line for your shell, then open a new terminal:
+The easy way: right-click the tray icon and choose **Set up terminal integration**, or run `notch setup`. Then open a new terminal. This adds the line to your PowerShell (5.1 and 7) and Git Bash profiles. Choosing it again, or running `notch setup --undo`, removes the line.
+
+To do it by hand, or for zsh and Nushell, add the line for your shell, then open a new terminal:
 
 | Shell | Add this line | To this file |
 |---|---|---|
@@ -116,7 +118,9 @@ Add the line for your shell, then open a new terminal:
 | zsh | `eval "$(notch init zsh)"` | `~/.zshrc` |
 | Nushell | run `notch init nu \| save -f ~/.config/nushell/notch.nu`, then add `source ~/.config/nushell/notch.nu` | `config.nu` |
 
-Using Starship? Add the line for your shell *before* the `starship init` line.
+Using Starship? In bash, put the line *before* the `starship init` line. In PowerShell, put it *after*. `notch setup` does this for you.
+
+If Windows PowerShell says running scripts is disabled, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
 Commands under 3 seconds never show up, and editors and pagers such as `vim`, `less` and `ssh` are ignored, so the pill doesn't flicker.
 
@@ -187,7 +191,8 @@ The full list of settings is in [the configuration guide](docs/11-configuration-
 | "another instance is running" | Hytte is already running. Look for it in the tray. |
 | I can't see the pill | Something may be fullscreen (look for a thin grey line), or Hytte is paused (tray menu). |
 | `notch: daemon not running` | Start `hytte.exe`. Your command still ran. |
-| Shell commands don't show up | Check the shell line is in your profile and `notch` is on your `PATH`. Commands under 3 seconds are hidden on purpose. |
+| `notch` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `notch setup` from the Hytte folder (`.\notch.exe setup`). |
+| Shell commands don't show up | Use **Set up terminal integration** in the tray, then open a new terminal. Commands under 3 seconds are hidden on purpose. |
 | A port isn't listed | Add it to `[ports] watch`, or set `show_all = true`. |
 | "OCR unavailable" | Install a language pack with text recognition in *Settings → Time & language → Language & region*. |
 | No music controls | The music app has to report itself to Windows (most browsers and players do). |
