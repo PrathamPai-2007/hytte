@@ -4,13 +4,40 @@ This section follows one frame from start to finish, then explains the spring ph
 
 Code: `Ui::frame` in `crates/hytte/src/window.rs`, `crates/hytte/src/render.rs`, `crates/hytte/src/animation.rs`, and `Anim` in `crates/hytte/src/ui_state.rs`.
 
-## Why a layered window and Direct2D
+## Two ways to reach the screen
 
-Hytte draws with **Direct2D** into an `ID2D1DCRenderTarget` bound to a 32-bit premultiplied-alpha **DIB section**, then hands that bitmap to Windows with `UpdateLayeredWindow`. The target is a **software** (CPU) one: the pill is a few hundred pixels, and a GPU target spends more on reading the result back into the DIB than it saves drawing (measured p50 6.5 ms → 3.6 ms per frame). Set `HYTTE_HARDWARE=1` to compare with the GPU-backed target. This gives:
+Hytte draws with **Direct2D** and **DirectWrite**: anti-aliased shapes, gradients and text, with real per-pixel alpha so the soft glow fades into whatever is behind it. There are two renderers, chosen once at startup by `[general] renderer` (the window's style depends on it, so it can't change while running):
 
-- anti-aliased shapes, gradients and text (DirectWrite);
-- true per-pixel transparency, so the soft glow fades into whatever is behind it, and clicks pass through transparent pixels;
-- no swap chain, no D3D device and no DirectComposition tree to manage, at the cost of one CPU→compositor copy per frame. Only a small region is copied (below), so that cost is small.
+| | `gpu` (default) | `classic` |
+|---|---|---|
+| Draws with | A Direct2D **device context** on a D3D11 device (`gpu.rs`) | An `ID2D1DCRenderTarget` bound to a 32-bit premultiplied **DIB section** |
+| Shown with | A composition swap chain through **DirectComposition** | `UpdateLayeredWindow` |
+| Window style | `WS_EX_NOREDIRECTIONBITMAP` | `WS_EX_LAYERED` |
+| Click-through | A **window region** (see below) | Fully transparent pixels |
+| Cost | No readback, no per-frame copy | One CPU copy to the compositor per frame |
+
+The `gpu` renderer falls back to `classic` by itself if the D3D11 / DirectComposition pipeline can't be created (the reason is written to `hytte.log`). `Renderer` hides the difference: every drawing function uses the same `ID2D1RenderTarget`, and only `new`, `plan`, `draw` and `present` branch.
+
+### The GPU renderer
+
+- `Gpu::new` creates a hardware D3D11 device (BGRA support), a Direct2D device and device context, a **flip-model composition swap chain** with premultiplied alpha, and a DirectComposition device, target and visual. The swap chain is always the whole canvas (460 × 310 logical px, scaled by DPI).
+- Each frame, `Gpu::begin` wraps the current back buffer as the device context's target, `draw` clears it and paints, and `Gpu::end` releases it. `Gpu::present` calls `Present(0, 0)` (pacing is the frame clock's job, not the swap chain's). The whole-window fade (`vis`) is a DirectComposition effect group's opacity, so it costs nothing to draw.
+- The window never moves or resizes after the monitor is known: it is the canvas, centred on the top edge. What is visible and clickable is a **window region** covering the pill and its glow (the same box the classic path presents). Setting a region is a window-manager round trip, so `present` jumps it straight to where the pill is *heading*, leaves it alone while the pill moves, and trims it to the exact box once it settles.
+- If Direct2D or DXGI reports a lost device (`D2DERR_RECREATE_TARGET`, `DXGI_ERROR_DEVICE_REMOVED` / `RESET`), `Renderer::rebuild_gpu` drops the old pipeline, builds a new one for the same window, and clears everything the old device made (brushes, album art and thumbnails, which are then fetched again).
+
+### The classic renderer
+
+Direct2D draws into a DIB, then `UpdateLayeredWindow` hands the bitmap to Windows at the crop's size and position. The target is a **software** (CPU) one: the pill is a few hundred pixels, and a GPU-backed DC target spends more on reading the result back than it saves drawing (measured p50 6.5 ms → 3.6 ms per frame). `HYTTE_HARDWARE=1` selects the GPU-backed DC target for comparison.
+
+### Measured
+
+On the development machine (60 Hz display, `HYTTE_PERF=1`, a task starting and finishing repeatedly), frame cost p50:
+
+| Renderer | draw + present |
+|---|---|
+| classic, GPU-backed DC target (the old default) | 6.5 ms |
+| classic, software target | 3.6 ms |
+| gpu | 2.1 ms |
 
 ## The frame clock
 
@@ -30,14 +57,14 @@ Right after each `DwmFlush`, the ticker samples DWM's composition timing (`DwmGe
 2. **Layout.** `layout()` refreshes every spring's target from the model ([section 6](06-ui-model.md)).
 3. **Step.** `anim.step(dt)` advances all springs and reports whether anything is still moving.
 4. **Visibility.** Show the window if it should become visible. Hide it once the `vis` fade-out has reached ~0.
-5. **Crop.** `Renderer::plan(w, h, armed)` sizes the region to draw: the pill plus 28 px of margin for the glow on the sides and bottom, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels.
+5. **Crop.** `Renderer::plan(w, h, armed)` sizes the region to draw: the pill plus 28 px of margin for the glow on the sides and bottom, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels. A `Crop` also carries `clip`, the box that holds the pill and glow: the classic renderer's crop *is* that box, while the gpu renderer's crop is the whole canvas and `clip` becomes the window region.
 6. **Position.** The crop is centred horizontally on the monitor at its top edge (`origin_for`).
 7. **Draw.** `Renderer::draw(frame, crop, &mut hits)` paints the scene and fills the hit list.
-8. **Present.** `Renderer::present` calls `UpdateLayeredWindow` with the crop's size, position and the whole-window opacity (from the `vis` spring).
+8. **Present.** `Renderer::present` shows the frame with the whole-window opacity (from the `vis` spring): `UpdateLayeredWindow` (classic), or a window-region update plus `Present` (gpu). The caller also passes the box the pill is heading towards, which the gpu renderer uses to avoid chasing every frame with the region.
 9. **Telemetry.** With `HYTTE_PERF=1`, record the draw time, the draw+present cost and the frame gap.
 10. **Keep going?** `animating = moving || ambient`, where `ambient = !reduce && shown && model.ambient(scene, now)`. `fast = moving`. If both are false, the ticker parks after this frame.
 
-Because the window is always the full canvas but only the crop is presented, the pill can grow and shrink every frame **without resizing the window**. Window resizes are slow and flicker.
+Because the canvas is fixed and only the crop (classic) or the region (gpu) changes, the pill can grow and shrink every frame **without resizing the window**. Window resizes are slow and flicker.
 
 ## Inside `Renderer::draw`
 
@@ -47,7 +74,8 @@ Order of painting (`Renderer::scene`):
 
 1. **Background** (`background`)
    - The pill **silhouette** (`pill_geometry`): a path whose top edge flares out into small concave "ears" that blend into the screen edge (only when the pill is taller than 18 px), with rounded bottom corners.
-   - The **glow**: the same path stroked 9 times with widening, fading strokes in the glow colour. An agent waiting for input makes it pulse.
+   - The **glow**: the same path stroked 5 times with widening, fading strokes in the glow colour (each stroke stands in for a pair of the nine it used to take: stroking is the costliest thing a frame does). An agent waiting for input makes it pulse.
+   - The silhouette is kept between frames while its size is unchanged (`geom`), so ambient frames don't rebuild it.
    - The **body**: a near-black vertical gradient (slightly translucent with `acrylic = true`).
    - A hairline rim, and a faint brightening while hovered.
    - The `Sentinel` scene is just a thin rounded bar and stops here.

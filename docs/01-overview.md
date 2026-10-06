@@ -6,7 +6,7 @@ Hytte is a "dynamic notch" for Windows 11: a small pill-shaped overlay that hang
 
 Three properties shape almost every design decision in the code:
 
-1. **It must never get in the way.** The window never takes keyboard focus, transparent pixels let clicks through to the windows behind, and it backs off when a game or video goes fullscreen.
+1. **It must never get in the way.** The window never takes keyboard focus, clicks outside the pill pass through to the windows behind, and it backs off when a game or video goes fullscreen.
 2. **It must cost nothing while idle.** No polling loops where Windows offers events, no frames drawn when nothing moves, and no async runtime.
 3. **It must be safe.** Anything arriving over the named pipe, or dropped onto the pill, is treated as untrusted input.
 
@@ -28,7 +28,7 @@ These words are used consistently in the code and in these docs.
 | Term | Meaning |
 |---|---|
 | **Pill** | The visible black shape at the top of the screen. |
-| **Canvas** | The fixed-size, mostly transparent layered window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window itself never resizes. |
+| **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window itself never resizes. |
 | **Scene** | What the pill is currently showing, for example `Idle`, `CompactTask` or `ExpShelf`. Exactly one scene is active at a time. See `ui_state::Scene`. |
 | **Compact / expanded** | Compact scenes are the small, collapsed states (`Idle`, `CompactTask`, `CompactMedia`). Expanded scenes (`Exp*`) are shown on hover or when the pill "peeks". |
 | **Panel** | A page of the expanded pill: Tasks, Shelf, Media, Ports, Timer, Home. Panels are reached with the tab dots or the mouse wheel. Each panel maps to one expanded scene. |
@@ -59,6 +59,7 @@ crates/
     src/main.rs            daemon entry point: starts workers, then the UI loop
     src/window.rs          Win32 window, message loop, input, timers, drag & drop
     src/render.rs          Direct2D / DirectWrite drawing of every scene
+    src/gpu.rs             D3D11 + DirectComposition swap chain for the gpu renderer
     src/ui_state.rs        the pure UI model: tasks, panels, scenes, animation state
     src/animation.rs       spring physics
     src/pipe_server.rs     named-pipe listener
