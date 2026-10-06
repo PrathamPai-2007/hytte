@@ -9,7 +9,7 @@ Hytte runs all day next to everything else on the machine, so its idle cost matt
 | Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.2 % |
 | Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 55–75 MB working set |
 | Animation | Monitor refresh rate during transitions only | vsync-paced; parks when settled |
-| Frame cost while a spring moves | well under one refresh period | p50 ≈ 3.6 ms, p99 ≈ 6 ms (was 6.5 / 10 ms before drawing moved to the CPU) |
+| Frame cost while a spring moves | well under one refresh period | `gpu`: p50 ≈ 2.1 ms, p99 ≈ 3.5 ms. `classic`: p50 ≈ 3.6 ms, p99 ≈ 6 ms. The very first version took 6.5 / 10 ms. |
 
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`) for a smaller binary and less resident code.
 
@@ -87,7 +87,7 @@ A quick idle check: start Hytte, leave it collapsed with nothing playing, and wa
 
 ## Memory notes
 
-- The canvas DIB is 460 × 310 logical px × 4 bytes, scaled by DPI (about 2.3 MB at 200 %).
+- The canvas surface (the `classic` DIB, or the `gpu` swap chain's two buffers) is 460 × 310 logical px × 4 bytes, scaled by DPI (about 2.3 MB per buffer at 200 %).
 - Album art and thumbnails are 64 × 64 BGRA (16 KB each). Only visible shelf tiles have thumbnails, and thumbnails of removed items are freed.
 - Drop Vault conversions are the only memory-heavy code. Images over 60 megapixels are refused before decoding, the decoded original is freed before JPEG encoding, and JPEG → PDF reads only the image header.
 - Terminal tab handles are capped at 128.

@@ -58,6 +58,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `monitor` | `"primary"` | Reserved; only the primary monitor is supported. |
 | `solid_pill` | `true` | Reserved. |
 | `acrylic` | `false` | Draw the pill body at 84 % opacity instead of solid. There is no blur behind it. |
+| `renderer` | `"gpu"` | `"gpu"`: Direct2D into a DirectComposition swap chain. `"classic"`: Direct2D into a layered window. Read at startup only (the window's style depends on it), so changing it needs a restart. If the GPU pipeline can't start, Hytte uses `classic` anyway. |
 | `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front. |
 | `fullscreen_mode` | `"sentinel"` | `"sentinel"`: shrink to a 3 px bar; `"hide"`: fade out completely. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
@@ -114,7 +115,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | Variable | Effect |
 |---|---|
 | `HYTTE_PERF=1` | Log frame-time statistics to `hytte.log` ([section 12](12-performance.md)). |
-| `HYTTE_HARDWARE=1` | Draw with the GPU-backed Direct2D target instead of the (faster) software one ([section 8](08-rendering-and-animation.md)). For comparison only. |
+| `HYTTE_HARDWARE=1` | `classic` renderer only: draw with the GPU-backed Direct2D DC target instead of the (faster) software one ([section 8](08-rendering-and-animation.md)). For comparison only. |
 | `HYTTE_WT_PID` | Used only by the ignored manual test in `tabs.rs`. |
 
 ## Adding a setting

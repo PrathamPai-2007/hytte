@@ -25,7 +25,8 @@ This section explains how the pieces fit together at runtime. Later sections zoo
                                 ticker thread ── PostMessage(WM_TICK) ──► Ui::frame
                                                     │
                                                     ▼
-                         Renderer: Direct2D → DIB → UpdateLayeredWindow → screen
+                         Renderer: Direct2D → swap chain → DirectComposition → screen
+                                   (classic fallback: Direct2D → DIB → UpdateLayeredWindow)
 ```
 
 Two rules hold everywhere:
@@ -50,9 +51,9 @@ Two rules hold everywhere:
 
 1. Creates the `Shared` struct (see below) and stores it in a global `OnceLock`.
 2. Calls `OleInitialize` (the UI thread is a COM single-threaded apartment, which OLE drag and drop requires).
-3. Registers the window class and creates the layered, topmost, tool, no-activate popup window.
-4. Builds the `Renderer` and the `Ui` struct: model, animation state, config, shelf loaded from disk, saved timer restored. It then sizes everything for the monitor's DPI and draws the first frame.
-5. Registers the OLE drop target, the `TaskbarCreated` message (to re-add the tray icon if Explorer restarts), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
+3. Registers the window class, then creates the topmost, tool, no-activate popup window together with its renderer: a `WS_EX_NOREDIRECTIONBITMAP` window and the GPU renderer, or (if that fails or `[general] renderer = "classic"`) a layered window and the classic one.
+4. Builds the `Ui` struct: model, animation state, config, shelf loaded from disk, saved timer restored. It then sizes everything for the monitor's DPI and draws the first frame.
+5. Registers the OLE drop target, power-setting notifications (`WM_POWERBROADCAST`), the `TaskbarCreated` message (to re-add the tray icon if Explorer restarts), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
 6. Adds the tray icon.
 7. Starts the **bridge** thread and the **ticker** (frame clock) thread.
 8. Runs the standard `GetMessageW` / `DispatchMessageW` loop.

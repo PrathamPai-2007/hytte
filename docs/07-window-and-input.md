@@ -9,17 +9,20 @@ Created once in `run_windows`:
 | Setting | Effect |
 |---|---|
 | `WS_POPUP` | No frame or title bar. |
-| `WS_EX_LAYERED` | Per-pixel alpha via `UpdateLayeredWindow`. Fully transparent pixels are **click-through**, so the window only "exists" where the pill is drawn. |
+| `WS_EX_NOREDIRECTIONBITMAP` (renderer `gpu`) | The window has no GDI surface; DirectComposition supplies its pixels. Clicks pass through everywhere outside a **window region** that tracks the pill and its glow. |
+| `WS_EX_LAYERED` (renderer `classic`) | Per-pixel alpha via `UpdateLayeredWindow`. Fully transparent pixels are **click-through**, so the window only "exists" where the pill is drawn. |
 | `WS_EX_TOPMOST` | Above normal windows. Re-asserted whenever the foreground window changes. |
 | `WS_EX_TOOLWINDOW` | No taskbar button and no Alt-Tab entry. |
 | `WS_EX_NOACTIVATE` | Never becomes the active window. Together with `WM_MOUSEACTIVATE → MA_NOACTIVATE`, clicking the pill never steals keyboard focus. |
 | Class `HyttePill`, `CS_DBLCLKS` | The class name is also how fullscreen detection recognises Hytte's own window. |
 
-The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the primary monitor's top edge. Only the part that holds the pill (plus margins for the glow) is actually drawn and presented each frame; see [section 8](08-rendering-and-animation.md).
+The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the primary monitor's top edge. With the `gpu` renderer the window *is* that canvas and a region limits what is visible and clickable; with `classic`, only the part that holds the pill (plus margins for the glow) is drawn and presented each frame. See [section 8](08-rendering-and-animation.md).
+
+The renderer is picked before the window exists, because the style depends on it: `run_windows` creates a `WS_EX_NOREDIRECTIONBITMAP` window and tries `Renderer::new_gpu`; if that fails (or `[general] renderer = "classic"`) it destroys that window and creates a layered one for `Renderer::new`. A static `LIVE` flag keeps the destroyed window's `WM_DESTROY` from ending the message loop before it starts.
 
 ### Monitor and DPI
 
-`Ui::refresh_monitor` reads the primary monitor's rectangle and its effective DPI, computes `scale = dpi / 96`, resizes the renderer's bitmap, and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
+`Ui::refresh_monitor` reads the primary monitor's rectangle and its effective DPI, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
 
 ## The `Ui` struct
 
@@ -65,7 +68,8 @@ Three methods do most of the work:
 | `WM_TRAY` (custom) | Right-click on the tray icon: shows the menu. |
 | `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, which works on its own thread and reports in a message box). |
 | `TaskbarCreated` (registered) | Explorer restarted: re-adds the tray icon. |
-| `WM_DESTROY` | Ends the message loop. |
+| `WM_POWERBROADCAST` | Power source, charge level or resume changed: wakes the power worker (`power::poke`). |
+| `WM_DESTROY` | Ends the message loop (unless the window was torn down during startup). |
 
 ## Timers
 
@@ -106,7 +110,7 @@ Every action ends with `after_model_change`.
 
 ### Arming the top edge
 
-A layered window only receives drops on its non-transparent pixels, and the collapsed pill is small. So a **low-level mouse hook** (`mouse_ll`) watches for a left-button drag that enters a zone ±230 logical px around the screen centre and 40 px tall at the top edge. It then sets `ARMED` and posts `WM_DRAG_ARM`. The hook itself only touches atomics and posts messages.
+The window only receives drops where it is hit-testable (non-transparent pixels, or inside the window region), and the collapsed pill is small. So a **low-level mouse hook** (`mouse_ll`) watches for a left-button drag that enters a zone ±230 logical px around the screen centre and 40 px tall at the top edge. It then sets `ARMED` and posts `WM_DRAG_ARM`. The hook itself only touches atomics and posts messages.
 
 While `armed`, the renderer widens the presented area to the whole canvas width and fills the 40 px strip with an almost invisible colour (alpha 0.008). Windows then routes drops anywhere in the strip to Hytte, and the user doesn't have to aim. Releasing the button posts `WM_DRAG_END`.
 
