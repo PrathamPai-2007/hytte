@@ -5,6 +5,7 @@
 pub struct Perf {
     on: bool,
     cost_us: Vec<u32>,
+    draw_us: Vec<u32>,
     gap_us: Vec<u32>,
 }
 
@@ -16,25 +17,30 @@ impl Perf {
         Self {
             on,
             cost_us: Vec::new(),
+            draw_us: Vec::new(),
             gap_us: Vec::new(),
         }
     }
 
-    pub fn record(&mut self, gap_us: u32, cost_us: u32) {
+    /// `draw_us` is the paint alone; `cost_us` is paint plus present.
+    pub fn record(&mut self, gap_us: u32, draw_us: u32, cost_us: u32) {
         if !self.on {
             return;
         }
         self.cost_us.push(cost_us);
+        self.draw_us.push(draw_us);
         self.gap_us.push(gap_us);
         if self.cost_us.len() >= BATCH {
             crate::logging::line(&self.report());
             self.cost_us.clear();
+            self.draw_us.clear();
             self.gap_us.clear();
         }
     }
 
     fn report(&mut self) -> String {
         let (c50, c99, cmax) = pct(&mut self.cost_us);
+        let (d50, d99, _) = pct(&mut self.draw_us);
         let (g50, g99, gmax) = pct(&mut self.gap_us);
         let missed = self
             .gap_us
@@ -42,7 +48,7 @@ impl Perf {
             .filter(|&&g| g as f64 > g50 as f64 * 1.5)
             .count();
         format!(
-            "perf n={} cost_us p50={c50} p99={c99} max={cmax} | gap_us p50={g50} p99={g99} max={gmax} | missed={missed}",
+            "perf n={} cost_us p50={c50} p99={c99} max={cmax} | draw_us p50={d50} p99={d99} | gap_us p50={g50} p99={g99} max={gmax} | missed={missed}",
             self.cost_us.len()
         )
     }
