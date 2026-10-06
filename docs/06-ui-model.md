@@ -17,7 +17,7 @@ It has three parts:
 | `MediaArt(Option<Arc<ArtBitmap>>)` | media watcher | Sets `art` and bumps `art_gen` so the renderer re-uploads it. |
 | `Privacy(cam, mic, app)` | privacy watcher | The camera / mic dots and the app name. |
 | `MicMute(bool)` | mic watcher | The red lock. |
-| `Power(Option<Battery>)` | power watcher | `Model::set_power`: the Home card battery row, and the plug-in card when the charger was just connected. |
+| `Power(Option<Battery>)` | power watcher | `Model::set_power`: the Home card battery row, and the plug-in or unplug card when the charger was just connected or removed. |
 | `Ports(Vec<PortInfo>)` | port watcher | `set_ports`. Also cancels an armed **Kill?** if that port is gone. |
 | `ShelfAdd(DropJob)` | OLE drop target | Starts staging on a worker ([section 10](10-shelf-and-drop-vault.md)). |
 | `ShelfStaged(Vec<ShelfItem>)` | shelf staging worker | Inserts the items, saves the shelf, and peeks the Shelf panel for 5 s. |
@@ -77,7 +77,7 @@ When expanded, the pill shows one **panel**. `Model::panels()` lists the panels 
 | 4 | A timer just finished (`timer_done`) | `ExpTimerDone` |
 | 5 | The right-click timer panel is open | `ExpTimer` |
 | 6 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()`: `ExpTasks`, `ExpShelf`, `ExpMedia`, `ExpPorts`, `ExpTimer` or `ExpHome` |
-| 7 | The charger was plugged in less than 3 s ago (`charge_since`) | `ExpCharge` |
+| 7 | The charger was plugged in or out less than 3 s ago (`charge_since`; `charge_in` says which way) | `ExpCharge` |
 | 8 | At least one visible task | `CompactTask` |
 | 9 | Media is **playing** | `CompactMedia` |
 | 10 | otherwise | `Idle` |
@@ -115,6 +115,7 @@ Expanded panels that show tab dots get 14 px more height.
 | Shelf, result chip | purple, half |
 | Timer panel / timer finished | blue, faint / green |
 | Charger plugged in | green |
+| Charger unplugged | amber |
 | Media, Home, Ports | white, faint |
 | Idle, Sentinel | none |
 
@@ -132,7 +133,7 @@ Many things disappear on their own: finished tasks, chips, peeks, an armed **Kil
    | Armed chip **Kill?** | 3 s (`KILL_CONFIRM`) |
    | Armed **Kill?** | 3 s (`KILL_CONFIRM`) |
    | Timer-finished card | 30 s (`TIMER_DONE_HOLD`) |
-   | Plug-in card | 3 s (`CHARGE_HOLD`) |
+   | Plug-in / unplug card | 3 s (`CHARGE_HOLD`) |
    | Peek, forced visibility | their own deadline |
 
 2. returns the **earliest future deadline**, which also includes tasks that are still hidden (`visible_after`).
@@ -203,7 +204,7 @@ Expanded scenes show the same things as panels, so they get no bubble. The layou
 
 - `Anim::nav` is the direction the user is paging (+1 next, -1 previous); the wheel, the tab dots and the keyboard set it just before a layout. `set_scene` moves it to `slide` when the scene changes, and the renderer slides the new content in from that side (and the old content out the other way) instead of the plain vertical drift. A change nobody paged for, such as a peek, keeps the drift. `after_model_change` clears `nav` so it only ever applies to the layout it was set for.
 - `Anim::squash` gives the size springs a small impulse (width +160, height −110 px/s), so the pill squashes and settles. It is called when items land on the shelf and when a Drop Vault result arrives; it does nothing under reduced motion.
-- `Model::set_power` starts the plug-in card (above); `TaskView::line` / `shows_line` carry the output ticker of a running task, and `LINE_H` (14 px) is the extra row height it needs in `Model::size(ExpTasks)`.
+- `Model::set_power` starts the plug-in or unplug card (above); `glow_gain` is `[general] glow_strength`, applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry the output ticker of a running task, and `LINE_H` (14 px) is the extra row height it needs in `Model::size(ExpTasks)`.
 
 ## Tests
 

@@ -156,7 +156,7 @@ Ambient animation is the only thing that keeps frames running when no spring is 
 | A failed task's red pulse is still fading (first 8 s) | After that the pulse rests at a fixed value, so a forgotten failure costs nothing. |
 | An expanded scene shows privacy dots | They breathe only when expanded; collapsed, they are static. |
 | Something is dragged over the pill | The drop zone animates. |
-| The plug-in card is showing (3 s) | The battery fills up; it expires on its own. |
+| The plug-in or unplug card is showing (3 s) | The battery fills up (or drains, amber, red at 20 % or less); it expires on its own. |
 
 The bubble spring moves for a fraction of a second when it opens or closes, like any other spring, and then rests: the timer bubble's clock is redrawn by the existing 1 Hz timer redraw, not by an animation.
 | Media is playing **and** a media scene is shown | The equaliser and timeline. |

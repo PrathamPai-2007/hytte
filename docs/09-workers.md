@@ -85,7 +85,7 @@ Clicking **Mute** in the pill calls `mic::toggle` directly and updates the model
 
 The charge rate changes continuously while charging but has no notification, so it is refreshed when you look at it: selecting the Home panel, or hovering the pill open on it, calls `power::read` immediately.
 
-When a reading moves from battery to AC, `Model::set_power` starts the plug-in card ([section 6](06-ui-model.md)).
+When a reading moves between battery and AC, `Model::set_power` starts the plug-in or unplug card ([section 6](06-ui-model.md)).
 
 ## Ports (`ports.rs` + `crates/proto/src/ports.rs`)
 
