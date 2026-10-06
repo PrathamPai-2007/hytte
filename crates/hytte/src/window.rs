@@ -604,7 +604,15 @@ mod win {
                 self.rend.draw(&fr, crop, &mut self.hits);
                 let drawn = now.elapsed().as_micros() as u32;
                 let a = (self.anim.vis.pos.clamp(0.0, 1.0) * 255.0).round() as u8;
-                self.rend.present(hwnd, crop, origin.0, origin.1, a);
+                let heading = self
+                    .rend
+                    .plan(
+                        self.anim.rect.w.target as f32,
+                        self.anim.rect.h.target as f32,
+                        self.armed,
+                    )
+                    .clip;
+                self.rend.present(hwnd, crop, origin.0, origin.1, a, heading);
                 if self.rend.lost() {
                     // Driver reset or adapter removed: rebuild the GPU pipeline and redraw.
                     crate::logging::line("gpu renderer: device lost, rebuilding");
