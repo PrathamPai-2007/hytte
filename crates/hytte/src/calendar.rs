@@ -381,14 +381,16 @@ mod tests {
         #[ignore]
         fn calendar_manual_delete() {
             let store = block_on(
-                AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AppCalendarsReadWrite).unwrap(),
+                AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AllCalendarsReadWrite).unwrap(),
                 T,
             )
             .unwrap()
             .unwrap();
             let cals = block_on(store.FindAppointmentCalendarsAsync().unwrap(), T).unwrap().unwrap();
             for c in cals {
-                if c.DisplayName().map(|n| n.to_string()).unwrap_or_default() == NAME {
+                let name = c.DisplayName().map(|n| n.to_string()).unwrap_or_default();
+                println!("calendar: {name:?}");
+                if name.contains("HytteTest") {
                     block_on(c.DeleteAsync().unwrap(), T).unwrap().unwrap();
                     println!("deleted the test calendar");
                 }
