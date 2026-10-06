@@ -174,6 +174,7 @@ theme = "dark"                 # "dark", "light" or "auto" (follow Windows)
 monitor = "primary"            # "primary", "active" (the focused window's) or "cursor"
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
+glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
 fullscreen_mode = "sentinel"   # "sentinel" = thin line, "hide" = disappear completely
 finish_peek_secs = 5            # how long the pill opens when a task finishes (0 = never)
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]

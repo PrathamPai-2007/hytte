@@ -261,14 +261,18 @@ pub struct Model {
     pub art_accent: Option<[f32; 3]>,
     /// `[general] adaptive_glow`: let the glow follow the album art.
     pub adaptive_glow: bool,
+    /// `[general] glow_strength`: multiplies the border glow.
+    pub glow_gain: f32,
     pub cam: bool,
     pub mic: bool,
     pub privacy_app: Option<String>,
     pub mic_muted: bool,
     /// None on machines without a battery.
     pub power: Option<crate::power::Battery>,
-    /// When the charger was last plugged in; the plug-in card shows for [`CHARGE_HOLD`].
+    /// When the charger was last plugged in or out; the card shows for [`CHARGE_HOLD`].
     pub charge_since: Option<Instant>,
+    /// Which way the last change went: true plugged in, false unplugged.
+    pub charge_in: bool,
     /// A user-initiated drop keeps the pill visible even while fullscreen suppresses it.
     pub force_until: Option<Instant>,
     pub drop_over: bool,
@@ -412,10 +416,13 @@ impl Model {
         self.art_gen = self.art_gen.wrapping_add(1);
     }
 
-    /// New battery reading. Going from battery to AC starts the plug-in card.
+    /// New battery reading. Switching between battery and AC starts the plug-in or unplug card.
     pub fn set_power(&mut self, p: Option<crate::power::Battery>, now: Instant) {
-        if self.power.is_some_and(|old| !old.plugged) && p.is_some_and(|new| new.plugged) {
-            self.charge_since = Some(now);
+        if let (Some(old), Some(new)) = (self.power, p) {
+            if old.plugged != new.plugged {
+                self.charge_since = Some(now);
+                self.charge_in = new.plugged;
+            }
         }
         self.power = p;
     }
@@ -780,6 +787,7 @@ impl Model {
             Scene::ExpDrop => (PURPLE, 1.0),
             Scene::ExpTimer => (BLUE, 0.30),
             Scene::ExpTimerDone => (GREEN, 0.8),
+            Scene::ExpCharge if !self.charge_in => (AMBER, 0.6),
             Scene::ExpCharge => (GREEN, 0.7),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
             Scene::CompactMedia | Scene::ExpMedia
@@ -1258,12 +1266,27 @@ bang"
     }
 
     #[test]
+    fn unplugging_shows_the_card_the_other_way() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.set_power(Some(battery(true)), t0);
+        m.set_power(Some(battery(false)), t0);
+        assert_eq!(m.charge_since, Some(t0));
+        assert!(!m.charge_in);
+        m.expire(t0);
+        assert_eq!(m.scene(false, false), Scene::ExpCharge);
+        assert_eq!(m.expire(t0 + CHARGE_HOLD), None);
+        // Plugging back in flips the direction.
+        let t1 = t0 + CHARGE_HOLD;
+        m.set_power(Some(battery(true)), t1);
+        assert!(m.charge_in);
+    }
+
+    #[test]
     fn plugging_in_shows_the_charge_card_briefly() {
         let t0 = Instant::now();
         let mut m = Model::default();
         // The first reading, or staying on one source, never triggers it.
-        m.set_power(Some(battery(true)), t0);
-        assert_eq!(m.charge_since, None);
         m.set_power(Some(battery(false)), t0);
         m.set_power(Some(battery(false)), t0);
         assert_eq!(m.charge_since, None);

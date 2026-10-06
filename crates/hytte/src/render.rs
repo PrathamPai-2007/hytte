@@ -962,7 +962,7 @@ impl Renderer {
         };
         unsafe {
             // Soft glow: stacked widening strokes under the body.
-            let mut gl = an.glow.pos as f32;
+            let mut gl = an.glow.pos as f32 * fr.model.glow_gain;
             if fr.model.primary().is_some_and(|t| t.needs_input())
                 && matches!(an.scene, Scene::CompactTask | Scene::ExpTasks)
             {
@@ -2479,7 +2479,8 @@ impl Renderer {
         );
     }
 
-    /// The card shown for a moment after the charger is plugged in: a battery that fills up.
+    /// The card shown for a moment after the charger is plugged in (a battery that fills up)
+    /// or unplugged (one that drains to its level, red when low).
     fn exp_charge(&self, fr: &Frame, w: f32, h: f32) {
         let m = fr.model;
         let Some(b) = m.power else { return };
@@ -2488,6 +2489,12 @@ impl Renderer {
             .map_or(1.0, |s| fr.now.saturating_duration_since(s).as_secs_f32());
         let k = (since / 0.7).clamp(0.0, 1.0);
         let ease = 1.0 - (1.0 - k).powi(3);
+        let plugged = m.charge_in;
+        let tone = match (plugged, b.pct) {
+            (true, _) => GREEN,
+            (false, 0..=20) => RED,
+            (false, _) => AMBER,
+        };
         let cy = h / 2.0;
         let (bx, bw, bh) = (20.0, 30.0, 15.0);
         self.stroke_rr(
@@ -2496,12 +2503,19 @@ impl Renderer {
             bw,
             bh,
             4.0,
-            self.cc(GREEN, 0.9),
+            self.cc(tone, 0.9),
             1.4,
             false,
         );
-        self.fill_rr(bx + bw + 1.5, cy - 3.0, 2.5, 6.0, 1.2, self.cc(GREEN, 0.9));
-        let fill = (bw - 5.0) * (b.pct as f32 / 100.0) * ease;
+        self.fill_rr(bx + bw + 1.5, cy - 3.0, 2.5, 6.0, 1.2, self.cc(tone, 0.9));
+        let level = b.pct as f32 / 100.0;
+        // Plugging in fills up from empty; unplugging drains down from full.
+        let shown = if plugged {
+            level * ease
+        } else {
+            1.0 + (level - 1.0) * ease
+        };
+        let fill = (bw - 5.0) * shown;
         if fill > 0.5 {
             self.fill_rr(
                 bx + 2.5,
@@ -2509,7 +2523,7 @@ impl Renderer {
                 fill,
                 bh - 5.0,
                 2.0,
-                self.cc(GREEN, 0.9),
+                self.cc(tone, 0.9),
             );
         }
         let (bolt_x, bolt_a) = (bx + bw / 2.0, 0.55 + 0.45 * ease);
@@ -2522,9 +2536,11 @@ impl Renderer {
             (0.3, -0.8),
         ];
         let pts: Vec<(f32, f32)> = bolt.iter().map(|(x, y)| (bolt_x + x, cy + y)).collect();
-        self.poly(&pts, self.cc([1.0; 3], bolt_a));
+        if plugged {
+            self.poly(&pts, self.cc([1.0; 3], bolt_a));
+        }
         self.text(
-            "Plugged in",
+            if plugged { "Plugged in" } else { "Unplugged" },
             &self.f.title,
             66.0,
             cy - 17.0,
@@ -2539,7 +2555,7 @@ impl Renderer {
             cy + 1.0,
             w - 66.0 - 16.0,
             16.0,
-            self.cc(GREEN, 1.0),
+            self.cc(tone, 1.0),
         );
     }
 

@@ -21,6 +21,9 @@ pub struct General {
     /// Tint the media glow with the album art's dominant colour.
     #[serde(default = "default_true")]
     pub adaptive_glow: bool,
+    /// How strong the border glow is: 1.0 is the original look, 0 turns it off.
+    #[serde(default = "default_glow")]
+    pub glow_strength: f32,
     /// Global hotkey that opens the pill for keyboard use, e.g. "Win+Alt+N". Empty = off.
     #[serde(default)]
     pub hotkey: String,
@@ -96,6 +99,10 @@ fn default_finish_peek() -> u64 {
 fn default_sentinel() -> String {
     "sentinel".into()
 }
+fn default_glow() -> f32 {
+    1.2
+}
+
 fn default_theme() -> String {
     "dark".into()
 }
@@ -112,6 +119,7 @@ impl Default for General {
             solid_pill: true,
             acrylic: false,
             adaptive_glow: true,
+            glow_strength: default_glow(),
             hotkey: String::new(),
             theme: default_theme(),
             renderer: default_renderer(),

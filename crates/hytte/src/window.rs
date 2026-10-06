@@ -545,6 +545,7 @@ mod win {
             self.model.ignore = ignore_list(&new);
             self.light = theme_is_light(&new.general.theme);
             self.model.adaptive_glow = new.general.adaptive_glow;
+            self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
             self.model.rounds = new.timer.rounds;
             let monitor_changed = new.general.monitor != self.cfg.general.monitor;
             let general = new.general != self.cfg.general;
@@ -1232,6 +1233,7 @@ mod win {
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
             ui.model.adaptive_glow = ui.cfg.general.adaptive_glow;
+            ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
             ui.model.rounds = ui.cfg.timer.rounds;
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
