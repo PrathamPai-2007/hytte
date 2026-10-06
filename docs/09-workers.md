@@ -13,6 +13,9 @@ Each worker watches one part of the system and reports changes to the UI thread 
 | Microphone | `mic.rs` | Endpoint-volume callbacks and device notifications (60 s safety timeout) | `MicMute` |
 | Battery | `power.rs` | Power broadcasts forwarded by the window, plus a power-mode callback (5 min safety timeout) | `Power` |
 | Ports | `ports.rs` | `poll_secs` poll, woken early on demand | `Ports` |
+| Resource hogs | `hog.rs` (ticked by `ports.rs`) | Rides the port watcher's tick | `Hog` |
+| Downloads | `downloads.rs` | `ReadDirectoryChangesW` (no polling) | `Task`, `DownloadDone`, `TaskGone` |
+| Calendar | `calendar.rs` | Store-changed event, or the next event's due time (opt-in) | `Calendar` |
 | Config | `config.rs` | Directory change notification (no polling) | `Config` ([section 11](11-configuration-and-files.md#live-reload)) |
 | Terminal tabs | `tabs.rs` | Command channel (no polling) | none: it answers commands |
 | Thumbnails | `shelf.rs` (`thumbnail`) | One short-lived thread per tile | `Thumb` |
@@ -96,6 +99,32 @@ There is no cheap "a socket started listening" event in Windows (ETW would be th
 Before acting on **Open** or **Kill**, the UI re-checks that the same pid still listens on that port (`port_alive`), so a stale row is removed instead of killing the wrong process. `hytte_proto::ports::kill` refuses pids 0–4 and its own pid.
 
 The same module powers `notch ports` and `notch kill`, so the CLI and the panel always agree.
+
+### Resource hogs (`hog.rs`, `[hog]`)
+
+On every tick of the port watcher (`poll_secs`, 5 s by default) the thread also samples every process: a `CreateToolhelp32Snapshot` walk, then `GetProcessTimes` (kernel + user time) and `K32GetProcessMemoryInfo` (working set) for each. CPU is the time used since the previous sample divided by the elapsed wall time and the core count, so 100 % means the whole machine. A sample taken less than a second after the previous one (the pill opened and woke the thread early) skips CPU, because such a short interval is noise. The idle process, System (pid 4), `hytte.exe` and ourselves are exempt.
+
+`Tracker::update` is the pure part: a process must be over `cpu_pct` for `secs` (default 80 % for 30 s) to alert, while a memory level (`mem_mb`, default 4096) alerts straight away, since memory is a level and not a burst. Each process alerts once; falling below the limits (or exiting) forgets it, so a new burst alerts again. The thread sends `UiEvent::Hog`, and the window shows the warning card unless the exe is in `hog_ignore` or another card is up. Turn it off with `[hog] enabled = false`; a config edit applies at the next tick.
+
+## Downloads (`downloads.rs`, `[downloads]`)
+
+Browsers write a partial file and rename it when done, so the worker turns folder changes into tasks. It opens the Downloads folder (`FOLDERID_Downloads`, or `[downloads] folder`) and blocks in `ReadDirectoryChangesW` (file-name and size changes), so nothing is polled and nothing runs between downloads. `Machine::feed` is the pure part, following the renames:
+
+| Browser | Sequence | Result |
+|---|---|---|
+| Chrome / Edge | `Unconfirmed 123.crdownload` → `name.zip.crdownload` → `name.zip` | A task for the first name that moves to the real name, then **finished** |
+| Firefox | `name.mp4.part` → `name.mp4` | A task, then finished |
+| Either, cancelled | the partial file is deleted | The task leaves quietly (`TaskGone`) |
+
+Recognised suffixes are `.crdownload`, `.part`, `.partial`, `.opdownload` and `.download`. A running download is a task (`source = "download"`) labelled with the name and its current size (`foo.zip · 12.3 MB`), updated at most every 0.9 s, and hidden for its first 1.5 s so a tiny file doesn't flicker. Finishing marks the task done and sends `DownloadDone`, which shows the card with **Open** and **Shelve**.
+
+## Calendar (`calendar.rs`, `[calendar]`)
+
+Off by default, because event titles are private and the pill is on screen. When enabled, the worker asks for the appointment store (`AppointmentManager::RequestStoreAsync`, all calendars, read-only; unpackaged apps can get it without a prompt) and reads the next 24 hours. It sleeps on a channel fed by the store's `StoreChanged` event and wakes at the latest when the next event has started (plus a minute), so it never polls; a 30 min cap catches a changed clock.
+
+`pick_next` takes the earliest event that is timed (not all-day), not cancelled, titled, and no more than 2 minutes past its start. `meeting_url` looks for a link in the provider's online-meeting field, the location, then the details; only `https://` links to Teams, Meet, Zoom, Webex or Whereby (host or subdomain) qualify, so a lookalike host or other scheme never reaches the shell. The worker sends `UiEvent::Calendar(Some(event))` only when the next event changes. `Model::set_calendar` arms the heads-up for `lead_min` (default 10) before the start, or at once if that moment has passed; `Model::expire` includes that deadline in the single timer, and `calendar_due` hands the event out once, remembering `(subject, start)` so it is never repeated. The card says "starts in N min" / "is starting" / "started N min ago" and offers **Join** when there is a link.
+
+Two ignored manual tests (`calendar_manual_create`, `calendar_manual_delete`) create and remove a throw-away app calendar so the path can be tried against a real store: `cargo test -p hytte calendar_manual -- --ignored --nocapture`.
 
 ## Windows Terminal tabs (`tabs.rs`)
 

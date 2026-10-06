@@ -32,6 +32,9 @@ When adding a feature, check it doesn't add a row here without a good reason.
 | Source | Interval | Notes |
 |---|---|---|
 | Port watcher | every `poll_secs` (5 s) | One `GetExtendedTcpTable` call per address family. Processes are opened only for watched ports. |
+| Resource-hog sampler | with the port watcher's tick (`poll_secs`, 5 s) | One process snapshot, then two cheap calls per process. Turn off with `[hog] enabled = false`. |
+| Downloads watcher | on a change in the Downloads folder | Blocks in `ReadDirectoryChangesW`; wakes only for file-name and size changes there. |
+| Calendar watcher (opt-in) | on a store change, or when the next event has started (at most every 30 min) | Reads the next 24 hours. |
 | Mic watcher | on a mute or device callback, or 60 s safety timeout | Reads the cached endpoints' mute state; re-enumerates only after a device change notification. |
 | Power watcher | on a power broadcast or power-mode callback, or 5 min safety timeout | `GetSystemPowerStatus`. On laptops, also two IOCTLs on the cached battery device. |
 | Memory trim | once, 30 s after the last frame | `SetProcessWorkingSetSize`. |

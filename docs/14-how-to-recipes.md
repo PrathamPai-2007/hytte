@@ -31,6 +31,23 @@ Example: a worker that reports whether the PC is on a metered connection.
 
 Checklist: never exits on error · sends only on change · no polling where a notification exists · heavy calls stay on this thread.
 
+## Show an alert card with buttons
+
+Example: warn when the disk is nearly full, with a button that opens Storage settings.
+
+1. Send an event from your worker (`UiEvent::DiskLow(...)`, a new variant in `ui_state.rs`), and handle it in `Ui::handle_events` (`window.rs`).
+2. Build the card with `Chip::new(summary, now)`, set `tone` (`Done`, `Warn` or `Info`) and `hold`, and add buttons to `extra`:
+   ```rust
+   let mut c = Chip::new("C: has 3% free", now);
+   c.tone = Tone::Warn;
+   c.hold = Duration::from_secs(20);
+   c.extra = vec![("Open".into(), ChipAction::OpenUrl("https://...".into()))];
+   self.model.chip = Some(c);
+   ```
+   Only create it when `self.model.chip.is_none()`, so you never replace a card the user is reading.
+3. If none of the existing `ChipAction`s fit, add a variant in `ui_state.rs` and handle it in `Ui::chip_action` (`window.rs`). Keep it safe: `OpenUrl` only passes `http` / `https` to the shell, and `KillPid` needs a second click.
+4. Add a test for the rule that decides *when* the card appears (put it in a pure function or in `Model`).
+
 ## Add a setting
 
 Example: `[ports] open_https = false`.

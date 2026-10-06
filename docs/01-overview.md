@@ -69,6 +69,9 @@ crates/
     src/media.rs           media session watcher + album art
     src/privacy.rs         camera / microphone in-use watcher
     src/mic.rs             global microphone mute
+    src/hog.rs             resource-hog alert (CPU / memory sampling and the "how long" rule)
+    src/downloads.rs       browser downloads as tasks (folder change notifications)
+    src/calendar.rs        heads-up before the next calendar event
     src/power.rs           battery and power mode
     src/tabs.rs            Windows Terminal tab tracking (UI Automation)
     src/shelf.rs           shelf items, persistence, thumbnails

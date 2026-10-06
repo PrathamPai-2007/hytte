@@ -38,6 +38,7 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 | `[shell] ignore` | `model.ignore` is rebuilt. |
 | `[general] autostart` | `ensure_autostart` updates the `Run` value. |
 | `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
+| `[hog]` | `ports::reconfigure_hog` hands them to the same thread, used from the next tick. |
 | `[general]` fullscreen keys | `evaluate_fullscreen` runs again. |
 | Everything else | Already read at the point of use (`self.cfg`, or `config::load()` for `output_folder`). |
 
@@ -100,6 +101,29 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `peek_secs` | `6` | How long the pill peeks open when a task needs input. |
 | `sound` | `false` | Play the system "asterisk" sound on `NeedsInput`. |
 
+### `[hog]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Warn when one process keeps using a lot of CPU or memory ([section 9](09-workers.md#resource-hogs-hogrs-hog)). |
+| `cpu_pct` | `80` | Percent of the **whole machine** (all cores = 100) that has to be exceeded. |
+| `secs` | `30` | How long the CPU has to stay over the limit. |
+| `mem_mb` | `4096` | Working set in MB; memory alerts at once. |
+
+### `[downloads]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Show browser downloads as tasks. Read at startup. |
+| `folder` | none | Folder to watch (default: your Downloads folder). Read at startup. |
+
+### `[calendar]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Show a heads-up before the next calendar event. Off by default: titles are private and the pill is on screen. Read at startup. |
+| `lead_min` | `10` | Minutes before the start to show it. |
+
 ### `[timer]`
 
 | Key | Default | Meaning |
@@ -107,7 +131,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `sound` | `true` | Play the chime when a timer ends. |
 | `break_min` | `5` | Short break length after a Focus session. |
 | `long_break_min` | `15` | Long break length. |
-| `rounds` | `4` | Every `rounds`-th Focus session is followed by a long break. |
+| `rounds` | `4` | Every `rounds`-th Focus session is followed by a long break. A Focus or Break timer shows this many round dots. |
 
 ## The timer's persistence
 

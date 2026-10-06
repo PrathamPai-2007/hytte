@@ -74,7 +74,9 @@ Two rules hold everywhere:
 | Mic watcher | `mic::spawn_watcher` | whole process | a channel fed by endpoint-volume and device callbacks (60 s safety timeout) |
 | Power watcher | `power::spawn_watcher` | whole process | a channel fed by `power::poke` (power broadcasts and mode callback; 5 min safety timeout) |
 | Config watcher | `config::spawn_watcher` | whole process | `FindFirstChangeNotificationW` on the data folder; applies edits to `config.toml` live |
-| Port watcher | `ports::spawn_watcher` | whole process | a condvar: woken early on demand, otherwise every `poll_secs` |
+| Port watcher | `ports::spawn_watcher` | whole process | a condvar: woken early on demand, otherwise every `poll_secs`. The resource-hog sampler (`hog.rs`) rides this same tick. |
+| Downloads watcher | `downloads::spawn_watcher` | whole process | `ReadDirectoryChangesW` on the Downloads folder (off with `[downloads] enabled = false`) |
+| Calendar watcher | `calendar::spawn_watcher` | whole process | a store-changed channel, timing out when the next event is due (only with `[calendar] enabled`) |
 | Drop Vault workers (2) | `drop::spawn_workers` | whole process | the job channel |
 | Terminal tabs | `tabs::spawn` | whole process | its command channel |
 | Thumbnail loader | `Ui::request_thumbs` | one thumbnail | the shell thumbnail call |
