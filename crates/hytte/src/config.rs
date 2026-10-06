@@ -219,6 +219,28 @@ impl Default for Ports {
     }
 }
 
+/// A heads-up before the next calendar event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Calendar {
+    /// Off by default: event titles are private and the pill is on screen. Read at startup.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Minutes before the start to show the heads-up.
+    #[serde(default = "d_cal_lead")]
+    pub lead_min: u32,
+}
+fn d_cal_lead() -> u32 {
+    10
+}
+impl Default for Calendar {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            lead_min: d_cal_lead(),
+        }
+    }
+}
+
 /// Show browser downloads as tasks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Downloads {
@@ -339,6 +361,8 @@ pub struct Config {
     pub hog: Hog,
     #[serde(default)]
     pub downloads: Downloads,
+    #[serde(default)]
+    pub calendar: Calendar,
     #[serde(default)]
     pub agent: Agent,
 }

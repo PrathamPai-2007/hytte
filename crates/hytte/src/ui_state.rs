@@ -41,6 +41,8 @@ pub enum UiEvent {
     Hog(crate::hog::Alert),
     /// A browser download finished: its name and where it landed.
     DownloadDone { name: String, path: PathBuf },
+    /// The next calendar event (None = nothing upcoming).
+    Calendar(Option<crate::calendar::NextEvent>),
     /// Take a task out of the list without a trace (a download that was cancelled).
     TaskGone(String),
     /// Dropped onto the notch while the shelf is the drop target.
@@ -268,6 +270,10 @@ pub struct Model {
     pub chip_armed: Option<Instant>,
     /// Exe names (lower-cased) the resource-hog alert is muted for, for this session.
     pub hog_ignore: std::collections::HashSet<String>,
+    /// The next calendar event and when its heads-up is due (None once shown or if none).
+    pub calendar: Option<(crate::calendar::NextEvent, Instant)>,
+    /// (subject, start) of the event whose heads-up was shown, so it isn't repeated.
+    pub calendar_seen: Option<(String, i64)>,
     pub ports: Vec<PortInfo>,
     /// Port whose Kill button is armed ("Kill?") and until when.
     pub kill_armed: Option<(u16, Instant)>,
@@ -480,6 +486,9 @@ impl Model {
         if let Some(t) = self.chip_armed {
             keep(t);
         }
+        if let Some((_, at)) = &self.calendar {
+            keep(*at);
+        }
         if let Some(p) = self.peek_until {
             keep(p);
         }
@@ -513,6 +522,35 @@ impl Model {
         }
         self.timer_done = Some((t.kind, now));
         Some(t.kind)
+    }
+
+    /// A new "next event". The heads-up is due `lead` before it starts, or at once if that
+    /// moment has passed; an event whose heads-up was already shown isn't armed again.
+    pub fn set_calendar(
+        &mut self,
+        ev: Option<crate::calendar::NextEvent>,
+        wall_ms: i64,
+        lead_ms: i64,
+        now: Instant,
+    ) {
+        self.calendar = match ev {
+            Some(e) if self.calendar_seen.as_ref() != Some(&(e.subject.clone(), e.start_ms)) => {
+                let wait = (e.start_ms - lead_ms - wall_ms).max(0) as u64;
+                Some((e, now + Duration::from_millis(wait)))
+            }
+            _ => None,
+        };
+    }
+
+    /// The event whose heads-up is due now, once; it is then remembered as seen.
+    pub fn calendar_due(&mut self, now: Instant) -> Option<crate::calendar::NextEvent> {
+        let due = self.calendar.as_ref().is_some_and(|(_, at)| now >= *at);
+        if !due {
+            return None;
+        }
+        let (e, _) = self.calendar.take()?;
+        self.calendar_seen = Some((e.subject.clone(), e.start_ms));
+        Some(e)
     }
 
     /// Forget a task quietly, whatever its state.
@@ -1370,5 +1408,35 @@ bang"
         m.dismiss_chip();
         m.expire(t0);
         assert!(m.chip_armed.is_none());
+    }
+
+    #[test]
+    fn calendar_heads_up_comes_due_once() {
+        let t0 = Instant::now();
+        let ev = || crate::calendar::NextEvent {
+            subject: "Standup".into(),
+            start_ms: 1_000_000_000 + 30 * 60_000,
+            url: None,
+        };
+        let wall = 1_000_000_000;
+        let lead = 10 * 60_000;
+        let mut m = Model::default();
+        m.set_calendar(Some(ev()), wall, lead, t0);
+        // Due 20 minutes from now, and the single deadline timer knows.
+        assert_eq!(m.calendar_due(t0), None);
+        assert_eq!(m.expire(t0), Some(t0 + Duration::from_secs(20 * 60)));
+        assert_eq!(m.calendar_due(t0 + Duration::from_secs(20 * 60)).map(|e| e.subject), Some("Standup".into()));
+        // Shown: the same event coming back from the worker doesn't re-arm it.
+        m.set_calendar(Some(ev()), wall, lead, t0);
+        assert!(m.calendar.is_none());
+        // A different event does; and one already inside its lead time is due at once.
+        let mut next = ev();
+        next.subject = "Review".into();
+        next.start_ms = wall + 4 * 60_000;
+        m.set_calendar(Some(next), wall, lead, t0);
+        assert!(m.calendar_due(t0).is_some());
+        // Nothing upcoming clears it.
+        m.set_calendar(None, wall, lead, t0);
+        assert!(m.calendar.is_none());
     }
 }
