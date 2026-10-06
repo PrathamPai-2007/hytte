@@ -56,6 +56,9 @@ pub struct HytteMessage {
     pub message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// The latest line of the command's output, for the live ticker. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
 }
 
 impl HytteMessage {
@@ -74,6 +77,7 @@ impl HytteMessage {
             delay_ms: None,
             message: None,
             cwd: None,
+            line: None,
         }
     }
 
@@ -101,6 +105,7 @@ impl HytteMessage {
         if self.message.as_ref().is_some_and(|m| m.len() > 1024)
             || self.cwd.as_ref().is_some_and(|c| c.len() > 1024)
             || self.source.as_ref().is_some_and(|c| c.len() > 16)
+            || self.line.as_ref().is_some_and(|l| l.len() > 512)
         {
             return false;
         }

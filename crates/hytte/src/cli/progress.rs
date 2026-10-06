@@ -87,6 +87,59 @@ fn percent_before(seg: &[u8]) -> Option<u8> {
     (p <= 100).then_some(p as u8)
 }
 
+/// Longest output line sent to the pill, in characters.
+const LINE_CAP: usize = 120;
+
+/// A line of command output as the terminal would have shown it, fit for a one-line ticker:
+/// only the text after the last `\r` (a redrawn progress bar), escape sequences and control
+/// characters removed, trimmed and capped. Empty when nothing printable is left.
+pub fn clean_line(raw: &[u8]) -> String {
+    let raw = raw.strip_suffix(b"\r").unwrap_or(raw);
+    let raw = raw.rsplit(|&b| b == b'\r').next().unwrap_or(raw);
+    let mut out = String::new();
+    let mut i = 0;
+    while i < raw.len() {
+        let b = raw[i];
+        if b == 0x1b {
+            i += 1;
+            match raw.get(i) {
+                // CSI: parameters, then a final byte in 0x40..=0x7e.
+                Some(b'[') => {
+                    i += 1;
+                    while i < raw.len() && !(0x40..=0x7e).contains(&raw[i]) {
+                        i += 1;
+                    }
+                }
+                // OSC: until BEL or ST (ESC \).
+                Some(b']') => {
+                    i += 1;
+                    while i < raw.len() && raw[i] != 0x07 && !(raw[i] == 0x1b && raw.get(i + 1) == Some(&b'\\')) {
+                        i += 1;
+                    }
+                    if raw.get(i) == Some(&0x1b) {
+                        i += 1;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        // Gather a run of ordinary bytes and decode it together so multi-byte text survives.
+        let start = i;
+        while i < raw.len() && raw[i] != 0x1b {
+            i += 1;
+        }
+        out.push_str(&String::from_utf8_lossy(&raw[start..i]));
+    }
+    let cleaned: String = out.chars().filter(|c| !c.is_control() || *c == '\t').collect();
+    let cleaned = cleaned.trim();
+    match cleaned.char_indices().nth(LINE_CAP) {
+        Some((at, _)) => format!("{}…", &cleaned[..at]),
+        None => cleaned.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,5 +200,27 @@ mod tests {
         osc.extend(std::iter::repeat_n(b'9', 1000));
         assert_eq!(s.feed(&osc), None);
         assert!(s.osc.is_none());
+    }
+
+    #[test]
+    fn clean_line_strips_escapes_and_keeps_the_redrawn_text() {
+        assert_eq!(clean_line(b"plain text"), "plain text");
+        assert_eq!(clean_line(b"\x1b[32mgreen\x1b[0m done"), "green done");
+        assert_eq!(clean_line(b"\x1b]0;title\x07after"), "after");
+        assert_eq!(clean_line(b"\x1b]9;4;1;50\x1b\\50%"), "50%");
+        // A progress bar redraws with \r: only the last draw is the line.
+        assert_eq!(clean_line(b"10%\r50%\r90%"), "90%");
+        assert_eq!(clean_line(b"line\r"), "line");
+        assert_eq!(clean_line("日本語 ok".as_bytes()), "日本語 ok");
+        assert_eq!(clean_line(b"  \x1b[2K  "), "");
+        assert_eq!(clean_line(b""), "");
+    }
+
+    #[test]
+    fn clean_line_is_capped_on_a_char_boundary() {
+        let long = "é".repeat(500);
+        let c = clean_line(long.as_bytes());
+        assert_eq!(c.chars().count(), 121);
+        assert!(c.ends_with('…'));
     }
 }

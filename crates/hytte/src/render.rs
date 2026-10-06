@@ -1665,6 +1665,18 @@ impl Renderer {
                 );
                 y += 20.0;
             }
+            if let (true, Some(line)) = (t.shows_line() && t.attention.is_none(), t.line.as_ref()) {
+                self.text(
+                    line,
+                    &self.f.mono,
+                    42.0,
+                    y + 26.0,
+                    w - 42.0 - 22.0,
+                    crate::ui_state::LINE_H,
+                    self.cc(GRAY, 0.85),
+                );
+                y += crate::ui_state::LINE_H;
+            }
             if t.running() {
                 self.filament(t, 42.0, y + 30.0, w - 42.0 - 20.0, fr.dt, now);
             }

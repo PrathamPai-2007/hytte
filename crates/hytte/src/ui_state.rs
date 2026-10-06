@@ -21,6 +21,8 @@ pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
 pub const TIMER_DONE_HOLD: Duration = Duration::from_secs(30);
 /// How long a failed task's red pulse takes to fade to rest.
 pub const FAIL_PULSE: Duration = Duration::from_secs(8);
+/// Height of the output ticker line under a running task in the expanded list.
+pub const LINE_H: f32 = 14.0;
 /// How long the plug-in card stays after the charger is connected.
 pub const CHARGE_HOLD: Duration = Duration::from_secs(3);
 
@@ -106,6 +108,8 @@ pub struct TaskView {
     pub pid: Option<u32>,
     /// Agent message while `NeedsInput`.
     pub attention: Option<String>,
+    /// The command's latest output line, shown under a running task while it changes.
+    pub line: Option<String>,
     pub started: Instant,
     pub changed: Instant,
     /// Hidden until this instant (shell hooks: fast commands never show).
@@ -124,6 +128,10 @@ impl TaskView {
     }
     pub fn needs_input(&self) -> bool {
         self.event == TaskEvent::NeedsInput
+    }
+    /// A running task with output to show gets a ticker line in the expanded list.
+    pub fn shows_line(&self) -> bool {
+        self.running() && self.line.is_some()
     }
     /// Strength (1..0) of the red failure pulse: it fades out over [`FAIL_PULSE`]
     /// and then rests, so a failed task left on screen costs no frames.
@@ -284,6 +292,8 @@ impl Model {
             t.exit_code = s.exit_code;
             t.stderr = stderr;
             t.attention = attention;
+            // A message without a line (progress, a retry) keeps the last one shown.
+            t.line = s.line.or(t.line.take());
             t.pid = s.pid.or(t.pid);
             t.changed = now;
         } else {
@@ -297,6 +307,7 @@ impl Model {
                 stderr,
                 pid: s.pid,
                 attention,
+                line: s.line,
                 started: now,
                 changed: now,
                 visible_after: now + Duration::from_millis(s.delay_ms as u64),
@@ -596,6 +607,8 @@ impl Model {
                 for t in &rows {
                     if t.needs_input() {
                         h += 20.0;
+                    } else if t.shows_line() {
+                        h += LINE_H as f64;
                     }
                 }
                 if let Some(f) = rows.iter().find(|t| t.failed()) {
@@ -783,6 +796,7 @@ bang"
             delay_ms: 0,
             message: None,
             exit_code: None,
+            line: None,
             updated: now,
         })
     }
@@ -800,6 +814,7 @@ bang"
             delay_ms: delay,
             message: None,
             exit_code: None,
+            line: None,
             updated: now,
         })
     }
@@ -1147,5 +1162,29 @@ bang"
         assert_eq!(m.glow(Scene::ExpMedia), ([0.9, 0.2, 0.2], 0.40));
         // Other scenes keep their own colours.
         assert_eq!(m.glow(Scene::ExpPorts).0, [1.0; 3]);
+    }
+
+    #[test]
+    fn output_line_is_kept_between_updates_and_adds_a_row_line() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(st("a", TaskEvent::Start, t0), t0);
+        let plain = m.size(Scene::ExpTasks).1;
+        let with_line = |line: Option<&str>| {
+            let mut u = st("a", TaskEvent::Progress, t0);
+            if let TaskUpdate::Upsert(s) = &mut u {
+                s.line = line.map(str::to_owned);
+            }
+            u
+        };
+        m.apply_task(with_line(Some("compiling foo")), t0);
+        assert_eq!(m.tasks[0].line.as_deref(), Some("compiling foo"));
+        assert_eq!(m.size(Scene::ExpTasks).1, plain + LINE_H as f64);
+        // A progress update without a line doesn't blank the ticker.
+        m.apply_task(with_line(None), t0);
+        assert_eq!(m.tasks[0].line.as_deref(), Some("compiling foo"));
+        // A finished task has no ticker.
+        m.apply_task(st("a", TaskEvent::Done, t0), t0);
+        assert!(!m.tasks[0].shows_line());
     }
 }
