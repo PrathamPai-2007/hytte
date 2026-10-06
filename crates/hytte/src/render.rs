@@ -828,6 +828,7 @@ impl Renderer {
             Scene::ExpChip => self.exp_chip(fr, w, h),
             Scene::ExpTimer => self.exp_timer(fr, w, h),
             Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
+            Scene::ExpCharge => self.exp_charge(fr, w, h),
         }
         if fr.model.tabs()
             && matches!(
@@ -1976,6 +1977,38 @@ impl Renderer {
             x += 70.0;
         }
         self.button("Dismiss", x, 60.0, 70.0, 24.0, WHITE, Action::DismissChip);
+    }
+
+    /// The card shown for a moment after the charger is plugged in: a battery that fills up.
+    fn exp_charge(&self, fr: &Frame, w: f32, h: f32) {
+        let m = fr.model;
+        let Some(b) = m.power else { return };
+        let since = m
+            .charge_since
+            .map_or(1.0, |s| fr.now.saturating_duration_since(s).as_secs_f32());
+        let k = (since / 0.7).clamp(0.0, 1.0);
+        let ease = 1.0 - (1.0 - k).powi(3);
+        let cy = h / 2.0;
+        let (bx, bw, bh) = (20.0, 30.0, 15.0);
+        self.stroke_rr(bx, cy - bh / 2.0, bw, bh, 4.0, self.cc(GREEN, 0.9), 1.4, false);
+        self.fill_rr(bx + bw + 1.5, cy - 3.0, 2.5, 6.0, 1.2, self.cc(GREEN, 0.9));
+        let fill = (bw - 5.0) * (b.pct as f32 / 100.0) * ease;
+        if fill > 0.5 {
+            self.fill_rr(bx + 2.5, cy - bh / 2.0 + 2.5, fill, bh - 5.0, 2.0, self.cc(GREEN, 0.9));
+        }
+        let (bolt_x, bolt_a) = (bx + bw / 2.0, 0.55 + 0.45 * ease);
+        let bolt = [
+            (1.6, -5.5),
+            (-3.6, 0.6),
+            (-0.3, 0.6),
+            (-1.6, 5.5),
+            (3.6, -0.8),
+            (0.3, -0.8),
+        ];
+        let pts: Vec<(f32, f32)> = bolt.iter().map(|(x, y)| (bolt_x + x, cy + y)).collect();
+        self.poly(&pts, self.cc([1.0; 3], bolt_a));
+        self.text("Plugged in", &self.f.title, 66.0, cy - 17.0, w - 66.0 - 16.0, 20.0, self.cc(WHITE, 0.97));
+        self.text(&b.status(), &self.f.small, 66.0, cy + 1.0, w - 66.0 - 16.0, 16.0, self.cc(GREEN, 1.0));
     }
 
     /// Hairline fuse along the bottom edge: burns down right to left, ember at the head.

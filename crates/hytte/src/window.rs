@@ -420,7 +420,7 @@ mod win {
                     UiEvent::Media(m) => self.model.apply_media(m, now),
                     UiEvent::MediaArt(a) => self.model.set_art(a),
                     UiEvent::MicMute(m) => self.model.mic_muted = m,
-                    UiEvent::Power(p) => self.model.power = p,
+                    UiEvent::Power(p) => self.model.set_power(p, now),
                     UiEvent::Privacy(c, m, app) => {
                         self.model.cam = c;
                         self.model.mic = m;
