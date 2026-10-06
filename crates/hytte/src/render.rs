@@ -117,6 +117,8 @@ struct Fmts {
     center: IDWriteTextFormat,
     big_c: IDWriteTextFormat,
     small_c: IDWriteTextFormat,
+    /// Segoe Fluent Icons glyphs, centred in their box (see `glyph`).
+    icon: IDWriteTextFormat,
 }
 
 pub struct Renderer {
@@ -711,6 +713,12 @@ impl Renderer {
             radiusY: r,
         };
         unsafe { self.rt.FillEllipse(&e, self.solid(c)) };
+    }
+
+    /// A Segoe Fluent Icons glyph centred on (cx, cy) in a square box of side `s`.
+    fn glyph(&self, cp: char, cx: f32, cy: f32, s: f32, c: D2D1_COLOR_F) {
+        let mut b = [0u8; 4];
+        self.text(cp.encode_utf8(&mut b), &self.f.icon, cx - s / 2.0, cy - s / 2.0, s, s, c);
     }
 
     fn ring(&self, cx: f32, cy: f32, r: f32, c: D2D1_COLOR_F, width: f32) {
@@ -1762,52 +1770,17 @@ impl Renderer {
         let cx = tx + bw / 2.0;
         let cy = h - 26.0;
         let hov = self.hit(cx - 56.0, cy - 14.0, 28.0, 28.0, Action::MediaPrev);
-        let a = if hov { 1.0 } else { 0.78 };
-        self.poly(
-            &[
-                (cx - 36.0, cy - 6.0),
-                (cx - 44.0, cy),
-                (cx - 36.0, cy + 6.0),
-            ],
-            self.cc(WHITE, a),
-        );
-        self.poly(
-            &[
-                (cx - 44.0, cy - 6.0),
-                (cx - 52.0, cy),
-                (cx - 44.0, cy + 6.0),
-            ],
-            self.cc(WHITE, a),
-        );
+        self.glyph('\u{E892}', cx - 42.0, cy, 28.0, self.cc(WHITE, if hov { 1.0 } else { 0.78 }));
         let hov = self.hit(cx + 28.0, cy - 14.0, 28.0, 28.0, Action::MediaNext);
-        let a = if hov { 1.0 } else { 0.78 };
-        self.poly(
-            &[
-                (cx + 36.0, cy - 6.0),
-                (cx + 44.0, cy),
-                (cx + 36.0, cy + 6.0),
-            ],
-            self.cc(WHITE, a),
-        );
-        self.poly(
-            &[
-                (cx + 44.0, cy - 6.0),
-                (cx + 52.0, cy),
-                (cx + 44.0, cy + 6.0),
-            ],
-            self.cc(WHITE, a),
-        );
+        self.glyph('\u{E893}', cx + 42.0, cy, 28.0, self.cc(WHITE, if hov { 1.0 } else { 0.78 }));
         let hov = self.hit(cx - 16.0, cy - 16.0, 32.0, 32.0, Action::MediaToggle);
         self.circle(cx, cy, if hov { 16.0 } else { 15.0 }, self.cc(WHITE, 0.95));
         let dark = self.cc([0.04, 0.04, 0.05], 1.0);
+        // Pause / Play; the play triangle sits a hair right of centre to look centred.
         if md.playing {
-            self.fill_rr(cx - 5.0, cy - 6.0, 3.6, 12.0, 1.2, dark);
-            self.fill_rr(cx + 1.4, cy - 6.0, 3.6, 12.0, 1.2, dark);
+            self.glyph('\u{E769}', cx, cy, 24.0, dark);
         } else {
-            self.poly(
-                &[(cx - 3.5, cy - 7.0), (cx + 6.5, cy), (cx - 3.5, cy + 7.0)],
-                dark,
-            );
+            self.glyph('\u{E768}', cx + 0.5, cy, 24.0, dark);
         }
     }
 
@@ -2060,18 +2033,7 @@ impl Renderer {
         if muted {
             self.lock_icon(32.0, 27.0, RED, 1.0);
         } else {
-            self.fill_rr(28.0, 17.0, 8.0, 13.0, 4.0, self.cc(WHITE, 0.85));
-            self.stroke_rr(
-                25.0,
-                21.0,
-                14.0,
-                11.0,
-                7.0,
-                self.cc(WHITE, 0.85),
-                1.4,
-                false,
-            );
-            self.line((32.0, 33.0), (32.0, 36.0), self.cc(WHITE, 0.85), 1.4);
+            self.glyph('\u{E720}', 32.0, 27.0, 24.0, self.cc(WHITE, 0.85));
         }
         let sub = if muted {
             "Muted · apps hear nothing".to_string()
@@ -2648,6 +2610,10 @@ impl Fmts {
             big_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             let small_c = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             small_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            // Windows 11 ships Segoe Fluent Icons; the glyphs used here are also in its
+            // predecessor, Segoe MDL2 Assets, which the font fallback covers on older builds.
+            let icon = mk(w!("Segoe Fluent Icons"), 16.0, DWRITE_FONT_WEIGHT_NORMAL)?;
+            icon.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             Ok(Self {
                 title,
                 body,
@@ -2661,6 +2627,7 @@ impl Fmts {
                 center,
                 big_c,
                 small_c,
+                icon,
             })
         }
     }
