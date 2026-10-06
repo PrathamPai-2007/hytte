@@ -29,6 +29,7 @@ const MAX_REMEMBERED: usize = 128;
 pub fn spawn() -> Sender<Cmd> {
     let (tx, rx) = unbounded::<Cmd>();
     std::thread::spawn(move || {
+        crate::proc::eco_thread();
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }

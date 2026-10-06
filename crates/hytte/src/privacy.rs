@@ -13,6 +13,8 @@ const BASE: &str =
 pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
     std::thread::spawn(move || {
         #[cfg(windows)]
+        crate::proc::eco_thread();
+        #[cfg(windows)]
         watch_loop(ui_tx);
         #[cfg(not(windows))]
         {

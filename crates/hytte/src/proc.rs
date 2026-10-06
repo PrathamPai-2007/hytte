@@ -6,6 +6,25 @@ use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+/// Mark the calling thread as background work (EcoQoS): Windows may run it on efficiency
+/// cores at a lower clock. For watchers whose latency doesn't matter; never the UI or frame clock.
+pub fn eco_thread() {
+    let state = THREAD_POWER_THROTTLING_STATE {
+        Version: THREAD_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: THREAD_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: THREAD_POWER_THROTTLING_EXECUTION_SPEED,
+    };
+    // SAFETY: `state` outlives the call and the size passed is its size.
+    unsafe {
+        let _ = SetThreadInformation(
+            GetCurrentThread(),
+            ThreadPowerThrottling,
+            &state as *const _ as *const _,
+            std::mem::size_of::<THREAD_POWER_THROTTLING_STATE>() as u32,
+        );
+    }
+}
+
 /// File name of the executable behind a pid (e.g. `node.exe`).
 pub fn exe_name(pid: u32) -> Option<String> {
     hytte_proto::ports::exe_name(pid)

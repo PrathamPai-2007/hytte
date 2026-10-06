@@ -38,6 +38,8 @@ impl Battery {
 pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
     std::thread::spawn(move || {
         #[cfg(windows)]
+        crate::proc::eco_thread();
+        #[cfg(windows)]
         {
             let mut last = None;
             loop {

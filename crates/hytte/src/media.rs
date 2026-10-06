@@ -16,6 +16,8 @@ pub enum Cmd {
 pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
     std::thread::spawn(move || {
         #[cfg(windows)]
+        crate::proc::eco_thread();
+        #[cfg(windows)]
         imp::run(ui_tx);
         #[cfg(not(windows))]
         {

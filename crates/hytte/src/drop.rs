@@ -27,6 +27,8 @@ pub fn spawn_workers(rx: Receiver<DropJob>, ui_tx: Sender<UiEvent>) {
         let rx = rx.clone();
         let ui_tx = ui_tx.clone();
         std::thread::spawn(move || {
+            #[cfg(windows)]
+            crate::proc::eco_thread();
             while let Ok(job) = rx.recv() {
                 let res = handle_job(&job);
                 if let Some(c) = &res.copy {
