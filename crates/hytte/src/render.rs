@@ -207,7 +207,13 @@ impl Renderer {
         unsafe {
             let factory: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
             let props = D2D1_RENDER_TARGET_PROPERTIES {
-                r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                // The pill is a few hundred px: drawing on the CPU beats a GPU round trip
+                // (measured p50 6.5 ms -> 3.6 ms). HYTTE_HARDWARE=1 restores the GPU target.
+                r#type: if std::env::var_os("HYTTE_HARDWARE").is_some_and(|v| v != "0") {
+                    D2D1_RENDER_TARGET_TYPE_DEFAULT
+                } else {
+                    D2D1_RENDER_TARGET_TYPE_SOFTWARE
+                },
                 pixelFormat: D2D1_PIXEL_FORMAT {
                     format: DXGI_FORMAT_B8G8R8A8_UNORM,
                     alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
