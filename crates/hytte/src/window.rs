@@ -464,6 +464,7 @@ mod win {
             }
             self.model.ignore = ignore_list(&new);
             self.light = theme_is_light(&new.general.theme);
+            self.model.adaptive_glow = new.general.adaptive_glow;
             let general = new.general != self.cfg.general;
             self.cfg = new;
             if general {
@@ -990,6 +991,7 @@ mod win {
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
+            ui.model.adaptive_glow = ui.cfg.general.adaptive_glow;
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
             }

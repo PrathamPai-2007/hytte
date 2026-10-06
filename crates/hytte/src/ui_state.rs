@@ -58,6 +58,34 @@ pub struct MediaInfo {
     pub dur_ms: u64,
 }
 
+/// The colour that best represents a picture: the average of its pixels weighted by how
+/// saturated they are, brightened to a glow-worthy level. None for greyscale art.
+pub fn accent_of(bgra: &[u8]) -> Option<[f32; 3]> {
+    let (mut sum, mut weight) = ([0.0f32; 3], 0.0f32);
+    for px in bgra.chunks_exact(4) {
+        let a = px[3] as f32 / 255.0;
+        if a < 0.5 {
+            continue;
+        }
+        // Premultiplied -> straight, 0..1.
+        let (b, g, r) = (px[0] as f32 / 255.0 / a, px[1] as f32 / 255.0 / a, px[2] as f32 / 255.0 / a);
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let sat = if max > 0.0 { (max - min) / max } else { 0.0 };
+        // Near-black and washed-out pixels carry no hue worth glowing.
+        let w = sat * sat * max;
+        sum[0] += r * w;
+        sum[1] += g * w;
+        sum[2] += b * w;
+        weight += w;
+    }
+    if weight < 1.0 {
+        return None;
+    }
+    let c = [sum[0] / weight, sum[1] / weight, sum[2] / weight];
+    let top = c[0].max(c[1]).max(c[2]).max(0.01);
+    Some([c[0] / top * 0.95, c[1] / top * 0.95, c[2] / top * 0.95])
+}
+
 /// Premultiplied BGRA, ready for Direct2D.
 #[derive(Debug)]
 pub struct ArtBitmap {
@@ -149,6 +177,10 @@ pub struct Model {
     pub media_stamp: Option<Instant>,
     pub art: Option<Arc<ArtBitmap>>,
     pub art_gen: u32,
+    /// Dominant colour of the album art (see [`accent_of`]); tints the media glow.
+    pub art_accent: Option<[f32; 3]>,
+    /// `[general] adaptive_glow`: let the glow follow the album art.
+    pub adaptive_glow: bool,
     pub cam: bool,
     pub mic: bool,
     pub privacy_app: Option<String>,
@@ -275,12 +307,14 @@ impl Model {
     pub fn apply_media(&mut self, m: Option<MediaInfo>, now: Instant) {
         if m.is_none() {
             self.art = None;
+            self.art_accent = None;
         }
         self.media = m;
         self.media_stamp = Some(now);
     }
 
     pub fn set_art(&mut self, a: Option<Arc<ArtBitmap>>) {
+        self.art_accent = a.as_ref().and_then(|b| accent_of(&b.bgra));
         self.art = a;
         self.art_gen = self.art_gen.wrapping_add(1);
     }
@@ -598,6 +632,9 @@ impl Model {
             Scene::ExpTimerDone => (GREEN, 0.8),
             Scene::ExpCharge => (GREEN, 0.7),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
+            Scene::CompactMedia | Scene::ExpMedia if self.adaptive_glow && self.art_accent.is_some() => {
+                (self.art_accent.unwrap_or([1.0; 3]), 0.40)
+            }
             Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => {
                 ([1.0; 3], 0.10)
             }
@@ -1087,5 +1124,28 @@ bang"
         b.reduce = true;
         b.squash();
         assert_eq!((b.rect.w.vel, b.rect.h.vel), (0.0, 0.0));
+    }
+
+    #[test]
+    fn accent_follows_the_colour_and_ignores_grey() {
+        // Premultiplied BGRA, fully opaque: a red picture and a grey one.
+        let red: Vec<u8> = (0..16).flat_map(|_| [20u8, 30, 220, 255]).collect();
+        let c = accent_of(&red).expect("red has a hue");
+        assert!(c[0] > 0.9 && c[1] < 0.3 && c[2] < 0.3, "{c:?}");
+        let grey: Vec<u8> = (0..16).flat_map(|_| [128u8, 128, 128, 255]).collect();
+        assert_eq!(accent_of(&grey), None);
+        let black: Vec<u8> = (0..16).flat_map(|_| [0u8, 0, 0, 255]).collect();
+        assert_eq!(accent_of(&black), None);
+    }
+
+    #[test]
+    fn media_glow_takes_the_art_colour_only_when_asked() {
+        let mut m = Model::default();
+        m.art_accent = Some([0.9, 0.2, 0.2]);
+        assert_eq!(m.glow(Scene::ExpMedia).0, [1.0; 3]);
+        m.adaptive_glow = true;
+        assert_eq!(m.glow(Scene::ExpMedia), ([0.9, 0.2, 0.2], 0.40));
+        // Other scenes keep their own colours.
+        assert_eq!(m.glow(Scene::ExpPorts).0, [1.0; 3]);
     }
 }
