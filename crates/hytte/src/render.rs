@@ -100,6 +100,8 @@ pub struct Frame<'a> {
     pub acrylic: bool,
     /// The left button is held down (buttons under the pointer press in).
     pub pressed: bool,
+    /// Light theme: a pale pill with dark text.
+    pub light: bool,
     /// A drag is in flight near the top edge: widen the (invisible) hit zone.
     pub armed: bool,
 }
@@ -154,7 +156,7 @@ pub struct Renderer {
     thumbs: RefCell<HashMap<u64, ID2D1Bitmap>>,
     art_gen: Cell<u32>,
     /// Cached gradient brushes (see `body_brush` / `shimmer_brush`).
-    body: RefCell<Option<(bool, ID2D1LinearGradientBrush)>>,
+    body: RefCell<Option<(u8, ID2D1LinearGradientBrush)>>,
     shimmer: RefCell<Option<([f32; 3], ID2D1LinearGradientBrush)>>,
     /// UTF-16 scratch for `text`, reused across calls.
     wide: RefCell<Vec<u16>>,
@@ -162,6 +164,7 @@ pub struct Renderer {
     /// (0 = compact, 1 = expanded). Shared elements slide by it; see `hero`.
     morph: Cell<Option<f32>>,
     pressed: Cell<bool>,
+    light: Cell<bool>,
     /// Right edge available to the compact task label this frame (see `exp_label_w`): both
     /// scenes of a morph must agree on the shared label's two end positions.
     hero_right: Cell<f32>,
@@ -344,6 +347,7 @@ impl Renderer {
                 geom: RefCell::new(None),
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
+                light: Cell::new(false),
                 hero_right: Cell::new(0.0),
             })
         }
@@ -455,6 +459,7 @@ impl Renderer {
         self.mouse.set(fr.mouse);
         self.t.set(fr.anim.t as f32);
         self.pressed.set(fr.pressed);
+        self.light.set(fr.light);
         self.sync_art(fr.model);
         let (pw, ph) = (fr.anim.rect.w.pos as f32, fr.anim.rect.h.pos as f32);
         let ox = (crop.w_log - pw) / 2.0;
@@ -592,26 +597,55 @@ impl Renderer {
 
     /// Pill body gradient, built once per acrylic setting; only its end point changes per frame.
     fn body_brush(&self, acrylic: bool) -> Option<ID2D1LinearGradientBrush> {
+        let key = acrylic as u8 | (self.light.get() as u8) << 1;
         let mut slot = self.body.borrow_mut();
-        if let Some((a, b)) = slot.as_ref() {
-            if *a == acrylic {
+        if let Some((k, b)) = slot.as_ref() {
+            if *k == key {
                 return Some(b.clone());
             }
         }
         let alpha = if acrylic { 0.84 } else { 1.0 };
+        let (top, bottom) = self.body_colors();
         let stops = [
             D2D1_GRADIENT_STOP {
                 position: 0.0,
-                color: color([0.027, 0.027, 0.035], alpha),
+                color: color(top, alpha),
             },
             D2D1_GRADIENT_STOP {
                 position: 1.0,
-                color: color([0.075, 0.075, 0.095], alpha),
+                color: color(bottom, alpha),
             },
         ];
         let b = self.linear_brush(&stops)?;
-        *slot = Some((acrylic, b.clone()));
+        *slot = Some((key, b.clone()));
         Some(b)
+    }
+
+    /// Text and line colour: white on the dark pill, near-black on the light one.
+    fn fg(&self) -> [f32; 3] {
+        if self.light.get() {
+            [0.07, 0.07, 0.09]
+        } else {
+            WHITE
+        }
+    }
+
+    /// The opposite of `fg`: ink for things drawn on top of an `fg`-coloured shape.
+    fn ink(&self) -> [f32; 3] {
+        if self.light.get() {
+            [0.97, 0.97, 0.98]
+        } else {
+            [0.04, 0.04, 0.05]
+        }
+    }
+
+    /// Pill body gradient (top, bottom).
+    fn body_colors(&self) -> ([f32; 3], [f32; 3]) {
+        if self.light.get() {
+            ([0.97, 0.97, 0.985], [0.89, 0.89, 0.92])
+        } else {
+            ([0.027, 0.027, 0.035], [0.075, 0.075, 0.095])
+        }
     }
 
     /// Shimmer for indeterminate progress, built once per colour; the content fade is
@@ -826,7 +860,7 @@ impl Renderer {
             y,
             w,
             h,
-            self.cc(WHITE, if hov { 1.0 } else { 0.86 }),
+            self.cc(self.fg(), if hov { 1.0 } else { 0.86 }),
         );
     }
 
@@ -887,7 +921,7 @@ impl Renderer {
         let rb = (h * 0.5).min(24.0);
         let e = if h > 18.0 { (h * 0.3).min(8.0) } else { 0.0 };
         if sentinel {
-            self.fill_rr(0.0, 0.0, w, h, h / 2.0, color(WHITE, 0.30));
+            self.fill_rr(0.0, 0.0, w, h, h / 2.0, color(self.fg(), 0.30));
             return;
         }
         let Some(g) = self.pill_geometry(w, h, rb, e) else {
@@ -924,18 +958,18 @@ impl Renderer {
                 }
                 None => self.rt.FillGeometry(
                     &g,
-                    self.solid(color([0.03, 0.03, 0.04], alpha)),
+                    self.solid(color(self.body_colors().0, alpha)),
                     None::<&ID2D1Brush>,
                 ),
             }
             // Hairline rim + hover brighten.
             self.rt
-                .DrawGeometry(&g, self.solid(color(WHITE, 0.07)), 1.0, &self.round);
+                .DrawGeometry(&g, self.solid(color(self.fg(), 0.07)), 1.0, &self.round);
             let hv = an.hover.pos as f32;
             if hv > 0.01 {
                 self.rt.FillGeometry(
                     &g,
-                    self.solid(color(WHITE, 0.025 * hv)),
+                    self.solid(color(self.fg(), 0.025 * hv)),
                     None::<&ID2D1Brush>,
                 );
             }
@@ -1151,7 +1185,7 @@ impl Renderer {
                 26.0,
                 3.0,
                 1.5,
-                self.cc(WHITE, 0.16),
+                self.cc(self.fg(), 0.16),
             );
             return;
         }
@@ -1172,7 +1206,7 @@ impl Renderer {
                 cy - 8.0,
                 52.0,
                 16.0,
-                self.cc(WHITE, 0.82),
+                self.cc(self.fg(), 0.82),
             );
             x += 58.0;
         }
@@ -1186,7 +1220,7 @@ impl Renderer {
                 cy - 8.0,
                 28.0,
                 16.0,
-                self.cc(WHITE, 0.82),
+                self.cc(self.fg(), 0.82),
             );
         }
     }
@@ -1344,7 +1378,7 @@ impl Renderer {
     /// Thin bar under a running task: determinate (eased) or shimmer.
     fn filament(&self, t: &TaskView, x: f32, y: f32, w: f32, dt: f32, now: Instant) {
         let col = task_color(t);
-        self.fill_rr(x, y, w, 2.0, 1.0, self.cc(WHITE, 0.08));
+        self.fill_rr(x, y, w, 2.0, 1.0, self.cc(self.fg(), 0.08));
         if !t.running() {
             if t.event == TaskEvent::Failed {
                 self.fill_rr(
@@ -1417,7 +1451,7 @@ impl Renderer {
                 20.0,
                 16.0,
                 8.0,
-                self.cc(WHITE, 0.14),
+                self.cc(self.fg(), 0.14),
             );
             self.text(
                 &n.to_string(),
@@ -1426,7 +1460,7 @@ impl Renderer {
                 h / 2.0 - 9.0,
                 20.0,
                 16.0,
-                self.cc(WHITE, 0.9),
+                self.cc(self.fg(), 0.9),
             );
             right -= 28.0;
         }
@@ -1450,7 +1484,7 @@ impl Renderer {
             lb[1],
             lb[2],
             lb[3],
-            self.cc(WHITE, 0.94),
+            self.cc(self.fg(), 0.94),
         );
         self.hero_end(saved);
         self.filament(t, 14.0, h - 5.0, w - 28.0, fr.dt, now);
@@ -1503,7 +1537,7 @@ impl Renderer {
         }
         let _ = m;
         self.fill_rr(x, y, s, s, r, self.cc(PURPLE, 0.22));
-        self.text("♪", &self.f.center, x, y, s, s, self.cc(WHITE, 0.8));
+        self.text("♪", &self.f.center, x, y, s, s, self.cc(self.fg(), 0.8));
     }
 
     fn compact_media(&self, fr: &Frame, w: f32, h: f32, pad_r: f32) {
@@ -1531,7 +1565,7 @@ impl Renderer {
             h / 2.0 - 9.0,
             right - 16.0 - 46.0,
             17.0,
-            self.cc(WHITE, 0.92),
+            self.cc(self.fg(), 0.92),
         );
     }
 
@@ -1556,7 +1590,7 @@ impl Renderer {
                 None => false,
             };
             if row_hov {
-                self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(WHITE, 0.05));
+                self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(self.fg(), 0.05));
             }
             // The first row is the compact task's twin: its icon and label slide in from there.
             let first = row == 0;
@@ -1584,7 +1618,7 @@ impl Renderer {
                 lb[1],
                 lb[2],
                 lb[3],
-                self.cc(WHITE, 0.95),
+                self.cc(self.fg(), 0.95),
             );
             self.hero_end(saved);
             self.text(
@@ -1609,13 +1643,13 @@ impl Renderer {
                 self.line(
                     (cx - 3.0, cyy - 3.0),
                     (cx + 3.0, cyy + 3.0),
-                    self.cc(WHITE, a),
+                    self.cc(self.fg(), a),
                     1.5,
                 );
                 self.line(
                     (cx - 3.0, cyy + 3.0),
                     (cx + 3.0, cyy - 3.0),
-                    self.cc(WHITE, a),
+                    self.cc(self.fg(), a),
                     1.5,
                 );
             }
@@ -1639,7 +1673,7 @@ impl Renderer {
                 let lines = t.stderr.len().min(4);
                 if lines > 0 {
                     let bh = lines as f32 * 15.0 + 8.0;
-                    self.fill_rr(14.0, y, w - 28.0, bh, 8.0, self.cc(WHITE, 0.055));
+                    self.fill_rr(14.0, y, w - 28.0, bh, 8.0, self.cc(self.fg(), 0.055));
                     for (i, l) in t.stderr.iter().rev().take(lines).rev().enumerate() {
                         self.text(
                             l,
@@ -1668,7 +1702,7 @@ impl Renderer {
                     y,
                     66.0,
                     24.0,
-                    WHITE,
+                    self.fg(),
                     Action::DismissTask(t.id.clone()),
                 );
                 y += 28.0;
@@ -1700,7 +1734,7 @@ impl Renderer {
                     Action::FocusMedia(md.app.clone()),
                 );
             if hov {
-                self.fill_rr(16.0, 16.0, 72.0, 72.0, 12.0, self.cc(WHITE, 0.10));
+                self.fill_rr(16.0, 16.0, 72.0, 72.0, 12.0, self.cc(self.fg(), 0.10));
             }
         }
         self.text(
@@ -1710,7 +1744,7 @@ impl Renderer {
             14.0,
             right - tx - 34.0,
             22.0,
-            self.cc(WHITE, 0.97),
+            self.cc(self.fg(), 0.97),
         );
         self.text(
             &md.artist,
@@ -1739,14 +1773,14 @@ impl Renderer {
         };
         let bx = tx;
         let bw = right - tx;
-        self.fill_rr(bx, 66.0, bw, 4.0, 2.0, self.cc(WHITE, 0.14));
+        self.fill_rr(bx, 66.0, bw, 4.0, 2.0, self.cc(self.fg(), 0.14));
         self.fill_rr(
             bx,
             66.0,
             (bw * frac).max(if md.dur_ms > 0 { 3.0 } else { 0.0 }),
             4.0,
             2.0,
-            self.cc(WHITE, 0.92),
+            self.cc(self.fg(), 0.92),
         );
         self.text(
             &fmt_clock(pos),
@@ -1770,12 +1804,12 @@ impl Renderer {
         let cx = tx + bw / 2.0;
         let cy = h - 26.0;
         let hov = self.hit(cx - 56.0, cy - 14.0, 28.0, 28.0, Action::MediaPrev);
-        self.glyph('\u{E892}', cx - 42.0, cy, 28.0, self.cc(WHITE, if hov { 1.0 } else { 0.78 }));
+        self.glyph('\u{E892}', cx - 42.0, cy, 28.0, self.cc(self.fg(), if hov { 1.0 } else { 0.78 }));
         let hov = self.hit(cx + 28.0, cy - 14.0, 28.0, 28.0, Action::MediaNext);
-        self.glyph('\u{E893}', cx + 42.0, cy, 28.0, self.cc(WHITE, if hov { 1.0 } else { 0.78 }));
+        self.glyph('\u{E893}', cx + 42.0, cy, 28.0, self.cc(self.fg(), if hov { 1.0 } else { 0.78 }));
         let hov = self.hit(cx - 16.0, cy - 16.0, 32.0, 32.0, Action::MediaToggle);
-        self.circle(cx, cy, if hov { 16.0 } else { 15.0 }, self.cc(WHITE, 0.95));
-        let dark = self.cc([0.04, 0.04, 0.05], 1.0);
+        self.circle(cx, cy, if hov { 16.0 } else { 15.0 }, self.cc(self.fg(), 0.95));
+        let dark = self.cc(self.ink(), 1.0);
         // Pause / Play; the play triangle sits a hair right of centre to look centred.
         if md.playing {
             self.glyph('\u{E769}', cx, cy, 24.0, dark);
@@ -1810,7 +1844,7 @@ impl Renderer {
                 bw,
                 4.0,
                 2.0,
-                self.cc(WHITE, a),
+                self.cc(self.fg(), a),
             );
             x += step;
         }
@@ -1829,7 +1863,7 @@ impl Renderer {
                 y + 5.0,
                 70.0,
                 24.0,
-                self.cc(WHITE, 0.97),
+                self.cc(self.fg(), 0.97),
             );
             self.text(
                 &p.exe,
@@ -1877,7 +1911,7 @@ impl Renderer {
                 s,
                 11.0,
                 self.cc(
-                    if sel { PURPLE } else { WHITE },
+                    if sel { PURPLE } else { self.fg() },
                     if sel {
                         0.22
                     } else if hov {
@@ -1925,7 +1959,7 @@ impl Renderer {
                 self.fill_rr(x + 14.0, y + 20.0, 32.0, 22.0, 4.0, self.cc(AMBER, 0.85));
                 self.fill_rr(x + 14.0, y + 16.0, 14.0, 8.0, 3.0, self.cc(AMBER, 0.85));
             } else {
-                self.fill_rr(x + 18.0, y + 12.0, 24.0, 32.0, 4.0, self.cc(WHITE, 0.82));
+                self.fill_rr(x + 18.0, y + 12.0, 24.0, 32.0, 4.0, self.cc(self.fg(), 0.82));
                 for k in 0..3 {
                     self.fill_rr(
                         x + 22.0,
@@ -1944,7 +1978,7 @@ impl Renderer {
                 y + s + 2.0,
                 s + 10.0,
                 14.0,
-                self.cc(WHITE, 0.85),
+                self.cc(self.fg(), 0.85),
             );
             if hov || sel {
                 let h2 = self.hit(
@@ -1959,13 +1993,13 @@ impl Renderer {
                 self.line(
                     (x + s - 8.0, y + 1.0),
                     (x + s - 2.0, y + 7.0),
-                    self.cc(WHITE, a),
+                    self.cc(self.fg(), a),
                     1.4,
                 );
                 self.line(
                     (x + s - 8.0, y + 7.0),
                     (x + s - 2.0, y + 1.0),
-                    self.cc(WHITE, a),
+                    self.cc(self.fg(), a),
                     1.4,
                 );
             }
@@ -2033,7 +2067,7 @@ impl Renderer {
         if muted {
             self.lock_icon(32.0, 27.0, RED, 1.0);
         } else {
-            self.glyph('\u{E720}', 32.0, 27.0, 24.0, self.cc(WHITE, 0.85));
+            self.glyph('\u{E720}', 32.0, 27.0, 24.0, self.cc(self.fg(), 0.85));
         }
         let sub = if muted {
             "Muted · apps hear nothing".to_string()
@@ -2057,7 +2091,7 @@ impl Renderer {
             10.0,
             w - 52.0 - 100.0,
             20.0,
-            self.cc(WHITE, 0.97),
+            self.cc(self.fg(), 0.97),
         );
         self.text(
             &sub,
@@ -2074,7 +2108,7 @@ impl Renderer {
             15.0,
             68.0,
             24.0,
-            if muted { RED } else { WHITE },
+            if muted { RED } else { self.fg() },
             Action::ToggleMic,
         );
         let mut hint_y = 56.0;
@@ -2086,10 +2120,10 @@ impl Renderer {
             } else if b.plugged {
                 GREEN
             } else {
-                WHITE
+                self.fg()
             };
-            self.stroke_rr(20.5, 59.5, 24.0, 12.0, 3.0, self.cc(WHITE, 0.7), 1.2, false);
-            self.fill_rr(45.0, 63.0, 2.5, 5.0, 1.0, self.cc(WHITE, 0.7));
+            self.stroke_rr(20.5, 59.5, 24.0, 12.0, 3.0, self.cc(self.fg(), 0.7), 1.2, false);
+            self.fill_rr(45.0, 63.0, 2.5, 5.0, 1.0, self.cc(self.fg(), 0.7));
             self.fill_rr(
                 22.5,
                 61.5,
@@ -2105,7 +2139,7 @@ impl Renderer {
                 56.0,
                 w - 58.0 - 16.0,
                 20.0,
-                self.cc(WHITE, 0.92),
+                self.cc(self.fg(), 0.92),
             );
             let modes = [
                 (Mode::Saver, "Saver"),
@@ -2158,7 +2192,7 @@ impl Renderer {
                     82.0,
                     bw,
                     24.0,
-                    self.cc(WHITE, if on { 1.0 } else { 0.78 }),
+                    self.cc(self.fg(), if on { 1.0 } else { 0.78 }),
                 );
                 x += bw + gap;
             }
@@ -2208,7 +2242,7 @@ impl Renderer {
             50.0,
             w,
             22.0,
-            self.cc(WHITE, 0.97),
+            self.cc(self.fg(), 0.97),
         );
         self.text(
             "Drag it back out anywhere later",
@@ -2236,7 +2270,7 @@ impl Renderer {
             10.0,
             w - 46.0 - 20.0,
             40.0,
-            self.cc(WHITE, 0.95),
+            self.cc(self.fg(), 0.95),
         );
         let mut x = 16.0;
         if let Some(p) = &c.open {
@@ -2263,7 +2297,7 @@ impl Renderer {
             );
             x += 70.0;
         }
-        self.button("Dismiss", x, 60.0, 70.0, 24.0, WHITE, Action::DismissChip);
+        self.button("Dismiss", x, 60.0, 70.0, 24.0, self.fg(), Action::DismissChip);
     }
 
     /// The card shown for a moment after the charger is plugged in: a battery that fills up.
@@ -2294,7 +2328,7 @@ impl Renderer {
         ];
         let pts: Vec<(f32, f32)> = bolt.iter().map(|(x, y)| (bolt_x + x, cy + y)).collect();
         self.poly(&pts, self.cc([1.0; 3], bolt_a));
-        self.text("Plugged in", &self.f.title, 66.0, cy - 17.0, w - 66.0 - 16.0, 20.0, self.cc(WHITE, 0.97));
+        self.text("Plugged in", &self.f.title, 66.0, cy - 17.0, w - 66.0 - 16.0, 20.0, self.cc(self.fg(), 0.97));
         self.text(&b.status(), &self.f.small, 66.0, cy + 1.0, w - 66.0 - 16.0, 16.0, self.cc(GREEN, 1.0));
     }
 
@@ -2318,7 +2352,7 @@ impl Renderer {
         let len = (w - x0 - side).max(1.0);
         let head = x0 + len * frac;
         unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), 0.0)) };
-        self.line((x0, y), (x0 + len, y), color(WHITE, 0.07), 1.5);
+        self.line((x0, y), (x0 + len, y), color(self.fg(), 0.07), 1.5);
         if frac > 0.0 {
             self.line((x0, y), (head, y), color(col, 0.25), 4.0);
             self.line((x0, y), (head, y), color(col, 0.95), 1.5);
@@ -2338,7 +2372,7 @@ impl Renderer {
                 10.0,
                 140.0,
                 28.0,
-                self.cc(WHITE, 1.0),
+                self.cc(self.fg(), 1.0),
             );
             self.text(
                 &if t.paused_ms.is_some() {
@@ -2370,7 +2404,7 @@ impl Renderer {
             10.0,
             140.0,
             28.0,
-            self.cc(WHITE, 1.0),
+            self.cc(self.fg(), 1.0),
         );
         self.text(
             "Scroll to adjust",
@@ -2383,7 +2417,7 @@ impl Renderer {
         );
         let mut x = 16.0;
         for p in [5u32, 10, 15, 30, 45] {
-            let accent = if p == m.timer_min { BLUE } else { WHITE };
+            let accent = if p == m.timer_min { BLUE } else { self.fg() };
             self.button(
                 &p.to_string(),
                 x,
@@ -2436,7 +2470,7 @@ impl Renderer {
             10.0,
             w - 60.0,
             28.0,
-            self.cc(WHITE, 0.97),
+            self.cc(self.fg(), 0.97),
         );
         let mut x = 16.0;
         match kind {
@@ -2475,7 +2509,7 @@ impl Renderer {
             56.0,
             70.0,
             26.0,
-            WHITE,
+            self.fg(),
             Action::TimerDismiss,
         );
     }
