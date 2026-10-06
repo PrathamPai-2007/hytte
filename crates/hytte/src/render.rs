@@ -218,6 +218,14 @@ pub fn fmt_dur(ms: u64) -> String {
     }
 }
 
+fn union_rect(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
+    (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3))
+}
+
+fn contains_rect(outer: (i32, i32, i32, i32), inner: (i32, i32, i32, i32)) -> bool {
+    outer.0 <= inner.0 && outer.1 <= inner.1 && outer.2 >= inner.2 && outer.3 >= inner.3
+}
+
 fn fmt_clock(ms: u64) -> String {
     let s = ms / 1000;
     format!("{}:{:02}", s / 60, s % 60)
@@ -325,10 +333,6 @@ impl Renderer {
                 geom: RefCell::new(None),
             })
         }
-    }
-
-    pub fn is_gpu(&self) -> bool {
-        self.gpu.is_some()
     }
 
     /// True once the GPU device was lost (driver reset, adapter removed).
@@ -486,7 +490,16 @@ impl Renderer {
     }
 
     /// Push the DIB to the layered window at screen position (x, y).
-    pub fn present(&self, hwnd: HWND, crop: Crop, x: i32, y: i32, alpha: u8) {
+    /// `heading` is the clip the pill is animating towards (equal to `crop.clip` once settled).
+    pub fn present(
+        &self,
+        hwnd: HWND,
+        crop: Crop,
+        x: i32,
+        y: i32,
+        alpha: u8,
+        heading: (i32, i32, i32, i32),
+    ) {
         if let Some(g) = &self.gpu {
             unsafe {
                 let want = (x, y, crop.w_px, crop.h_px);
@@ -502,11 +515,30 @@ impl Renderer {
                     );
                     self.placed.set(want);
                 }
-                if self.region.get() != crop.clip {
-                    let c = crop.clip;
+                // A region change is a window-manager round trip, so don't chase every frame
+                // of a resize: grow straight to where the pill is heading, keep that while it
+                // moves, and trim to the exact box once it settles.
+                let cur = self.region.get();
+                let want = if heading == crop.clip {
+                    crop.clip
+                } else {
+                    let need = union_rect(crop.clip, heading);
+                    if cur.2 > cur.0 && contains_rect(cur, need) {
+                        cur
+                    } else if cur.2 > cur.0 {
+                        union_rect(cur, need)
+                    } else {
+                        need
+                    }
+                };
+                if cur != want {
                     // The system owns the region once it is set.
-                    SetWindowRgn(hwnd, Some(CreateRectRgn(c.0, c.1, c.2, c.3)), false);
-                    self.region.set(c);
+                    SetWindowRgn(
+                        hwnd,
+                        Some(CreateRectRgn(want.0, want.1, want.2, want.3)),
+                        false,
+                    );
+                    self.region.set(want);
                 }
             }
             if !g.present(alpha as f32 / 255.0) {
@@ -836,13 +868,15 @@ impl Renderer {
                 gl *= 0.72 + 0.28 * (self.t.get() * 4.0).sin();
             }
             if gl > 0.01 {
-                for i in 1..=9 {
-                    let k = 1.0 - i as f32 / 10.0;
-                    let a = gl * 0.075 * k * k;
+                // Five strokes, each standing in for a pair of the nine it replaced: stroking
+                // the silhouette is the costliest thing a frame does.
+                for j in 1..=5 {
+                    let k = |i: i32| (1.0 - i as f32 / 10.0).powi(2);
+                    let a = gl * 0.075 * (k(2 * j - 1) + k(2 * j));
                     self.rt.DrawGeometry(
                         &g,
                         self.solid(color(an.glow_rgb, a)),
-                        i as f32 * 2.2,
+                        j as f32 * 4.4,
                         &self.round,
                     );
                 }
