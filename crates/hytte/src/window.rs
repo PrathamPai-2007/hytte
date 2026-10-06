@@ -46,6 +46,7 @@ mod win {
     use windows::Win32::System::Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
     use windows::Win32::System::DataExchange::*;
     use windows::Win32::System::Memory::*;
+    use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
     use windows::Win32::System::Ole::*;
     use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
@@ -70,6 +71,9 @@ mod win {
     const T_EXPIRE: usize = 3;
     const T_FS: usize = 4;
     const T_TIMER: usize = 5;
+    const T_TRIM: usize = 6;
+    /// Idle this long (no frames) before the working set is trimmed.
+    const TRIM_MS: u32 = 30_000;
     const DWELL_MS: u32 = 120;
     const COLLAPSE_MS: u32 = 300;
 
@@ -608,6 +612,12 @@ mod win {
             let sh = &self.shared;
             sh.fast.store(moving, Ordering::Relaxed);
             sh.animating.store(moving || ambient, Ordering::SeqCst);
+            if !(moving || ambient) {
+                // Settled: give the pages back once it has stayed that way.
+                unsafe {
+                    SetTimer(Some(hwnd), T_TRIM, TRIM_MS, None);
+                }
+            }
         }
 
         fn hit_at(&self) -> Option<&Hit> {
@@ -1498,6 +1508,18 @@ mod win {
                         }
                     }
                     T_EXPIRE | T_TIMER => ui.after_model_change(hwnd),
+                    T_TRIM => {
+                        if !ui.shared.animating.load(Ordering::SeqCst) {
+                            // Drops cold pages (decoder and COM leftovers); they fault back in on use.
+                            unsafe {
+                                let _ = SetProcessWorkingSetSize(
+                                    GetCurrentProcess(),
+                                    usize::MAX,
+                                    usize::MAX,
+                                );
+                            }
+                        }
+                    }
                     T_FS => {
                         // Settled after a foreground change or move: stay above it.
                         reassert_topmost(hwnd);
