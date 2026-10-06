@@ -21,6 +21,8 @@ pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
 pub const TIMER_DONE_HOLD: Duration = Duration::from_secs(30);
 /// How long a failed task's red pulse takes to fade to rest.
 pub const FAIL_PULSE: Duration = Duration::from_secs(8);
+/// How long the plug-in card stays after the charger is connected.
+pub const CHARGE_HOLD: Duration = Duration::from_secs(3);
 
 /// Events marshalled from worker threads to the UI thread.
 #[derive(Debug, Clone)]
@@ -136,6 +138,8 @@ pub enum Scene {
     ExpChip,
     ExpTimer,
     ExpTimerDone,
+    /// The charger was just plugged in.
+    ExpCharge,
 }
 
 #[derive(Default)]
@@ -151,6 +155,8 @@ pub struct Model {
     pub mic_muted: bool,
     /// None on machines without a battery.
     pub power: Option<crate::power::Battery>,
+    /// When the charger was last plugged in; the plug-in card shows for [`CHARGE_HOLD`].
+    pub charge_since: Option<Instant>,
     /// A user-initiated drop keeps the pill visible even while fullscreen suppresses it.
     pub force_until: Option<Instant>,
     pub drop_over: bool,
@@ -279,6 +285,14 @@ impl Model {
         self.art_gen = self.art_gen.wrapping_add(1);
     }
 
+    /// New battery reading. Going from battery to AC starts the plug-in card.
+    pub fn set_power(&mut self, p: Option<crate::power::Battery>, now: Instant) {
+        if self.power.is_some_and(|old| !old.plugged) && p.is_some_and(|new| new.plugged) {
+            self.charge_since = Some(now);
+        }
+        self.power = p;
+    }
+
     pub fn set_ports(&mut self, p: Vec<PortInfo>) {
         self.ports = p;
         if let Some((port, _)) = self.kill_armed {
@@ -322,6 +336,9 @@ impl Model {
         if self.force_until.is_some_and(|f| now >= f) {
             self.force_until = None;
         }
+        if self.charge_since.is_some_and(|s| now >= s + CHARGE_HOLD) {
+            self.charge_since = None;
+        }
         if self
             .timer_done
             .is_some_and(|(_, s)| now.duration_since(s) >= TIMER_DONE_HOLD)
@@ -351,6 +368,9 @@ impl Model {
         }
         if let Some(f) = self.force_until {
             keep(f);
+        }
+        if let Some(s) = self.charge_since {
+            keep(s + CHARGE_HOLD);
         }
         if let Some((_, s)) = self.timer_done {
             keep(s + TIMER_DONE_HOLD);
@@ -496,6 +516,13 @@ impl Model {
                 Panel::Home => Scene::ExpHome,
             };
         }
+        if self
+            .now
+            .zip(self.charge_since)
+            .is_some_and(|(n, s)| n < s + CHARGE_HOLD)
+        {
+            return Scene::ExpCharge;
+        }
         if self.visible_count() > 0 {
             Scene::CompactTask
         } else if self.media.as_ref().is_some_and(|m| m.playing) {
@@ -525,6 +552,7 @@ impl Model {
             Scene::ExpHome => (380.0, if self.power.is_some() { 132.0 } else { 86.0 } + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip | Scene::ExpTimerDone => (380.0, 96.0),
+            Scene::ExpCharge => (300.0, 52.0),
             Scene::ExpTimer => (380.0, 92.0 + tab),
             Scene::ExpPorts => (380.0, 20.0 + self.ports.len().min(5) as f64 * 34.0 + tab),
             Scene::ExpShelf => (380.0, 118.0 + tab),
@@ -568,6 +596,7 @@ impl Model {
             Scene::ExpDrop => (PURPLE, 1.0),
             Scene::ExpTimer => (BLUE, 0.30),
             Scene::ExpTimerDone => (GREEN, 0.8),
+            Scene::ExpCharge => (GREEN, 0.7),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
             Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => {
                 ([1.0; 3], 0.10)
@@ -596,6 +625,7 @@ impl Model {
             // so an active camera/mic doesn't cost a 30 fps render loop.
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
             || self.drop_over
+            || scene == Scene::ExpCharge
             || (self.media.as_ref().is_some_and(|m| m.playing)
                 && matches!(scene, Scene::CompactMedia | Scene::ExpMedia))
     }
@@ -980,5 +1010,38 @@ bang"
         m.apply_task(st("z", TaskEvent::Failed, t0), t0 + Duration::from_secs(1));
         assert_eq!(m.primary().unwrap().id, "z");
         assert_eq!(m.primary().unwrap().id, m.rows()[0].id);
+    }
+
+    fn battery(plugged: bool) -> crate::power::Battery {
+        crate::power::Battery {
+            pct: 60,
+            plugged,
+            watts: None,
+            mode: crate::power::Mode::Balanced,
+        }
+    }
+
+    #[test]
+    fn plugging_in_shows_the_charge_card_briefly() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        // The first reading, or staying on one source, never triggers it.
+        m.set_power(Some(battery(true)), t0);
+        assert_eq!(m.charge_since, None);
+        m.set_power(Some(battery(false)), t0);
+        m.set_power(Some(battery(false)), t0);
+        assert_eq!(m.charge_since, None);
+
+        m.set_power(Some(battery(true)), t0);
+        assert_eq!(m.charge_since, Some(t0));
+        m.expire(t0);
+        assert_eq!(m.scene(false, false), Scene::ExpCharge);
+        // Hovering still opens the real panel, and a charge card is not interactive state.
+        assert_eq!(m.scene(true, false), Scene::ExpHome);
+        assert!(m.ambient(Scene::ExpCharge, t0));
+        // The single expiry timer is armed for exactly the end of the card.
+        assert_eq!(m.expire(t0), Some(t0 + CHARGE_HOLD));
+        assert_eq!(m.expire(t0 + CHARGE_HOLD), None);
+        assert_eq!(m.scene(false, false), Scene::Idle);
     }
 }
