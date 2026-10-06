@@ -142,7 +142,9 @@ mod win {
         }
 
         pub fn sample(&mut self, now: Instant) -> Vec<Sample> {
-            let elapsed = self.at.map(|t| now.saturating_duration_since(t).as_secs_f32());
+            let elapsed = self
+                .at
+                .map(|t| now.saturating_duration_since(t).as_secs_f32());
             // An early wake-up (the panel opened) gives a noisy interval: skip CPU that time.
             let usable = elapsed.filter(|e| *e >= 1.0);
             let mut out = vec![];

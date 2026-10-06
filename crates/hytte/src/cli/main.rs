@@ -194,7 +194,10 @@ fn cmd_run(args: &[String]) {
                     line.push(b);
                 }
             }
-            let pct = scan.as_mut().and_then(|s| s.feed(chunk)).filter(|p| shown != Some(*p));
+            let pct = scan
+                .as_mut()
+                .and_then(|s| s.feed(chunk))
+                .filter(|p| shown != Some(*p));
             // The newest thing the command printed: the line being drawn, else the last whole one.
             let latest = progress::clean_line(if line.is_empty() {
                 tail.back().map_or(&[][..], |l| l.as_bytes())

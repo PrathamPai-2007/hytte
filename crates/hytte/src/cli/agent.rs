@@ -88,7 +88,11 @@ fn tool_from_stdin() -> Option<String> {
         return None;
     }
     let mut buf = String::new();
-    stdin.by_ref().take(64 * 1024).read_to_string(&mut buf).ok()?;
+    stdin
+        .by_ref()
+        .take(64 * 1024)
+        .read_to_string(&mut buf)
+        .ok()?;
     describe_tool(&serde_json::from_str(buf.trim()).ok()?)
 }
 
@@ -133,7 +137,10 @@ pub fn build(event: TaskEvent, o: &Opts) -> HytteMessage {
 pub fn run(args: &[String], send: impl Fn(&HytteMessage) -> bool) {
     let Some(sub) = args.first() else { usage() };
     if sub == "hooks" {
-        match (args.get(1).map(String::as_str), args.get(2).map(String::as_str)) {
+        match (
+            args.get(1).map(String::as_str),
+            args.get(2).map(String::as_str),
+        ) {
             (Some("claude"), None) => println!("{HOOKS_CLAUDE}"),
             (Some("claude"), Some("--tools")) => println!("{HOOKS_CLAUDE_TOOLS}"),
             _ => usage(),
@@ -197,15 +204,21 @@ mod tests {
     fn tool_calls_become_short_phrases() {
         let say = |v: serde_json::Value| describe_tool(&v);
         assert_eq!(
-            say(serde_json::json!({"tool_name": "Edit", "tool_input": {"file_path": r"C:\src\render.rs"}})),
+            say(
+                serde_json::json!({"tool_name": "Edit", "tool_input": {"file_path": r"C:\src\render.rs"}})
+            ),
             Some("Editing render.rs".into())
         );
         assert_eq!(
-            say(serde_json::json!({"tool_name": "Read", "tool_input": {"file_path": "/home/me/lib.rs"}})),
+            say(
+                serde_json::json!({"tool_name": "Read", "tool_input": {"file_path": "/home/me/lib.rs"}})
+            ),
             Some("Reading lib.rs".into())
         );
         assert_eq!(
-            say(serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "cargo build --release\ncargo test"}})),
+            say(
+                serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "cargo build --release\ncargo test"}})
+            ),
             Some("Running: cargo build --release".into())
         );
         assert_eq!(
@@ -217,11 +230,15 @@ mod tests {
             Some("Using create_issue".into())
         );
         // A tool we describe by its input, but the input is missing: say nothing rather than guess.
-        assert_eq!(say(serde_json::json!({"tool_name": "Edit", "tool_input": {}})), None);
+        assert_eq!(
+            say(serde_json::json!({"tool_name": "Edit", "tool_input": {}})),
+            None
+        );
         assert_eq!(say(serde_json::json!({"nothing": 1})), None);
         // Long commands are capped.
         let long = "x".repeat(400);
-        let c = say(serde_json::json!({"tool_name": "Bash", "tool_input": {"command": long}})).unwrap();
+        let c =
+            say(serde_json::json!({"tool_name": "Bash", "tool_input": {"command": long}})).unwrap();
         assert_eq!(c.chars().count(), 120);
     }
 

@@ -113,7 +113,10 @@ pub fn clean_line(raw: &[u8]) -> String {
                 // OSC: until BEL or ST (ESC \).
                 Some(b']') => {
                     i += 1;
-                    while i < raw.len() && raw[i] != 0x07 && !(raw[i] == 0x1b && raw.get(i + 1) == Some(&b'\\')) {
+                    while i < raw.len()
+                        && raw[i] != 0x07
+                        && !(raw[i] == 0x1b && raw.get(i + 1) == Some(&b'\\'))
+                    {
                         i += 1;
                     }
                     if raw.get(i) == Some(&0x1b) {
@@ -132,7 +135,10 @@ pub fn clean_line(raw: &[u8]) -> String {
         }
         out.push_str(&String::from_utf8_lossy(&raw[start..i]));
     }
-    let cleaned: String = out.chars().filter(|c| !c.is_control() || *c == '\t').collect();
+    let cleaned: String = out
+        .chars()
+        .filter(|c| !c.is_control() || *c == '\t')
+        .collect();
     let cleaned = cleaned.trim();
     match cleaned.char_indices().nth(LINE_CAP) {
         Some((at, _)) => format!("{}…", &cleaned[..at]),

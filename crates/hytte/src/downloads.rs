@@ -6,7 +6,13 @@
 use std::collections::HashSet;
 
 /// Suffixes browsers use for a file that is still downloading (lower-case, with the dot).
-const PARTIAL: [&str; 5] = [".crdownload", ".part", ".partial", ".opdownload", ".download"];
+const PARTIAL: [&str; 5] = [
+    ".crdownload",
+    ".part",
+    ".partial",
+    ".opdownload",
+    ".download",
+];
 
 /// `Some(name without the suffix)` when `name` is a partial download.
 pub fn partial_base(name: &str) -> Option<&str> {
@@ -178,8 +184,15 @@ mod win {
     }
 
     pub fn watch(cfg: crate::config::Downloads, ui_tx: Sender<UiEvent>) {
-        let Some(dir) = downloads_dir(&cfg) else { return };
-        let wide: Vec<u16> = dir.as_os_str().to_string_lossy().encode_utf16().chain([0]).collect();
+        let Some(dir) = downloads_dir(&cfg) else {
+            return;
+        };
+        let wide: Vec<u16> = dir
+            .as_os_str()
+            .to_string_lossy()
+            .encode_utf16()
+            .chain([0])
+            .collect();
         // SAFETY: a plain directory handle used only by this thread, closed on exit.
         let h = unsafe {
             CreateFileW(
@@ -305,8 +318,10 @@ mod win {
                 break;
             }
             let units: Vec<u16> = buf[name_at..name_at + len]
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             out.push((action, String::from_utf16_lossy(&units)));
             if next == 0 {
@@ -368,7 +383,10 @@ mod tests {
     #[test]
     fn firefox_part_file_and_a_cancel() {
         let mut m = Machine::default();
-        assert_eq!(ids(&m.feed(ADDED, "movie.mp4.part")), ["progress movie.mp4"]);
+        assert_eq!(
+            ids(&m.feed(ADDED, "movie.mp4.part")),
+            ["progress movie.mp4"]
+        );
         assert_eq!(ids(&m.feed(REMOVED, "movie.mp4.part")), ["gone movie.mp4"]);
         // Removing something that was never tracked, or an ordinary file, says nothing.
         assert!(m.feed(REMOVED, "movie.mp4.part").is_empty());
