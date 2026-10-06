@@ -439,6 +439,12 @@ mod win {
                     }
                     UiEvent::Ports(p) => self.model.set_ports(p),
                     UiEvent::TaskGone(id) => self.model.remove_task(&id),
+                    UiEvent::Calendar(ev) => self.model.set_calendar(
+                        ev,
+                        crate::timer::now_ms() as i64,
+                        self.cfg.calendar.lead_min as i64 * 60_000,
+                        now,
+                    ),
                     UiEvent::DownloadDone { name, path } => {
                         if self.model.chip.is_none() {
                             let mut c = Chip::new(format!("{name} finished downloading"), now);
@@ -740,6 +746,19 @@ mod win {
                 None => unsafe {
                     let _ = KillTimer(Some(hwnd), T_EXPIRE);
                 },
+            }
+            // A calendar heads-up that has come due becomes a card (never over another one).
+            if self.model.chip.is_none() {
+                if let Some(ev) = self.model.calendar_due(now) {
+                    let text = crate::calendar::summary(&ev.subject, ev.start_ms, crate::timer::now_ms() as i64);
+                    let mut c = Chip::new(text, now);
+                    c.tone = crate::ui_state::Tone::Info;
+                    c.hold = Duration::from_secs(60);
+                    if let Some(url) = ev.url {
+                        c.extra = vec![("Join".into(), ChipAction::OpenUrl(url))];
+                    }
+                    self.model.chip = Some(c);
+                }
             }
             self.request_thumbs();
             self.layout();

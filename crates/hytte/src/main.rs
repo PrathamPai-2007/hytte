@@ -7,6 +7,7 @@
 #![allow(clippy::too_many_arguments, clippy::field_reassign_with_default)]
 
 mod animation;
+mod calendar;
 mod config;
 mod convert;
 mod downloads;
@@ -78,6 +79,7 @@ fn main() {
     power::spawn_watcher(ui_tx.clone());
     ports::spawn_watcher(cfg.ports.clone(), cfg.hog.clone(), ui_tx.clone());
     downloads::spawn_watcher(cfg.downloads.clone(), ui_tx.clone());
+    calendar::spawn_watcher(cfg.calendar.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();
