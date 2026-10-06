@@ -16,6 +16,9 @@ pub struct General {
     pub solid_pill: bool,
     #[serde(default)]
     pub acrylic: bool,
+    /// "gpu" (DirectComposition swap chain) or "classic" (layered window). Read at startup.
+    #[serde(default = "default_renderer")]
+    pub renderer: String,
     #[serde(default = "default_true")]
     pub suppress_fullscreen: bool,
     #[serde(default = "default_sentinel")]
@@ -43,6 +46,9 @@ fn default_finish_peek() -> u64 {
 fn default_sentinel() -> String {
     "sentinel".into()
 }
+fn default_renderer() -> String {
+    "gpu".into()
+}
 
 impl Default for General {
     fn default() -> Self {
@@ -52,6 +58,7 @@ impl Default for General {
             monitor: "primary".into(),
             solid_pill: true,
             acrylic: false,
+            renderer: default_renderer(),
             suppress_fullscreen: true,
             fullscreen_mode: "sentinel".into(),
             output_folder: None,
