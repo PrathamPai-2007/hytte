@@ -16,6 +16,9 @@ pub struct General {
     pub solid_pill: bool,
     #[serde(default)]
     pub acrylic: bool,
+    /// Tint the media glow with the album art's dominant colour.
+    #[serde(default = "default_true")]
+    pub adaptive_glow: bool,
     /// "dark" (default), "light", or "auto" (follow the Windows app theme).
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -64,6 +67,7 @@ impl Default for General {
             monitor: "primary".into(),
             solid_pill: true,
             acrylic: false,
+            adaptive_glow: true,
             theme: default_theme(),
             renderer: default_renderer(),
             suppress_fullscreen: true,
