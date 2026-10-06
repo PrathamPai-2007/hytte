@@ -213,6 +213,8 @@ mod win {
         tabs: Sender<crate::tabs::Cmd>,
         /// The left button is down over a clickable region.
         pressed: bool,
+        /// Resolved `[general] theme`.
+        light: bool,
         /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
         wheel: i32,
     }
@@ -461,6 +463,7 @@ mod win {
                 crate::ports::reconfigure(new.ports.clone());
             }
             self.model.ignore = ignore_list(&new);
+            self.light = theme_is_light(&new.general.theme);
             let general = new.general != self.cfg.general;
             self.cfg = new;
             if general {
@@ -606,6 +609,7 @@ mod win {
                     mouse: self.mouse_logical(),
                     acrylic: self.cfg.general.acrylic,
                     pressed: self.pressed,
+                    light: self.light,
                     armed: self.armed,
                 };
                 self.rend.draw(&fr, crop, &mut self.hits);
@@ -982,8 +986,10 @@ mod win {
                 tabs: crate::tabs::spawn(),
                 wheel: 0,
                 pressed: false,
+                light: false,
             };
             ui.model.ignore = ignore_list(&ui.cfg);
+            ui.light = theme_is_light(&ui.cfg.general.theme);
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
             }
@@ -1089,6 +1095,30 @@ mod win {
             return false;
         };
         hytte_proto::ports::listeners().contains(&(port, p.pid))
+    }
+
+    /// `[general] theme`: "light", "auto" (follow the Windows "app mode" setting), else dark.
+    fn theme_is_light(theme: &str) -> bool {
+        match theme {
+            "light" => true,
+            "auto" => unsafe {
+                use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+                let mut v = 0u32;
+                let mut n = std::mem::size_of::<u32>() as u32;
+                RegGetValueW(
+                    HKEY_CURRENT_USER,
+                    windows::core::w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"),
+                    windows::core::w!("AppsUseLightTheme"),
+                    RRF_RT_REG_DWORD,
+                    None,
+                    Some(&mut v as *mut _ as *mut _),
+                    Some(&mut n),
+                )
+                .is_ok()
+                    && v == 1
+            },
+            _ => false,
+        }
     }
 
     fn reduce_motion() -> bool {
@@ -1623,6 +1653,7 @@ mod win {
             WM_SETTINGCHANGE => {
                 with_ui(|ui| {
                     ui.anim.reduce = reduce_motion();
+                    ui.light = theme_is_light(&ui.cfg.general.theme);
                     ui.layout();
                     ui.kick();
                 });
