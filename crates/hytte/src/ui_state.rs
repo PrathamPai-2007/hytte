@@ -151,12 +151,56 @@ pub enum Panel {
     Home,
 }
 
+/// What an extra chip button does when clicked.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChipAction {
+    /// Open a link (a meeting, a page).
+    OpenUrl(String),
+    /// Put a file on the shelf.
+    Shelve(PathBuf),
+    /// Terminate a process; the first click arms it ("Kill?"), the second confirms.
+    KillPid(u32),
+    /// Stop alerting about a process (by exe name) for this session.
+    IgnoreExe(String),
+}
+
+/// The look of a chip's icon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tone {
+    /// A finished job: purple tick.
+    #[default]
+    Done,
+    /// Something wants attention: amber.
+    Warn,
+    /// For your information: blue.
+    Info,
+}
+
 #[derive(Debug, Clone)]
 pub struct Chip {
     pub summary: String,
     pub open: Option<PathBuf>,
     pub copy: Option<String>,
     pub since: Instant,
+    /// Buttons beyond Open / Copy / Dismiss, in order.
+    pub extra: Vec<(String, ChipAction)>,
+    /// How long it stays before folding away on its own.
+    pub hold: Duration,
+    pub tone: Tone,
+}
+
+impl Chip {
+    pub fn new(summary: impl Into<String>, since: Instant) -> Self {
+        Self {
+            summary: summary.into(),
+            open: None,
+            copy: None,
+            since,
+            extra: vec![],
+            hold: CHIP_HOLD,
+            tone: Tone::Done,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +258,10 @@ pub struct Model {
     pub force_until: Option<Instant>,
     pub drop_over: bool,
     pub chip: Option<Chip>,
+    /// A chip's Kill button was clicked once and waits for a second click until then.
+    pub chip_armed: Option<Instant>,
+    /// Exe names (lower-cased) the resource-hog alert is muted for, for this session.
+    pub hog_ignore: std::collections::HashSet<String>,
     pub ports: Vec<PortInfo>,
     /// Port whose Kill button is armed ("Kill?") and until when.
     pub kill_armed: Option<(u16, Instant)>,
@@ -381,9 +429,12 @@ impl Model {
         if self
             .chip
             .as_ref()
-            .is_some_and(|c| now.duration_since(c.since) >= CHIP_HOLD)
+            .is_some_and(|c| now.duration_since(c.since) >= c.hold)
         {
             self.chip = None;
+        }
+        if self.chip.is_none() || self.chip_armed.is_some_and(|t| now >= t) {
+            self.chip_armed = None;
         }
         if self.peek_until.is_some_and(|p| now >= p) {
             self.peek_until = None;
@@ -416,7 +467,10 @@ impl Model {
             }
         }
         if let Some(c) = &self.chip {
-            keep(c.since + CHIP_HOLD);
+            keep(c.since + c.hold);
+        }
+        if let Some(t) = self.chip_armed {
+            keep(t);
         }
         if let Some(p) = self.peek_until {
             keep(p);
