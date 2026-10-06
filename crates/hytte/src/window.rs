@@ -137,6 +137,9 @@ mod win {
     static ZONE_R: AtomicI32 = AtomicI32::new(0);
     static ZONE_B: AtomicI32 = AtomicI32::new(0);
     static HWND_ADDR: AtomicIsize = AtomicIsize::new(0);
+    /// False while a window that failed to get a renderer is torn down at startup, so its
+    /// WM_DESTROY doesn't end the message loop before it exists.
+    static LIVE: AtomicBool = AtomicBool::new(false);
     /// Registered `TaskbarCreated` message: Explorer restarted and our tray icon is gone.
     static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 
@@ -602,6 +605,15 @@ mod win {
                 let drawn = now.elapsed().as_micros() as u32;
                 let a = (self.anim.vis.pos.clamp(0.0, 1.0) * 255.0).round() as u8;
                 self.rend.present(hwnd, crop, origin.0, origin.1, a);
+                if self.rend.lost() {
+                    // Driver reset or adapter removed: rebuild the GPU pipeline and redraw.
+                    crate::logging::line("gpu renderer: device lost, rebuilding");
+                    if let Err(e) = self.rend.rebuild_gpu(hwnd) {
+                        crate::logging::line(&format!("gpu renderer: rebuild failed: {e}"));
+                    }
+                    self.thumb_req.clear();
+                    self.kick();
+                }
                 // Skip the first frame after idle: its gap is the idle time, not a frame.
                 if moving && gap.as_millis() < 100 {
                     self.perf.record(
@@ -851,26 +863,53 @@ mod win {
             };
             RegisterClassW(&wc);
 
-            let hwnd = match CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                cls,
-                windows::core::w!("Hytte"),
-                WS_POPUP,
-                0,
-                0,
-                16,
-                16,
-                None,
-                None,
-                Some(hinstance),
-                None,
-            ) {
-                Ok(h) => h,
-                Err(_) => {
-                    eprintln!("hytte: CreateWindowExW failed");
-                    return;
+            let make = |ex: WINDOW_EX_STYLE| {
+                CreateWindowExW(
+                    ex | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    cls,
+                    windows::core::w!("Hytte"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    16,
+                    16,
+                    None,
+                    None,
+                    Some(hinstance),
+                    None,
+                )
+            };
+            // The window's style decides how it can be drawn, so pick the renderer first:
+            // GPU needs a window without a redirection bitmap, classic needs a layered one.
+            let mut made = None;
+            if cfg.general.renderer != "classic" {
+                if let Ok(h) = make(WS_EX_NOREDIRECTIONBITMAP) {
+                    match Renderer::new_gpu(h) {
+                        Ok(r) => made = Some((h, r)),
+                        Err(e) => {
+                            crate::logging::line(&format!("gpu renderer unavailable: {e}"));
+                            let _ = DestroyWindow(h);
+                        }
+                    }
+                }
+            }
+            let (hwnd, rend) = match made {
+                Some(m) => m,
+                None => {
+                    let Ok(h) = make(WS_EX_LAYERED) else {
+                        eprintln!("hytte: CreateWindowExW failed");
+                        return;
+                    };
+                    match Renderer::new() {
+                        Ok(r) => (h, r),
+                        Err(e) => {
+                            eprintln!("hytte: renderer init failed: {e}");
+                            return;
+                        }
+                    }
                 }
             };
+            LIVE.store(true, Ordering::Relaxed);
             HWND_ADDR.store(hwnd.0 as isize, Ordering::Relaxed);
             shared.hwnd.store(hwnd.0 as isize, Ordering::Relaxed);
             // Power changes arrive as WM_POWERBROADCAST and wake the power worker.
@@ -882,13 +921,6 @@ mod win {
                 );
             }
 
-            let rend = match Renderer::new() {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("hytte: renderer init failed: {e}");
-                    return;
-                }
-            };
             let mut anim = Anim::new(120.0, 24.0);
             anim.reduce = reduce_motion();
             let mut ui = Ui {
@@ -1614,7 +1646,9 @@ mod win {
                 return LRESULT(0);
             }
             WM_DESTROY => {
-                unsafe { PostQuitMessage(0) };
+                if LIVE.load(Ordering::Relaxed) {
+                    unsafe { PostQuitMessage(0) };
+                }
                 return LRESULT(0);
             }
             _ => {}

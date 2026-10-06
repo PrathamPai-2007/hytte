@@ -1,14 +1,18 @@
 //! Direct2D / DirectWrite renderer.
 //!
-//! Draws the notch onto a 32-bpp premultiplied DIB through an
-//! `ID2D1DCRenderTarget` and pushes it with `UpdateLayeredWindow`, which gives
-//! anti-aliased rounded shapes, per-pixel alpha (transparent pixels are
-//! click-through), gradients and glow without a DComp/D3D swapchain.
+//! Two ways to put pixels on screen, chosen once at startup (`[general] renderer`):
+//!
+//! * **gpu** (default): a Direct2D device context draws into a composition swap
+//!   chain shown through DirectComposition (`gpu.rs`). No readback, no per-frame copy.
+//! * **classic**: draws onto a 32-bpp premultiplied DIB through an
+//!   `ID2D1DCRenderTarget` and pushes it with `UpdateLayeredWindow`. Per-pixel alpha
+//!   makes transparent pixels click-through. Used when the GPU path can't start.
 //!
 //! All drawing is in logical px; one scale transform maps to device px. The
 //! pill hangs from the top-centre of a fixed transparent canvas, and only the
 //! pill (plus its soft glow) has non-zero alpha.
 
+use crate::gpu::Gpu;
 use crate::power::Mode;
 use crate::ui_state::{Anim, Model, Panel, Scene, TaskView, LOCK_W};
 use hytte_proto::TaskEvent;
@@ -16,14 +20,16 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
-use windows::core::{w, PCWSTR};
+use windows::core::{w, Interface, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
 use windows::Win32::Graphics::DirectWrite::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::UI::WindowsAndMessaging::{UpdateLayeredWindow, ULW_ALPHA};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SetWindowPos, UpdateLayeredWindow, SWP_NOACTIVATE, SWP_NOZORDER, ULW_ALPHA,
+};
 const AC_SRC_ALPHA: u32 = 1;
 use windows_numerics::{Matrix3x2, Vector2};
 
@@ -80,6 +86,9 @@ pub struct Crop {
     pub w_px: i32,
     pub h_px: i32,
     pub w_log: f32,
+    /// Device-pixel rect (left, top, right, bottom) holding the pill and its glow. The
+    /// GPU path presents the whole canvas and shows only this part (a window region).
+    pub clip: (i32, i32, i32, i32),
 }
 
 pub struct Frame<'a> {
@@ -110,7 +119,17 @@ struct Fmts {
 
 pub struct Renderer {
     factory: ID2D1Factory,
-    rt: ID2D1DCRenderTarget,
+    factory1: ID2D1Factory1,
+    /// What every draw call uses: the DC target (classic) or the device context (gpu).
+    rt: ID2D1RenderTarget,
+    /// Classic only: the target that is bound to the DIB each frame.
+    dc_rt: Option<ID2D1DCRenderTarget>,
+    gpu: Option<Gpu>,
+    /// GPU only: window rect and region last applied, so they are only set on change.
+    placed: Cell<(i32, i32, i32, i32)>,
+    region: Cell<(i32, i32, i32, i32)>,
+    /// GPU only: the device was lost; the window layer calls `rebuild_gpu`.
+    lost: Cell<bool>,
     br: ID2D1SolidColorBrush,
     round: ID2D1StrokeStyle,
     dashed: ID2D1StrokeStyle,
@@ -205,27 +224,49 @@ fn fmt_clock(ms: u64) -> String {
 }
 
 impl Renderer {
+    /// Classic renderer: DIB + `UpdateLayeredWindow`.
     pub fn new() -> windows::core::Result<Self> {
+        Self::build(None)
+    }
+
+    /// GPU renderer presenting through DirectComposition into `hwnd`, which must have
+    /// been created with `WS_EX_NOREDIRECTIONBITMAP`.
+    pub fn new_gpu(hwnd: HWND) -> windows::core::Result<Self> {
+        Self::build(Some(hwnd))
+    }
+
+    fn build(hwnd: Option<HWND>) -> windows::core::Result<Self> {
         unsafe {
-            let factory: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
-            let props = D2D1_RENDER_TARGET_PROPERTIES {
-                // The pill is a few hundred px: drawing on the CPU beats a GPU round trip
-                // (measured p50 6.5 ms -> 3.6 ms). HYTTE_HARDWARE=1 restores the GPU target.
-                r#type: if std::env::var_os("HYTTE_HARDWARE").is_some_and(|v| v != "0") {
-                    D2D1_RENDER_TARGET_TYPE_DEFAULT
-                } else {
-                    D2D1_RENDER_TARGET_TYPE_SOFTWARE
-                },
-                pixelFormat: D2D1_PIXEL_FORMAT {
-                    format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                    alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
-                },
-                dpiX: 96.0,
-                dpiY: 96.0,
-                usage: D2D1_RENDER_TARGET_USAGE_NONE,
-                minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
+            let factory1: ID2D1Factory1 =
+                D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
+            let factory: ID2D1Factory = factory1.cast()?;
+            let (rt, dc_rt, gpu): (ID2D1RenderTarget, _, _) = match hwnd {
+                Some(h) => {
+                    let g = Gpu::new(&factory1, h, CANVAS_W as u32, CANVAS_H as u32)?;
+                    (g.dc.cast()?, None, Some(g))
+                }
+                None => {
+                    let props = D2D1_RENDER_TARGET_PROPERTIES {
+                        // The pill is a few hundred px: drawing on the CPU beats a GPU round trip
+                        // (measured p50 6.5 ms -> 3.6 ms). HYTTE_HARDWARE=1 restores the GPU target.
+                        r#type: if std::env::var_os("HYTTE_HARDWARE").is_some_and(|v| v != "0") {
+                            D2D1_RENDER_TARGET_TYPE_DEFAULT
+                        } else {
+                            D2D1_RENDER_TARGET_TYPE_SOFTWARE
+                        },
+                        pixelFormat: D2D1_PIXEL_FORMAT {
+                            format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                            alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                        },
+                        dpiX: 96.0,
+                        dpiY: 96.0,
+                        usage: D2D1_RENDER_TARGET_USAGE_NONE,
+                        minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
+                    };
+                    let dc = factory.CreateDCRenderTarget(&props)?;
+                    (dc.cast()?, Some(dc), None)
+                }
             };
-            let rt = factory.CreateDCRenderTarget(&props)?;
             rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
             let br = rt.CreateSolidColorBrush(&color(WHITE, 1.0), None)?;
             let sp = D2D1_STROKE_STYLE_PROPERTIES {
@@ -246,10 +287,20 @@ impl Renderer {
 
             let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
             let f = Fmts::new(&dw)?;
-            let mem = CreateCompatibleDC(None);
+            let mem = if gpu.is_some() {
+                HDC::default()
+            } else {
+                CreateCompatibleDC(None)
+            };
             Ok(Self {
                 factory,
+                factory1,
                 rt,
+                dc_rt,
+                gpu,
+                placed: Cell::new((0, 0, 0, 0)),
+                region: Cell::new((0, 0, 0, 0)),
+                lost: Cell::new(false),
                 br,
                 round,
                 dashed,
@@ -276,10 +327,52 @@ impl Renderer {
         }
     }
 
+    pub fn is_gpu(&self) -> bool {
+        self.gpu.is_some()
+    }
+
+    /// True once the GPU device was lost (driver reset, adapter removed).
+    pub fn lost(&self) -> bool {
+        self.lost.get()
+    }
+
+    /// Recreate the GPU pipeline after a device loss. Everything made by the old device
+    /// (brushes, bitmaps) is dropped and rebuilt on demand.
+    pub fn rebuild_gpu(&mut self, hwnd: HWND) -> windows::core::Result<()> {
+        // The old DirectComposition target must go before a new one can attach to the window.
+        self.gpu = None;
+        let g = Gpu::new(&self.factory1, hwnd, CANVAS_W as u32, CANVAS_H as u32)?;
+        let rt: ID2D1RenderTarget = g.dc.cast()?;
+        unsafe {
+            rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            self.br = rt.CreateSolidColorBrush(&color(WHITE, 1.0), None)?;
+        }
+        self.rt = rt;
+        self.gpu = Some(g);
+        *self.body.borrow_mut() = None;
+        *self.shimmer.borrow_mut() = None;
+        *self.art.borrow_mut() = None;
+        self.art_gen.set(u32::MAX);
+        self.thumbs.borrow_mut().clear();
+        *self.geom.borrow_mut() = None;
+        self.placed.set((0, 0, 0, 0));
+        self.region.set((0, 0, 0, 0));
+        self.lost.set(false);
+        self.px = (0, 0);
+        self.set_scale(self.scale);
+        Ok(())
+    }
+
     /// (Re)allocate the DIB for a new device scale.
     pub fn set_scale(&mut self, scale: f32) {
         let w = (CANVAS_W * scale).ceil() as i32;
         let h = (CANVAS_H * scale).ceil() as i32;
+        if let Some(g) = &self.gpu {
+            g.resize(w as u32, h as u32);
+            self.px = (w, h);
+            self.scale = scale;
+            return;
+        }
         if self.px == (w, h) && !self.bmp.is_invalid() {
             return;
         }
@@ -319,10 +412,21 @@ impl Renderer {
         }
         let w_px = ((w * self.scale).ceil() as i32).min(self.px.0);
         let h_px = ((h * self.scale).ceil() as i32).min(self.px.1);
+        if self.gpu.is_some() {
+            // The whole canvas is the surface; only the pill's box is visible and clickable.
+            let x0 = (self.px.0 - w_px) / 2;
+            return Crop {
+                w_px: self.px.0,
+                h_px: self.px.1,
+                w_log: self.px.0 as f32 / self.scale,
+                clip: (x0, 0, x0 + w_px, h_px),
+            };
+        }
         Crop {
             w_px,
             h_px,
             w_log: w_px as f32 / self.scale,
+            clip: (0, 0, w_px, h_px),
         }
     }
 
@@ -343,7 +447,12 @@ impl Renderer {
                 right: crop.w_px,
                 bottom: crop.h_px,
             };
-            if self.rt.BindDC(self.mem, &rc).is_err() {
+            let ready = match (&self.gpu, &self.dc_rt) {
+                (Some(g), _) => g.begin(),
+                (None, Some(dc)) => dc.BindDC(self.mem, &rc).is_ok(),
+                _ => false,
+            };
+            if !ready {
                 hits.clear();
                 return;
             }
@@ -360,7 +469,14 @@ impl Renderer {
             }
             self.rt.SetTransform(&mat(self.scale, ox, 0.0));
             self.scene(fr, pw, ph);
-            let _ = self.rt.EndDraw(None, None);
+            let ended = self.rt.EndDraw(None, None);
+            if let Some(g) = &self.gpu {
+                g.end();
+                if ended.is_err() {
+                    // D2DERR_RECREATE_TARGET and friends: the device has to be rebuilt.
+                    self.lost.set(true);
+                }
+            }
         }
         // Prune progress smoothing for tasks that are gone.
         self.shown
@@ -371,6 +487,33 @@ impl Renderer {
 
     /// Push the DIB to the layered window at screen position (x, y).
     pub fn present(&self, hwnd: HWND, crop: Crop, x: i32, y: i32, alpha: u8) {
+        if let Some(g) = &self.gpu {
+            unsafe {
+                let want = (x, y, crop.w_px, crop.h_px);
+                if self.placed.get() != want {
+                    let _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        x,
+                        y,
+                        crop.w_px,
+                        crop.h_px,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                    self.placed.set(want);
+                }
+                if self.region.get() != crop.clip {
+                    let c = crop.clip;
+                    // The system owns the region once it is set.
+                    SetWindowRgn(hwnd, Some(CreateRectRgn(c.0, c.1, c.2, c.3)), false);
+                    self.region.set(c);
+                }
+            }
+            if !g.present(alpha as f32 / 255.0) {
+                self.lost.set(true);
+            }
+            return;
+        }
         unsafe {
             let dst = POINT { x, y };
             let size = SIZE {

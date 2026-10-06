@@ -11,6 +11,8 @@ mod config;
 mod convert;
 mod drop;
 mod fullscreen;
+#[cfg(windows)]
+mod gpu;
 mod logging;
 mod media;
 mod mic;
