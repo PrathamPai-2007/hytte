@@ -40,6 +40,7 @@ The important fields, grouped:
 | Navigation | `selected: Option<Panel>`, `peek_until`, `force_until`, `drop_over` |
 | Results | `chip: Option<Chip>` |
 | Timer | `timer`, `timer_panel` (the right-click panel is open), `timer_min`, `timer_done`, `timer_break`, `focus_done` |
+| Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`) |
 | Clock | `now`: the last time the model was advanced; visibility rules compare against it |
 
 `TaskView` is the display form of a task: the label, event, progress, stderr lines, pid, `attention` message, and three instants (`started`, `changed`, `visible_after`).
@@ -158,8 +159,25 @@ The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant
 
 `Anim::set_scene(scene, size, glow)` is called on every layout. When the scene changes, it moves the old scene to `prev`, starts `out` from the old content's current opacity, and restarts `content` at 0. `Anim::step(dt)` advances every spring and returns whether anything is still moving.
 
+## Bubbles
+
+`Model::bubble(scene)` says whether a second activity should split off beside a **compact** scene as a small pill of its own:
+
+| Beside | Bubble | Shows |
+|---|---|---|
+| `CompactTask` or `CompactMedia`, timer running | `Bubble::Timer` | The remaining time as a clock (red under a minute) |
+| `CompactTask`, music playing, no timer | `Bubble::Media` | The album art |
+
+Expanded scenes show the same things as panels, so they get no bubble. The layout step passes the answer to `Anim::set_bubble`, which points the `bubble` spring (0.72 / 0.34 s, so it overshoots a little) at 1 or 0. `bubble_kind` keeps the last kind so a retracting bubble can still be drawn, and `bubble_room()` is the extra width (`BUBBLE_ROOM`, 72 px) the crop and window region must make room for while any of it is out.
+
+## Paging, squash and other motion state
+
+- `Anim::nav` is the direction the user is paging (+1 next, -1 previous); the wheel, the tab dots and the keyboard set it just before a layout. `set_scene` moves it to `slide` when the scene changes, and the renderer slides the new content in from that side (and the old content out the other way) instead of the plain vertical drift. A change nobody paged for, such as a peek, keeps the drift. `after_model_change` clears `nav` so it only ever applies to the layout it was set for.
+- `Anim::squash` gives the size springs a small impulse (width +160, height −110 px/s), so the pill squashes and settles. It is called when items land on the shelf and when a Drop Vault result arrives; it does nothing under reduced motion.
+- `Model::set_power` starts the plug-in card (above); `TaskView::line` / `shows_line` carry the output ticker of a running task, and `LINE_H` (14 px) is the extra row height it needs in `Model::size(ExpTasks)`.
+
 ## Tests
 
-`ui_state.rs` has the largest test module in the project: scene priority, expiry, shell thresholds, ignored commands, attention peeking, panels and the wheel, fullscreen break-through on drops, the timer, the mic lock, ambient rules, and the cross-fade. When you change a rule above, change or add a test next to it. These tests need no Windows APIs.
+`ui_state.rs` has the largest test module in the project: scene priority, expiry, shell thresholds, ignored commands, attention peeking, panels and the wheel, fullscreen break-through on drops, the timer, the mic lock, ambient rules, the cross-fade, the plug-in card, the output line, bubbles, the paging direction, the squash and the album-art colour. When you change a rule above, change or add a test next to it. These tests need no Windows APIs.
 
 Next: [7. Window, input and timers](07-window-and-input.md)

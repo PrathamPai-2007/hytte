@@ -97,6 +97,13 @@ Order of painting (`Renderer::scene`):
 
 One `ID2D1SolidColorBrush` is reused for every solid colour (`solid` just changes its colour). The two gradient brushes (pill body and progress shimmer) are built once and only have their end points and opacity updated per frame. Text formats (`Fmts`) are created once at startup. Text goes through one reused UTF-16 buffer.
 
+### Theme, icons and the shared element slide
+
+- **Theme.** `Frame::light` (from `[general] theme`: `dark`, `light`, or `auto`, which reads the Windows app mode and is re-read on `WM_SETTINGCHANGE`) switches the palette. Text and lines use `Renderer::fg()` (white, or near-black on the light pill) and `ink()` (the opposite, for things drawn on a `fg` shape), and `body_colors()` gives the pill gradient. The body brush is cached per (acrylic, light).
+- **Icons.** Media transport and the microphone are glyphs from Segoe Fluent Icons (`Renderer::glyph`, using the `icon` text format), so they are sharp at every DPI. The rest of the icons (spinner, bell, lock, tick, cross) are drawn as shapes because they animate.
+- **Shared elements.** Between a compact scene and its expanded twin (`CompactMedia` ↔ `ExpMedia`, `CompactTask` ↔ `ExpTasks`), the album art and the primary task's icon and label slide from one place to the other instead of cross-fading in two. `Renderer::morph_for` takes the progress from the pill's own height spring, so the elements move exactly as fast as the pill grows, overshoot included. `hero(compact, exp, natural)` returns where an element goes: while morphing it is the interpolated rect, drawn fully opaque and without the scenes' own slide offsets (otherwise the outgoing and incoming copies would sit a few pixels apart and the fades would dim it); otherwise `natural`. Both scenes must use identical end points, which is why `label_ends` and `exp_label_w` are shared.
+- **Press, page and bubble.** A button under the pointer shrinks 6 % and brightens while the left button is down (`Frame::pressed`). A paged change slides content in from the side (see [section 6](06-ui-model.md#paging-squash-and-other-motion-state)). The bubble ([section 6](06-ui-model.md#bubbles)) is drawn first, from behind the pill, with its own body, rim and content.
+
 ### Hit regions
 
 Every `hit()` call during drawing appends to a list. At the end of `draw`, the renderer **swaps** that list with the window's, so the hits always match exactly what is on screen, without copying. Hit rectangles are stored in canvas-logical coordinates, the same space as `Ui::mouse_logical`.
@@ -128,6 +135,7 @@ A `Spring` has `pos`, `vel`, `target`, a damping ratio `zeta`, a `period`, and a
 | Outgoing content fade | 1.0 / 0.16 s | |
 | Glow | 1.0 / 0.30 s | |
 | Hover brightness | 1.0 / 0.16 s | |
+| Bubble | 0.72 / 0.34 s | Slides out with a small overshoot. |
 | Visibility | 1.0 / 0.22 s | |
 
 `RectSpring::set_target` picks `GROW` or `SHRINK` **when the target changes** (by comparing the target areas), not every frame. Otherwise an expansion's overshoot would be mistaken for a collapse.
@@ -149,6 +157,8 @@ Ambient animation is the only thing that keeps frames running when no spring is 
 | An expanded scene shows privacy dots | They breathe only when expanded; collapsed, they are static. |
 | Something is dragged over the pill | The drop zone animates. |
 | The plug-in card is showing (3 s) | The battery fills up; it expires on its own. |
+
+The bubble spring moves for a fraction of a second when it opens or closes, like any other spring, and then rests: the timer bubble's clock is redrawn by the existing 1 Hz timer redraw, not by an animation.
 | Media is playing **and** a media scene is shown | The equaliser and timeline. |
 
 Never in the `Sentinel` (fullscreen) scene, never while hidden, and never with reduced motion.
