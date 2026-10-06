@@ -69,6 +69,7 @@ mod win {
     const WM_FG: u32 = 0x8004;
     const WM_DRAG_ARM: u32 = 0x8005;
     const WM_DRAG_END: u32 = 0x8006;
+    const HOTKEY_ID: i32 = 1;
 
     const T_DWELL: usize = 1;
     const T_COLLAPSE: usize = 2;
@@ -215,6 +216,11 @@ mod win {
         pressed: bool,
         /// Resolved `[general] theme`.
         light: bool,
+        /// Keyboard mode (opened by the hotkey): the pill is held open, has focus, and the
+        /// window that had focus before is remembered to give it back.
+        kb: Option<HWND>,
+        /// Which clickable region has keyboard focus.
+        kb_focus: Option<usize>,
         /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
         wheel: i32,
     }
@@ -498,6 +504,7 @@ mod win {
         /// state derived from the config needs refreshing. Lowering `[shelf] max_items` keeps
         /// the tiles already there and only limits new ones.
         fn apply_config(&mut self, new: Config) {
+            let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey;
             if new.general.autostart != self.cfg.general.autostart {
                 crate::config::ensure_autostart(new.general.autostart);
             }
@@ -510,11 +517,116 @@ mod win {
             let monitor_changed = new.general.monitor != self.cfg.general.monitor;
             let general = new.general != self.cfg.general;
             self.cfg = new;
+            if hotkey_changed {
+                self.register_hotkey(HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _));
+            }
             if monitor_changed {
                 self.refresh_monitor();
             }
             if general {
                 self.evaluate_fullscreen();
+            }
+        }
+
+        /// Open the pill for keyboard use (or close it again): take focus, hold it open.
+        fn toggle_keyboard(&mut self, hwnd: HWND) {
+            if self.kb.is_some() {
+                self.end_keyboard(true);
+                return;
+            }
+            unsafe {
+                let prev = GetForegroundWindow();
+                self.kb = Some(prev);
+                self.kb_focus = None;
+                self.hover = true;
+                let _ = SetForegroundWindow(hwnd);
+            }
+            crate::ports::request_refresh();
+            self.after_model_change(hwnd);
+        }
+
+        /// Leave keyboard mode; `restore` hands focus back to the window that had it.
+        fn end_keyboard(&mut self, restore: bool) {
+            let Some(prev) = self.kb.take() else { return };
+            self.kb_focus = None;
+            self.hover = self.inside;
+            if restore && !prev.0.is_null() {
+                unsafe {
+                    let _ = SetForegroundWindow(prev);
+                }
+            }
+            self.layout();
+            self.kick();
+        }
+
+        /// A key pressed while the pill has focus.
+        fn key(&mut self, hwnd: HWND, vk: u16) {
+            use windows::Win32::UI::Input::KeyboardAndMouse::*;
+            if self.kb.is_none() {
+                return;
+            }
+            let shift = unsafe { GetKeyState(VK_SHIFT.0 as i32) } < 0;
+            match VIRTUAL_KEY(vk) {
+                VK_ESCAPE => self.end_keyboard(true),
+                VK_LEFT | VK_RIGHT => {
+                    let dir = if VIRTUAL_KEY(vk) == VK_RIGHT { 1 } else { -1 };
+                    let p = self.model.step_panel(dir);
+                    self.select_panel(p);
+                    self.anim.nav = dir as f32;
+                    self.kb_focus = None;
+                    self.after_model_change(hwnd);
+                }
+                VK_TAB => {
+                    let n = self.hits.len();
+                    if n > 0 {
+                        self.kb_focus = Some(match (self.kb_focus, shift) {
+                            (None, false) => 0,
+                            (None, true) => n - 1,
+                            (Some(i), false) => (i + 1) % n,
+                            (Some(i), true) => (i + n - 1) % n,
+                        });
+                    }
+                    self.kick();
+                }
+                VK_RETURN | VK_SPACE => {
+                    if let Some(a) = self
+                        .kb_focus
+                        .and_then(|i| self.hits.get(i))
+                        .map(|h| h.action.clone())
+                    {
+                        self.run_action(hwnd, a);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        /// (Re)register the global hotkey from the config.
+        fn register_hotkey(&self, hwnd: HWND) {
+            use windows::Win32::UI::Input::KeyboardAndMouse::{
+                RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT,
+            };
+            unsafe {
+                let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
+                let spec = &self.cfg.general.hotkey;
+                if spec.is_empty() {
+                    return;
+                }
+                match crate::config::parse_hotkey(spec) {
+                    Some((mods, vk)) => {
+                        if RegisterHotKey(
+                            Some(hwnd),
+                            HOTKEY_ID,
+                            HOT_KEY_MODIFIERS(mods) | MOD_NOREPEAT,
+                            vk,
+                        )
+                        .is_err()
+                        {
+                            crate::logging::line(&format!("hotkey {spec}: already taken by another app"));
+                        }
+                    }
+                    None => crate::logging::line(&format!("hotkey {spec}: not understood")),
+                }
             }
         }
 
@@ -657,6 +769,7 @@ mod win {
                     acrylic: self.cfg.general.acrylic,
                     pressed: self.pressed,
                     light: self.light,
+                    focus: self.kb.and(self.kb_focus),
                     armed: self.armed,
                 };
                 self.rend.draw(&fr, crop, &mut self.hits);
@@ -1035,6 +1148,8 @@ mod win {
                 wheel: 0,
                 pressed: false,
                 light: false,
+                kb: None,
+                kb_focus: None,
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
@@ -1081,6 +1196,7 @@ mod win {
 
             let mut tray = crate::tray::Tray::new(hwnd);
             tray.add();
+            with_ui(|ui| ui.register_hotkey(hwnd));
             post(WM_FG);
 
             // Bridge: worker threads -> UI thread via queue + PostMessage (one thread for both channels).
@@ -1656,7 +1772,7 @@ mod win {
                         }
                     }
                     T_COLLAPSE => {
-                        if !ui.inside {
+                        if !ui.inside && ui.kb.is_none() {
                             ui.hover = false;
                             ui.model.timer_panel = false;
                             ui.layout();
@@ -1686,6 +1802,18 @@ mod win {
                     _ => {}
                 });
                 return LRESULT(0);
+            }
+            0x0312 /* WM_HOTKEY */ => {
+                with_ui(|ui| ui.toggle_keyboard(hwnd));
+                return LRESULT(0);
+            }
+            WM_KEYDOWN => {
+                with_ui(|ui| ui.key(hwnd, wparam.0 as u16));
+                return LRESULT(0);
+            }
+            WM_KILLFOCUS => {
+                // Clicked or tabbed elsewhere: keyboard mode ends without stealing focus back.
+                with_ui(|ui| ui.end_keyboard(false));
             }
             WM_POWERBROADCAST => {
                 // Power source / charge level changed, or the PC resumed.
