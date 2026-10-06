@@ -102,6 +102,8 @@ pub struct Frame<'a> {
     pub pressed: bool,
     /// Light theme: a pale pill with dark text.
     pub light: bool,
+    /// Keyboard focus: the index of the clickable region that has it (Tab / Shift+Tab).
+    pub focus: Option<usize>,
     /// A drag is in flight near the top edge: widen the (invisible) hit zone.
     pub armed: bool,
 }
@@ -165,6 +167,9 @@ pub struct Renderer {
     morph: Cell<Option<f32>>,
     pressed: Cell<bool>,
     light: Cell<bool>,
+    focus: Cell<Option<usize>>,
+    /// True while the live scene (not the one fading out) is drawing: only it shows focus.
+    focus_live: Cell<bool>,
     /// Right edge available to the compact task label this frame (see `exp_label_w`): both
     /// scenes of a morph must agree on the shared label's two end positions.
     hero_right: Cell<f32>,
@@ -348,6 +353,8 @@ impl Renderer {
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
                 light: Cell::new(false),
+                focus: Cell::new(None),
+                focus_live: Cell::new(false),
                 hero_right: Cell::new(0.0),
             })
         }
@@ -461,6 +468,8 @@ impl Renderer {
         self.t.set(fr.anim.t as f32);
         self.pressed.set(fr.pressed);
         self.light.set(fr.light);
+        self.focus.set(fr.focus);
+        self.focus_live.set(false);
         self.sync_art(fr.model);
         let (pw, ph) = (fr.anim.rect.w.pos as f32, fr.anim.rect.h.pos as f32);
         let ox = (crop.w_log - pw) / 2.0;
@@ -819,10 +828,14 @@ impl Renderer {
     /// Register a clickable region (pill-relative); true when hovered.
     fn hit(&self, x: f32, y: f32, w: f32, h: f32, action: Action) -> bool {
         let ox = self.ox.get();
+        let index = self.hits.borrow().len();
         self.hits.borrow_mut().push(Hit {
             rect: (x + ox, y, x + ox + w, y + h),
             action,
         });
+        if self.focus_live.get() && self.focus.get() == Some(index) {
+            self.stroke_rr(x - 2.0, y - 2.0, w + 4.0, h + 4.0, (h / 2.0).min(10.0) + 2.0, color([0.45, 0.72, 1.0], 0.95), 1.6, false);
+        }
         self.mouse
             .get()
             .is_some_and(|(mx, my)| mx >= x + ox && mx <= x + ox + w && my >= y && my <= y + h)
@@ -1087,7 +1100,9 @@ impl Renderer {
             self.rt
                 .SetTransform(&mat(self.scale, self.ox.get() + dx, dy))
         };
+        self.focus_live.set(true);
         self.content(fr, an.scene, w, h, pad_r);
+        self.focus_live.set(false);
         self.morph.set(None);
         // The Home card already spells out mic/camera state.
         let home = an.scene == Scene::ExpHome;

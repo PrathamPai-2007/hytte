@@ -21,6 +21,9 @@ pub struct General {
     /// Tint the media glow with the album art's dominant colour.
     #[serde(default = "default_true")]
     pub adaptive_glow: bool,
+    /// Global hotkey that opens the pill for keyboard use, e.g. "Win+Alt+N". Empty = off.
+    #[serde(default)]
+    pub hotkey: String,
     /// "dark" (default), "light", or "auto" (follow the Windows app theme).
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -40,6 +43,45 @@ pub struct General {
     /// Seconds the pill opens to show a finished or failed task (0 = don't open).
     #[serde(default = "default_finish_peek")]
     pub finish_peek_secs: u64,
+}
+
+/// Modifier bits as `RegisterHotKey` wants them.
+pub const MOD_ALT: u32 = 1;
+pub const MOD_CONTROL: u32 = 2;
+pub const MOD_SHIFT: u32 = 4;
+pub const MOD_WIN: u32 = 8;
+
+/// Parse a hotkey such as "Win+Alt+N" or "ctrl+shift+F9" into (modifiers, virtual key).
+/// Needs at least one modifier and exactly one key (a letter, a digit or F1-F24), so a
+/// typo can't claim a bare key system-wide.
+pub fn parse_hotkey(s: &str) -> Option<(u32, u32)> {
+    let (mut mods, mut key) = (0u32, None);
+    for part in s.split('+').map(str::trim).filter(|p| !p.is_empty()) {
+        let p = part.to_ascii_lowercase();
+        match p.as_str() {
+            "alt" => mods |= MOD_ALT,
+            "ctrl" | "control" => mods |= MOD_CONTROL,
+            "shift" => mods |= MOD_SHIFT,
+            "win" | "windows" | "super" => mods |= MOD_WIN,
+            _ => {
+                let vk = match p.as_bytes() {
+                    [c @ b'a'..=b'z'] => Some(c.to_ascii_uppercase() as u32),
+                    [c @ b'0'..=b'9'] => Some(*c as u32),
+                    [b'f', rest @ ..] => std::str::from_utf8(rest)
+                        .ok()
+                        .and_then(|n| n.parse::<u32>().ok())
+                        .filter(|n| (1..=24).contains(n))
+                        .map(|n| 0x70 + n - 1),
+                    _ => None,
+                };
+                if key.replace(vk?).is_some() {
+                    return None;
+                }
+            }
+        }
+    }
+    (mods != 0).then_some(())?;
+    Some((mods, key?))
 }
 
 fn default_monitor() -> String {
@@ -70,6 +112,7 @@ impl Default for General {
             solid_pill: true,
             acrylic: false,
             adaptive_glow: true,
+            hotkey: String::new(),
             theme: default_theme(),
             renderer: default_renderer(),
             suppress_fullscreen: true,
@@ -484,5 +527,19 @@ mod tests {
         assert!(parse("[general\nautostart = ").is_none());
         assert!(with_autostart("[general\n", true).is_none());
         assert!(parse("").is_some(), "an empty file is all defaults");
+    }
+
+    #[test]
+    fn hotkey_parsing() {
+        assert_eq!(parse_hotkey("Win+Alt+N"), Some((MOD_WIN | MOD_ALT, b'N' as u32)));
+        assert_eq!(parse_hotkey("ctrl + shift + f9"), Some((MOD_CONTROL | MOD_SHIFT, 0x78)));
+        assert_eq!(parse_hotkey("Alt+1"), Some((MOD_ALT, b'1' as u32)));
+        // Needs a modifier, one key, and a key we know.
+        assert_eq!(parse_hotkey("N"), None);
+        assert_eq!(parse_hotkey("Alt"), None);
+        assert_eq!(parse_hotkey("Alt+N+M"), None);
+        assert_eq!(parse_hotkey("Alt+F25"), None);
+        assert_eq!(parse_hotkey("Alt+Enter"), None);
+        assert_eq!(parse_hotkey(""), None);
     }
 }
