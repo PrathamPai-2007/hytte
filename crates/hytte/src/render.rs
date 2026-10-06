@@ -154,6 +154,12 @@ pub struct Renderer {
     shimmer: RefCell<Option<([f32; 3], ID2D1LinearGradientBrush)>>,
     /// UTF-16 scratch for `text`, reused across calls.
     wide: RefCell<Vec<u16>>,
+    /// While the pill morphs between a compact scene and its expanded twin: how far along
+    /// (0 = compact, 1 = expanded). Shared elements slide by it; see `hero`.
+    morph: Cell<Option<f32>>,
+    /// Right edge available to the compact task label this frame (see `exp_label_w`): both
+    /// scenes of a morph must agree on the shared label's two end positions.
+    hero_right: Cell<f32>,
     /// Last pill silhouette, keyed by its size: ambient frames (spinner, pulses) repeat it.
     geom: RefCell<Option<([u32; 2], ID2D1PathGeometry)>>,
 }
@@ -331,6 +337,8 @@ impl Renderer {
                 shimmer: RefCell::new(None),
                 wide: RefCell::new(Vec::new()),
                 geom: RefCell::new(None),
+                morph: Cell::new(None),
+                hero_right: Cell::new(0.0),
             })
         }
     }
@@ -935,6 +943,9 @@ impl Renderer {
                 0.0
             };
         let fit = ((h - 14.0) / 10.0).clamp(0.0, 1.0);
+        self.morph.set(self.morph_for(fr));
+        self.hero_right
+            .set(w - 14.0 - pad_r - if m.visible_count() > 1 { 28.0 } else { 0.0 });
         // The scene being left fades out and drifts up, clipped to the pill as it
         // changes size. It is not interactive: no hover, and its hit areas are dropped.
         let o = an.out.pos.clamp(0.0, 1.0) as f32;
@@ -963,6 +974,7 @@ impl Renderer {
                 .SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0))
         };
         self.content(fr, an.scene, w, h, pad_r);
+        self.morph.set(None);
         // The Home card already spells out mic/camera state.
         let home = an.scene == Scene::ExpHome;
         if m.privacy_active() && !home {
@@ -1019,6 +1031,73 @@ impl Renderer {
             )
         {
             self.tabs(fr.model, w, h);
+        }
+    }
+
+    /// Progress of a compact <-> expanded transition of the same subject (media with media,
+    /// the task list with the compact task), taken from the pill's own height spring so the
+    /// shared elements move exactly as fast as the pill grows. None for any other change.
+    fn morph_for(&self, fr: &Frame) -> Option<f32> {
+        let an = fr.anim;
+        let exp = match (an.prev, an.scene) {
+            (Scene::CompactMedia, Scene::ExpMedia) | (Scene::ExpMedia, Scene::CompactMedia) => {
+                Scene::ExpMedia
+            }
+            (Scene::CompactTask, Scene::ExpTasks) | (Scene::ExpTasks, Scene::CompactTask) => {
+                Scene::ExpTasks
+            }
+            _ => return None,
+        };
+        let he = fr.model.size(exp).1 as f32;
+        Some(((an.rect.h.pos as f32 - 32.0) / (he - 32.0)).clamp(0.0, 1.0))
+    }
+
+    /// Where an element shared by a compact scene and its expanded twin goes. While the pill
+    /// morphs it slides between `compact` and `exp` and is drawn fully opaque (so the
+    /// cross-fading old and new scenes don't dim it); otherwise it is at `natural`. Returns
+    /// the rect and what to restore with `hero_end`. The scenes' own slide-and-drift offsets
+    /// are dropped too, or the outgoing and incoming copies would sit a few pixels apart.
+    fn hero(
+        &self,
+        compact: [f32; 4],
+        exp: [f32; 4],
+        natural: [f32; 4],
+    ) -> ([f32; 4], Option<(f32, Matrix3x2)>) {
+        match self.morph.get() {
+            Some(p) => {
+                let mut r = [0.0; 4];
+                for i in 0..4 {
+                    r[i] = compact[i] + (exp[i] - compact[i]) * p;
+                }
+                let mut m = Matrix3x2::default();
+                // SAFETY: `m` is a valid out-struct for the call.
+                unsafe {
+                    self.rt.GetTransform(&mut m);
+                    self.rt.SetTransform(&mat(self.scale, self.ox.get(), 0.0));
+                }
+                (r, Some((self.ca.replace(1.0), m)))
+            }
+            None => (natural, None),
+        }
+    }
+
+    /// Width of a task row's label in the expanded list.
+    fn exp_label_w(w: f32, t: &TaskView) -> f32 {
+        w - 42.0 - 74.0 - if t.running() { 0.0 } else { 24.0 } - 22.0
+    }
+
+    /// The compact task label's rect and the same label's rect in the first expanded row.
+    fn label_ends(&self, w: f32, t: &TaskView) -> ([f32; 4], [f32; 4]) {
+        (
+            [38.0, 6.0, self.hero_right.get() - 62.0 - 46.0, 17.0],
+            [42.0, 17.0, Self::exp_label_w(w, t), 20.0],
+        )
+    }
+
+    fn hero_end(&self, saved: Option<(f32, Matrix3x2)>) {
+        if let Some((a, m)) = saved {
+            self.ca.set(a);
+            unsafe { self.rt.SetTransform(&m) };
         }
     }
 
@@ -1285,7 +1364,14 @@ impl Renderer {
                     .SetTransform(&mat(self.scale, self.ox.get() + dx, 0.0))
             };
         }
-        self.status_icon(t, 20.0, h / 2.0 - 1.5, now);
+        // The icon and label are shared with the first row of the expanded list.
+        let (ic, saved) = self.hero(
+            [20.0, 14.5, 0.0, 0.0],
+            [24.0, 27.0, 0.0, 0.0],
+            [20.0, h / 2.0 - 1.5, 0.0, 0.0],
+        );
+        self.status_icon(t, ic[0], ic[1], now);
+        self.hero_end(saved);
         let mut right = w - 14.0 - pad_r;
         let n = m.visible_count();
         if n > 1 {
@@ -1319,15 +1405,18 @@ impl Renderer {
             17.0,
             self.cc(task_color(t), 0.95),
         );
+        let (lc, le) = self.label_ends(w, t);
+        let (lb, saved) = self.hero(lc, le, [38.0, h / 2.0 - 10.0, right - rw - 46.0, 17.0]);
         self.text(
             &t.label,
             &self.f.title,
-            38.0,
-            h / 2.0 - 10.0,
-            right - rw - 46.0,
-            17.0,
+            lb[0],
+            lb[1],
+            lb[2],
+            lb[3],
             self.cc(WHITE, 0.94),
         );
+        self.hero_end(saved);
         self.filament(t, 14.0, h - 5.0, w - 28.0, fr.dt, now);
     }
 
@@ -1385,7 +1474,13 @@ impl Renderer {
         let Some(md) = fr.model.media.as_ref() else {
             return;
         };
-        self.art_tile(fr.model, 8.0, h / 2.0 - 10.0, 20.0, 5.0);
+        let (a, saved) = self.hero(
+            [8.0, 6.0, 20.0, 5.0],
+            [16.0, 16.0, 72.0, 12.0],
+            [8.0, h / 2.0 - 10.0, 20.0, 5.0],
+        );
+        self.art_tile(fr.model, a[0], a[1], a[2], a[3]);
+        self.hero_end(saved);
         let right = w - 14.0 - pad_r;
         self.eq_bars(right - 16.0, h / 2.0 - 7.0, 14.0, md.playing, GREEN);
         let label = if md.artist.is_empty() {
@@ -1407,7 +1502,7 @@ impl Renderer {
     fn exp_tasks(&self, fr: &Frame, w: f32, _h: f32) {
         let now = fr.now;
         let mut y = 10.0;
-        for t in fr.model.rows() {
+        for (row, t) in fr.model.rows().into_iter().enumerate() {
             let cy = y + 17.0;
             let finished = !t.running();
             let right_w = 74.0;
@@ -1427,16 +1522,35 @@ impl Renderer {
             if row_hov {
                 self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(WHITE, 0.05));
             }
-            self.status_icon(t, 24.0, cy, now);
+            // The first row is the compact task's twin: its icon and label slide in from there.
+            let first = row == 0;
+            let (ic, saved) = if first {
+                self.hero(
+                    [20.0, 14.5, 0.0, 0.0],
+                    [24.0, 27.0, 0.0, 0.0],
+                    [24.0, cy, 0.0, 0.0],
+                )
+            } else {
+                ([24.0, cy, 0.0, 0.0], None)
+            };
+            self.status_icon(t, ic[0], ic[1], now);
+            self.hero_end(saved);
+            let (lb, saved) = if first {
+                let (lc, le) = self.label_ends(w, t);
+                self.hero(lc, le, [42.0, y + 7.0, label_w, 20.0])
+            } else {
+                ([42.0, y + 7.0, label_w, 20.0], None)
+            };
             self.text(
                 &t.label,
                 &self.f.title,
-                42.0,
-                y + 7.0,
-                label_w,
-                20.0,
+                lb[0],
+                lb[1],
+                lb[2],
+                lb[3],
                 self.cc(WHITE, 0.95),
             );
+            self.hero_end(saved);
             self.text(
                 &self.task_right_text(t, now),
                 &self.f.small_r,
@@ -1530,7 +1644,13 @@ impl Renderer {
         let Some(md) = fr.model.media.as_ref() else {
             return;
         };
-        self.art_tile(fr.model, 16.0, 16.0, 72.0, 12.0);
+        let (a, saved) = self.hero(
+            [8.0, 6.0, 20.0, 5.0],
+            [16.0, 16.0, 72.0, 12.0],
+            [16.0, 16.0, 72.0, 12.0],
+        );
+        self.art_tile(fr.model, a[0], a[1], a[2], a[3]);
+        self.hero_end(saved);
         let tx = 102.0;
         let right = w - 16.0;
         // Art + title open the playing app.
