@@ -211,6 +211,8 @@ mod win {
         vdm: Option<IVirtualDesktopManager>,
         thumb_req: std::collections::HashSet<u64>,
         tabs: Sender<crate::tabs::Cmd>,
+        /// The left button is down over a clickable region.
+        pressed: bool,
         /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
         wheel: i32,
     }
@@ -413,6 +415,7 @@ mod win {
                             self.save_shelf();
                             self.model.peek(Panel::Shelf, now + Duration::from_secs(5));
                             self.model.force_until = Some(now + Duration::from_secs(5));
+                            self.anim.squash();
                         }
                     }
                     UiEvent::Thumb(id, bmp) => {
@@ -430,6 +433,7 @@ mod win {
                         self.model.privacy_app = app;
                     }
                     UiEvent::DropDone(r) => {
+                        self.anim.squash();
                         self.model.chip = Some(Chip {
                             summary: r.summary,
                             open: r.open,
@@ -551,6 +555,8 @@ mod win {
             }
             self.request_thumbs();
             self.layout();
+            // `nav` only applies to the layout it was set for.
+            self.anim.nav = 0.0;
             self.kick();
         }
 
@@ -599,6 +605,7 @@ mod win {
                     dt,
                     mouse: self.mouse_logical(),
                     acrylic: self.cfg.general.acrylic,
+                    pressed: self.pressed,
                     armed: self.armed,
                 };
                 self.rend.draw(&fr, crop, &mut self.hits);
@@ -781,6 +788,14 @@ mod win {
         }
 
         fn select_panel(&mut self, p: Panel) {
+            // Page direction for the slide: towards a later panel is "next".
+            let ps = self.model.panels();
+            let at = |q: Panel| ps.iter().position(|x| *x == q);
+            self.anim.nav = match (at(self.model.panel()), at(p)) {
+                (Some(a), Some(b)) if b > a => 1.0,
+                (Some(a), Some(b)) if b < a => -1.0,
+                _ => 0.0,
+            };
             self.model.timer_panel = false;
             self.model.selected = Some(p);
             match p {
@@ -811,6 +826,8 @@ mod win {
             // Wheel down = next pane. Collapsed pills peek open so the change is visible.
             let p = self.model.step_panel(-steps.signum());
             self.select_panel(p);
+            // `step_panel` already moved the selection, so give the slide its direction here.
+            self.anim.nav = -steps.signum() as f32;
             if !self.hover {
                 self.model.peek(p, Instant::now() + Duration::from_secs(3));
             }
@@ -964,6 +981,7 @@ mod win {
                 thumb_req: Default::default(),
                 tabs: crate::tabs::spawn(),
                 wheel: 0,
+                pressed: false,
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             if ui.cfg.shelf.persist {
@@ -1493,6 +1511,8 @@ mod win {
             WM_LBUTTONDOWN => {
                 with_ui(|ui| {
                     ui.set_mouse_client(lparam);
+                    ui.pressed = ui.hit_at().is_some();
+                    ui.kick();
                     ui.drag = match ui.hit_at().map(|h| h.action.clone()) {
                         Some(Action::ShelfTile(id)) => ui.mouse.map(|p| (id, p)),
                         _ => None,
@@ -1509,6 +1529,8 @@ mod win {
             WM_LBUTTONUP => {
                 with_ui(|ui| {
                     ui.set_mouse_client(lparam);
+                    ui.pressed = false;
+                    ui.kick();
                     // A press that never became a drag is a click.
                     ui.drag = None;
                     unsafe {

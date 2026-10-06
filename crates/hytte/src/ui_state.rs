@@ -645,6 +645,11 @@ pub struct Anim {
     pub prev: Scene,
     pub out: Spring,
     pub reduce: bool,
+    /// Which way the user is paging (-1 previous, +1 next), set just before a layout that
+    /// changes the scene and consumed by it. 0 = not a user page change.
+    pub nav: f32,
+    /// `nav` as it was when the current scene started: the content slides in from that side.
+    pub slide: f32,
 }
 
 impl Anim {
@@ -663,6 +668,17 @@ impl Anim {
             prev: Scene::Idle,
             out: Spring::unit(0.0, 1.0, 0.16),
             reduce: false,
+            nav: 0.0,
+            slide: 0.0,
+        }
+    }
+
+    /// A quick squash-and-settle of the pill: widens and flattens a little, then the
+    /// springs carry it back. Used when a drop lands.
+    pub fn squash(&mut self) {
+        if !self.reduce {
+            self.rect.w.vel += 160.0;
+            self.rect.h.vel -= 110.0;
         }
     }
 
@@ -675,6 +691,7 @@ impl Anim {
             self.out.vel = 0.0;
             self.out.set_target(0.0);
             self.scene = scene;
+            self.slide = std::mem::take(&mut self.nav);
             self.content.pos = 0.0;
             self.content.vel = 0.0;
         }
@@ -1043,5 +1060,32 @@ bang"
         assert_eq!(m.expire(t0), Some(t0 + CHARGE_HOLD));
         assert_eq!(m.expire(t0 + CHARGE_HOLD), None);
         assert_eq!(m.scene(false, false), Scene::Idle);
+    }
+
+    #[test]
+    fn paging_direction_belongs_to_one_scene_change() {
+        let mut a = Anim::new(100.0, 24.0);
+        let size = (380.0, 100.0);
+        let glow = ([1.0; 3], 0.0);
+        a.nav = 1.0;
+        a.set_scene(Scene::ExpMedia, size, glow);
+        assert_eq!((a.slide, a.nav), (1.0, 0.0));
+        // Re-laying out the same scene keeps the side it slid in from.
+        a.set_scene(Scene::ExpMedia, size, glow);
+        assert_eq!(a.slide, 1.0);
+        // A change nobody paged for (a peek) goes back to the plain drift.
+        a.set_scene(Scene::ExpHome, size, glow);
+        assert_eq!(a.slide, 0.0);
+    }
+
+    #[test]
+    fn squash_adds_motion_unless_reduced() {
+        let mut a = Anim::new(100.0, 24.0);
+        a.squash();
+        assert!(a.rect.w.vel > 0.0 && a.rect.h.vel < 0.0);
+        let mut b = Anim::new(100.0, 24.0);
+        b.reduce = true;
+        b.squash();
+        assert_eq!((b.rect.w.vel, b.rect.h.vel), (0.0, 0.0));
     }
 }

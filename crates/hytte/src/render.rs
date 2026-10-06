@@ -98,6 +98,8 @@ pub struct Frame<'a> {
     pub dt: f32,
     pub mouse: Option<(f32, f32)>,
     pub acrylic: bool,
+    /// The left button is held down (buttons under the pointer press in).
+    pub pressed: bool,
     /// A drag is in flight near the top edge: widen the (invisible) hit zone.
     pub armed: bool,
 }
@@ -157,6 +159,7 @@ pub struct Renderer {
     /// While the pill morphs between a compact scene and its expanded twin: how far along
     /// (0 = compact, 1 = expanded). Shared elements slide by it; see `hero`.
     morph: Cell<Option<f32>>,
+    pressed: Cell<bool>,
     /// Right edge available to the compact task label this frame (see `exp_label_w`): both
     /// scenes of a morph must agree on the shared label's two end positions.
     hero_right: Cell<f32>,
@@ -338,6 +341,7 @@ impl Renderer {
                 wide: RefCell::new(Vec::new()),
                 geom: RefCell::new(None),
                 morph: Cell::new(None),
+                pressed: Cell::new(false),
                 hero_right: Cell::new(0.0),
             })
         }
@@ -448,6 +452,7 @@ impl Renderer {
         self.hits.borrow_mut().clear();
         self.mouse.set(fr.mouse);
         self.t.set(fr.anim.t as f32);
+        self.pressed.set(fr.pressed);
         self.sync_art(fr.model);
         let (pw, ph) = (fr.anim.rect.w.pos as f32, fr.anim.rect.h.pos as f32);
         let ox = (crop.w_log - pw) / 2.0;
@@ -791,7 +796,20 @@ impl Renderer {
         action: Action,
     ) {
         let hov = self.hit(x, y, w, h, action);
-        let a = if hov { 0.26 } else { 0.13 };
+        // Pressed in: a touch smaller and brighter while the button is held.
+        let down = hov && self.pressed.get();
+        let (x, y, w, h) = if down {
+            (x + w * 0.03, y + h * 0.03, w * 0.94, h * 0.94)
+        } else {
+            (x, y, w, h)
+        };
+        let a = if down {
+            0.36
+        } else if hov {
+            0.26
+        } else {
+            0.13
+        };
         self.fill_rr(x, y, w, h, h / 2.0, self.cc(accent, a));
         self.text(
             label,
@@ -954,8 +972,13 @@ impl Renderer {
             let mouse = self.mouse.take();
             let n = self.hits.borrow().len();
             unsafe {
+                let (dx, dy) = if an.slide != 0.0 {
+                    (-an.slide * (1.0 - o) * 16.0, 0.0)
+                } else {
+                    (0.0, -(1.0 - o) * 4.0)
+                };
                 self.rt
-                    .SetTransform(&mat(self.scale, self.ox.get(), -(1.0 - o) * 4.0));
+                    .SetTransform(&mat(self.scale, self.ox.get() + dx, dy));
                 self.rt
                     .PushAxisAlignedClip(&rect(0.0, 0.0, w, h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
             }
@@ -969,9 +992,14 @@ impl Renderer {
         // Content fades/slides in on scene change.
         let c = an.content.pos.clamp(0.0, 1.0) as f32;
         self.ca.set(c * fit);
+        let (dx, dy) = if an.slide != 0.0 {
+            (an.slide * (1.0 - c) * 16.0, 0.0)
+        } else {
+            (0.0, (1.0 - c) * 6.0)
+        };
         unsafe {
             self.rt
-                .SetTransform(&mat(self.scale, self.ox.get(), (1.0 - c) * 6.0))
+                .SetTransform(&mat(self.scale, self.ox.get() + dx, dy))
         };
         self.content(fr, an.scene, w, h, pad_r);
         self.morph.set(None);
