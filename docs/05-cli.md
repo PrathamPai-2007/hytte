@@ -35,7 +35,7 @@ Because the task's `pid` is the `notch` process, closing the terminal turns the 
 
 Sends one `Progress` message with `progress = N` (0–100). Use the same `--task` on every call to update one entry; without it, every call creates a new task. No `pid` is sent, so the 30 s silence rule applies.
 
-### `notch agent <start|needs-input|resume|done|fail> [--name N] [--pid P] [--message M]` (`cli/agent.rs`)
+### `notch agent <start|needs-input|resume|tool|done|fail> [--name N] [--pid P] [--message M] [--detail D]` (`cli/agent.rs`)
 
 | Subcommand | Event |
 |---|---|
@@ -50,6 +50,8 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 - The task id is `agent:<name>:<pid>`, so all of one agent's events update a single row.
 - `needs-input` without `--message` reads **stdin** when it isn't a terminal (up to 64 KiB), parses it as JSON, and uses its `message` field (first 300 characters). That is exactly the payload Claude Code's `Notification` hook pipes in.
 
+`notch agent tool` reports what the agent is doing *right now*, as a `Progress` update whose `line` is a short phrase. With `--detail "text"` the text is used as is; with no `--detail` it reads a Claude Code `PreToolUse` payload (`{"tool_name": ..., "tool_input": ...}`) from stdin and `describe_tool` turns it into a phrase: `Editing render.rs`, `Reading lib.rs`, `Running: cargo build`, `Searching: fn main`, `Subagent: ...`, `Using create_issue` (MCP tools), capped at 120 characters. If neither is available it sends nothing. Each agent keeps its own row (the task id is `agent:<name>:<pid>`), so two agents show two rows with their own step and elapsed time.
+
 `notch agent hooks claude` prints a ready-made Claude Code hooks block:
 
 | Claude Code hook | Runs |
@@ -57,6 +59,8 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 | `UserPromptSubmit` | `notch agent resume --name "Claude Code"` |
 | `Notification` | `notch agent needs-input --name "Claude Code"` |
 | `Stop` | `notch agent done --name "Claude Code"` |
+
+`notch agent hooks claude --tools` prints the same block plus a `PreToolUse` hook (`notch agent tool --name "Claude Code"`, matcher `*`) for the live view. It is opt-in because it runs `notch` before every tool call; `notch` starts in a few milliseconds, but it is still a process per call.
 
 ### `notch ports [--all]` and `notch kill :PORT [--force]` (`cli/portscmd.rs`)
 

@@ -24,6 +24,10 @@ It has three parts:
 | `Thumb(id, bitmap)` | thumbnail loader | Uploads a shelf thumbnail to the renderer. |
 | `DropDone(DropResult)` | Drop Vault worker | Shows the result chip. |
 | `SetClipboard(String)` | Drop Vault worker | Puts text on the clipboard (only the UI thread owns the clipboard window). |
+| `Hog(Alert)` | port watcher tick | A warning card for a process that kept using a lot of CPU or memory, unless that exe is muted or another card is showing. |
+| `DownloadDone { name, path }` | downloads watcher | The "finished downloading" card with Open and Shelve. |
+| `TaskGone(id)` | downloads watcher | `Model::remove_task`: a cancelled download leaves without a trace. |
+| `Calendar(Option<NextEvent>)` | calendar watcher | `Model::set_calendar`: arms the heads-up for the next event. |
 | `DragEnter` / `DragLeave` | OLE drop target | `drop_over`: the purple drop zone. |
 
 ## `Model`: the state
@@ -38,7 +42,8 @@ The important fields, grouped:
 | Ports | `ports`, `kill_armed: Option<(port, until)>` |
 | Shelf | `shelf: Vec<ShelfItem>`, `shelf_sel` (the selected tile) |
 | Navigation | `selected: Option<Panel>`, `peek_until`, `force_until`, `drop_over` |
-| Results | `chip: Option<Chip>` |
+| Results | `chip: Option<Chip>`, `chip_armed` (a Kill button was clicked once), `hog_ignore` (exes muted for the session) |
+| Calendar | `calendar` (the next event and when its heads-up is due), `calendar_seen` |
 | Timer | `timer`, `timer_panel` (the right-click panel is open), `timer_min`, `timer_done`, `timer_break`, `focus_done` |
 | Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`) |
 | Clock | `now`: the last time the model was advanced; visibility rules compare against it |
@@ -68,7 +73,7 @@ When expanded, the pill shows one **panel**. `Model::panels()` lists the panels 
 |---|---|---|
 | 1 | Fullscreen suppression is on, the pointer isn't on the pill, and nothing is forcing it visible | `Sentinel` |
 | 2 | Something is being dragged over the pill (`drop_over`) | `ExpDrop` |
-| 3 | A result chip exists | `ExpChip` |
+| 3 | A card (chip) exists | `ExpChip` |
 | 4 | A timer just finished (`timer_done`) | `ExpTimerDone` |
 | 5 | The right-click timer panel is open | `ExpTimer` |
 | 6 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()`: `ExpTasks`, `ExpShelf`, `ExpMedia`, `ExpPorts`, `ExpTimer` or `ExpHome` |
@@ -123,7 +128,8 @@ Many things disappear on their own: finished tasks, chips, peeks, an armed **Kil
    |---|---|
    | `Done` task | 3 s (`SUCCESS_HOLD`) |
    | `Lost` task | 5 s (`LOST_HOLD`) |
-   | Chip | 10 s (`CHIP_HOLD`) |
+   | Card (chip) | its own `hold`: 10 s (`CHIP_HOLD`) by default, 20 s for a resource-hog warning, 60 s for a calendar heads-up |
+   | Armed chip **Kill?** | 3 s (`KILL_CONFIRM`) |
    | Armed **Kill?** | 3 s (`KILL_CONFIRM`) |
    | Timer-finished card | 30 s (`TIMER_DONE_HOLD`) |
    | Plug-in card | 3 s (`CHARGE_HOLD`) |
@@ -159,18 +165,30 @@ The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant
 
 `Anim::set_scene(scene, size, glow)` is called on every layout. When the scene changes, it moves the old scene to `prev`, starts `out` from the old content's current opacity, and restarts `content` at 0. `Anim::step(dt)` advances every spring and returns whether anything is still moving.
 
-## Bubbles
+## Cards (chips)
 
-`Model::bubble(scene)` says whether a second activity should split off beside a **compact** scene as a small pill of its own:
+`Chip` is the one card scene (`ExpChip`, 380 × 96) that every "something happened" feature reuses, so a new alert doesn't need a new scene:
 
-| Beside | Bubble | Shows |
+| Field | Meaning |
+|---|---|
+| `summary` | The sentence (up to two lines). |
+| `open`, `copy` | The classic **Open** and **Copy** buttons (Drop Vault results). |
+| `extra` | More buttons: `(label, ChipAction)` in order, drawn before **Dismiss**. |
+| `hold` | How long it stays (default `CHIP_HOLD`, 10 s). |
+| `tone` | The icon: `Done` (purple tick), `Warn` (amber `!`) or `Info` (blue `i`). |
+
+`ChipAction` is what an extra button does: `OpenUrl` (only `http`/`https` links reach the shell), `Shelve(path)` (puts a file on the shelf through the normal `ShelfAdd` path), `KillPid(pid)` (the first click arms it, the label turns **Kill?** and the button red for 3 s; the second click terminates the process through `hytte_proto::ports::kill`, which refuses pid 0, 4 and itself) and `IgnoreExe(name)` (adds to `hog_ignore`). The features that use cards:
+
+| Feature | Card | Buttons |
 |---|---|---|
-| `CompactTask` or `CompactMedia`, timer running | `Bubble::Timer` | The remaining time as a clock (red under a minute) |
-| `CompactTask`, music playing, no timer | `Bubble::Media` | The album art |
+| Drop Vault, port kill | Result | Open, Copy, Dismiss |
+| Resource hog (`hog.rs`, `[hog]`) | Warn: "`node.exe` has used 92% CPU for 30 s" or "... is using 5.2 GB of memory" | Kill (confirmed), Ignore, Dismiss |
+| Downloads (`downloads.rs`, `[downloads]`) | "`file.zip` finished downloading" | Open, Shelve, Dismiss |
+| Calendar (`calendar.rs`, `[calendar]`) | Info: "Design review starts in 9 min" | Join (when there is a link), Dismiss |
 
-Expanded scenes show the same things as panels, so they get no bubble. The layout step passes the answer to `Anim::set_bubble`, which points the `bubble` spring (0.72 / 0.34 s, so it overshoots a little) at 1 or 0. `bubble_kind` keeps the last kind so a retracting bubble can still be drawn, and `bubble_room()` is the extra width (`BUBBLE_ROOM`, 72 px) the crop and window region must make room for while any of it is out.
+A new card never replaces one that is showing: an alert that arrives meanwhile is dropped (the sampler or watcher has already counted it as reported).
 
-## Paging, squash and other motion state
+## Bubbles## Paging, squash and other motion state
 
 - `Anim::nav` is the direction the user is paging (+1 next, -1 previous); the wheel, the tab dots and the keyboard set it just before a layout. `set_scene` moves it to `slide` when the scene changes, and the renderer slides the new content in from that side (and the old content out the other way) instead of the plain vertical drift. A change nobody paged for, such as a peek, keeps the drift. `after_model_change` clears `nav` so it only ever applies to the layout it was set for.
 - `Anim::squash` gives the size springs a small impulse (width +160, height −110 px/s), so the pill squashes and settles. It is called when items land on the shelf and when a Drop Vault result arrives; it does nothing under reduced motion.
