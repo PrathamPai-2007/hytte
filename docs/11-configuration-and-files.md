@@ -60,6 +60,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `solid_pill` | `true` | Reserved. |
 | `acrylic` | `false` | Draw the pill body at 84 % opacity instead of solid. There is no blur behind it. |
 | `theme` | `"dark"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
+| `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. |
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `renderer` | `"gpu"` | `"gpu"`: Direct2D into a DirectComposition swap chain. `"classic"`: Direct2D into a layered window. Read at startup only (the window's style depends on it), so changing it needs a restart. If the GPU pipeline can't start, Hytte uses `classic` anyway. |
