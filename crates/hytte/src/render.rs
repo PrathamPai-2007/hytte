@@ -135,6 +135,8 @@ pub struct Renderer {
     shimmer: RefCell<Option<([f32; 3], ID2D1LinearGradientBrush)>>,
     /// UTF-16 scratch for `text`, reused across calls.
     wide: RefCell<Vec<u16>>,
+    /// Last pill silhouette, keyed by its size: ambient frames (spinner, pulses) repeat it.
+    geom: RefCell<Option<([u32; 2], ID2D1PathGeometry)>>,
 }
 
 const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
@@ -269,6 +271,7 @@ impl Renderer {
                 body: RefCell::new(None),
                 shimmer: RefCell::new(None),
                 wide: RefCell::new(Vec::new()),
+                geom: RefCell::new(None),
             })
         }
     }
@@ -621,6 +624,18 @@ impl Renderer {
     // ------------------------------------------------------------------ shape
 
     fn pill_geometry(&self, w: f32, h: f32, rb: f32, e: f32) -> Option<ID2D1PathGeometry> {
+        let key = [w.to_bits(), h.to_bits()];
+        if let Some((k, g)) = self.geom.borrow().as_ref() {
+            if *k == key {
+                return Some(g.clone());
+            }
+        }
+        let g = self.build_pill_geometry(w, h, rb, e)?;
+        *self.geom.borrow_mut() = Some((key, g.clone()));
+        Some(g)
+    }
+
+    fn build_pill_geometry(&self, w: f32, h: f32, rb: f32, e: f32) -> Option<ID2D1PathGeometry> {
         unsafe {
             let g = self.factory.CreatePathGeometry().ok()?;
             let s = g.Open().ok()?;
