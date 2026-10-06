@@ -438,6 +438,20 @@ mod win {
                         }
                     }
                     UiEvent::Ports(p) => self.model.set_ports(p),
+                    UiEvent::Hog(a) => {
+                        // Never over another card, and never for a process the user muted.
+                        let muted = self.model.hog_ignore.contains(&a.exe.to_ascii_lowercase());
+                        if !muted && self.model.chip.is_none() {
+                            let mut c = Chip::new(a.summary(), now);
+                            c.tone = crate::ui_state::Tone::Warn;
+                            c.hold = Duration::from_secs(20);
+                            c.extra = vec![
+                                ("Kill".into(), ChipAction::KillPid(a.pid)),
+                                ("Ignore".into(), ChipAction::IgnoreExe(a.exe)),
+                            ];
+                            self.model.chip = Some(c);
+                        }
+                    }
                     UiEvent::ShelfAdd(job) => {
                         // Copying (shelf.mode = "copy") and writing text snippets can take
                         // a while: do the file work on a worker so the pill keeps animating.
@@ -509,6 +523,9 @@ mod win {
             }
             if new.ports != self.cfg.ports {
                 crate::ports::reconfigure(new.ports.clone());
+            }
+            if new.hog != self.cfg.hog {
+                crate::ports::reconfigure_hog(new.hog.clone());
             }
             self.model.ignore = ignore_list(&new);
             self.light = theme_is_light(&new.general.theme);

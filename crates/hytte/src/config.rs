@@ -219,6 +219,41 @@ impl Default for Ports {
     }
 }
 
+/// Alert when one process keeps using a lot of CPU or memory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hog {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Percent of the whole machine, all cores together.
+    #[serde(default = "d_hog_cpu")]
+    pub cpu_pct: u32,
+    /// Working set in MB.
+    #[serde(default = "d_hog_mem")]
+    pub mem_mb: u64,
+    /// How long the CPU has to stay over the limit.
+    #[serde(default = "d_hog_secs")]
+    pub secs: u64,
+}
+fn d_hog_cpu() -> u32 {
+    80
+}
+fn d_hog_mem() -> u64 {
+    4096
+}
+fn d_hog_secs() -> u64 {
+    30
+}
+impl Default for Hog {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cpu_pct: d_hog_cpu(),
+            mem_mb: d_hog_mem(),
+            secs: d_hog_secs(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Agent {
     #[serde(default = "d_peek")]
@@ -282,6 +317,8 @@ pub struct Config {
     pub shelf: Shelf,
     #[serde(default)]
     pub ports: Ports,
+    #[serde(default)]
+    pub hog: Hog,
     #[serde(default)]
     pub agent: Agent,
 }

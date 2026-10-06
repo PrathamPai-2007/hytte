@@ -13,6 +13,7 @@ mod drop;
 mod fullscreen;
 #[cfg(windows)]
 mod gpu;
+mod hog;
 mod logging;
 mod media;
 mod mic;
@@ -74,7 +75,7 @@ fn main() {
     privacy::spawn_watcher(ui_tx.clone());
     mic::spawn_watcher(ui_tx.clone());
     power::spawn_watcher(ui_tx.clone());
-    ports::spawn_watcher(cfg.ports.clone(), ui_tx.clone());
+    ports::spawn_watcher(cfg.ports.clone(), cfg.hog.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();
