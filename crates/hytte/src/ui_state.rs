@@ -178,6 +178,19 @@ pub enum Scene {
     ExpCharge,
 }
 
+/// A second, smaller pill that splits off beside a compact one when two live activities
+/// compete for the same collapsed space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bubble {
+    /// The countdown timer, as a clock.
+    Timer,
+    /// The music that is playing, as its album art.
+    Media,
+}
+
+/// Logical px to the right of the pill that the bubble can occupy (gap + widest bubble).
+pub const BUBBLE_ROOM: f32 = 72.0;
+
 #[derive(Default)]
 pub struct Model {
     pub tasks: Vec<TaskView>,
@@ -485,6 +498,18 @@ impl Model {
             .min_by(|a, b| Self::row_order(a, b))
     }
 
+    /// The second activity to show as a bubble next to a compact scene, if any: the timer
+    /// first, then playing music beside a task. Expanded scenes show these as panels instead.
+    pub fn bubble(&self, scene: Scene) -> Option<Bubble> {
+        match scene {
+            Scene::CompactTask | Scene::CompactMedia if self.timer.is_some() => Some(Bubble::Timer),
+            Scene::CompactTask if self.media.as_ref().is_some_and(|m| m.playing) => {
+                Some(Bubble::Media)
+            }
+            _ => None,
+        }
+    }
+
     /// Panels that currently have something to show, in priority order.
     pub fn panels(&self) -> Vec<Panel> {
         let mut v = vec![];
@@ -698,6 +723,10 @@ pub struct Anim {
     /// Which way the user is paging (-1 previous, +1 next), set just before a layout that
     /// changes the scene and consumed by it. 0 = not a user page change.
     pub nav: f32,
+    /// 0..1 how far the bubble has split off (springs a little past 1).
+    pub bubble: Spring,
+    /// The bubble being shown, kept while it retracts so it can still be drawn.
+    pub bubble_kind: Option<Bubble>,
     /// `nav` as it was when the current scene started: the content slides in from that side.
     pub slide: f32,
 }
@@ -720,6 +749,8 @@ impl Anim {
             reduce: false,
             nav: 0.0,
             slide: 0.0,
+            bubble: Spring::unit(0.0, 0.72, 0.34),
+            bubble_kind: None,
         }
     }
 
@@ -729,6 +760,26 @@ impl Anim {
         if !self.reduce {
             self.rect.w.vel += 160.0;
             self.rect.h.vel -= 110.0;
+        }
+    }
+
+    /// Point the bubble spring at the wanted state (`Some` = split off).
+    pub fn set_bubble(&mut self, kind: Option<Bubble>) {
+        if kind.is_some() {
+            self.bubble_kind = kind;
+        }
+        self.bubble.set_target(kind.is_some() as u8 as f64);
+        if self.reduce {
+            self.bubble.snap();
+        }
+    }
+
+    /// Logical px of room the bubble needs beside the pill right now.
+    pub fn bubble_room(&self) -> f32 {
+        if self.bubble.pos > 0.001 {
+            BUBBLE_ROOM
+        } else {
+            0.0
         }
     }
 
@@ -763,6 +814,7 @@ impl Anim {
         if self.reduce {
             self.hover.snap();
             self.vis.snap();
+            self.bubble.snap();
             return false;
         }
         let a = self.rect.advance(dt);
@@ -771,7 +823,8 @@ impl Anim {
         let d = self.hover.advance(dt);
         let e = self.vis.advance(dt);
         let f = self.out.advance(dt);
-        a || b || c || d || e || f
+        let g = self.bubble.advance(dt);
+        a || b || c || d || e || f || g
     }
 }
 
@@ -1186,5 +1239,43 @@ bang"
         // A finished task has no ticker.
         m.apply_task(st("a", TaskEvent::Done, t0), t0);
         assert!(!m.tasks[0].shows_line());
+    }
+
+    #[test]
+    fn a_second_activity_splits_off_as_a_bubble() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(st("a", TaskEvent::Start, t0), t0);
+        assert_eq!(m.bubble(Scene::CompactTask), None);
+
+        // Music playing beside a task.
+        m.media = Some(MediaInfo {
+            title: "t".into(),
+            artist: "a".into(),
+            playing: true,
+            app: String::new(),
+            pos_ms: 0,
+            dur_ms: 0,
+        });
+        assert_eq!(m.bubble(Scene::CompactTask), Some(Bubble::Media));
+        // The timer outranks the music, and also joins compact media.
+        m.timer = Some(crate::timer::Timer::start(crate::timer::TimerKind::Plain, 5, 0));
+        assert_eq!(m.bubble(Scene::CompactTask), Some(Bubble::Timer));
+        assert_eq!(m.bubble(Scene::CompactMedia), Some(Bubble::Timer));
+        // Expanded scenes show these as panels instead.
+        assert_eq!(m.bubble(Scene::ExpTasks), None);
+        assert_eq!(m.bubble(Scene::Idle), None);
+    }
+
+    #[test]
+    fn bubble_room_only_while_it_is_out() {
+        let mut a = Anim::new(100.0, 24.0);
+        assert_eq!(a.bubble_room(), 0.0);
+        a.set_bubble(Some(Bubble::Timer));
+        a.step(0.05);
+        assert_eq!(a.bubble_room(), BUBBLE_ROOM);
+        // The kind survives while it retracts.
+        a.set_bubble(None);
+        assert_eq!(a.bubble_kind, Some(Bubble::Timer));
     }
 }

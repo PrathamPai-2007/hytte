@@ -14,7 +14,7 @@
 
 use crate::gpu::Gpu;
 use crate::power::Mode;
-use crate::ui_state::{Anim, Model, Panel, Scene, TaskView, LOCK_W};
+use crate::ui_state::{Anim, Bubble, Model, Panel, Scene, TaskView, LOCK_W};
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -425,9 +425,10 @@ impl Renderer {
     }
 
     /// Bounding box of the pill + glow (or the whole hot zone while a drag is armed).
-    pub fn plan(&self, pw: f32, ph: f32, armed: bool) -> Crop {
+    /// `room` is extra width (each side, so the pill stays centred) for a bubble beside it.
+    pub fn plan(&self, pw: f32, ph: f32, armed: bool, room: f32) -> Crop {
         const MARGIN: f32 = 28.0;
-        let (mut w, mut h) = (pw + 2.0 * MARGIN, ph + MARGIN);
+        let (mut w, mut h) = (pw + 2.0 * (MARGIN + room), ph + MARGIN);
         if armed {
             w = w.max(CANVAS_W);
             h = h.max(HOT_ZONE_H);
@@ -978,7 +979,50 @@ impl Renderer {
 
     // ----------------------------------------------------------------- scenes
 
+    /// The small pill split off to the right of a compact one: it slides out from behind the
+    /// main pill as the spring runs, and slides back in when the second activity ends.
+    fn bubble(&self, fr: &Frame, pw: f32, ph: f32) {
+        let an = fr.anim;
+        let s = an.bubble.pos as f32;
+        let Some(kind) = an.bubble_kind.filter(|_| s > 0.01) else {
+            return;
+        };
+        let bw = match kind {
+            Bubble::Timer => 58.0,
+            Bubble::Media => 34.0,
+        };
+        let bh = ph.min(32.0);
+        let x = (pw - bw - 6.0) + (bw + 14.0) * s;
+        let a = s.clamp(0.0, 1.0);
+        let (_, bottom) = self.body_colors();
+        // Hangs from the top edge like the pill: its top corners are above the screen.
+        self.fill_rr(x, -bh / 2.0, bw, bh * 1.5, bh / 2.0, color(bottom, a));
+        self.stroke_rr(x, -bh / 2.0, bw, bh * 1.5, bh / 2.0, color(self.fg(), 0.07 * a), 1.0, false);
+        let cy = bh / 2.0;
+        match kind {
+            Bubble::Timer => {
+                let Some(t) = fr.model.timer.as_ref() else { return };
+                let wall = crate::timer::now_ms();
+                let left = t.remaining_ms(wall);
+                let col = if left < 60_000 { RED } else { BLUE };
+                self.ca.set(a);
+                let clock = if left >= 3_600_000 {
+                    format!("{}:{:02}h", left / 3_600_000, (left / 60_000) % 60)
+                } else {
+                    fmt_clock(left)
+                };
+                self.text(&clock, &self.f.btn, x, cy - 8.0, bw, 16.0, self.cc(col, 1.0));
+            }
+            Bubble::Media => {
+                self.ca.set(a);
+                self.art_tile(fr.model, x + (bw - 20.0) / 2.0, cy - 10.0, 20.0, 10.0);
+            }
+        }
+        self.ca.set(1.0);
+    }
+
     fn scene(&self, fr: &Frame, w: f32, h: f32) {
+        self.bubble(fr, w, h);
         self.background(fr, w, h);
         let an = fr.anim;
         if an.scene == Scene::Sentinel {

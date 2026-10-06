@@ -256,6 +256,8 @@ mod win {
             let size = self.model.size(scene);
             let glow = self.model.glow(scene);
             self.anim.set_scene(scene, size, glow);
+            let bubble = self.model.bubble(scene);
+            self.anim.set_bubble(bubble);
             self.anim
                 .hover
                 .set_target(if self.inside && scene != Scene::Sentinel {
@@ -296,6 +298,7 @@ mod win {
                 self.anim.rect.w.pos as f32,
                 self.anim.rect.h.pos as f32,
                 self.armed,
+                self.anim.bubble_room(),
             )
         }
 
@@ -622,6 +625,7 @@ mod win {
                         self.anim.rect.w.target as f32,
                         self.anim.rect.h.target as f32,
                         self.armed,
+                        self.anim.bubble_room(),
                     )
                     .clip;
                 self.rend.present(hwnd, crop, origin.0, origin.1, a, heading);
