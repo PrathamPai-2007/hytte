@@ -6,7 +6,7 @@ Code: `Ui::frame` in `crates/hytte/src/window.rs`, `crates/hytte/src/render.rs`,
 
 ## Why a layered window and Direct2D
 
-Hytte draws with **Direct2D** into an `ID2D1DCRenderTarget` bound to a 32-bit premultiplied-alpha **DIB section**, then hands that bitmap to Windows with `UpdateLayeredWindow`. This gives:
+Hytte draws with **Direct2D** into an `ID2D1DCRenderTarget` bound to a 32-bit premultiplied-alpha **DIB section**, then hands that bitmap to Windows with `UpdateLayeredWindow`. The target is a **software** (CPU) one: the pill is a few hundred pixels, and a GPU target spends more on reading the result back into the DIB than it saves drawing (measured p50 6.5 ms → 3.6 ms per frame). Set `HYTTE_HARDWARE=1` to compare with the GPU-backed target. This gives:
 
 - anti-aliased shapes, gradients and text (DirectWrite);
 - true per-pixel transparency, so the soft glow fades into whatever is behind it, and clicks pass through transparent pixels;
@@ -34,7 +34,7 @@ Right after each `DwmFlush`, the ticker samples DWM's composition timing (`DwmGe
 6. **Position.** The crop is centred horizontally on the monitor at its top edge (`origin_for`).
 7. **Draw.** `Renderer::draw(frame, crop, &mut hits)` paints the scene and fills the hit list.
 8. **Present.** `Renderer::present` calls `UpdateLayeredWindow` with the crop's size, position and the whole-window opacity (from the `vis` spring).
-9. **Telemetry.** With `HYTTE_PERF=1`, record the draw+present cost and the frame gap.
+9. **Telemetry.** With `HYTTE_PERF=1`, record the draw time, the draw+present cost and the frame gap.
 10. **Keep going?** `animating = moving || ambient`, where `ambient = !reduce && shown && model.ambient(scene, now)`. `fast = moving`. If both are false, the ticker parks after this frame.
 
 Because the window is always the full canvas but only the crop is presented, the pill can grow and shrink every frame **without resizing the window**. Window resizes are slow and flicker.
@@ -120,6 +120,7 @@ Ambient animation is the only thing that keeps frames running when no spring is 
 | A failed task's red pulse is still fading (first 8 s) | After that the pulse rests at a fixed value, so a forgotten failure costs nothing. |
 | An expanded scene shows privacy dots | They breathe only when expanded; collapsed, they are static. |
 | Something is dragged over the pill | The drop zone animates. |
+| The plug-in card is showing (3 s) | The battery fills up; it expires on its own. |
 | Media is playing **and** a media scene is shown | The equaliser and timeline. |
 
 Never in the `Sentinel` (fullscreen) scene, never while hidden, and never with reduced motion.

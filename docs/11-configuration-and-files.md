@@ -114,6 +114,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | Variable | Effect |
 |---|---|
 | `HYTTE_PERF=1` | Log frame-time statistics to `hytte.log` ([section 12](12-performance.md)). |
+| `HYTTE_HARDWARE=1` | Draw with the GPU-backed Direct2D target instead of the (faster) software one ([section 8](08-rendering-and-animation.md)). For comparison only. |
 | `HYTTE_WT_PID` | Used only by the ignored manual test in `tabs.rs`. |
 
 ## Adding a setting

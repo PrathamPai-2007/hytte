@@ -17,7 +17,7 @@ It has three parts:
 | `MediaArt(Option<Arc<ArtBitmap>>)` | media watcher | Sets `art` and bumps `art_gen` so the renderer re-uploads it. |
 | `Privacy(cam, mic, app)` | privacy watcher | The camera / mic dots and the app name. |
 | `MicMute(bool)` | mic watcher | The red lock. |
-| `Power(Option<Battery>)` | power watcher | The Home card battery row. |
+| `Power(Option<Battery>)` | power watcher | `Model::set_power`: the Home card battery row, and the plug-in card when the charger was just connected. |
 | `Ports(Vec<PortInfo>)` | port watcher | `set_ports`. Also cancels an armed **Kill?** if that port is gone. |
 | `ShelfAdd(DropJob)` | OLE drop target | Starts staging on a worker ([section 10](10-shelf-and-drop-vault.md)). |
 | `ShelfStaged(Vec<ShelfItem>)` | shelf staging worker | Inserts the items, saves the shelf, and peeks the Shelf panel for 5 s. |
@@ -34,7 +34,7 @@ The important fields, grouped:
 |---|---|
 | Tasks | `tasks: Vec<TaskView>`, `ignore` (lower-cased shell commands to drop) |
 | Media | `media`, `media_stamp` (when the info arrived, used to extrapolate the timeline), `art`, `art_gen` |
-| System | `cam`, `mic`, `privacy_app`, `mic_muted`, `power` |
+| System | `cam`, `mic`, `privacy_app`, `mic_muted`, `power`, `charge_since` |
 | Ports | `ports`, `kill_armed: Option<(port, until)>` |
 | Shelf | `shelf: Vec<ShelfItem>`, `shelf_sel` (the selected tile) |
 | Navigation | `selected: Option<Panel>`, `peek_until`, `force_until`, `drop_over` |
@@ -71,9 +71,10 @@ When expanded, the pill shows one **panel**. `Model::panels()` lists the panels 
 | 4 | A timer just finished (`timer_done`) | `ExpTimerDone` |
 | 5 | The right-click timer panel is open | `ExpTimer` |
 | 6 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()`: `ExpTasks`, `ExpShelf`, `ExpMedia`, `ExpPorts`, `ExpTimer` or `ExpHome` |
-| 7 | At least one visible task | `CompactTask` |
-| 8 | Media is **playing** | `CompactMedia` |
-| 9 | otherwise | `Idle` |
+| 7 | The charger was plugged in less than 3 s ago (`charge_since`) | `ExpCharge` |
+| 8 | At least one visible task | `CompactTask` |
+| 9 | Media is **playing** | `CompactMedia` |
+| 10 | otherwise | `Idle` |
 
 **Forced visibility.** `Model::forced()` is true while something is dragged over the pill, or until `force_until`. Hytte sets `force_until` for 5 s after a drop lands and for 8 s after a timer finishes, so these stay visible even over a fullscreen app.
 
@@ -93,6 +94,7 @@ When expanded, the pill shows one **panel**. `Model::panels()` lists the panels 
 | `ExpPorts` | 380 × (20 + 34 per port, at most 5) |
 | `ExpMedia` / `ExpHome` / `ExpShelf` / `ExpTimer` | 380 × 128 / 132 (86 without a battery) / 118 / 92 |
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 / 96 |
+| `ExpCharge` | 300 × 52 |
 
 Expanded panels that show tab dots get 14 px more height.
 
@@ -106,6 +108,7 @@ Expanded panels that show tab dots get 14 px more height.
 | Drop zone | purple, full |
 | Shelf, result chip | purple, half |
 | Timer panel / timer finished | blue, faint / green |
+| Charger plugged in | green |
 | Media, Home, Ports | white, faint |
 | Idle, Sentinel | none |
 
@@ -122,6 +125,7 @@ Many things disappear on their own: finished tasks, chips, peeks, an armed **Kil
    | Chip | 10 s (`CHIP_HOLD`) |
    | Armed **Kill?** | 3 s (`KILL_CONFIRM`) |
    | Timer-finished card | 30 s (`TIMER_DONE_HOLD`) |
+   | Plug-in card | 3 s (`CHARGE_HOLD`) |
    | Peek, forced visibility | their own deadline |
 
 2. returns the **earliest future deadline**, which also includes tasks that are still hidden (`visible_after`).
@@ -135,7 +139,7 @@ The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant
 - `Model::rows()` lists the visible tasks in this order: waiting for input, failed, running, everything else. Newest comes first within each group, and the list is truncated to 4. The expanded Tasks panel draws exactly these rows.
 - `Model::primary()` is the first of those rows, chosen without building the list (it runs several times per frame). The compact pill shows it.
 - `Model::visible_count()` drives the count badge on the compact pill.
-- `Model::ambient(scene, now)` answers "does anything need continuous frames right now?". It returns true for a running or waiting task, a failed task whose red pulse is still fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, or playing media in a media scene. It is always false for the `Sentinel`, which never moves. [Section 8](08-rendering-and-animation.md) explains why this matters.
+- `Model::ambient(scene, now)` answers "does anything need continuous frames right now?". It returns true for a running or waiting task, a failed task whose red pulse is still fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, the plug-in card, or playing media in a media scene. It is always false for the `Sentinel`, which never moves. [Section 8](08-rendering-and-animation.md) explains why this matters.
 
 ## `Anim`: animation state
 
