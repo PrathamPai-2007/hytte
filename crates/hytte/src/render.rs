@@ -14,7 +14,7 @@
 
 use crate::gpu::Gpu;
 use crate::power::Mode;
-use crate::ui_state::{Anim, Bubble, Model, Panel, Scene, TaskView, LOCK_W};
+use crate::ui_state::{Anim, Bubble, ChipAction, Model, Panel, Scene, TaskView, Tone, LOCK_W};
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -44,6 +44,8 @@ pub enum Action {
     CopyText(String),
     OpenPath(PathBuf),
     DismissChip,
+    /// One of a chip's extra buttons.
+    Chip(crate::ui_state::ChipAction),
     MediaPrev,
     MediaToggle,
     MediaNext,
@@ -2331,9 +2333,26 @@ impl Renderer {
         let Some(c) = fr.model.chip.as_ref() else {
             return;
         };
-        self.circle(26.0, 24.0, 9.0, self.cc(PURPLE, 0.2));
-        self.line((22.2, 24.4), (25.0, 27.4), self.cc(PURPLE, 1.0), 2.0);
-        self.line((25.0, 27.4), (30.2, 21.2), self.cc(PURPLE, 1.0), 2.0);
+        let accent = match c.tone {
+            Tone::Done => PURPLE,
+            Tone::Warn => AMBER,
+            Tone::Info => BLUE,
+        };
+        self.circle(26.0, 24.0, 9.0, self.cc(accent, 0.2));
+        match c.tone {
+            Tone::Done => {
+                self.line((22.2, 24.4), (25.0, 27.4), self.cc(accent, 1.0), 2.0);
+                self.line((25.0, 27.4), (30.2, 21.2), self.cc(accent, 1.0), 2.0);
+            }
+            Tone::Warn => {
+                self.line((26.0, 19.0), (26.0, 25.0), self.cc(accent, 1.0), 2.0);
+                self.circle(26.0, 28.5, 1.2, self.cc(accent, 1.0));
+            }
+            Tone::Info => {
+                self.circle(26.0, 19.8, 1.2, self.cc(accent, 1.0));
+                self.line((26.0, 23.0), (26.0, 29.0), self.cc(accent, 1.0), 2.0);
+            }
+        }
         self.text(
             &c.summary,
             &self.f.wrap,
@@ -2367,6 +2386,14 @@ impl Renderer {
                 Action::CopyText(t.clone()),
             );
             x += 70.0;
+        }
+        for (label, act) in &c.extra {
+            let armed = matches!(act, ChipAction::KillPid(_)) && fr.model.chip_armed.is_some();
+            let label = if armed { "Kill?" } else { label.as_str() };
+            let bw = (label.chars().count() as f32 * 6.6 + 26.0).max(62.0);
+            let col = if armed || matches!(act, ChipAction::KillPid(_)) { RED } else { accent };
+            self.button(label, x, 60.0, bw, 24.0, col, Action::Chip(act.clone()));
+            x += bw + 8.0;
         }
         self.button("Dismiss", x, 60.0, 70.0, 24.0, self.fg(), Action::DismissChip);
     }

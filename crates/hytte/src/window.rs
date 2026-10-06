@@ -35,7 +35,7 @@ pub fn run(
 mod win {
     use super::*;
     use crate::render::{Action, Crop, Frame, Hit, Renderer};
-    use crate::ui_state::{Anim, Chip, Model, Panel, Scene};
+    use crate::ui_state::{Anim, Chip, ChipAction, Model, Panel, Scene};
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
@@ -485,10 +485,9 @@ mod win {
                     UiEvent::DropDone(r) => {
                         self.anim.squash();
                         self.model.chip = Some(Chip {
-                            summary: r.summary,
                             open: r.open,
                             copy: r.copy,
-                            since: now,
+                            ..Chip::new(r.summary, now)
                         });
                     }
                     UiEvent::SetClipboard(s) => set_clipboard(hwnd, &s),
@@ -828,6 +827,7 @@ mod win {
             match a {
                 Action::DismissTask(id) => self.model.dismiss_task(&id),
                 Action::DismissChip => self.model.dismiss_chip(),
+                Action::Chip(a) => self.chip_action(a),
                 Action::CopyText(s) => set_clipboard(hwnd, &s),
                 Action::OpenPath(p) => {
                     let _ = std::process::Command::new("explorer").arg(p).spawn();
@@ -898,12 +898,7 @@ mod win {
                             Ok(()) => format!("Stopped :{port}"),
                             Err(e) => format!("Could not stop :{port} - {e}"),
                         };
-                        self.model.chip = Some(Chip {
-                            summary: msg,
-                            open: None,
-                            copy: None,
-                            since: Instant::now(),
-                        });
+                        self.model.chip = Some(Chip::new(msg, Instant::now()));
                         crate::ports::request_refresh();
                     } else {
                         self.model.kill_armed =
@@ -931,17 +926,46 @@ mod win {
                             text: None,
                             op: Some(op),
                         };
-                        self.model.chip = Some(Chip {
-                            summary: "Working…".into(),
-                            open: None,
-                            copy: None,
-                            since: Instant::now(),
-                        });
+                        self.model.chip = Some(Chip::new("Working…", Instant::now()));
                         let _ = self.shared.drop_tx.send(job);
                     }
                 }
             }
             self.after_model_change(hwnd);
+        }
+
+        /// One of a chip's extra buttons.
+        fn chip_action(&mut self, a: ChipAction) {
+            match a {
+                ChipAction::OpenUrl(url) => {
+                    open_url(&url);
+                    self.model.dismiss_chip();
+                }
+                ChipAction::Shelve(path) => {
+                    let job = DropJob {
+                        paths: vec![path],
+                        text: None,
+                        op: None,
+                    };
+                    push_event(&self.shared, UiEvent::ShelfAdd(job));
+                    self.model.dismiss_chip();
+                }
+                ChipAction::KillPid(pid) => {
+                    if self.model.chip_armed.take().is_some() {
+                        let msg = match hytte_proto::ports::kill(pid) {
+                            Ok(()) => format!("Stopped process {pid}"),
+                            Err(e) => format!("Could not stop process {pid} - {e}"),
+                        };
+                        self.model.chip = Some(Chip::new(msg, Instant::now()));
+                    } else {
+                        self.model.chip_armed = Some(Instant::now() + crate::ui_state::KILL_CONFIRM);
+                    }
+                }
+                ChipAction::IgnoreExe(exe) => {
+                    self.model.hog_ignore.insert(exe.to_ascii_lowercase());
+                    self.model.dismiss_chip();
+                }
+            }
         }
 
         fn start_timer(&mut self, kind: crate::timer::TimerKind, minutes: u32) {
@@ -1296,6 +1320,24 @@ mod win {
                 SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
             );
             !on.as_bool()
+        }
+    }
+
+    fn open_url(url: &str) {
+        // Only web links: a chip's text can come from outside (a calendar entry).
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return;
+        }
+        let wide: Vec<u16> = url.encode_utf16().chain([0]).collect();
+        unsafe {
+            ShellExecuteW(
+                None,
+                windows::core::w!("open"),
+                windows::core::PCWSTR(wide.as_ptr()),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            );
         }
     }
 
