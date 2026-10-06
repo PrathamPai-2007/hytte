@@ -612,8 +612,14 @@ mod tests {
 
     #[test]
     fn hotkey_parsing() {
-        assert_eq!(parse_hotkey("Win+Alt+N"), Some((MOD_WIN | MOD_ALT, b'N' as u32)));
-        assert_eq!(parse_hotkey("ctrl + shift + f9"), Some((MOD_CONTROL | MOD_SHIFT, 0x78)));
+        assert_eq!(
+            parse_hotkey("Win+Alt+N"),
+            Some((MOD_WIN | MOD_ALT, b'N' as u32))
+        );
+        assert_eq!(
+            parse_hotkey("ctrl + shift + f9"),
+            Some((MOD_CONTROL | MOD_SHIFT, 0x78))
+        );
         assert_eq!(parse_hotkey("Alt+1"), Some((MOD_ALT, b'1' as u32)));
         // Needs a modifier, one key, and a key we know.
         assert_eq!(parse_hotkey("N"), None);

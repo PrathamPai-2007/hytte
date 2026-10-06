@@ -102,7 +102,7 @@ impl Gpu {
         }
         unsafe {
             // No back-buffer reference may be alive here: `end` drops the target.
-            let _ = self.dc.SetTarget(None);
+            self.dc.SetTarget(None);
             if self
                 .swap
                 .ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0))

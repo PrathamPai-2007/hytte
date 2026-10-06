@@ -46,13 +46,13 @@ mod win {
     use windows::Win32::System::Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
     use windows::Win32::System::DataExchange::*;
     use windows::Win32::System::Memory::*;
+    use windows::Win32::System::Ole::*;
     use windows::Win32::System::Power::RegisterPowerSettingNotification;
+    use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
     use windows::Win32::System::SystemServices::{
         GUID_ACDC_POWER_SOURCE, GUID_BATTERY_PERCENTAGE_REMAINING,
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
-    use windows::Win32::System::Ole::*;
-    use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::Controls::WM_MOUSELEAVE;
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -654,7 +654,9 @@ mod win {
                         )
                         .is_err()
                         {
-                            crate::logging::line(&format!("hotkey {spec}: already taken by another app"));
+                            crate::logging::line(&format!(
+                                "hotkey {spec}: already taken by another app"
+                            ));
                         }
                     }
                     None => crate::logging::line(&format!("hotkey {spec}: not understood")),
@@ -750,7 +752,11 @@ mod win {
             // A calendar heads-up that has come due becomes a card (never over another one).
             if self.model.chip.is_none() {
                 if let Some(ev) = self.model.calendar_due(now) {
-                    let text = crate::calendar::summary(&ev.subject, ev.start_ms, crate::timer::now_ms() as i64);
+                    let text = crate::calendar::summary(
+                        &ev.subject,
+                        ev.start_ms,
+                        crate::timer::now_ms() as i64,
+                    );
                     let mut c = Chip::new(text, now);
                     c.tone = crate::ui_state::Tone::Info;
                     c.hold = Duration::from_secs(60);
@@ -829,7 +835,8 @@ mod win {
                         self.anim.bubble_room(),
                     )
                     .clip;
-                self.rend.present(hwnd, crop, origin.0, origin.1, a, heading);
+                self.rend
+                    .present(hwnd, crop, origin.0, origin.1, a, heading);
                 if self.rend.lost() {
                     // Driver reset or adapter removed: rebuild the GPU pipeline and redraw.
                     crate::logging::line("gpu renderer: device lost, rebuilding");
@@ -1004,7 +1011,8 @@ mod win {
                         };
                         self.model.chip = Some(Chip::new(msg, Instant::now()));
                     } else {
-                        self.model.chip_armed = Some(Instant::now() + crate::ui_state::KILL_CONFIRM);
+                        self.model.chip_armed =
+                            Some(Instant::now() + crate::ui_state::KILL_CONFIRM);
                     }
                 }
                 ChipAction::IgnoreExe(exe) => {
@@ -1338,12 +1346,16 @@ mod win {
         match theme {
             "light" => true,
             "auto" => unsafe {
-                use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+                use windows::Win32::System::Registry::{
+                    RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
+                };
                 let mut v = 0u32;
                 let mut n = std::mem::size_of::<u32>() as u32;
                 RegGetValueW(
                     HKEY_CURRENT_USER,
-                    windows::core::w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"),
+                    windows::core::w!(
+                        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                    ),
                     windows::core::w!("AppsUseLightTheme"),
                     RRF_RT_REG_DWORD,
                     None,

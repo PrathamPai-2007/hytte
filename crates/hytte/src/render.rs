@@ -764,7 +764,15 @@ impl Renderer {
     /// A Segoe Fluent Icons glyph centred on (cx, cy) in a square box of side `s`.
     fn glyph(&self, cp: char, cx: f32, cy: f32, s: f32, c: D2D1_COLOR_F) {
         let mut b = [0u8; 4];
-        self.text(cp.encode_utf8(&mut b), &self.f.icon, cx - s / 2.0, cy - s / 2.0, s, s, c);
+        self.text(
+            cp.encode_utf8(&mut b),
+            &self.f.icon,
+            cx - s / 2.0,
+            cy - s / 2.0,
+            s,
+            s,
+            c,
+        );
     }
 
     fn ring(&self, cx: f32, cy: f32, r: f32, c: D2D1_COLOR_F, width: f32) {
@@ -836,7 +844,16 @@ impl Renderer {
             action,
         });
         if self.focus_live.get() && self.focus.get() == Some(index) {
-            self.stroke_rr(x - 2.0, y - 2.0, w + 4.0, h + 4.0, (h / 2.0).min(10.0) + 2.0, color([0.45, 0.72, 1.0], 0.95), 1.6, false);
+            self.stroke_rr(
+                x - 2.0,
+                y - 2.0,
+                w + 4.0,
+                h + 4.0,
+                (h / 2.0).min(10.0) + 2.0,
+                color([0.45, 0.72, 1.0], 0.95),
+                1.6,
+                false,
+            );
         }
         self.mouse
             .get()
@@ -1012,11 +1029,22 @@ impl Renderer {
         let (_, bottom) = self.body_colors();
         // Hangs from the top edge like the pill: its top corners are above the screen.
         self.fill_rr(x, -bh / 2.0, bw, bh * 1.5, bh / 2.0, color(bottom, a));
-        self.stroke_rr(x, -bh / 2.0, bw, bh * 1.5, bh / 2.0, color(self.fg(), 0.07 * a), 1.0, false);
+        self.stroke_rr(
+            x,
+            -bh / 2.0,
+            bw,
+            bh * 1.5,
+            bh / 2.0,
+            color(self.fg(), 0.07 * a),
+            1.0,
+            false,
+        );
         let cy = bh / 2.0;
         match kind {
             Bubble::Timer => {
-                let Some(t) = fr.model.timer.as_ref() else { return };
+                let Some(t) = fr.model.timer.as_ref() else {
+                    return;
+                };
                 let wall = crate::timer::now_ms();
                 let left = t.remaining_ms(wall);
                 let col = if left < 60_000 { RED } else { BLUE };
@@ -1026,7 +1054,15 @@ impl Renderer {
                 } else {
                     fmt_clock(left)
                 };
-                self.text(&clock, &self.f.btn, x, cy - 8.0, bw, 16.0, self.cc(col, 1.0));
+                self.text(
+                    &clock,
+                    &self.f.btn,
+                    x,
+                    cy - 8.0,
+                    bw,
+                    16.0,
+                    self.cc(col, 1.0),
+                );
             }
             Bubble::Media => {
                 self.ca.set(a);
@@ -1877,11 +1913,28 @@ impl Renderer {
         let cx = tx + bw / 2.0;
         let cy = h - 26.0;
         let hov = self.hit(cx - 56.0, cy - 14.0, 28.0, 28.0, Action::MediaPrev);
-        self.glyph('\u{E892}', cx - 42.0, cy, 28.0, self.cc(self.fg(), if hov { 1.0 } else { 0.78 }));
+        self.glyph(
+            '\u{E892}',
+            cx - 42.0,
+            cy,
+            28.0,
+            self.cc(self.fg(), if hov { 1.0 } else { 0.78 }),
+        );
         let hov = self.hit(cx + 28.0, cy - 14.0, 28.0, 28.0, Action::MediaNext);
-        self.glyph('\u{E893}', cx + 42.0, cy, 28.0, self.cc(self.fg(), if hov { 1.0 } else { 0.78 }));
+        self.glyph(
+            '\u{E893}',
+            cx + 42.0,
+            cy,
+            28.0,
+            self.cc(self.fg(), if hov { 1.0 } else { 0.78 }),
+        );
         let hov = self.hit(cx - 16.0, cy - 16.0, 32.0, 32.0, Action::MediaToggle);
-        self.circle(cx, cy, if hov { 16.0 } else { 15.0 }, self.cc(self.fg(), 0.95));
+        self.circle(
+            cx,
+            cy,
+            if hov { 16.0 } else { 15.0 },
+            self.cc(self.fg(), 0.95),
+        );
         let dark = self.cc(self.ink(), 1.0);
         // Pause / Play; the play triangle sits a hair right of centre to look centred.
         if md.playing {
@@ -2032,7 +2085,14 @@ impl Renderer {
                 self.fill_rr(x + 14.0, y + 20.0, 32.0, 22.0, 4.0, self.cc(AMBER, 0.85));
                 self.fill_rr(x + 14.0, y + 16.0, 14.0, 8.0, 3.0, self.cc(AMBER, 0.85));
             } else {
-                self.fill_rr(x + 18.0, y + 12.0, 24.0, 32.0, 4.0, self.cc(self.fg(), 0.82));
+                self.fill_rr(
+                    x + 18.0,
+                    y + 12.0,
+                    24.0,
+                    32.0,
+                    4.0,
+                    self.cc(self.fg(), 0.82),
+                );
                 for k in 0..3 {
                     self.fill_rr(
                         x + 22.0,
@@ -2195,7 +2255,16 @@ impl Renderer {
             } else {
                 self.fg()
             };
-            self.stroke_rr(20.5, 59.5, 24.0, 12.0, 3.0, self.cc(self.fg(), 0.7), 1.2, false);
+            self.stroke_rr(
+                20.5,
+                59.5,
+                24.0,
+                12.0,
+                3.0,
+                self.cc(self.fg(), 0.7),
+                1.2,
+                false,
+            );
             self.fill_rr(45.0, 63.0, 2.5, 5.0, 1.0, self.cc(self.fg(), 0.7));
             self.fill_rr(
                 22.5,
@@ -2391,11 +2460,23 @@ impl Renderer {
             let armed = matches!(act, ChipAction::KillPid(_)) && fr.model.chip_armed.is_some();
             let label = if armed { "Kill?" } else { label.as_str() };
             let bw = (label.chars().count() as f32 * 6.6 + 26.0).max(62.0);
-            let col = if armed || matches!(act, ChipAction::KillPid(_)) { RED } else { accent };
+            let col = if armed || matches!(act, ChipAction::KillPid(_)) {
+                RED
+            } else {
+                accent
+            };
             self.button(label, x, 60.0, bw, 24.0, col, Action::Chip(act.clone()));
             x += bw + 8.0;
         }
-        self.button("Dismiss", x, 60.0, 70.0, 24.0, self.fg(), Action::DismissChip);
+        self.button(
+            "Dismiss",
+            x,
+            60.0,
+            70.0,
+            24.0,
+            self.fg(),
+            Action::DismissChip,
+        );
     }
 
     /// The card shown for a moment after the charger is plugged in: a battery that fills up.
@@ -2409,11 +2490,27 @@ impl Renderer {
         let ease = 1.0 - (1.0 - k).powi(3);
         let cy = h / 2.0;
         let (bx, bw, bh) = (20.0, 30.0, 15.0);
-        self.stroke_rr(bx, cy - bh / 2.0, bw, bh, 4.0, self.cc(GREEN, 0.9), 1.4, false);
+        self.stroke_rr(
+            bx,
+            cy - bh / 2.0,
+            bw,
+            bh,
+            4.0,
+            self.cc(GREEN, 0.9),
+            1.4,
+            false,
+        );
         self.fill_rr(bx + bw + 1.5, cy - 3.0, 2.5, 6.0, 1.2, self.cc(GREEN, 0.9));
         let fill = (bw - 5.0) * (b.pct as f32 / 100.0) * ease;
         if fill > 0.5 {
-            self.fill_rr(bx + 2.5, cy - bh / 2.0 + 2.5, fill, bh - 5.0, 2.0, self.cc(GREEN, 0.9));
+            self.fill_rr(
+                bx + 2.5,
+                cy - bh / 2.0 + 2.5,
+                fill,
+                bh - 5.0,
+                2.0,
+                self.cc(GREEN, 0.9),
+            );
         }
         let (bolt_x, bolt_a) = (bx + bw / 2.0, 0.55 + 0.45 * ease);
         let bolt = [
@@ -2426,8 +2523,24 @@ impl Renderer {
         ];
         let pts: Vec<(f32, f32)> = bolt.iter().map(|(x, y)| (bolt_x + x, cy + y)).collect();
         self.poly(&pts, self.cc([1.0; 3], bolt_a));
-        self.text("Plugged in", &self.f.title, 66.0, cy - 17.0, w - 66.0 - 16.0, 20.0, self.cc(self.fg(), 0.97));
-        self.text(&b.status(), &self.f.small, 66.0, cy + 1.0, w - 66.0 - 16.0, 16.0, self.cc(GREEN, 1.0));
+        self.text(
+            "Plugged in",
+            &self.f.title,
+            66.0,
+            cy - 17.0,
+            w - 66.0 - 16.0,
+            20.0,
+            self.cc(self.fg(), 0.97),
+        );
+        self.text(
+            &b.status(),
+            &self.f.small,
+            66.0,
+            cy + 1.0,
+            w - 66.0 - 16.0,
+            16.0,
+            self.cc(GREEN, 1.0),
+        );
     }
 
     /// Hairline fuse along the bottom edge: burns down right to left, ember at the head.

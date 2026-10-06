@@ -50,8 +50,12 @@ const MEETING_HOSTS: [&str; 6] = [
 /// Only `https://` links are returned: the result is handed to the shell.
 pub fn meeting_url(texts: &[&str]) -> Option<String> {
     for text in texts {
-        for word in text.split(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '(' | ')')) {
-            let Some(rest) = word.strip_prefix("https://") else { continue };
+        for word in text
+            .split(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '(' | ')'))
+        {
+            let Some(rest) = word.strip_prefix("https://") else {
+                continue;
+            };
             let host = rest.split(['/', '?', '#']).next().unwrap_or("");
             let host = host.to_ascii_lowercase();
             if MEETING_HOSTS
@@ -131,12 +135,12 @@ mod win {
     use crate::ui_state::UiEvent;
     use crate::winrt::block_on;
     use crossbeam_channel::{bounded, RecvTimeoutError, Sender};
+    use windows::core::HSTRING;
     use windows::ApplicationModel::Appointments::{
         Appointment, AppointmentManager, AppointmentProperties, AppointmentStore,
         AppointmentStoreAccessType, FindAppointmentsOptions,
     };
     use windows::Foundation::{DateTime, TimeSpan, TypedEventHandler};
-    use windows::core::HSTRING;
 
     const T: Duration = Duration::from_secs(10);
     /// Look this far ahead.
@@ -174,7 +178,13 @@ mod win {
         let range = TimeSpan {
             Duration: (HORIZON_MS + 5 * 60_000) * 10_000,
         };
-        let found = block_on(store.FindAppointmentsAsyncWithOptions(from, range, &options).ok()?, T)?.ok()?;
+        let found = block_on(
+            store
+                .FindAppointmentsAsyncWithOptions(from, range, &options)
+                .ok()?,
+            T,
+        )?
+        .ok()?;
         let mut out = vec![];
         for a in found {
             out.push(raw(&a));
@@ -196,10 +206,15 @@ mod win {
     }
 
     pub fn watch(ui_tx: Sender<UiEvent>) {
-        let Some(op) = AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AllCalendarsReadOnly).ok() else {
+        let Some(op) =
+            AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AllCalendarsReadOnly)
+                .ok()
+        else {
             return;
         };
-        let Some(Ok(store)) = block_on(op, T) else { return };
+        let Some(Ok(store)) = block_on(op, T) else {
+            return;
+        };
         // A change in any calendar wakes the worker; a full queue already means "re-read".
         let (tx, rx) = bounded::<()>(1);
         let _token = store.StoreChanged(&TypedEventHandler::new(move |_, _| {
@@ -215,9 +230,10 @@ mod win {
                 last = Some(next.clone());
                 let _ = ui_tx.send(UiEvent::Calendar(next.clone()));
             }
-            match rx.recv_timeout(sleep_for(next.as_ref(), now)) {
-                Err(RecvTimeoutError::Disconnected) => return,
-                _ => {}
+            if let Err(RecvTimeoutError::Disconnected) =
+                rx.recv_timeout(sleep_for(next.as_ref(), now))
+            {
+                return;
             }
         }
     }
@@ -256,7 +272,10 @@ mod tests {
             meeting_url(&["", "https://us02web.zoom.us/j/123456?pwd=abc, see you"]).as_deref(),
             Some("https://us02web.zoom.us/j/123456?pwd=abc")
         );
-        assert_eq!(meeting_url(&["https://meet.google.com/abc-defg-hij"]).as_deref(), Some("https://meet.google.com/abc-defg-hij"));
+        assert_eq!(
+            meeting_url(&["https://meet.google.com/abc-defg-hij"]).as_deref(),
+            Some("https://meet.google.com/abc-defg-hij")
+        );
         // The provider's link field wins over text later in the list.
         assert_eq!(
             meeting_url(&["https://zoom.us/j/1", "https://meet.google.com/x"]).as_deref(),
@@ -305,9 +324,19 @@ mod tests {
     #[test]
     fn sleeping_until_the_event_is_over_but_never_too_long() {
         let now = 0;
-        let ev = |start| NextEvent { subject: "x".into(), start_ms: start, url: None };
-        assert_eq!(sleep_for(Some(&ev(5 * 60_000)), now), Duration::from_secs(6 * 60));
-        assert_eq!(sleep_for(Some(&ev(5 * 3_600_000)), now), Duration::from_secs(30 * 60));
+        let ev = |start| NextEvent {
+            subject: "x".into(),
+            start_ms: start,
+            url: None,
+        };
+        assert_eq!(
+            sleep_for(Some(&ev(5 * 60_000)), now),
+            Duration::from_secs(6 * 60)
+        );
+        assert_eq!(
+            sleep_for(Some(&ev(5 * 3_600_000)), now),
+            Duration::from_secs(30 * 60)
+        );
         assert_eq!(sleep_for(None, now), Duration::from_secs(30 * 60));
         // An event already underway: re-read in a second, not never.
         assert!(sleep_for(Some(&ev(-3_600_000)), now) >= Duration::from_secs(1));
@@ -319,7 +348,10 @@ mod tests {
         assert_eq!(summary("Standup", t, 0), "Standup starts in 10 min");
         assert_eq!(summary("Standup", t, t - 60_000), "Standup starts in 1 min");
         assert_eq!(summary("Standup", t, t), "Standup is starting");
-        assert_eq!(summary("Standup", t, t + 2 * 60_000), "Standup started 2 min ago");
+        assert_eq!(
+            summary("Standup", t, t + 2 * 60_000),
+            "Standup started 2 min ago"
+        );
     }
 
     /// Manual helpers for checking the worker against a real store: create a throw-away app
@@ -329,10 +361,10 @@ mod tests {
     mod manual {
         use super::*;
         use crate::winrt::block_on;
+        use windows::core::HSTRING;
         use windows::ApplicationModel::Appointments::{
             Appointment, AppointmentManager, AppointmentStoreAccessType,
         };
-        use windows::core::HSTRING;
         use windows::Foundation::{DateTime, TimeSpan};
 
         const NAME: &str = "HytteTestCalendar";
@@ -342,24 +374,43 @@ mod tests {
         #[ignore]
         fn calendar_manual_create() {
             let store = block_on(
-                AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AppCalendarsReadWrite).unwrap(),
+                AppointmentManager::RequestStoreAsync(
+                    AppointmentStoreAccessType::AppCalendarsReadWrite,
+                )
+                .unwrap(),
                 T,
             )
             .unwrap()
             .unwrap();
-            let cal = block_on(store.CreateAppointmentCalendarAsync(&HSTRING::from(NAME)).unwrap(), T)
-                .unwrap()
-                .unwrap();
+            let cal = block_on(
+                store
+                    .CreateAppointmentCalendarAsync(&HSTRING::from(NAME))
+                    .unwrap(),
+                T,
+            )
+            .unwrap()
+            .unwrap();
             let a = Appointment::new().unwrap();
             a.SetSubject(&HSTRING::from("Design review")).unwrap();
-            a.SetDetails(&HSTRING::from("Join https://teams.microsoft.com/l/meetup-join/abc123")).unwrap();
+            a.SetDetails(&HSTRING::from(
+                "Join https://teams.microsoft.com/l/meetup-join/abc123",
+            ))
+            .unwrap();
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as i64;
-            a.SetStartTime(DateTime { UniversalTime: (now + 4 * 60_000) * 10_000 + EPOCH_TICKS }).unwrap();
-            a.SetDuration(TimeSpan { Duration: 30 * 60 * 10_000_000 }).unwrap();
-            block_on(cal.SaveAppointmentAsync(&a).unwrap(), T).unwrap().unwrap();
+            a.SetStartTime(DateTime {
+                UniversalTime: (now + 4 * 60_000) * 10_000 + EPOCH_TICKS,
+            })
+            .unwrap();
+            a.SetDuration(TimeSpan {
+                Duration: 30 * 60 * 10_000_000,
+            })
+            .unwrap();
+            block_on(cal.SaveAppointmentAsync(&a).unwrap(), T)
+                .unwrap()
+                .unwrap();
             println!("created a test event starting in 4 minutes");
         }
 
@@ -367,7 +418,10 @@ mod tests {
         #[ignore]
         fn calendar_manual_dump() {
             let store = block_on(
-                AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AllCalendarsReadOnly).unwrap(),
+                AppointmentManager::RequestStoreAsync(
+                    AppointmentStoreAccessType::AllCalendarsReadOnly,
+                )
+                .unwrap(),
                 T,
             )
             .unwrap()
@@ -381,12 +435,17 @@ mod tests {
         #[ignore]
         fn calendar_manual_delete() {
             let store = block_on(
-                AppointmentManager::RequestStoreAsync(AppointmentStoreAccessType::AllCalendarsReadWrite).unwrap(),
+                AppointmentManager::RequestStoreAsync(
+                    AppointmentStoreAccessType::AllCalendarsReadWrite,
+                )
+                .unwrap(),
                 T,
             )
             .unwrap()
             .unwrap();
-            let cals = block_on(store.FindAppointmentCalendarsAsync().unwrap(), T).unwrap().unwrap();
+            let cals = block_on(store.FindAppointmentCalendarsAsync().unwrap(), T)
+                .unwrap()
+                .unwrap();
             for c in cals {
                 let name = c.DisplayName().map(|n| n.to_string()).unwrap_or_default();
                 println!("calendar: {name:?}");

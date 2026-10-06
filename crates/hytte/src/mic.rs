@@ -118,7 +118,10 @@ mod imp {
 
     #[allow(non_snake_case)]
     impl IAudioEndpointVolumeCallback_Impl for MuteChanges_Impl {
-        fn OnNotify(&self, _data: *mut AUDIO_VOLUME_NOTIFICATION_DATA) -> windows::core::Result<()> {
+        fn OnNotify(
+            &self,
+            _data: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
+        ) -> windows::core::Result<()> {
             // A full queue already means "recheck": dropping this one loses nothing.
             let _ = self.0.try_send(Wake::Mute);
             Ok(())

@@ -163,7 +163,10 @@ mod imp {
 
     /// Ask Windows to call `poke` whenever the effective power mode changes.
     pub fn watch_power_mode() {
-        unsafe extern "system" fn on_mode(_mode: EFFECTIVE_POWER_MODE, _ctx: *const core::ffi::c_void) {
+        unsafe extern "system" fn on_mode(
+            _mode: EFFECTIVE_POWER_MODE,
+            _ctx: *const core::ffi::c_void,
+        ) {
             poke();
         }
         let mut handle = std::ptr::null_mut();

@@ -40,7 +40,10 @@ pub enum UiEvent {
     /// A process has been using a lot of CPU or memory.
     Hog(crate::hog::Alert),
     /// A browser download finished: its name and where it landed.
-    DownloadDone { name: String, path: PathBuf },
+    DownloadDone {
+        name: String,
+        path: PathBuf,
+    },
     /// The next calendar event (None = nothing upcoming).
     Calendar(Option<crate::calendar::NextEvent>),
     /// Take a task out of the list without a trace (a download that was cancelled).
@@ -72,13 +75,17 @@ pub struct MediaInfo {
 /// saturated they are, brightened to a glow-worthy level. None for greyscale art.
 pub fn accent_of(bgra: &[u8]) -> Option<[f32; 3]> {
     let (mut sum, mut weight) = ([0.0f32; 3], 0.0f32);
-    for px in bgra.chunks_exact(4) {
+    for px in bgra.as_chunks::<4>().0 {
         let a = px[3] as f32 / 255.0;
         if a < 0.5 {
             continue;
         }
         // Premultiplied -> straight, 0..1.
-        let (b, g, r) = (px[0] as f32 / 255.0 / a, px[1] as f32 / 255.0 / a, px[2] as f32 / 255.0 / a);
+        let (b, g, r) = (
+            px[0] as f32 / 255.0 / a,
+            px[1] as f32 / 255.0 / a,
+            px[2] as f32 / 255.0 / a,
+        );
         let (max, min) = (r.max(g).max(b), r.min(g).min(b));
         let sat = if max > 0.0 { (max - min) / max } else { 0.0 };
         // Near-black and washed-out pixels carry no hue worth glowing.
@@ -775,7 +782,9 @@ impl Model {
             Scene::ExpTimerDone => (GREEN, 0.8),
             Scene::ExpCharge => (GREEN, 0.7),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
-            Scene::CompactMedia | Scene::ExpMedia if self.adaptive_glow && self.art_accent.is_some() => {
+            Scene::CompactMedia | Scene::ExpMedia
+                if self.adaptive_glow && self.art_accent.is_some() =>
+            {
                 (self.art_accent.unwrap_or([1.0; 3]), 0.40)
             }
             Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => {
@@ -1364,7 +1373,11 @@ bang"
         });
         assert_eq!(m.bubble(Scene::CompactTask), Some(Bubble::Media));
         // The timer outranks the music, and also joins compact media.
-        m.timer = Some(crate::timer::Timer::start(crate::timer::TimerKind::Plain, 5, 0));
+        m.timer = Some(crate::timer::Timer::start(
+            crate::timer::TimerKind::Plain,
+            5,
+            0,
+        ));
         assert_eq!(m.bubble(Scene::CompactTask), Some(Bubble::Timer));
         assert_eq!(m.bubble(Scene::CompactMedia), Some(Bubble::Timer));
         // Expanded scenes show these as panels instead.
@@ -1395,7 +1408,10 @@ bang"
         // The single deadline timer wakes for the confirm window first, then the chip's end.
         assert_eq!(m.expire(t0), Some(t0 + KILL_CONFIRM));
         assert!(m.chip.is_some() && m.chip_armed.is_some());
-        assert_eq!(m.expire(t0 + KILL_CONFIRM), Some(t0 + Duration::from_secs(20)));
+        assert_eq!(
+            m.expire(t0 + KILL_CONFIRM),
+            Some(t0 + Duration::from_secs(20))
+        );
         assert!(m.chip.is_some() && m.chip_armed.is_none());
         // Past the default 10 s the long-hold chip is still there; at 20 s it goes.
         m.expire(t0 + Duration::from_secs(11));
@@ -1425,7 +1441,11 @@ bang"
         // Due 20 minutes from now, and the single deadline timer knows.
         assert_eq!(m.calendar_due(t0), None);
         assert_eq!(m.expire(t0), Some(t0 + Duration::from_secs(20 * 60)));
-        assert_eq!(m.calendar_due(t0 + Duration::from_secs(20 * 60)).map(|e| e.subject), Some("Standup".into()));
+        assert_eq!(
+            m.calendar_due(t0 + Duration::from_secs(20 * 60))
+                .map(|e| e.subject),
+            Some("Standup".into())
+        );
         // Shown: the same event coming back from the worker doesn't re-arm it.
         m.set_calendar(Some(ev()), wall, lead, t0);
         assert!(m.calendar.is_none());
