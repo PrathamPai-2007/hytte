@@ -39,6 +39,10 @@ pub enum UiEvent {
     Ports(Vec<PortInfo>),
     /// A process has been using a lot of CPU or memory.
     Hog(crate::hog::Alert),
+    /// A browser download finished: its name and where it landed.
+    DownloadDone { name: String, path: PathBuf },
+    /// Take a task out of the list without a trace (a download that was cancelled).
+    TaskGone(String),
     /// Dropped onto the notch while the shelf is the drop target.
     ShelfAdd(crate::drop::DropJob),
     /// Drop items whose file work (copies, snippets) finished on a worker thread.
@@ -507,6 +511,11 @@ impl Model {
         }
         self.timer_done = Some((t.kind, now));
         Some(t.kind)
+    }
+
+    /// Forget a task quietly, whatever its state.
+    pub fn remove_task(&mut self, id: &str) {
+        self.tasks.retain(|t| t.id != id);
     }
 
     pub fn dismiss_task(&mut self, id: &str) {

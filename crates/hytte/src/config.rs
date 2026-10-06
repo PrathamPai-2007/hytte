@@ -219,6 +219,24 @@ impl Default for Ports {
     }
 }
 
+/// Show browser downloads as tasks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Downloads {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Folder to watch; empty = the user's Downloads folder. Read at startup.
+    #[serde(default)]
+    pub folder: Option<String>,
+}
+impl Default for Downloads {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            folder: None,
+        }
+    }
+}
+
 /// Alert when one process keeps using a lot of CPU or memory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Hog {
@@ -319,6 +337,8 @@ pub struct Config {
     pub ports: Ports,
     #[serde(default)]
     pub hog: Hog,
+    #[serde(default)]
+    pub downloads: Downloads,
     #[serde(default)]
     pub agent: Agent,
 }

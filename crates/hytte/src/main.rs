@@ -9,6 +9,7 @@
 mod animation;
 mod config;
 mod convert;
+mod downloads;
 mod drop;
 mod fullscreen;
 #[cfg(windows)]
@@ -76,6 +77,7 @@ fn main() {
     mic::spawn_watcher(ui_tx.clone());
     power::spawn_watcher(ui_tx.clone());
     ports::spawn_watcher(cfg.ports.clone(), cfg.hog.clone(), ui_tx.clone());
+    downloads::spawn_watcher(cfg.downloads.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();

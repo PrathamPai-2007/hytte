@@ -438,6 +438,15 @@ mod win {
                         }
                     }
                     UiEvent::Ports(p) => self.model.set_ports(p),
+                    UiEvent::TaskGone(id) => self.model.remove_task(&id),
+                    UiEvent::DownloadDone { name, path } => {
+                        if self.model.chip.is_none() {
+                            let mut c = Chip::new(format!("{name} finished downloading"), now);
+                            c.open = Some(path.clone());
+                            c.extra = vec![("Shelve".into(), ChipAction::Shelve(path))];
+                            self.model.chip = Some(c);
+                        }
+                    }
                     UiEvent::Hog(a) => {
                         // Never over another card, and never for a process the user muted.
                         let muted = self.model.hog_ignore.contains(&a.exe.to_ascii_lowercase());
