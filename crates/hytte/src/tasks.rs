@@ -19,6 +19,8 @@ pub struct TaskState {
     pub delay_ms: u32,
     pub message: Option<String>,
     pub exit_code: Option<i32>,
+    /// Latest output line (`notch run`), for the live ticker.
+    pub line: Option<String>,
     pub updated: Instant,
 }
 
@@ -67,6 +69,7 @@ pub fn spawn_registry(
                         delay_ms: msg.delay_ms.unwrap_or(0),
                         message: msg.message.clone(),
                         exit_code: msg.exit_code,
+                        line: msg.line.clone(),
                         updated: Instant::now(),
                     };
                     if matches!(msg.event, TaskEvent::Done | TaskEvent::Failed | TaskEvent::Lost) {

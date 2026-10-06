@@ -175,6 +175,7 @@ fn cmd_run(args: &[String]) {
         let mut line: Vec<u8> = Vec::new();
         let mut buf = [0u8; 4096];
         let mut shown: Option<u8> = None;
+        let mut last_line = String::new();
         let mut shown_at: Option<Instant> = None;
         let mut daemon = true;
         loop {
@@ -193,16 +194,25 @@ fn cmd_run(args: &[String]) {
                     line.push(b);
                 }
             }
-            let Some(p) = scan.as_mut().and_then(|s| s.feed(chunk)) else {
-                continue;
-            };
+            let pct = scan.as_mut().and_then(|s| s.feed(chunk)).filter(|p| shown != Some(*p));
+            // The newest thing the command printed: the line being drawn, else the last whole one.
+            let latest = progress::clean_line(if line.is_empty() {
+                tail.back().map_or(&[][..], |l| l.as_bytes())
+            } else {
+                &line
+            });
+            let fresh = (!latest.is_empty() && last_line != latest).then_some(latest);
             let due = shown_at.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY);
-            if daemon && shown != Some(p) && due {
+            if daemon && due && (pct.is_some() || fresh.is_some()) {
                 let mut m = tag(HytteMessage::start(id.clone(), truncated.clone()));
                 m.event = TaskEvent::Progress;
-                m.progress = Some(p);
+                m.progress = pct;
+                m.line = fresh.clone();
                 daemon = send_msg(&m);
-                shown = Some(p);
+                shown = pct.or(shown);
+                if let Some(l) = fresh {
+                    last_line = l;
+                }
                 shown_at = Some(Instant::now());
             }
         }
