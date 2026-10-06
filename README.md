@@ -13,14 +13,18 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 
 ## What it can do
 
-- **Watch long commands.** See when a build, test run or download finishes, and whether it failed, without staring at the terminal.
-- **Tell you when an AI agent is waiting.** Claude Code, Aider and similar tools can ping the pill. It turns amber, and one click takes you to the right terminal.
+- **Watch long commands.** See when a build, test run or download finishes, and whether it failed, without staring at the terminal. A running command's latest output line shows under it.
+- **Tell you when an AI agent is waiting.** Claude Code, Aider and similar tools can ping the pill. It turns amber, and one click takes you to the right terminal. Optionally it also shows what each agent is doing right now ("Editing render.rs").
 - **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up with **Open** and **Kill** buttons.
 - **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them.
 - **Quick file actions.** Shrink an image under 5 MB, turn it into a PDF, strip its location data, copy the text out of it, or tidy up JSON. One click each.
 - **Control music.** See what's playing and skip or pause.
 - **Mute every microphone at once**, with a red lock on the pill so you always know.
-- **Timer and focus sessions.** Right-click the pill to start a countdown or a Pomodoro.
+- **Timer and focus sessions.** Right-click the pill to start a countdown or a Pomodoro. A focus cycle shows its rounds as dots, and a running timer splits off as a small clock beside the pill.
+- **Browser downloads.** A download in progress is a task with its growing size; when it finishes you get **Open** and **Shelve**.
+- **Runaway processes.** If one program keeps a lot of CPU or memory for a while, the pill says so, with **Kill** (asks twice) and **Ignore**.
+- **Your next meeting** (optional). A heads-up a few minutes before it starts, with **Join** for Teams, Meet and Zoom links.
+- **Keyboard and looks.** A global hotkey opens the pill for arrow keys and Tab; light, dark or follow-Windows themes; the glow takes the album art's colour; the pill can follow you to another monitor.
 - **Battery and power mode** on laptops.
 - **Camera and mic dots** that tell you when an app is using them.
 - **Gets out of the way of games and videos**, shrinking to a hairline when something is fullscreen.
@@ -91,6 +95,10 @@ Some tools only print progress in a real terminal, so ask for it: `notch run -- 
 | Album art and moving bars | Music is playing. |
 | A red lock | Your microphones are muted. |
 | A green or orange dot | An app is using your camera (green) or microphone (orange). |
+| A small second pill beside it | A second thing is going on: a running timer (clock) or music playing while a task runs (album art). |
+| An amber `!` card | A program keeps using a lot of CPU or memory. |
+| A blue `i` card | Your next calendar event is about to start. |
+| A green battery that fills | You just plugged in the charger. |
 | A thin grey line | Something is fullscreen; hover it to bring the pill back. |
 
 | Idle | Home card | Muted | Muted, opened |
@@ -134,6 +142,8 @@ notch agent hooks claude
 
 This prints a block of settings. Paste it into your Claude Code `settings.json`. From then on, the pill turns amber whenever Claude is waiting for you.
 
+Want to see what Claude is doing as well? Use `notch agent hooks claude --tools` instead. It adds a hook that runs before every tool call, so each agent's row shows its current step ("Running: cargo build") and how long it has been going. It runs `notch` once per tool call, which is quick but not free, so it is optional.
+
 For other tools, have them run `notch agent needs-input --name "MyTool" --message "waiting for you"` when they need you, and `notch agent done --name "MyTool"` when they finish.
 
 ### Report progress from a script
@@ -160,6 +170,10 @@ The ones people change most:
 ```toml
 [general]
 autostart = false              # start with Windows
+theme = "dark"                 # "dark", "light" or "auto" (follow Windows)
+monitor = "primary"            # "primary", "active" (the focused window's) or "cursor"
+hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
+adaptive_glow = true           # tint the music glow with the album art
 fullscreen_mode = "sentinel"   # "sentinel" = thin line, "hide" = disappear completely
 finish_peek_secs = 5            # how long the pill opens when a task finishes (0 = never)
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]
@@ -183,7 +197,22 @@ sound = false                  # beep when an agent needs you
 
 [timer]
 sound = true                   # chime when a timer ends
+
+[hog]
+enabled = true                 # warn about a process that keeps using lots of CPU or memory
+cpu_pct = 80                   # of the whole machine, for `secs` seconds
+secs = 30
+mem_mb = 4096
+
+[downloads]
+enabled = true                 # show browser downloads as tasks
+
+[calendar]
+enabled = false                # off by default: event titles are private
+lead_min = 10                  # minutes before the start to show the heads-up
 ```
+
+**Keyboard.** Set `hotkey` (for example `"Win+Alt+N"`), restart or save the file, then press it: the pill opens and takes focus. **Left / Right** switch panels, **Tab** moves a highlight over the buttons, **Enter** presses one, **Esc** closes it and gives focus back to what you were doing.
 
 The full list of settings is in [the configuration guide](docs/11-configuration-and-files.md).
 
@@ -197,6 +226,8 @@ The full list of settings is in [the configuration guide](docs/11-configuration-
 | `notch` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `notch setup` from the Hytte folder (`.\notch.exe setup`). |
 | Shell commands don't show up | Use **Set up terminal integration** in the tray, then open a new terminal. Commands under 3 seconds are hidden on purpose. |
 | A port isn't listed | Add it to `[ports] watch`, or set `show_all = true`. |
+| The hotkey does nothing | Another app may own that combination (see `hytte.log`), or it has no modifier. Try another, such as `"Ctrl+Alt+H"`. |
+| A "resource" warning I don't want | Press **Ignore** for that program, or raise `[hog] cpu_pct` / `mem_mb`, or set `[hog] enabled = false`. |
 | "OCR unavailable" | Install a language pack with text recognition in *Settings → Time & language → Language & region*. |
 | No music controls | The music app has to report itself to Windows (most browsers and players do). |
 
