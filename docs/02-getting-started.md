@@ -50,7 +50,7 @@ For the rest: drag a file onto the pill (shelf, Drop Vault), play music in any a
 | Tool | How |
 |---|---|
 | Log file | `crate::logging::line("...")` appends to `%APPDATA%\Hytte\hytte.log`. Panics from any thread are written there too, by the hook installed in `logging::init`. |
-| Frame telemetry | Set `HYTTE_PERF=1` before starting the daemon. Every 240 animated frames, `perf.rs` logs p50 / p99 / max draw+present cost, the gap between frames, and how many frames missed a vblank. |
+| Frame telemetry | Set `HYTTE_PERF=1` before starting the daemon. Every 240 animated frames, `perf.rs` logs p50 / p99 / max draw+present cost and draw-only cost, the gap between frames, and how many frames missed a vblank. |
 | A debugger | Visual Studio, WinDbg or VS Code with the C++ debugger can attach to `hytte.exe`. Debug builds include symbols in the `.pdb` next to the exe. |
 
 `notch.exe` is a normal console program, so its errors print to the terminal.

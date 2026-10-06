@@ -10,8 +10,8 @@ Each worker watches one part of the system and reports changes to the UI thread 
 |---|---|---|---|
 | Media | `media.rs` | WinRT change events + 30 s safety timeout | `Media`, `MediaArt` |
 | Privacy | `privacy.rs` | Registry change notifications + 10 s safety timeout | `Privacy` |
-| Microphone | `mic.rs` | 2 s poll of cached endpoints; device changes by notification | `MicMute` |
-| Battery | `power.rs` | 10 s poll | `Power` |
+| Microphone | `mic.rs` | Endpoint-volume callbacks and device notifications (60 s safety timeout) | `MicMute` |
+| Battery | `power.rs` | Power broadcasts forwarded by the window, plus a power-mode callback (5 min safety timeout) | `Power` |
 | Ports | `ports.rs` | `poll_secs` poll, woken early on demand | `Ports` |
 | Config | `config.rs` | Directory change notification (no polling) | `Config` ([section 11](11-configuration-and-files.md#live-reload)) |
 | Terminal tabs | `tabs.rs` | Command channel (no polling) | none: it answers commands |
@@ -62,23 +62,27 @@ If the keys don't exist, it falls back to a 10 s poll.
 
 The watcher (in a multithreaded COM apartment):
 
-- creates one `IMMDeviceEnumerator` and registers an `IMMNotificationClient` (`DeviceChanges`) that sets a "dirty" flag when a device is added, removed or changes state;
-- keeps the activated endpoint list and re-enumerates only when the flag is set;
-- every 2 s, reads the mute state from the cached endpoints and sends `UiEvent::MicMute` on change.
+- creates one `IMMDeviceEnumerator` and registers an `IMMNotificationClient` (`DeviceChanges`) that wakes it when a device is added, removed or changes state;
+- keeps the activated endpoint list, and subscribes an `IAudioEndpointVolumeCallback` (`MuteChanges`) to every endpoint, so a mute change made anywhere (a hardware key, Windows Settings, another app) wakes it at once;
+- blocks on a small channel that both callbacks feed. On a wake it re-enumerates (and re-subscribes) only if a device changed, reads the mute state from the cached endpoints, and sends `UiEvent::MicMute` on change. One toggle notifies every endpoint, and the burst is folded into one recheck.
 
-If notifications can't be registered, it re-enumerates on every poll instead. The 2 s poll exists because mute changes made elsewhere (a hardware key, Windows Settings) have no cheap notification here. The upgrade path is a per-endpoint `IAudioEndpointVolumeCallback`.
+A 60 s timeout is a safety net against a missed callback. If device notifications can't be registered, the watcher falls back to re-enumerating every 2 s, as it used to.
 
-Clicking **Mute** in the pill calls `mic::toggle` directly and updates the model at once, so the UI doesn't wait for the poll.
+Clicking **Mute** in the pill calls `mic::toggle` directly and updates the model at once, so the UI doesn't wait for the callback. The ignored test `mic::tests::mute_change_wakes_the_watcher` flips the real mute and checks that the callback, not the timeout, reports it (`cargo test -p hytte mic -- --ignored`).
 
 ## Battery and power mode (`power.rs`)
 
-Every 10 s, `power::read` produces `Option<Battery>`:
+`power::read` produces `Option<Battery>`. It runs once at startup and again whenever `power::poke()` is called:
 
 - **Percentage and AC state** from `GetSystemPowerStatus`. No battery (flag 128) or unknown (255) → `None`, and the Home card hides the battery row.
 - **Charge rate in watts** from the battery driver: `IOCTL_BATTERY_QUERY_TAG`, then `IOCTL_BATTERY_QUERY_STATUS`. The battery's device path is found once with SetupDi and cached. A failed query forgets the cached path so it is looked up again (the battery was swapped or the driver reloaded). A driver that reports an unknown rate keeps the path and just shows no wattage.
 - **Power mode** (Saver / Balanced / Performance) from the undocumented but stable `powrprof.dll` exports `PowerGetActualOverlayScheme` and `PowerSetActiveOverlayScheme`. The DLL is loaded and the exports resolved once.
 
-Opening the Home panel also calls `power::read` immediately, so the card is never 10 s stale when you look at it.
+`poke` is called from three places: the window procedure on `WM_POWERBROADCAST` (the window registers for the AC/DC power-source and battery-percentage settings with `RegisterPowerSettingNotification`, and also gets resume broadcasts), and a `PowerRegisterForEffectivePowerModeNotifications` callback that the worker registers itself. A 5 min timeout is only a safety net. Nothing polls.
+
+The charge rate changes continuously while charging but has no notification, so it is refreshed when you look at it: selecting the Home panel, or hovering the pill open on it, calls `power::read` immediately.
+
+When a reading moves from battery to AC, `Model::set_power` starts the plug-in card ([section 6](06-ui-model.md)).
 
 ## Ports (`ports.rs` + `crates/proto/src/ports.rs`)
 

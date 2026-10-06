@@ -70,8 +70,8 @@ Two rules hold everywhere:
 | Media watcher | `media::spawn_watcher` | whole process | WinRT change events (30 s safety timeout) |
 | Media command | `media::control` | one button press | the WinRT call |
 | Privacy watcher | `privacy::spawn_watcher` | whole process | registry change notifications (10 s safety timeout) |
-| Mic watcher | `mic::spawn_watcher` | whole process | a 2 s sleep (device changes arrive by notification) |
-| Power watcher | `power::spawn_watcher` | whole process | a 10 s sleep |
+| Mic watcher | `mic::spawn_watcher` | whole process | a channel fed by endpoint-volume and device callbacks (60 s safety timeout) |
+| Power watcher | `power::spawn_watcher` | whole process | a channel fed by `power::poke` (power broadcasts and mode callback; 5 min safety timeout) |
 | Config watcher | `config::spawn_watcher` | whole process | `FindFirstChangeNotificationW` on the data folder; applies edits to `config.toml` live |
 | Port watcher | `ports::spawn_watcher` | whole process | a condvar: woken early on demand, otherwise every `poll_secs` |
 | Drop Vault workers (2) | `drop::spawn_workers` | whole process | the job channel |
