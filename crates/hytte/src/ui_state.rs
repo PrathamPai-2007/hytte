@@ -289,6 +289,8 @@ pub struct Model {
     pub timer_break: u32,
     /// Focus sessions finished, for long-break spacing.
     pub focus_done: u32,
+    /// `[timer] rounds`: how many dots a focus cycle has.
+    pub rounds: u32,
 }
 
 /// First word of a command line, lower-cased, without path or `.exe`.

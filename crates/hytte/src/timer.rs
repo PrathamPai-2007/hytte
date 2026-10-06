@@ -90,6 +90,18 @@ pub fn break_minutes(done: u32, rounds: u32, short: u32, long: u32) -> u32 {
     }
 }
 
+/// The round dots of a focus cycle: (filled, total). `done` focus sessions are finished and
+/// `running` says one is in progress; after the last round of a cycle all dots stay filled
+/// through the long break.
+pub fn round_dots(done: u32, rounds: u32, running: bool) -> (u32, u32) {
+    let total = rounds.max(1);
+    let in_cycle = done % total;
+    if done > 0 && in_cycle == 0 && !running {
+        return (total, total);
+    }
+    ((in_cycle + running as u32).min(total), total)
+}
+
 /// Wheel notches -> minutes: 1-minute steps under 10, 5-minute steps above.
 pub fn nudge(m: u32, steps: i32) -> u32 {
     let mut m = m as i32;
@@ -238,5 +250,19 @@ mod tests {
             w.len() - 8
         );
         assert!(w.len() < 100_000);
+    }
+
+    #[test]
+    fn round_dots_follow_the_cycle() {
+        // Four rounds: nothing yet, one running, two done and a third running.
+        assert_eq!(round_dots(0, 4, false), (0, 4));
+        assert_eq!(round_dots(0, 4, true), (1, 4));
+        assert_eq!(round_dots(2, 4, true), (3, 4));
+        // The last round of a cycle finishes: all filled during the long break, then a fresh cycle.
+        assert_eq!(round_dots(4, 4, false), (4, 4));
+        assert_eq!(round_dots(4, 4, true), (1, 4));
+        assert_eq!(round_dots(5, 4, false), (1, 4));
+        // A zero setting can't divide by zero.
+        assert_eq!(round_dots(3, 0, true), (1, 1));
     }
 }

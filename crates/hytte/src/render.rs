@@ -2485,6 +2485,25 @@ impl Renderer {
                 20.0,
                 self.cc(GRAY, 1.0),
             );
+            // A focus cycle is a row of dots: filled for finished rounds, lit for the one running.
+            if t.kind != crate::timer::TimerKind::Plain {
+                let (filled, total) = crate::timer::round_dots(
+                    m.focus_done,
+                    m.rounds,
+                    t.kind == crate::timer::TimerKind::Focus,
+                );
+                let x0 = w - 16.0 - total as f32 * 12.0;
+                for i in 0..total {
+                    let on = i < filled;
+                    let cx = x0 + i as f32 * 12.0 + 4.0;
+                    let live = on && i + 1 == filled && t.kind == crate::timer::TimerKind::Focus;
+                    if on {
+                        self.circle(cx, 36.0, 3.6, self.cc(if live { BLUE } else { GREEN }, 1.0));
+                    } else {
+                        self.ring(cx, 36.0, 3.0, self.cc(GRAY, 0.6), 1.2);
+                    }
+                }
+            }
             let pause = if t.paused_ms.is_some() {
                 "Resume"
             } else {
