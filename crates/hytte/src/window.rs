@@ -307,9 +307,48 @@ mod win {
             (self.mon.0 + (mon_w - crop.w_px) / 2, self.mon.1)
         }
 
+        /// The monitor the pill should hang from, per `[general] monitor`: "active" is the one
+        /// holding the foreground window, "cursor" the one under the pointer, anything else
+        /// the primary.
+        fn wanted_monitor(&self) -> HMONITOR {
+            unsafe {
+                let primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+                match self.cfg.general.monitor.as_str() {
+                    "active" => {
+                        let fg = GetForegroundWindow();
+                        if fg.0.is_null() {
+                            primary
+                        } else {
+                            MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
+                        }
+                    }
+                    "cursor" => {
+                        let mut p = POINT::default();
+                        if GetCursorPos(&mut p).is_ok() {
+                            MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST)
+                        } else {
+                            primary
+                        }
+                    }
+                    _ => primary,
+                }
+            }
+        }
+
+        /// Move the pill to another monitor when `[general] monitor` says it should follow.
+        fn follow_monitor(&mut self) {
+            if matches!(self.cfg.general.monitor.as_str(), "active" | "cursor") {
+                let before = (self.mon, self.scale);
+                self.refresh_monitor();
+                if before != (self.mon, self.scale) {
+                    self.kick();
+                }
+            }
+        }
+
         fn refresh_monitor(&mut self) {
             unsafe {
-                let hmon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+                let hmon = self.wanted_monitor();
                 let mut mi = MONITORINFO {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
@@ -468,8 +507,12 @@ mod win {
             self.model.ignore = ignore_list(&new);
             self.light = theme_is_light(&new.general.theme);
             self.model.adaptive_glow = new.general.adaptive_glow;
+            let monitor_changed = new.general.monitor != self.cfg.general.monitor;
             let general = new.general != self.cfg.general;
             self.cfg = new;
+            if monitor_changed {
+                self.refresh_monitor();
+            }
             if general {
                 self.evaluate_fullscreen();
             }
@@ -1636,6 +1679,7 @@ mod win {
                     T_FS => {
                         // Settled after a foreground change or move: stay above it.
                         reassert_topmost(hwnd);
+                        ui.follow_monitor();
                         ui.evaluate_fullscreen();
                         ui.follow_desktop(hwnd);
                     }
