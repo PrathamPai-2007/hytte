@@ -55,9 +55,12 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 |---|---|---|
 | `autostart` | `false` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
 | `add_to_path` | `true` | At startup, add the folder holding `notch.exe` to the user's `PATH` if `notch` isn't found already. Set to `false` to manage `PATH` yourself. |
-| `monitor` | `"primary"` | Reserved; only the primary monitor is supported. |
+| `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) or `"cursor"` (the monitor under the pointer). `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
 | `solid_pill` | `true` | Reserved. |
 | `acrylic` | `false` | Draw the pill body at 84 % opacity instead of solid. There is no blur behind it. |
+| `theme` | `"dark"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
+| `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
+| `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `renderer` | `"gpu"` | `"gpu"`: Direct2D into a DirectComposition swap chain. `"classic"`: Direct2D into a layered window. Read at startup only (the window's style depends on it), so changing it needs a restart. If the GPU pipeline can't start, Hytte uses `classic` anyway. |
 | `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front. |
 | `fullscreen_mode` | `"sentinel"` | `"sentinel"`: shrink to a 3 px bar; `"hide"`: fade out completely. |

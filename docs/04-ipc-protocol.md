@@ -45,6 +45,7 @@ Newline-delimited JSON: one object per line, UTF-8. A client may send several li
 | `delay_ms` | integer | no | | Don't show the task until this long after it starts. |
 | `message` | string | no | ≤ 1024 bytes | Free text, shown in amber while `NeedsInput`. |
 | `cwd` | string | no | ≤ 1024 bytes | The working directory (carried; not displayed today). |
+| `line` | string | no | ≤ 512 bytes | The command's latest output line (`notch run` sends it), shown in mono under a running task in the expanded list. Additive: older daemons ignore it. |
 
 `event` is one of:
 

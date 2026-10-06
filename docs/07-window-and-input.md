@@ -22,7 +22,17 @@ The renderer is picked before the window exists, because the style depends on it
 
 ### Monitor and DPI
 
-`Ui::refresh_monitor` reads the primary monitor's rectangle and its effective DPI, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
+`Ui::refresh_monitor` reads the rectangle and effective DPI of the monitor the pill hangs from, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
+
+`[general] monitor` chooses the monitor (`Ui::wanted_monitor`):
+
+| Value | The pill hangs from |
+|---|---|
+| `"primary"` (default) | The primary monitor. |
+| `"active"` | The monitor holding the foreground window. |
+| `"cursor"` | The monitor under the pointer. |
+
+For `active` and `cursor`, `Ui::follow_monitor` runs when the foreground window settles (the `T_FS` timer, 150 ms after a change), moves the pill if the monitor or its DPI changed, and then re-runs the fullscreen check against the new monitor. A live edit of the key applies at once. Limit: the drag-arming zone ([below](#arming-the-top-edge)) belongs to the monitor the pill is on, so dragging a file to the top edge of a different monitor doesn't arm it until the pill has moved there.
 
 ## The `Ui` struct
 
@@ -38,6 +48,8 @@ Thread-local UI state (accessed through `with_ui`; see [section 3](03-architectu
 | `fs_hidden`, `paused`, `armed`, `shown` | Fullscreen suppression, the tray Pause state, a drag in progress near the top edge, and whether the window is shown. |
 | `drag` | A shelf tile was pressed: it becomes an OLE drag once the pointer moves more than 4 px. |
 | `wheel` | Accumulated wheel delta (precision touchpads send fractions of a notch). |
+| `pressed`, `light` | The left button is down over a clickable region; the resolved `[general] theme`. |
+| `kb`, `kb_focus` | Keyboard mode (the window that had focus before, to give it back) and the region that has the focus ring. |
 | `thumb_req`, `tabs`, `vdm` | Thumbnails already requested, the terminal-tabs worker, and the virtual desktop manager. |
 
 Three methods do most of the work:
@@ -57,6 +69,9 @@ Three methods do most of the work:
 | `WM_DRAG_ARM` / `WM_DRAG_END` (custom) | A drag entered the top-edge zone / the button was released. |
 | `WM_MOUSEMOVE` | Updates the pointer, starts leave-tracking, starts or cancels the hover timers, starts a tile drag past 4 px, and redraws so hover effects follow the pointer. |
 | `WM_MOUSELEAVE` | The pointer left the window: clears it and arms the collapse timer. |
+| `WM_HOTKEY` | The `[general] hotkey` was pressed: enters or leaves [keyboard mode](#keyboard). |
+| `WM_KEYDOWN` | In keyboard mode: Esc, Left/Right, Tab / Shift+Tab, Enter / Space. |
+| `WM_KILLFOCUS` | Ends keyboard mode without taking focus back. |
 | `WM_MOUSEWHEEL` | Switches panels one per notch, or nudges the timer minutes in the timer panel. |
 | `WM_SETCURSOR` | A hand cursor over clickable regions. |
 | `WM_LBUTTONDOWN` | On a shelf tile: remembers it and captures the mouse, ready for a drag. |
@@ -105,6 +120,21 @@ Every action ends with `after_model_change`.
 ### Focusing a terminal
 
 `proc::terminal_window_for(pid)` walks up the process tree (up to 8 levels) until it finds a process that owns a visible, unowned, captioned top-level window. `proc::focus_window` restores it if minimised, calls `AllowSetForegroundWindow`, and then `SetForegroundWindow`. Windows only allows that because it happens in response to the user's click on Hytte. **Never call it from a background event**: it would fail, and it would also break the "never steal focus" promise.
+
+## Keyboard
+
+Everything above is mouse-driven, and the window never takes focus on its own. For keyboard use, set `[general] hotkey` to a chord such as `"Win+Alt+N"` (empty = off). `config::parse_hotkey` needs at least one modifier (`Win`, `Ctrl`, `Alt`, `Shift`) and exactly one key (a letter, a digit or `F1`–`F24`), so a typo can't claim a bare key system-wide. `Ui::register_hotkey` registers it with `RegisterHotKey` (and `MOD_NOREPEAT`) at startup and when the config changes; if another app owns the chord, or the text isn't understood, a line goes to `hytte.log`.
+
+Pressing it enters **keyboard mode** (`Ui::toggle_keyboard`): the pill remembers the foreground window, opens and stays open (the collapse timer is ignored), and takes focus with `SetForegroundWindow` (allowed, because the user just pressed a key). Then:
+
+| Key | Does |
+|---|---|
+| Left / Right | Previous / next panel, with the paging slide. |
+| Tab / Shift+Tab | Moves a blue **focus ring** over the clickable regions in the order they are drawn. |
+| Enter / Space | Runs the action of the focused region. |
+| Esc, or the hotkey again | Closes the pill and gives focus back to the remembered window. |
+
+Clicking another window ends keyboard mode without taking focus back (`WM_KILLFOCUS`). The ring is drawn by `Renderer::hit` for the region whose index equals `Frame::focus`, only while the live scene is drawing (the scene fading out never shows it).
 
 ## Drag and drop
 
