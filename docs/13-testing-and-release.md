@@ -70,8 +70,8 @@ Anything that needs a real desktop: drawing, hover timing, drag and drop in and 
 4. Creates a GitHub release for the tag with the zip attached and generated release notes.
 
 ```powershell
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.3.0
+git push origin v1.3.0
 ```
 
 ## winget
