@@ -37,6 +37,8 @@ pub enum UiEvent {
     Power(Option<crate::power::Battery>),
     DropDone(crate::drop::DropResult),
     Ports(Vec<PortInfo>),
+    /// A process has been using a lot of CPU or memory.
+    Hog(crate::hog::Alert),
     /// Dropped onto the notch while the shelf is the drop target.
     ShelfAdd(crate::drop::DropJob),
     /// Drop items whose file work (copies, snippets) finished on a worker thread.
@@ -1331,5 +1333,31 @@ bang"
         // The kind survives while it retracts.
         a.set_bubble(None);
         assert_eq!(a.bubble_kind, Some(Bubble::Timer));
+    }
+
+    #[test]
+    fn a_chip_keeps_its_own_hold_time_and_the_kill_confirm_dies_with_it() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let mut c = Chip::new("hog", t0);
+        c.hold = Duration::from_secs(20);
+        m.chip = Some(c);
+        m.chip_armed = Some(t0 + KILL_CONFIRM);
+        // The single deadline timer wakes for the confirm window first, then the chip's end.
+        assert_eq!(m.expire(t0), Some(t0 + KILL_CONFIRM));
+        assert!(m.chip.is_some() && m.chip_armed.is_some());
+        assert_eq!(m.expire(t0 + KILL_CONFIRM), Some(t0 + Duration::from_secs(20)));
+        assert!(m.chip.is_some() && m.chip_armed.is_none());
+        // Past the default 10 s the long-hold chip is still there; at 20 s it goes.
+        m.expire(t0 + Duration::from_secs(11));
+        assert!(m.chip.is_some());
+        m.expire(t0 + Duration::from_secs(20));
+        assert!(m.chip.is_none());
+        // Dismissing a chip also drops a pending Kill confirm.
+        m.chip = Some(Chip::new("x", t0));
+        m.chip_armed = Some(t0 + Duration::from_secs(1));
+        m.dismiss_chip();
+        m.expire(t0);
+        assert!(m.chip_armed.is_none());
     }
 }
