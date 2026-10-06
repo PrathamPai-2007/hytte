@@ -2,6 +2,8 @@
 //! Percent / AC from GetSystemPowerStatus, charge rate from the battery
 //! device's IOCTL_BATTERY_QUERY_STATUS, power mode via the (undocumented but
 //! stable) powrprof overlay-scheme exports, resolved at runtime.
+//! The worker sleeps until Windows reports a change (`poke`): the window forwards
+//! power-setting broadcasts, and the effective-power-mode callback is registered here.
 
 use crate::ui_state::UiEvent;
 use crossbeam_channel::Sender;
@@ -35,12 +37,26 @@ impl Battery {
     }
 }
 
+/// Wakes the worker; set once by `spawn_watcher`.
+static WAKE: std::sync::OnceLock<Sender<()>> = std::sync::OnceLock::new();
+
+/// Tell the worker something about power changed (AC/DC, charge %, power mode, resume).
+/// Cheap and safe from any thread, including a system callback.
+pub fn poke() {
+    if let Some(w) = WAKE.get() {
+        let _ = w.try_send(());
+    }
+}
+
 pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
+    let (tx, rx) = crossbeam_channel::bounded::<()>(1);
+    let _ = WAKE.set(tx);
     std::thread::spawn(move || {
         #[cfg(windows)]
         crate::proc::eco_thread();
         #[cfg(windows)]
         {
+            imp::watch_power_mode();
             let mut last = None;
             loop {
                 let b = imp::read();
@@ -48,13 +64,17 @@ pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
                     last = Some(b);
                     let _ = ui_tx.send(UiEvent::Power(b));
                 }
-                // ponytail: 10 s poll; fine for a percentage, no power-notification plumbing
-                std::thread::sleep(std::time::Duration::from_secs(10));
+                // Only a safety net against a missed broadcast; changes arrive via `poke`.
+                if let Err(crossbeam_channel::RecvTimeoutError::Disconnected) =
+                    rx.recv_timeout(std::time::Duration::from_secs(300))
+                {
+                    return;
+                }
             }
         }
         #[cfg(not(windows))]
         {
-            let _ = ui_tx;
+            let _ = (ui_tx, rx);
         }
     });
 }
@@ -138,6 +158,24 @@ mod imp {
             } else {
                 Mode::Balanced
             }
+        }
+    }
+
+    /// Ask Windows to call `poke` whenever the effective power mode changes.
+    pub fn watch_power_mode() {
+        unsafe extern "system" fn on_mode(_mode: EFFECTIVE_POWER_MODE, _ctx: *const core::ffi::c_void) {
+            poke();
+        }
+        let mut handle = std::ptr::null_mut();
+        // SAFETY: the callback is a plain fn that outlives the process; the handle is kept
+        // registered for the whole run, so it is deliberately never unregistered.
+        unsafe {
+            let _ = PowerRegisterForEffectivePowerModeNotifications(
+                EFFECTIVE_POWER_MODE_V2,
+                Some(on_mode),
+                None,
+                &mut handle,
+            );
         }
     }
 

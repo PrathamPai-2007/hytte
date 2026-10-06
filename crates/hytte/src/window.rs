@@ -46,6 +46,10 @@ mod win {
     use windows::Win32::System::Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
     use windows::Win32::System::DataExchange::*;
     use windows::Win32::System::Memory::*;
+    use windows::Win32::System::Power::RegisterPowerSettingNotification;
+    use windows::Win32::System::SystemServices::{
+        GUID_ACDC_POWER_SOURCE, GUID_BATTERY_PERCENTAGE_REMAINING,
+    };
     use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
     use windows::Win32::System::Ole::*;
     use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
@@ -869,6 +873,14 @@ mod win {
             };
             HWND_ADDR.store(hwnd.0 as isize, Ordering::Relaxed);
             shared.hwnd.store(hwnd.0 as isize, Ordering::Relaxed);
+            // Power changes arrive as WM_POWERBROADCAST and wake the power worker.
+            for g in [&GUID_ACDC_POWER_SOURCE, &GUID_BATTERY_PERCENTAGE_REMAINING] {
+                let _ = RegisterPowerSettingNotification(
+                    HANDLE(hwnd.0),
+                    g,
+                    DEVICE_NOTIFY_WINDOW_HANDLE,
+                );
+            }
 
             let rend = match Renderer::new() {
                 Ok(r) => r,
@@ -1493,8 +1505,11 @@ mod win {
                     T_DWELL => {
                         if ui.inside {
                             ui.hover = true;
-                            // Opening the pill: make sure the port list is not stale.
+                            // Opening the pill: make sure the port list and charge rate are not stale.
                             crate::ports::request_refresh();
+                            if ui.model.panel() == Panel::Home && ui.model.power.is_some() {
+                                ui.model.power = crate::power::read().or(ui.model.power);
+                            }
                             ui.layout();
                             ui.kick();
                         }
@@ -1529,6 +1544,11 @@ mod win {
                     _ => {}
                 });
                 return LRESULT(0);
+            }
+            WM_POWERBROADCAST => {
+                // Power source / charge level changed, or the PC resumed.
+                crate::power::poke();
+                return LRESULT(1);
             }
             WM_DISPLAYCHANGE | WM_DPICHANGED => {
                 with_ui(|ui| {
