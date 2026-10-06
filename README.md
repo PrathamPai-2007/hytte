@@ -99,6 +99,7 @@ Some tools only print progress in a real terminal, so ask for it: `notch run -- 
 | An amber `!` card | A program keeps using a lot of CPU or memory. |
 | A blue `i` card | Your next calendar event is about to start. |
 | A green battery that fills | You just plugged in the charger. |
+| An amber battery that drains (red when low) | You just unplugged it. |
 | A thin grey line | Something is fullscreen; hover it to bring the pill back. |
 
 | Idle | Home card | Muted | Muted, opened |
