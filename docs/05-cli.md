@@ -62,6 +62,23 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 
 `notch agent hooks claude --tools` prints the same block plus a `PreToolUse` hook (`notch agent tool --name "Claude Code"`, matcher `*`) for the live view. It is opt-in because it runs `notch` before every tool call; `notch` starts in a few milliseconds, but it is still a process per call.
 
+`notch agent hooks claude --approve` adds a `PermissionRequest` hook (`notch agent ask --name "Claude Code"`, matcher `*`). The flags combine: `--tools --approve` prints both.
+
+### `notch agent ask [--name N] [--pid P]` (`cli/agent.rs`)
+
+`notch agent ask` answers a Claude Code permission prompt from the pill.
+
+1. It reads the `PermissionRequest` payload from stdin. `ask_text` turns the payload into one line: the `describe_tool` phrase, or `Using <tool>`.
+2. If a Bash command has more than one line, the line starts with `(N lines, see terminal)`. If it is longer than 60 characters, the line starts with `(long, see terminal)`. The chip clips long text at the end, so the warning goes first, where it is always visible.
+3. It sends an [`Ask`](04-ipc-protocol.md#asking-the-human-ask-and-answer) over a read-write pipe connection (`ask_pipe` in `cli/main.rs`) and waits up to `ASK_WAIT_SECS` + 2 s.
+4. On **Allow** or **Deny** it prints the hook decision:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","message":"Allowed from Hytte"}}}
+```
+
+With no answer (no daemon, timeout, chip dismissed) it prints nothing and exits 0. Claude Code then shows its normal prompt in the terminal. That prompt appears only after the hook returns, so dismissing the chip is the quick way back to the terminal.
+
 ### `notch ports [--all]` and `notch kill :PORT [--force]` (`cli/portscmd.rs`)
 
 These talk to the OS directly through `hytte_proto::ports` and work without the daemon.

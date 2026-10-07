@@ -32,7 +32,7 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 | `hytte/src/power.rs` | Reading is safe on any machine; status text. |
 | `hytte/src/proc.rs` | App ids → exe stems; own process alive and named. |
 | `hytte/src/perf.rs` | Percentile maths. |
-| `hytte/src/cli/agent.rs` | Agent message shape; the Claude hooks JSON (with and without `--tools`) is valid; tool calls become short phrases. |
+| `hytte/src/cli/agent.rs` | Agent message shape; the Claude hooks JSON (`--tools` and `--approve` add only their own hook); tool calls become short phrases; ask text flags multi-line and long commands up front; the permission decision matches Claude Code's schema. |
 | `hytte/src/cli/progress.rs` | OSC 9;4 with BEL and ST terminators, sequences split across reads, `\r` bars, implausible numbers ignored, bounded buffers. |
 | `hytte/src/cli/hook.rs` | Exit code mapping; scripts are embedded. |
 | `hytte/src/hog.rs` | How long a process must stay over the CPU limit, once-only alerts that re-arm after a dip, memory alerting at once, exemptions. |

@@ -77,6 +77,34 @@ fn send_line_best_effort(_line: &str) -> bool {
     false
 }
 
+/// Send an [`hytte_proto::Ask`] and wait for the human's answer. None = no daemon, no
+/// answer in time, or dismissed: the caller falls back to asking in the terminal.
+fn ask_pipe(ask: &hytte_proto::Ask) -> Option<bool> {
+    use std::io::{BufRead, BufReader};
+    let mut line = serde_json::to_string(ask).ok()?;
+    line.push('\n');
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(PIPE_NAME)
+        .ok()?;
+    f.write_all(line.as_bytes()).ok()?;
+    // The read blocks until the daemon answers or hangs up; cap it from outside.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reply = String::new();
+        if BufReader::new(f).read_line(&mut reply).is_ok() {
+            let _ = tx.send(reply);
+        }
+    });
+    let reply = rx
+        .recv_timeout(Duration::from_secs(hytte_proto::ASK_WAIT_SECS + 2))
+        .ok()?;
+    serde_json::from_str::<hytte_proto::Answer>(reply.trim())
+        .ok()
+        .map(|a| a.allow)
+}
+
 /// `hytte.exe` next to this exe, started detached; waits briefly for its pipe.
 /// Only `notch run` does this (shell hooks must stay instant and never spawn GUIs).
 #[cfg(windows)]
@@ -334,7 +362,7 @@ fn main() {
     match args[0].as_str() {
         "run" => cmd_run(&args[1..]),
         "set" => cmd_set(&args[1..]),
-        "agent" => agent::run(&args[1..], send_msg),
+        "agent" => agent::run(&args[1..], send_msg, ask_pipe),
         "hook" => hook::run(&args[1..], send_msg),
         "init" => match args.get(1) {
             Some(sh) => hook::init(sh),
