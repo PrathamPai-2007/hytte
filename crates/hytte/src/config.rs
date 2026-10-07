@@ -46,6 +46,9 @@ pub struct General {
     /// Seconds the pill opens to show a finished or failed task (0 = don't open).
     #[serde(default = "default_finish_peek")]
     pub finish_peek_secs: u64,
+    /// Keep the pill out of screenshots, recordings and screen share.
+    #[serde(default)]
+    pub hide_from_capture: bool,
 }
 
 /// Modifier bits as `RegisterHotKey` wants them.
@@ -129,6 +132,7 @@ impl Default for General {
             allow_list: vec![],
             deny_list: vec![],
             finish_peek_secs: default_finish_peek(),
+            hide_from_capture: false,
         }
     }
 }

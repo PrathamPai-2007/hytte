@@ -533,6 +533,12 @@ mod win {
         /// the tiles already there and only limits new ones.
         fn apply_config(&mut self, new: Config) {
             let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey;
+            if new.general.hide_from_capture != self.cfg.general.hide_from_capture {
+                set_capture_hidden(
+                    HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _),
+                    new.general.hide_from_capture,
+                );
+            }
             if new.general.autostart != self.cfg.general.autostart {
                 crate::config::ensure_autostart(new.general.autostart);
             }
@@ -1277,7 +1283,10 @@ mod win {
 
             let mut tray = crate::tray::Tray::new(hwnd);
             tray.add();
-            with_ui(|ui| ui.register_hotkey(hwnd));
+            with_ui(|ui| {
+                ui.register_hotkey(hwnd);
+                set_capture_hidden(hwnd, ui.cfg.general.hide_from_capture);
+            });
             post(WM_FG);
 
             // Bridge: worker threads -> UI thread via queue + PostMessage (one thread for both channels).
@@ -1382,6 +1391,15 @@ mod win {
             );
             !on.as_bool()
         }
+    }
+
+    /// Keep the pill out of screenshots, recordings and screen share (`[general] hide_from_capture`).
+    fn set_capture_hidden(hwnd: HWND, on: bool) {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+        };
+        let affinity = if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
+        let _ = unsafe { SetWindowDisplayAffinity(hwnd, affinity) };
     }
 
     fn open_url(url: &str) {
