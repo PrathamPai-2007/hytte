@@ -2,16 +2,20 @@
 //! DACL restricted to current user SID, REJECT_REMOTE_CLIENTS, message-mode,
 //! length-bounded reads. Blocking listener thread — no tokio.
 
+use crate::ui_state::UiEvent;
 use crossbeam_channel::Sender;
 use hytte_proto::{HytteMessage, MAX_MESSAGE_BYTES, PIPE_NAME};
 
-pub fn spawn_listener(tx: Sender<HytteMessage>) -> std::thread::JoinHandle<()> {
+pub fn spawn_listener(
+    tx: Sender<HytteMessage>,
+    ui_tx: Sender<UiEvent>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         #[cfg(windows)]
-        run_windows_loop(tx);
+        run_windows_loop(tx, ui_tx);
         #[cfg(not(windows))]
         {
-            let _ = tx;
+            let _ = (tx, ui_tx);
             loop {
                 std::thread::park();
             }
@@ -20,13 +24,13 @@ pub fn spawn_listener(tx: Sender<HytteMessage>) -> std::thread::JoinHandle<()> {
 }
 
 #[cfg(windows)]
-fn run_windows_loop(tx: Sender<HytteMessage>) {
+fn run_windows_loop(tx: Sender<HytteMessage>, ui_tx: Sender<UiEvent>) {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     };
     use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
-    use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND};
+    use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
     use windows::Win32::System::Pipes::*;
 
     let sddl: Vec<u16> = "D:(A;;GA;;;OW)\0".encode_utf16().collect();
@@ -58,9 +62,9 @@ fn run_windows_loop(tx: Sender<HytteMessage>) {
             CreateNamedPipeW(
                 &HSTRING::from(PIPE_NAME),
                 if first {
-                    PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE
+                    PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE
                 } else {
-                    PIPE_ACCESS_INBOUND
+                    PIPE_ACCESS_DUPLEX
                 },
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 8,
@@ -89,10 +93,11 @@ fn run_windows_loop(tx: Sender<HytteMessage>) {
                 // One thread per client so a slow/long-lived client can't
                 // starve the others; the next pipe instance is created at once.
                 let tx = tx.clone();
+                let ui_tx = ui_tx.clone();
                 let addr = h.0 as usize;
                 std::thread::spawn(move || {
                     let h = windows::Win32::Foundation::HANDLE(addr as *mut _);
-                    serve_connection(h, &tx);
+                    serve_connection(h, &tx, &ui_tx);
                     let _ = DisconnectNamedPipe(h);
                     let _ = windows::Win32::Foundation::CloseHandle(h);
                 });
@@ -109,7 +114,11 @@ fn run_windows_loop(tx: Sender<HytteMessage>) {
 }
 
 #[cfg(windows)]
-fn serve_connection(h: windows::Win32::Foundation::HANDLE, tx: &Sender<HytteMessage>) {
+fn serve_connection(
+    h: windows::Win32::Foundation::HANDLE,
+    tx: &Sender<HytteMessage>,
+    ui_tx: &Sender<UiEvent>,
+) {
     use windows::Win32::Storage::FileSystem::ReadFile;
     let mut buf = vec![0u8; 8192];
     let mut acc: Vec<u8> = Vec::new();
@@ -134,7 +143,51 @@ fn serve_connection(h: windows::Win32::Foundation::HANDLE, tx: &Sender<HytteMess
                 if msg.validate() {
                     let _ = tx.send(msg);
                 }
+            } else if let Ok(ask) = serde_json::from_str::<hytte_proto::Ask>(trimmed) {
+                if ask.validate() {
+                    answer(h, ask, tx, ui_tx);
+                }
             }
         }
+    }
+}
+
+/// Put an [`hytte_proto::Ask`] on the pill and block this connection until the human answers.
+/// No answer (timeout, dismissed, replaced by a newer ask) writes nothing: the asker falls back.
+#[cfg(windows)]
+fn answer(
+    h: windows::Win32::Foundation::HANDLE,
+    ask: hytte_proto::Ask,
+    tx: &Sender<HytteMessage>,
+    ui_tx: &Sender<UiEvent>,
+) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use windows::Win32::Storage::FileSystem::WriteFile;
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let (reply, rx) = crossbeam_channel::bounded::<bool>(1);
+    let ev = UiEvent::Ask {
+        id: NEXT.fetch_add(1, Ordering::Relaxed),
+        summary: format!("{}: {}", ask.name, ask.text),
+        reply,
+    };
+    if ui_tx.send(ev).is_err() {
+        return;
+    }
+    let wait = std::time::Duration::from_secs(hytte_proto::ASK_WAIT_SECS);
+    let Ok(allow) = rx.recv_timeout(wait) else {
+        return;
+    };
+    let Ok(mut line) = serde_json::to_string(&hytte_proto::Answer { allow }) else {
+        return;
+    };
+    line.push('\n');
+    let _ = unsafe { WriteFile(h, Some(line.as_bytes()), None, None) };
+    // The agent goes on working: clear its amber "waiting" row.
+    if let (true, Some(pid)) = (allow, ask.pid) {
+        let mut m = HytteMessage::start(format!("agent:{}:{}", ask.name, pid), ask.name.clone());
+        m.event = hytte_proto::TaskEvent::Resumed;
+        m.source = Some("agent".into());
+        m.pid = Some(pid);
+        let _ = tx.send(m);
     }
 }

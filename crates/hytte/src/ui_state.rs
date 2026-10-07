@@ -58,6 +58,12 @@ pub enum UiEvent {
     DragLeave,
     /// `config.toml` was edited and parses.
     Config(Box<crate::config::Config>),
+    /// An agent asks permission (`notch agent ask`); send the answer on `reply`.
+    Ask {
+        id: u64,
+        summary: String,
+        reply: crossbeam_channel::Sender<bool>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,6 +183,8 @@ pub enum ChipAction {
     KillPid(u32),
     /// Stop alerting about a process (by exe name) for this session.
     IgnoreExe(String),
+    /// Answer the pending agent ask with this id: allow (true) or deny.
+    Answer(u64, bool),
 }
 
 /// The look of a chip's icon.

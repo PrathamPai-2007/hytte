@@ -42,8 +42,8 @@ Two rules hold everywhere:
 2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex. If another daemon holds it, this process exits with code 0.
 3. `config::load()` reads `config.toml`, creating it with defaults if it is missing. Then `ensure_autostart` writes or removes the `Run` registry value, and `ensure_start_menu` (on its own thread) refreshes the Start Menu shortcut.
 4. Two channels for the task pipeline are created: `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI).
-5. `pipe_server::spawn_listener` and `tasks::spawn_registry` start.
-6. A `UiEvent` channel is created and handed to the workers: `media`, `privacy`, `mic`, `power`, `ports` and the `config` watcher. A background thread also runs `setup::ensure_on_path` unless `add_to_path = false`.
+5. A `UiEvent` channel is created. Then `pipe_server::spawn_listener` and `tasks::spawn_registry` start. The listener gets the task channel and a `UiEvent` sender, which it needs for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer).
+6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports` and the `config` watcher. A background thread also runs `setup::ensure_on_path` unless `add_to_path = false`.
 7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
 8. `window::run` takes over the main thread and never returns until Quit.
 

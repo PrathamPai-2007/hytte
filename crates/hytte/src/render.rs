@@ -2460,10 +2460,10 @@ impl Renderer {
             let armed = matches!(act, ChipAction::KillPid(_)) && fr.model.chip_armed.is_some();
             let label = if armed { "Kill?" } else { label.as_str() };
             let bw = (label.chars().count() as f32 * 6.6 + 26.0).max(62.0);
-            let col = if armed || matches!(act, ChipAction::KillPid(_)) {
-                RED
-            } else {
-                accent
+            let col = match act {
+                ChipAction::KillPid(_) | ChipAction::Answer(_, false) => RED,
+                ChipAction::Answer(_, true) => GREEN,
+                _ => accent,
             };
             self.button(label, x, 60.0, bw, 24.0, col, Action::Chip(act.clone()));
             x += bw + 8.0;

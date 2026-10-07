@@ -69,10 +69,10 @@ fn main() {
     let (msg_tx, msg_rx) = unbounded::<hytte_proto::HytteMessage>();
     let (task_tx, task_rx) = unbounded::<tasks::TaskUpdate>();
 
-    let pipe_handle = pipe_server::spawn_listener(msg_tx);
+    let (ui_tx, ui_rx) = unbounded::<ui_state::UiEvent>();
+    let pipe_handle = pipe_server::spawn_listener(msg_tx, ui_tx.clone());
     let tasks_handle = tasks::spawn_registry(msg_rx, task_tx);
 
-    let (ui_tx, ui_rx) = unbounded::<ui_state::UiEvent>();
     media::spawn_watcher(ui_tx.clone());
     privacy::spawn_watcher(ui_tx.clone());
     mic::spawn_watcher(ui_tx.clone());

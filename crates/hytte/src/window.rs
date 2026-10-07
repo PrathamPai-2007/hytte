@@ -223,6 +223,10 @@ mod win {
         kb_focus: Option<usize>,
         /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
         wheel: i32,
+        /// The agent ask on the chip: its id and where the answer goes. Dropping the sender
+        /// sends the agent back to its own terminal prompt.
+        // ponytail: one pending ask at a time; queue them if parallel agents collide often
+        ask: Option<(u64, Sender<bool>)>,
     }
 
     thread_local! {
@@ -523,6 +527,26 @@ mod win {
                     UiEvent::DragEnter => self.model.drop_over = true,
                     UiEvent::DragLeave => self.model.drop_over = false,
                     UiEvent::Config(cfg) => self.apply_config(*cfg),
+                    UiEvent::Ask { id, summary, reply } => {
+                        // Urgent: it takes the chip over. A replaced ask's sender drops here.
+                        let mut c = Chip::new(summary, now);
+                        c.tone = crate::ui_state::Tone::Warn;
+                        c.hold = Duration::from_secs(hytte_proto::ASK_WAIT_SECS);
+                        c.extra = vec![
+                            ("Allow".into(), ChipAction::Answer(id, true)),
+                            ("Deny".into(), ChipAction::Answer(id, false)),
+                        ];
+                        self.model.chip = Some(c);
+                        self.model.chip_armed = None;
+                        self.ask = Some((id, reply));
+                        if self.cfg.agent.sound {
+                            unsafe {
+                                let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+                                    MB_ICONASTERISK,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             self.after_model_change(hwnd);
@@ -886,7 +910,10 @@ mod win {
         fn run_action(&mut self, hwnd: HWND, a: Action) {
             match a {
                 Action::DismissTask(id) => self.model.dismiss_task(&id),
-                Action::DismissChip => self.model.dismiss_chip(),
+                Action::DismissChip => {
+                    self.ask = None;
+                    self.model.dismiss_chip();
+                }
                 Action::Chip(a) => self.chip_action(a),
                 Action::CopyText(s) => set_clipboard(hwnd, &s),
                 Action::OpenPath(p) => {
@@ -1024,6 +1051,12 @@ mod win {
                 }
                 ChipAction::IgnoreExe(exe) => {
                     self.model.hog_ignore.insert(exe.to_ascii_lowercase());
+                    self.model.dismiss_chip();
+                }
+                ChipAction::Answer(id, allow) => {
+                    if let Some((_, reply)) = self.ask.take().filter(|(a, _)| *a == id) {
+                        let _ = reply.send(allow);
+                    }
                     self.model.dismiss_chip();
                 }
             }
@@ -1235,6 +1268,7 @@ mod win {
                 light: false,
                 kb: None,
                 kb_focus: None,
+                ask: None,
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
