@@ -15,6 +15,7 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 
 - **Watch long commands.** See when a build, test run or download finishes, and whether it failed, without staring at the terminal. A running command's latest output line shows under it.
 - **Tell you when an AI agent is waiting.** Claude Code, Aider and similar tools can ping the pill. It turns amber, and one click takes you to the right terminal. Optionally it also shows what each agent is doing right now ("Editing render.rs").
+- **Answer Claude Code from the pill.** When Claude asks permission to run something, the pill shows the command with **Allow** and **Deny**, so you don't have to switch windows (optional).
 - **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up with **Open** and **Kill** buttons.
 - **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them.
 - **Quick file actions.** Shrink an image under 5 MB, turn it into a PDF, strip its location data, copy the text out of it, or tidy up JSON. One click each.
@@ -145,6 +146,14 @@ notch agent hooks claude
 This prints a block of settings. Paste it into your Claude Code `settings.json`. From then on, the pill turns amber whenever Claude is waiting for you.
 
 Want to see what Claude is doing as well? Use `notch agent hooks claude --tools` instead. It adds a hook that runs before every tool call, so each agent's row shows its current step ("Running: cargo build") and how long it has been going. It runs `notch` once per tool call, which is quick but not free, so it is optional.
+
+Want to answer Claude's permission prompts from the pill? Add `--approve` (it combines with `--tools`):
+
+```powershell
+notch agent hooks claude --approve
+```
+
+When Claude wants to run something you haven't allowed yet, the pill opens with the command and **Allow** / **Deny**. If the command has several lines or is long, the pill says so first ("2 lines, see terminal"), so check the terminal before you allow it. Claude's own prompt in the terminal appears after the pill gives up (30 seconds), or straight away if you press **Dismiss**.
 
 For other tools, have them run `notch agent needs-input --name "MyTool" --message "waiting for you"` when they need you, and `notch agent done --name "MyTool"` when they finish.
 
