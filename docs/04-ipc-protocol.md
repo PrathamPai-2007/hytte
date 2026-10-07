@@ -9,7 +9,7 @@ Code: `crates/proto/src/lib.rs` (the message type), `crates/hytte/src/pipe_serve
 | Property | Value | Why |
 |---|---|---|
 | Name | `\\.\pipe\hytte` (`hytte_proto::PIPE_NAME`) | One well-known name for every client. |
-| Direction | Inbound only (`PIPE_ACCESS_INBOUND`) | Clients never read anything back, so a client can't be blocked by the daemon. |
+| Direction | Duplex (`PIPE_ACCESS_DUPLEX`) | Task messages are fire-and-forget; only an [`Ask`](#asking-the-human-ask-and-answer) gets a reply line back. |
 | Mode | Message mode, blocking | Simple reads; one `ReadFile` per client write. |
 | Access control | DACL `D:(A;;GA;;;OW)`: only the owner (your user account) | Other users on the machine can't inject tasks. |
 | Remote clients | Rejected (`PIPE_REJECT_REMOTE_CLIENTS`) | Nothing from the network. |
@@ -19,7 +19,7 @@ Code: `crates/proto/src/lib.rs` (the message type), `crates/hytte/src/pipe_serve
 
 The listener loop (`run_windows_loop`) creates a pipe instance, waits in `ConnectNamedPipe`, and hands each connected instance to a **new thread** that reads it until the client disconnects. It then immediately creates the next instance. One slow client can never block another.
 
-Each connection thread (`serve_connection`) reads chunks into a buffer, splits it on `\n`, and parses each non-empty line as JSON. If a single line grows past 64 KiB, the connection is dropped. A line that fails to parse or validate is ignored without a reply.
+Each connection thread (`serve_connection`) reads chunks into a buffer, splits it on `\n`, and parses each non-empty line as JSON. If a single line grows past 64 KiB, the connection is dropped. A line is parsed as a `HytteMessage` first and, if that fails, as an `Ask`. A line that fails to parse or validate is ignored without a reply.
 
 ## Message format
 
@@ -141,6 +141,29 @@ The bridge delivers `TaskUpdate`s as `UiEvent::Task` to `Ui::handle_events` (`wi
 The timed removals are done by `Model::expire` (see [section 6](06-ui-model.md)), driven by one Win32 timer armed for exactly the next deadline. There is no periodic sweep.
 
 `Model::dismiss_task` (the ✕ button, or **Dismiss** on a failure) removes a finished task. Running tasks can't be dismissed.
+
+## Asking the human: `Ask` and `Answer`
+
+A client can put a yes/no question on the pill and wait for the answer on the same connection. `notch agent ask` uses this to answer Claude Code permission prompts.
+
+```json
+{"v":1,"name":"Claude Code","pid":4242,"text":"Running: cargo publish"}
+```
+
+| Field | Rule |
+|---|---|
+| `v` | `PROTOCOL_VERSION` |
+| `name` | 1 to 128 bytes; shown before the text |
+| `pid` | Optional. When it is set and the answer is *allow*, the daemon also sends `Resumed` for `agent:<name>:<pid>`, so that agent's amber row clears |
+| `text` | 1 to 1024 bytes, shown as is |
+
+`pipe_server::answer` sends `UiEvent::Ask { id, summary, reply }` to the UI thread. It then blocks that connection's thread for up to `ASK_WAIT_SECS` (30 s). The UI shows an amber chip with **Allow** and **Deny**. A click writes one line back:
+
+```json
+{"allow":true}
+```
+
+No reply is sent if the time runs out, the chip is dismissed, or a newer ask replaces it. Only one ask is shown at a time, and the replaced one's sender is dropped. Clients must treat a closed pipe or a timeout as "no answer". An `Ask` line never parses as a `HytteMessage`, so an older daemon ignores it and the client sees no answer.
 
 ## Writing your own client
 

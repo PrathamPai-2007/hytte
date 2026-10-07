@@ -123,6 +123,37 @@ impl HytteMessage {
     }
 }
 
+/// How long the daemon waits for the human to answer an [`Ask`]. Claude Code shows its own
+/// permission prompt only after the hook returns, so this is also how long the terminal waits.
+pub const ASK_WAIT_SECS: u64 = 30;
+
+/// A yes/no question for the human (`notch agent ask`). The daemon answers on the same
+/// connection with one [`Answer`] line, or closes it unanswered (timeout, dismissed).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ask {
+    pub v: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// What is being asked, shown verbatim on the pill.
+    pub text: String,
+}
+
+impl Ask {
+    pub fn validate(&self) -> bool {
+        self.v == PROTOCOL_VERSION
+            && !self.name.is_empty()
+            && self.name.len() <= 128
+            && !self.text.is_empty()
+            && self.text.len() <= 1024
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Answer {
+    pub allow: bool,
+}
+
 /// Minimal error carrier so `proto` stays dependency-light (no `anyhow`).
 pub mod anyhow_string {
     #[derive(Debug)]
@@ -163,6 +194,27 @@ mod tests {
         let new = r#"{"v":1,"task_id":"a","event":"NeedsInput","message":"approve?","pid":42,"source":"agent"}"#;
         let m: HytteMessage = serde_json::from_str(new).unwrap();
         assert_eq!((m.event, m.pid), (TaskEvent::NeedsInput, Some(42)));
+    }
+
+    #[test]
+    fn ask_is_not_a_task_message() {
+        let a = Ask {
+            v: PROTOCOL_VERSION,
+            name: "Claude Code".into(),
+            pid: Some(7),
+            text: "Running: rm -rf build".into(),
+        };
+        assert!(a.validate());
+        let line = serde_json::to_string(&a).unwrap();
+        // The pipe tries HytteMessage first; an Ask must never parse as one.
+        assert!(serde_json::from_str::<HytteMessage>(&line).is_err());
+        let back: Ask = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.pid, Some(7));
+        assert!(!Ask {
+            text: String::new(),
+            ..a
+        }
+        .validate());
     }
 
     #[test]
