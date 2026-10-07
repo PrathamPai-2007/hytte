@@ -28,6 +28,7 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 - **Battery and power mode** on laptops.
 - **Camera and mic dots** that tell you when an app is using them.
 - **Gets out of the way of games and videos**, shrinking to a hairline when something is fullscreen.
+- **Stays out of screen share** if you want: one setting keeps the pill out of screenshots, recordings and calls.
 
 ## Install
 
@@ -178,6 +179,7 @@ adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
 fullscreen_mode = "sentinel"   # "sentinel" = thin line, "hide" = disappear completely
 finish_peek_secs = 5            # how long the pill opens when a task finishes (0 = never)
+hide_from_capture = false      # true = keep the pill out of screenshots and screen share
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]
 deny_list = []                 # apps that always hide Hytte, e.g. ["game.exe"]
 output_folder = "D:\\Hytte"    # where file actions save results (default: next to the file)

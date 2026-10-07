@@ -67,6 +67,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front. |
 | `fullscreen_mode` | `"sentinel"` | `"sentinel"`: shrink to a 3 px bar; `"hide"`: fade out completely. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
+| `hide_from_capture` | `false` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
 | `output_folder` | none | Folder for Drop Vault results; if unset or missing, results go next to the source file. |
 | `allow_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"`. |
 | `deny_list` | `[]` | Exe names that always hide the pill while in front. |
