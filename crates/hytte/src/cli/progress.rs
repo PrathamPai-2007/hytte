@@ -1,4 +1,4 @@
-//! Finds progress in a command's stderr for `notch run`: OSC 9;4 sequences (the ones Windows
+//! Finds progress in a command's stderr for `hytte run`: OSC 9;4 sequences (the ones Windows
 //! Terminal turns into a tab progress bar) and plain `NN%` text, as printed by git, pip, curl,
 //! ffmpeg and many others.
 

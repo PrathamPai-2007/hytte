@@ -1,5 +1,5 @@
-# Hytte / notch shell integration for bash (Git Bash, WSL-less MSYS, etc.).
-# Add to ~/.bashrc:   eval "$(notch init bash)"
+# Hytte shell integration for bash (Git Bash, WSL-less MSYS, etc.).
+# Add to ~/.bashrc:   eval "$(hytte init bash)"
 # Commands that run longer than the daemon's threshold (default 3 s) show up in the notch.
 
 if [ -z "${__notch_loaded:-}" ]; then
@@ -18,14 +18,14 @@ if [ -z "${__notch_loaded:-}" ]; then
     __notch_id="sh-$__notch_pid-$__notch_seq"
     __notch_active=1
     __notch_t0=$SECONDS
-    ( notch hook start --id "$__notch_id" --cmd "$BASH_COMMAND" --pid "$__notch_pid" --cwd "$PWD" >/dev/null 2>&1 & )
+    ( hytte hook start --id "$__notch_id" --cmd "$BASH_COMMAND" --pid "$__notch_pid" --cwd "$PWD" >/dev/null 2>&1 & )
   }
 
   __notch_precmd() {
     local code=$?
     __notch_in_prompt=1
     if [ -n "$__notch_active" ]; then
-      ( notch hook end --id "$__notch_id" --code "$code" --duration-ms "$(((SECONDS - __notch_t0) * 1000))" >/dev/null 2>&1 & )
+      ( hytte hook end --id "$__notch_id" --code "$code" --duration-ms "$(((SECONDS - __notch_t0) * 1000))" >/dev/null 2>&1 & )
       __notch_active=
     fi
     __notch_in_prompt=

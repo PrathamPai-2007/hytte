@@ -1,12 +1,12 @@
-//! `notch ports` and `notch kill :PORT` — talk to the OS directly, no daemon needed.
+//! `hytte ports` and `hytte kill :PORT` — talk to the OS directly, no daemon needed.
 
 use hytte_proto::ports::{current, kill};
 use std::io::Write;
 
 pub fn usage() -> ! {
     eprintln!("usage:");
-    eprintln!("  notch ports [--all]                 # list dev-server listeners");
-    eprintln!("  notch kill :PORT [--force]          # stop the process listening on PORT");
+    eprintln!("  hytte ports [--all]                 # list dev-server listeners");
+    eprintln!("  hytte kill :PORT [--force]          # stop the process listening on PORT");
     std::process::exit(2);
 }
 
@@ -34,7 +34,7 @@ pub fn kill_cmd(args: &[String]) {
         .parse()
         .unwrap_or_else(|_| usage());
     let Some(p) = current(&[], true).into_iter().find(|p| p.port == port) else {
-        eprintln!("notch: nothing is listening on :{port}");
+        eprintln!("hytte: nothing is listening on :{port}");
         std::process::exit(1);
     };
     if !force {
@@ -53,7 +53,7 @@ pub fn kill_cmd(args: &[String]) {
     match kill(p.pid) {
         Ok(()) => println!("stopped {} on :{port}", p.exe),
         Err(e) => {
-            eprintln!("notch: {e}");
+            eprintln!("hytte: {e}");
             std::process::exit(1);
         }
     }

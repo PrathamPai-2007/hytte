@@ -1,13 +1,18 @@
-//! Hytte daemon — dynamic notch + ambient cockpit.
+//! hytte.exe — one program, two modes. With no arguments it is the daemon (the pill and tray
+//! icon); with a command (`hytte run -- ...`, `hytte agent ...`) it is the short-lived CLI.
+//!
+//! It is a console-subsystem exe so the CLI behaves like any command-line tool (the shell waits,
+//! output streams, exit codes propagate). The manifest's `consoleAllocationPolicy=detached` keeps
+//! Explorer and autostart from giving the daemon a console window on Windows 11 24H2+; see
+//! `detach_console` for older builds and for `hytte` typed in a terminal.
+//! Daemon diagnostics go to %APPDATA%\Hytte\hytte.log (see logging.rs).
 
-// GUI subsystem: double-clicking hytte.exe must not open a console window.
-// Diagnostics go to %APPDATA%\Hytte\hytte.log (see logging.rs).
-#![cfg_attr(windows, windows_subsystem = "windows")]
 // Direct2D drawing helpers take geometry + colour; Win32 structs and test models are built field by field.
 #![allow(clippy::too_many_arguments, clippy::field_reassign_with_default)]
 
 mod animation;
 mod calendar;
+mod cli;
 mod config;
 mod convert;
 mod downloads;
@@ -45,6 +50,13 @@ mod winrt;
 use crossbeam_channel::unbounded;
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        cli::run(&args);
+        return;
+    }
+    #[cfg(windows)]
+    detach_console();
     logging::init();
     let _guard = match single_instance::acquire("HytteSingleInstance") {
         Ok(g) => g,
@@ -86,4 +98,49 @@ fn main() {
     drop::spawn_workers(drop_rx, ui_tx.clone());
 
     window::run(cfg, task_rx, ui_rx, drop_tx, pipe_handle, tasks_handle);
+}
+
+/// The daemon must not hold a console. Three ways to arrive here:
+/// - no console at all (24H2+ from Explorer/autostart, or spawned detached): nothing to do;
+/// - a console of our own (double-click before 24H2): close it, a brief flash at most;
+/// - a terminal's console (`hytte` typed at a prompt): the shell is waiting on us, so start a
+///   detached copy and exit, handing the prompt back.
+#[cfg(windows)]
+fn detach_console() {
+    use windows::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
+    let mut ids = [0u32; 2];
+    match unsafe { GetConsoleProcessList(&mut ids) } {
+        0 => {}
+        1 => unsafe {
+            let _ = FreeConsole();
+        },
+        _ => {
+            if let Ok(exe) = std::env::current_exe() {
+                if spawn_detached(&exe).is_ok() {
+                    std::process::exit(0);
+                }
+            }
+            // Couldn't respawn: keep running attached rather than not at all.
+            unsafe {
+                let _ = FreeConsole();
+            }
+        }
+    }
+}
+
+/// Starts `exe` with no arguments (the daemon) with no console and no inherited stdio, so a
+/// pipe the caller was writing to (`hytte run -- x | tee`) is not held open by the daemon.
+#[cfg(windows)]
+pub fn spawn_detached(exe: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    Command::new(exe)
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(drop)
 }

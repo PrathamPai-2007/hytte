@@ -1,5 +1,5 @@
-# Hytte / notch shell integration for PowerShell.
-# Add to $PROFILE:   notch init pwsh | Out-String | Invoke-Expression
+# Hytte shell integration for PowerShell.
+# Add to $PROFILE:   hytte init pwsh | Out-String | Invoke-Expression
 # Commands that run longer than the daemon's threshold (default 3 s) show up in the notch.
 
 if (-not $global:__notch) {

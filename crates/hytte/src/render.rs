@@ -2341,7 +2341,7 @@ impl Renderer {
             hint_y = 110.0;
         }
         self.text(
-            "Drop files here  ·  notch run -- <cmd>",
+            "Drop files here  ·  hytte run -- <cmd>",
             &self.f.small_c,
             0.0,
             hint_y,

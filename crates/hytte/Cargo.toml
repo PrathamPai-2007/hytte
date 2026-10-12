@@ -8,11 +8,6 @@ build = "build.rs"
 name = "hytte"
 path = "src/main.rs"
 
-# The console CLI ships in the same package and shares its version.
-[[bin]]
-name = "notch"
-path = "src/cli/main.rs"
-
 [dependencies]
 hytte-proto = { path = "../proto" }
 windows = { workspace = true }

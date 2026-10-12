@@ -1,16 +1,13 @@
-//! `notch.exe` — tiny separate IPC client.
-//! Fast shell startup: std + windows + serde_json only.
-//! `notch run -- <cmd...>` still runs the command even if the daemon is absent.
+//! `hytte <command>` — the CLI half of hytte.exe: a short-lived IPC client.
+//! Runs before any daemon state exists (no log, no mutex, no config), so shell hooks stay fast.
+//! `hytte run -- <cmd...>` still runs the command even if the daemon is absent.
 
 mod agent;
 mod hook;
 mod portscmd;
 mod progress;
-// Shared with the daemon; its tray helpers go unused here.
-#[path = "../setup.rs"]
-#[allow(dead_code)]
-mod setup;
 
+use crate::setup;
 use hytte_proto::{HytteMessage, TaskEvent, PIPE_NAME};
 use std::collections::VecDeque;
 use std::io::Write;
@@ -21,15 +18,21 @@ const TAIL_LINES: usize = 5;
 /// At most this often a progress update goes to the pipe.
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
+/// The command list. `help` prints it to stdout and exits 0; a mistake prints it to stderr, exit 2.
+const USAGE: &str = "\
+usage:
+  hytte                                  # start the pill (the tray app); no-op if it is running
+  hytte run [--no-progress] -- <cmd...>  # run cmd, report it to the pill (progress read from its output)
+  hytte set --progress <0-100> --label \"...\" [--task <id>]
+  hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> ...   # AI agent / long-task monitor
+  hytte init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s
+  hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
+  hytte ports [--all]                    # list dev-server listeners
+  hytte kill :PORT [--force]             # stop whatever listens on PORT
+  hytte --version | help";
+
 fn usage() -> ! {
-    eprintln!("usage:");
-    eprintln!("  notch run [--no-progress] -- <cmd...>  # run cmd, report to notch (with progress read from its output)");
-    eprintln!("  notch set --progress <0-100> --label \"...\" [--task <id>]");
-    eprintln!("  notch agent <start|needs-input|resume|done|fail|hooks> ...   # AI agent / long-task monitor");
-    eprintln!("  notch init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s");
-    eprintln!("  notch setup [--undo]                   # put notch on PATH + add the hook to PowerShell / Git Bash");
-    eprintln!("  notch ports [--all]                    # list dev-server listeners");
-    eprintln!("  notch kill :PORT [--force]             # stop whatever listens on PORT");
+    eprintln!("{USAGE}");
     std::process::exit(2);
 }
 
@@ -105,24 +108,14 @@ fn ask_pipe(ask: &hytte_proto::Ask) -> Option<bool> {
         .map(|a| a.allow)
 }
 
-/// `hytte.exe` next to this exe, started detached; waits briefly for its pipe.
-/// Only `notch run` does this (shell hooks must stay instant and never spawn GUIs).
+/// This same exe with no arguments (the pill), started detached; waits briefly for its pipe.
+/// Only `hytte run` does this (shell hooks must stay instant and never spawn GUIs).
 #[cfg(windows)]
 fn start_daemon() -> bool {
-    use std::os::windows::process::CommandExt;
-    let Some(exe) = std::env::current_exe()
-        .ok()
-        .map(|p| p.with_file_name("hytte.exe"))
-        .filter(|p| p.exists())
-    else {
+    let Ok(exe) = std::env::current_exe() else {
         return false;
     };
-    // DETACHED_PROCESS | CREATE_NO_WINDOW
-    if Command::new(exe)
-        .creation_flags(0x0800_0008)
-        .spawn()
-        .is_err()
-    {
+    if crate::spawn_detached(&exe).is_err() {
         return false;
     }
     for _ in 0..30 {
@@ -189,7 +182,7 @@ fn cmd_run(args: &[String]) {
             fail.duration_ms = Some(t0.elapsed().as_millis() as u64);
             fail.stderr_tail = Some(format!("spawn failed: {e}"));
             let _ = send_msg(&fail);
-            eprintln!("notch: spawn failed: {e}");
+            eprintln!("hytte: spawn failed: {e}");
             std::process::exit(127);
         });
 
@@ -252,7 +245,7 @@ fn cmd_run(args: &[String]) {
         }
     }
     let status = child.wait().unwrap_or_else(|e| {
-        eprintln!("notch: wait failed: {e}");
+        eprintln!("hytte: wait failed: {e}");
         std::process::exit(126);
     });
     let code = status.code().unwrap_or(-1);
@@ -325,7 +318,7 @@ fn cmd_set(args: &[String]) {
     msg.event = TaskEvent::Progress;
     msg.progress = Some(p);
     if !send_msg(&msg) {
-        eprintln!("notch: daemon not running (message dropped)");
+        eprintln!("hytte: daemon not running (message dropped)");
     }
 }
 
@@ -338,7 +331,7 @@ fn cmd_setup(args: &[String]) {
     };
     if !undo {
         match setup::ensure_on_path() {
-            Ok(true) => println!("PATH: added the notch folder (new terminals will find `notch`)"),
+            Ok(true) => println!("PATH: added the Hytte folder (new terminals will find `hytte`)"),
             Ok(false) => {}
             Err(e) => println!("PATH: {e}"),
         }
@@ -350,16 +343,15 @@ fn cmd_setup(args: &[String]) {
 
 #[cfg(not(windows))]
 fn cmd_setup(_args: &[String]) {
-    eprintln!("notch setup is Windows-only; see `notch init <shell>`");
+    eprintln!("hytte setup is Windows-only; see `hytte init <shell>`");
     std::process::exit(2);
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.is_empty() {
-        usage();
-    }
+/// `args` excludes the exe name and is never empty (no arguments starts the daemon instead).
+pub fn run(args: &[String]) {
     match args[0].as_str() {
+        "help" | "-h" | "--help" | "/?" => println!("{USAGE}"),
+        "--version" | "-V" | "version" => println!("hytte {}", env!("CARGO_PKG_VERSION")),
         "run" => cmd_run(&args[1..]),
         "set" => cmd_set(&args[1..]),
         "agent" => agent::run(&args[1..], send_msg, ask_pipe),

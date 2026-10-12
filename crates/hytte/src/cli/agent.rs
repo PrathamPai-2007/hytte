@@ -1,4 +1,4 @@
-//! `notch agent ...` — lets unattended agents (Claude Code, Aider, eval
+//! `hytte agent ...` — lets unattended agents (Claude Code, Aider, eval
 //! scripts) show up in the notch and ask for a human.
 
 use hytte_proto::{Ask, HytteMessage, TaskEvent, PROTOCOL_VERSION};
@@ -6,36 +6,36 @@ use std::io::{IsTerminal, Read};
 
 const HOOKS_CLAUDE: &str = r#"{
   "hooks": {
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "notch agent resume --name \"Claude Code\"" }] }],
-    "Notification":     [{ "hooks": [{ "type": "command", "command": "notch agent needs-input --name \"Claude Code\"" }] }],
-    "Stop":             [{ "hooks": [{ "type": "command", "command": "notch agent done --name \"Claude Code\"" }] }]
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "hytte agent resume --name \"Claude Code\"" }] }],
+    "Notification":     [{ "hooks": [{ "type": "command", "command": "hytte agent needs-input --name \"Claude Code\"" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "hytte agent done --name \"Claude Code\"" }] }]
   }
 }"#;
 
 /// The plain hooks, plus (`--tools`) one that reports every tool call so the pill can say what
-/// the agent is doing (it runs `notch` before each call, a few milliseconds each), and
+/// the agent is doing (it runs `hytte` before each call, a few milliseconds each), and
 /// (`--approve`) one that puts Claude's permission prompts on the pill as Allow / Deny.
 fn hooks_claude(tools: bool, approve: bool) -> serde_json::Value {
     let mut v: serde_json::Value = serde_json::from_str(HOOKS_CLAUDE).expect("valid hooks JSON");
     let hook = |c: &str| serde_json::json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": c }] }]);
     if tools {
-        v["hooks"]["PreToolUse"] = hook(r#"notch agent tool --name "Claude Code""#);
+        v["hooks"]["PreToolUse"] = hook(r#"hytte agent tool --name "Claude Code""#);
     }
     if approve {
-        v["hooks"]["PermissionRequest"] = hook(r#"notch agent ask --name "Claude Code""#);
+        v["hooks"]["PermissionRequest"] = hook(r#"hytte agent ask --name "Claude Code""#);
     }
     v
 }
 
 pub fn usage() -> ! {
     eprintln!("usage:");
-    eprintln!("  notch agent start       [--name N] [--pid P]");
-    eprintln!("  notch agent needs-input [--name N] [--pid P] [--message M]   (message may arrive as hook JSON on stdin)");
-    eprintln!("  notch agent resume      [--name N] [--pid P]");
-    eprintln!("  notch agent done|fail   [--name N] [--pid P]");
-    eprintln!("  notch agent tool        [--name N] [--pid P] [--detail D]   (tool call may arrive as hook JSON on stdin)");
-    eprintln!("  notch agent ask         [--name N] [--pid P]                 (permission request as hook JSON on stdin; answered on the pill)");
-    eprintln!("  notch agent hooks claude [--tools] [--approve]                 # print Claude Code hooks config");
+    eprintln!("  hytte agent start       [--name N] [--pid P]");
+    eprintln!("  hytte agent needs-input [--name N] [--pid P] [--message M]   (message may arrive as hook JSON on stdin)");
+    eprintln!("  hytte agent resume      [--name N] [--pid P]");
+    eprintln!("  hytte agent done|fail   [--name N] [--pid P]");
+    eprintln!("  hytte agent tool        [--name N] [--pid P] [--detail D]   (tool call may arrive as hook JSON on stdin)");
+    eprintln!("  hytte agent ask         [--name N] [--pid P]                 (permission request as hook JSON on stdin; answered on the pill)");
+    eprintln!("  hytte agent hooks claude [--tools] [--approve]                 # print Claude Code hooks config");
     std::process::exit(2);
 }
 
@@ -43,7 +43,7 @@ pub struct Opts {
     name: String,
     pid: u32,
     message: Option<String>,
-    /// What the agent is doing right now (`notch agent tool`).
+    /// What the agent is doing right now (`hytte agent tool`).
     detail: Option<String>,
 }
 
@@ -239,7 +239,7 @@ pub fn run(
         _ => usage(),
     };
     if !send(&build(event, &o)) {
-        eprintln!("notch: daemon not running (message dropped)");
+        eprintln!("hytte: daemon not running (message dropped)");
     }
 }
 
@@ -332,7 +332,7 @@ mod tests {
         let v = hooks_claude(false, true);
         assert_eq!(
             v["hooks"]["PermissionRequest"][0]["hooks"][0]["command"],
-            r#"notch agent ask --name "Claude Code""#
+            r#"hytte agent ask --name "Claude Code""#
         );
         let plain = hooks_claude(false, false);
         assert!(plain["hooks"].get("PreToolUse").is_none());

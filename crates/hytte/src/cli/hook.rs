@@ -1,4 +1,4 @@
-//! `notch hook ...` and `notch init <shell>` — zero-wrapper tracking.
+//! `hytte hook ...` and `hytte init <shell>` — zero-wrapper tracking.
 //! Shell integrations send `start` when a command begins and `end` when the
 //! prompt returns; the daemon only shows commands that outlive its threshold.
 
@@ -11,9 +11,9 @@ const NU: &str = include_str!("shell/init.nu");
 
 pub fn usage() -> ! {
     eprintln!("usage:");
-    eprintln!("  notch init <pwsh|bash|zsh|nu>          # print the shell integration script");
-    eprintln!("  notch hook start --id I --cmd C --pid P [--cwd D]");
-    eprintln!("  notch hook end   --id I --code N [--duration-ms MS]");
+    eprintln!("  hytte init <pwsh|bash|zsh|nu>          # print the shell integration script");
+    eprintln!("  hytte hook start --id I --cmd C --pid P [--cwd D]");
+    eprintln!("  hytte hook end   --id I --code N [--duration-ms MS]");
     std::process::exit(2);
 }
 
@@ -108,7 +108,11 @@ mod tests {
     #[test]
     fn scripts_are_embedded() {
         for s in [PWSH, BASH, ZSH, NU] {
-            assert!(s.contains("notch"));
+            assert!(s.contains("hytte init"), "usage line names the 2.x command");
+        }
+        // PowerShell writes to the pipe itself; the others call back into the exe.
+        for s in [BASH, ZSH, NU] {
+            assert!(s.contains("hytte hook start") && !s.contains("notch hook"));
         }
     }
 }
