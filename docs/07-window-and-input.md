@@ -182,7 +182,7 @@ The inputs live in `fullscreen::Fg` and the decision is the pure `fullscreen::de
 - `hidden()` is true whatever `fullscreen_mode` says, even over a drop or forced visibility, and `vis` is snapped to 0 so no fade frames are drawn over the game. A visible overlay would force DWM to compose the game instead of letting it flip independently.
 - `input_hooks(false)` removes the low-level mouse hook and the LOCATIONCHANGE hook, which every mouse move in the system otherwise passes through. The foreground hook stays, because it is how leaving the game is noticed. Limit: a game that switches itself to windowed mode without a focus change keeps Hytte hidden until the next Alt-Tab.
 - The global hotkey is unregistered (`register_hotkey` skips while gaming), so the game can use the chord.
-- `SetPriorityClass(PROCESS_MODE_BACKGROUND_BEGIN)` gives every Hytte thread background CPU, I/O and memory priority.
+- `SetPriorityClass` with `PROCESS_MODE_BACKGROUND_BEGIN` (background I/O and memory priority) and `IDLE_PRIORITY_CLASS` (CPU: thread priorities drop from 8 to 4). Background mode alone left the thread priorities unchanged, hence both.
 - `fullscreen::GAMING` is set, and the port and resource-hog checks skip their scans (`ports.rs`).
 
 Leaving reverses each step, and asks for a fresh port scan.

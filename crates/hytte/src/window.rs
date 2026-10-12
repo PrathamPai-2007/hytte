@@ -1177,11 +1177,13 @@ mod win {
             let s = crate::fullscreen::evaluate(&self.cfg.general, self.mon);
             let gaming = s == Suppress::Game;
             let hide = s != Suppress::Show;
-            let entering = gaming && !self.gaming;
-            if gaming != self.gaming {
+            let changed = gaming != self.gaming;
+            let entering = changed && gaming;
+            if changed {
                 self.set_gaming(hwnd, gaming);
             }
-            if hide != self.fs_hidden || entering {
+            // Game -> maximised keeps fs_hidden true but must still bring the window back.
+            if hide != self.fs_hidden || changed {
                 self.fs_hidden = hide;
                 if !hide {
                     self.hover = false;
@@ -1201,7 +1203,8 @@ mod win {
         /// background CPU / IO / memory priority, and the pollers pause (`GAMING`).
         fn set_gaming(&mut self, hwnd: HWND, on: bool) {
             use windows::Win32::System::Threading::{
-                SetPriorityClass, PROCESS_MODE_BACKGROUND_BEGIN, PROCESS_MODE_BACKGROUND_END,
+                SetPriorityClass, IDLE_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
+                PROCESS_MODE_BACKGROUND_BEGIN, PROCESS_MODE_BACKGROUND_END,
             };
             self.gaming = on;
             crate::fullscreen::GAMING.store(on, Ordering::Relaxed);
@@ -1209,13 +1212,17 @@ mod win {
             self.register_hotkey(hwnd);
             self.armed = false;
             ARMED.store(false, Ordering::Relaxed);
-            unsafe {
-                let mode = if on {
-                    PROCESS_MODE_BACKGROUND_BEGIN
-                } else {
-                    PROCESS_MODE_BACKGROUND_END
-                };
-                let _ = SetPriorityClass(GetCurrentProcess(), mode);
+            // Background mode lowers I/O and memory priority; the idle class lowers CPU priority
+            // (background mode alone left the thread priorities unchanged in testing).
+            let (mode, class) = if on {
+                (PROCESS_MODE_BACKGROUND_BEGIN, IDLE_PRIORITY_CLASS)
+            } else {
+                (PROCESS_MODE_BACKGROUND_END, NORMAL_PRIORITY_CLASS)
+            };
+            for m in [mode, class] {
+                if let Err(e) = unsafe { SetPriorityClass(GetCurrentProcess(), m) } {
+                    crate::logging::line(&format!("game mode: priority {:#x}: {e}", m.0));
+                }
             }
             if !on {
                 crate::ports::request_refresh();
