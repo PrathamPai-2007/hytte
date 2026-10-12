@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub struct General {
     #[serde(default)]
     pub autostart: bool,
-    /// Put the folder holding `notch.exe` on the user's PATH at startup.
+    /// Put the folder holding `hytte.exe` on the user's PATH at startup.
     #[serde(default = "default_true")]
     pub add_to_path: bool,
     /// Which monitor the pill hangs from: "primary", "active" (the foreground window's) or

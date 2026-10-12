@@ -70,10 +70,17 @@ fn main() {
     config::ensure_autostart(cfg.general.autostart);
     config::ensure_start_menu();
     #[cfg(windows)]
-    if cfg.general.add_to_path {
-        std::thread::spawn(|| {
-            if let Err(e) = setup::ensure_on_path() {
-                eprintln!("hytte: PATH not updated: {e}");
+    {
+        let add_to_path = cfg.general.add_to_path;
+        std::thread::spawn(move || {
+            if add_to_path {
+                if let Err(e) = setup::ensure_on_path() {
+                    logging::line(&format!("setup: PATH not updated: {e}"));
+                }
+            }
+            // 1.x shell hooks called `notch`; point them at `hytte` so tracking keeps working.
+            for l in setup::migrate_profiles() {
+                logging::line(&format!("setup: migrated {l}"));
             }
         });
     }

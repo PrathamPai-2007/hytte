@@ -1,6 +1,6 @@
-//! Terminal setup: puts `notch` on the user's PATH and adds the shell hook to PowerShell and
-//! Git Bash profiles. Shared by `hytte.exe` (startup, tray item) and `notch.exe` (`notch setup`),
-//! so it uses std + windows only.
+//! Terminal setup: puts `hytte` on the user's PATH and adds the shell hook to PowerShell and
+//! Git Bash profiles. Used at daemon startup, by the tray item and by `hytte setup`.
+//! std + windows only.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use std::path::{Path, PathBuf};
@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 const BEGIN: &str = "# >>> hytte >>>";
 const END: &str = "# <<< hytte <<<";
 const PWSH_LINE: &str =
-    "if (Get-Command notch -ErrorAction SilentlyContinue) { notch init pwsh | Out-String | Invoke-Expression }";
-const BASH_LINE: &str = "command -v notch >/dev/null && eval \"$(notch init bash)\"";
+    "if (Get-Command hytte -ErrorAction SilentlyContinue) { hytte init pwsh | Out-String | Invoke-Expression }";
+const BASH_LINE: &str = "command -v hytte >/dev/null && eval \"$(hytte init bash)\"";
 
 /// `%VAR%` expansion with the current environment; unknown variables stay as written.
 fn expand(s: &str) -> String {
@@ -112,6 +112,23 @@ pub fn add_block(
     Some(out)
 }
 
+/// `text` with a 1.x block (which ran the old `notch` exe) replaced by the current line, or `None`
+/// if there is no such block. Without this, upgrading silently stops command tracking: the old
+/// line is guarded by `Get-Command notch` / `command -v notch`, which no longer match.
+pub fn migrate_block(
+    text: &str,
+    line: &str,
+    default_eol: &'static str,
+    before: Option<&str>,
+) -> Option<String> {
+    let start = text.find(BEGIN)?;
+    let end = start + text[start..].find(END)?;
+    if !text[start..end].contains("notch init") {
+        return None;
+    }
+    add_block(&remove_block(text)?, line, default_eol, before)
+}
+
 /// `text` without the Hytte block (and the blank line before it), or `None` if it has none.
 pub fn remove_block(text: &str) -> Option<String> {
     let start = text.find(BEGIN)?;
@@ -209,7 +226,8 @@ fn update(p: &Profile, undo: bool) -> String {
     let next = if undo {
         remove_block(&text)
     } else {
-        add_block(&text, p.line, p.eol, p.before)
+        migrate_block(&text, p.line, p.eol, p.before)
+            .or_else(|| add_block(&text, p.line, p.eol, p.before))
     };
     let Some(next) = next else {
         return if undo {
@@ -416,12 +434,12 @@ mod sys {
     }
 }
 
-/// Puts the folder holding `notch.exe` on the user's PATH, and drops the entry a moved install left
-/// behind. Returns whether PATH changed. Skipped under `cargo run` and when `notch` already resolves.
+/// Puts the folder holding `hytte.exe` on the user's PATH, and drops the entry a moved install left
+/// behind. Returns whether PATH changed. Skipped under `cargo run` and when `hytte` already resolves.
 #[cfg(windows)]
 pub fn ensure_on_path() -> Result<bool, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let Some(dir) = exe.parent().filter(|d| d.join("notch.exe").is_file()) else {
+    let Some(dir) = exe.parent() else {
         return Ok(false);
     };
     if std::env::var_os("CARGO").is_some() {
@@ -435,14 +453,17 @@ pub fn ensure_on_path() -> Result<bool, String> {
         let prev = prev.trim();
         if !prev.is_empty()
             && norm(prev) != norm(&dir_s)
-            && !Path::new(prev).join("notch.exe").is_file()
+            // A 1.x folder holds notch.exe; either exe means it is still installed there.
+            && !["hytte.exe", "notch.exe"]
+                .iter()
+                .any(|e| Path::new(prev).join(e).is_file())
         {
             if let Some(p) = path_without(&next, prev) {
                 next = p;
             }
         }
     }
-    if !on_process_path("notch.exe") {
+    if !on_process_path("hytte.exe") {
         if let Some(p) = path_with(&next, &dir_s) {
             next = p;
         }
@@ -510,6 +531,19 @@ fn has_block(p: &Profile) -> bool {
         .unwrap_or(false)
 }
 
+/// Rewrites 1.x (`notch`) hook blocks in place; run at daemon startup. One line per profile changed.
+#[cfg(windows)]
+pub fn migrate_profiles() -> Vec<String> {
+    profiles()
+        .iter()
+        .filter(|p| {
+            std::fs::read(&p.path)
+                .is_ok_and(|b| migrate_block(&decode(&b).0, p.line, p.eol, p.before).is_some())
+        })
+        .map(|p| update(p, false))
+        .collect()
+}
+
 /// Whether any shell profile already has the Hytte block.
 #[cfg(windows)]
 fn any_set_up() -> bool {
@@ -540,7 +574,7 @@ pub fn setup_shells(undo: bool) -> Vec<String> {
         ));
     }
     out.push(
-        "zsh / Nushell: add the line from `notch init zsh` or `notch init nu` yourself.".into(),
+        "zsh / Nushell: add the line from `hytte init zsh` or `hytte init nu` yourself.".into(),
     );
     out.push("Open a new terminal window to start using it.".into());
     out
@@ -568,7 +602,7 @@ pub fn tray_setup() {
         } else {
             let mut lines = match ensure_on_path() {
                 Ok(true) => vec![
-                    "PATH: added the Hytte folder, so `notch` works in new terminals".to_string(),
+                    "PATH: added the Hytte folder, so `hytte` works in new terminals".to_string(),
                 ],
                 Ok(false) => vec![],
                 Err(e) => vec![format!("PATH: {e}")],
@@ -670,6 +704,23 @@ mod tests {
         assert!(first.starts_with(BEGIN));
         let plain = add_block("a\n", "y", "\n", Some("starship init")).unwrap();
         assert!(plain.starts_with("a\n\n"));
+    }
+
+    #[test]
+    fn notch_blocks_migrate_once() {
+        let v1 = "# mine\r\n\r\n# >>> hytte >>>\r\nif (Get-Command notch -ErrorAction SilentlyContinue) { notch init pwsh | Out-String | Invoke-Expression }\r\n# <<< hytte <<<\r\n";
+        let next = migrate_block(v1, PWSH_LINE, "\r\n", None).unwrap();
+        assert_eq!(
+            next,
+            format!("# mine\r\n\r\n{BEGIN}\r\n{PWSH_LINE}\r\n{END}\r\n")
+        );
+        // Already 2.x, or no block at all: nothing to do.
+        assert_eq!(migrate_block(&next, PWSH_LINE, "\r\n", None), None);
+        assert_eq!(migrate_block("# mine\n", BASH_LINE, "\n", None), None);
+        // Bash keeps its place above Starship.
+        let rc = "# >>> hytte >>>\ncommand -v notch >/dev/null && eval \"$(notch init bash)\"\n# <<< hytte <<<\neval \"$(starship init bash)\"\n";
+        let next = migrate_block(rc, BASH_LINE, "\n", Some("starship init")).unwrap();
+        assert!(next.starts_with(&format!("{BEGIN}\n{BASH_LINE}\n{END}\neval")));
     }
 
     #[test]
