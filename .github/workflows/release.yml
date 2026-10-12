@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. v1.3.0"
+        description: "Release tag, e.g. v1.0.0"
         required: true
 permissions:
   contents: write
@@ -16,14 +16,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
       - run: cargo build --release --workspace
-      - name: Zip
+      - name: Package
         shell: pwsh
         run: |
           $v = "${{ inputs.tag || github.ref_name }}".TrimStart("v")
-          Compress-Archive target\release\hytte.exe, target\release\notch.exe "hytte-$v-x64.zip"
+          # The built exe must say the tag's version, or the in-app updater would refuse it.
+          $got = & target\release\hytte.exe --version
+          if ($got -ne "hytte $v") { throw "tag v$v but the exe reports '$got'; bump crates/hytte/Cargo.toml" }
+          Compress-Archive target\release\hytte.exe "hytte-$v-x64.zip"
+          Copy-Item target\release\hytte.exe hytte.exe
+      # hytte.exe on its own is what the in-app updater downloads; the zip is for people.
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          files: hytte-*-x64.zip
+          name: Hytte ${{ inputs.tag || github.ref_name }}
+          files: |
+            hytte-*-x64.zip
+            hytte.exe
           generate_release_notes: true
