@@ -1,4 +1,4 @@
-//! Tiny process-tree helpers shared by the daemon and the `notch` client.
+//! Tiny process-tree helpers shared by the daemon and the `hytte` CLI.
 
 #[cfg(windows)]
 pub fn parent_pid(pid: u32) -> Option<u32> {

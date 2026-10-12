@@ -58,7 +58,7 @@ pub enum UiEvent {
     DragLeave,
     /// `config.toml` was edited and parses.
     Config(Box<crate::config::Config>),
-    /// An agent asks permission (`notch agent ask`); send the answer on `reply`.
+    /// An agent asks permission (`hytte agent ask`); send the answer on `reply`.
     Ask {
         id: u64,
         summary: String,

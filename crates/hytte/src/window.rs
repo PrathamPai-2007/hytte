@@ -1,7 +1,7 @@
 //! Windowing & interaction engine.
 //!
 //! One layered, NOACTIVATE, topmost window hanging from the top-centre of the
-//! primary monitor. The pill is animated *inside* a fixed transparent canvas
+//! monitor chosen by `[general] monitor`. The pill is animated *inside* a fixed transparent canvas
 //! (see `render.rs`), so there is no per-frame window resize and transparent
 //! pixels stay click-through. UI state lives in a thread-local `Ui`; other
 //! threads only push `UiEvent`s and post a wake-up message.
@@ -1219,13 +1219,13 @@ mod win {
                 Some(m) => m,
                 None => {
                     let Ok(h) = make(WS_EX_LAYERED) else {
-                        eprintln!("hytte: CreateWindowExW failed");
+                        crate::logging::line("CreateWindowExW failed; exiting");
                         return;
                     };
                     match Renderer::new() {
                         Ok(r) => (h, r),
                         Err(e) => {
-                            eprintln!("hytte: renderer init failed: {e}");
+                            crate::logging::line(&format!("renderer init failed: {e}; exiting"));
                             return;
                         }
                     }

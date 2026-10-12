@@ -19,7 +19,7 @@ pub struct TaskState {
     pub delay_ms: u32,
     pub message: Option<String>,
     pub exit_code: Option<i32>,
-    /// Latest output line (`notch run`), for the live ticker.
+    /// Latest output line (`hytte run`), for the live ticker.
     pub line: Option<String>,
     pub updated: Instant,
 }

@@ -265,7 +265,7 @@ mod tests {
                 url: "https://x/exe".into()
             })
         );
-        // 1.x releases only had the zip.
+        // Pre-1.0 releases only had the zip.
         let old = br#"{"tag_name":"v1.3.0","assets":[{"name":"hytte-1.3.0-x64.zip","browser_download_url":"u"}]}"#;
         assert!(release_from_json(old).unwrap_err().contains("no hytte.exe"));
         assert!(release_from_json(b"<html>").is_err());

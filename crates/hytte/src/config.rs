@@ -220,7 +220,7 @@ pub struct Ports {
     pub poll_secs: u64,
 }
 fn d_watch() -> Vec<u16> {
-    vec![3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888]
+    hytte_proto::ports::DEFAULT_WATCH.to_vec()
 }
 fn d_poll() -> u64 {
     5
@@ -591,7 +591,7 @@ pub fn ensure_start_menu() {
                 .Save(&HSTRING::from(dir.join("Hytte.lnk").as_os_str()), true)
         })();
         if let Err(e) = res {
-            eprintln!("hytte: start menu shortcut failed: {e}");
+            crate::logging::line(&format!("start menu shortcut failed: {e}"));
         }
         CoUninitialize();
     });

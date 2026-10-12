@@ -127,7 +127,7 @@ impl HytteMessage {
 /// permission prompt only after the hook returns, so this is also how long the terminal waits.
 pub const ASK_WAIT_SECS: u64 = 30;
 
-/// A yes/no question for the human (`notch agent ask`). The daemon answers on the same
+/// A yes/no question for the human (`hytte agent ask`). The daemon answers on the same
 /// connection with one [`Answer`] line, or closes it unanswered (timeout, dismissed).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ask {

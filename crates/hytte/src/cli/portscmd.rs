@@ -12,7 +12,7 @@ pub fn usage() -> ! {
 
 pub fn list(args: &[String]) {
     let all = args.iter().any(|a| a == "--all");
-    let ports = current(&[3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888], all);
+    let ports = current(hytte_proto::ports::DEFAULT_WATCH, all);
     if ports.is_empty() {
         println!(
             "no dev listeners found{}",

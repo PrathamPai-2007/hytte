@@ -1,7 +1,10 @@
 //! Listening-port discovery and kill, shared by the daemon (Ports panel) and
-//! the `notch ports` / `notch kill :PORT` commands.
+//! the `hytte ports` / `hytte kill :PORT` commands.
 
 use serde::{Deserialize, Serialize};
+
+/// Common dev-server ports: the default `[ports] watch` list and what `hytte ports` shows.
+pub const DEFAULT_WATCH: &[u16] = &[3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PortInfo {

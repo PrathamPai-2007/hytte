@@ -86,7 +86,7 @@ fn main() {
                     logging::line(&format!("setup: PATH not updated: {e}"));
                 }
             }
-            // 1.x shell hooks called `notch`; point them at `hytte` so tracking keeps working.
+            // Pre-1.0 shell hooks called `notch`; point them at `hytte` so tracking keeps working.
             for l in setup::migrate_profiles() {
                 logging::line(&format!("setup: migrated {l}"));
             }

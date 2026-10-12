@@ -112,7 +112,7 @@ pub fn add_block(
     Some(out)
 }
 
-/// `text` with a 1.x block (which ran the old `notch` exe) replaced by the current line, or `None`
+/// `text` with a pre-1.0 block (which ran the old `notch` exe) replaced by the current line, or `None`
 /// if there is no such block. Without this, upgrading silently stops command tracking: the old
 /// line is guarded by `Get-Command notch` / `command -v notch`, which no longer match.
 pub fn migrate_block(
@@ -463,7 +463,7 @@ pub fn ensure_on_path() -> Result<bool, String> {
         let prev = prev.trim();
         if !prev.is_empty()
             && norm(prev) != norm(&dir_s)
-            // A 1.x folder holds notch.exe; either exe means it is still installed there.
+            // A pre-1.0 folder holds notch.exe; either exe means it is still installed there.
             && !["hytte.exe", "notch.exe"]
                 .iter()
                 .any(|e| Path::new(prev).join(e).is_file())
@@ -541,7 +541,7 @@ fn has_block(p: &Profile) -> bool {
         .unwrap_or(false)
 }
 
-/// Rewrites 1.x (`notch`) hook blocks in place; run at daemon startup. One line per profile changed.
+/// Rewrites pre-1.0 (`notch`) hook blocks in place; run at daemon startup. One line per profile changed.
 #[cfg(windows)]
 pub fn migrate_profiles() -> Vec<String> {
     profiles()
