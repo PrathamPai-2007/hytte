@@ -43,6 +43,7 @@ mod timer;
 mod transforms;
 mod tray;
 mod ui_state;
+mod update;
 mod window;
 #[cfg(windows)]
 mod winrt;
@@ -58,13 +59,20 @@ fn main() {
     #[cfg(windows)]
     detach_console();
     logging::init();
-    let _guard = match single_instance::acquire("HytteSingleInstance") {
-        Ok(g) => g,
-        Err(_) => {
-            eprintln!("hytte: another instance is running");
-            std::process::exit(0);
+    // Retried briefly: after an update the old process is still quitting when the new one starts.
+    let mut guard = single_instance::acquire("HytteSingleInstance");
+    for _ in 0..50 {
+        if guard.is_ok() {
+            break;
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        guard = single_instance::acquire("HytteSingleInstance");
+    }
+    let Ok(_guard) = guard else {
+        logging::line("another instance is running; exiting");
+        std::process::exit(0);
     };
+    update::cleanup();
 
     let cfg = config::load();
     config::ensure_autostart(cfg.general.autostart);
@@ -100,6 +108,7 @@ fn main() {
     downloads::spawn_watcher(cfg.downloads.clone(), ui_tx.clone());
     calendar::spawn_watcher(cfg.calendar.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
+    update::spawn_checker(cfg.general.check_updates);
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();
     drop::spawn_workers(drop_rx, ui_tx.clone());

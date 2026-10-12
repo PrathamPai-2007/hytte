@@ -14,6 +14,13 @@ use crossbeam_channel::{Receiver, Sender};
 
 pub const WM_TRAY: u32 = 0x8001;
 
+/// Ends the daemon the way the tray's Quit does (tray icon removed, message loop left).
+/// Safe from any thread; does nothing before the window exists.
+pub fn quit() {
+    #[cfg(windows)]
+    win::quit();
+}
+
 pub fn run(
     cfg: Config,
     task_rx: Receiver<TaskUpdate>,
@@ -150,6 +157,10 @@ mod win {
 
     fn post(msg: u32) {
         post_w(msg, 0);
+    }
+
+    pub fn quit() {
+        post_w(WM_COMMAND, 12);
     }
 
     fn post_w(msg: u32, wparam: usize) {
@@ -2033,6 +2044,7 @@ mod win {
                             .spawn();
                     }
                     14 => crate::setup::tray_setup(),
+                    15 => crate::update::check_now(),
                     13 => {
                         with_ui(|ui| {
                             let g = &mut ui.cfg.general;

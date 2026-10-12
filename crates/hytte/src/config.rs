@@ -49,6 +49,9 @@ pub struct General {
     /// Keep the pill out of screenshots, recordings and screen share.
     #[serde(default)]
     pub hide_from_capture: bool,
+    /// Look for a newer release on GitHub once a day and offer to install it. Read at startup.
+    #[serde(default = "default_true")]
+    pub check_updates: bool,
 }
 
 /// Modifier bits as `RegisterHotKey` wants them.
@@ -133,6 +136,7 @@ impl Default for General {
             deny_list: vec![],
             finish_peek_secs: default_finish_peek(),
             hide_from_capture: false,
+            check_updates: true,
         }
     }
 }

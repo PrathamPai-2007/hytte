@@ -159,8 +159,10 @@ fn decode(bytes: &[u8]) -> (String, Enc) {
         (String::from_utf8_lossy(b).into_owned(), Enc::Utf8Bom)
     } else if let Some(b) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         let units: Vec<u16> = b
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
             .collect();
         (String::from_utf16_lossy(&units), Enc::Utf16Le)
     } else {
@@ -272,8 +274,10 @@ mod sys {
 
     fn wide(bytes: &[u8]) -> String {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
             .collect();
         let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
         String::from_utf16_lossy(&units[..end])
@@ -432,6 +436,12 @@ mod sys {
             MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST | if ask { MB_YESNO } else { MB_OK };
         unsafe { MessageBoxW(None::<HWND>, &HSTRING::from(text), w!("Hytte"), style) == IDYES }
     }
+}
+
+/// A topmost message box titled "Hytte"; with `ask`, Yes/No and whether Yes was chosen.
+#[cfg(windows)]
+pub fn message(text: &str, ask: bool) -> bool {
+    sys::message(text, ask)
 }
 
 /// Puts the folder holding `hytte.exe` on the user's PATH, and drops the entry a moved install left
