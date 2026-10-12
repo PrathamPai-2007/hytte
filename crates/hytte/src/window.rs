@@ -1375,6 +1375,11 @@ mod win {
             if let Some(h) = mouse_hook {
                 let _ = UnhookWindowsHookEx(h);
             }
+            // Release the D3D/DXGI/DirectComposition objects here, on this thread. Left to the
+            // thread-local's destructor they are freed inside ExitProcess under the loader lock,
+            // where GPU drivers deadlock: the process then never exits (and holds the single-
+            // instance mutex, so neither a restart nor an update can start a new one).
+            UI.with(|c| drop(c.borrow_mut().take()));
             tray.remove();
             let _ = RevokeDragDrop(hwnd);
             OleUninitialize();
