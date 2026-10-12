@@ -45,7 +45,7 @@ Thread-local UI state (accessed through `with_ui`; see [section 3](03-architectu
 | `hover` | The pill is "open because of the mouse" (set after the dwell delay). |
 | `inside` | The pointer is inside the pill shape right now. |
 | `mouse`, `origin`, `crop_w`, `hits` | Pointer position, where the last frame was placed on screen, and its clickable regions. |
-| `fs_hidden`, `paused`, `armed`, `shown` | Fullscreen suppression, the tray Pause state, a drag in progress near the top edge, and whether the window is shown. |
+| `fs_hidden`, `gaming`, `paused`, `armed`, `shown` | Fullscreen suppression, game mode, the tray Pause state, a drag in progress near the top edge, and whether the window is shown. |
 | `drag` | A shelf tile was pressed: it becomes an OLE drag once the pointer moves more than 4 px. |
 | `wheel` | Accumulated wheel delta (precision touchpads send fractions of a notch). |
 | `pressed`, `light` | The left button is down over a clickable region; the resolved `[general] theme`. |
@@ -96,7 +96,7 @@ All are one-shot Win32 timers: the handler kills the timer first, so each fires 
 | `T_COLLAPSE` | 300 ms | The pointer leaves while open | If still outside: `hover = false` and the timer panel closes. Re-entering in time cancels it, so grazing the edge doesn't flicker. |
 | `T_EXPIRE` | Until the model's next deadline | After every model change | `after_model_change` (calls `Model::expire`). |
 | `T_TIMER` | At most 1 s | While a countdown timer runs unpaused | `after_model_change`: redraws the fuse and fires the timer when it reaches zero. |
-| `T_FS` | 150 ms | On a foreground change or move | Re-asserts topmost, re-evaluates fullscreen, follows the virtual desktop. |
+| `T_FS` | 150 ms | On a foreground change or move | Re-evaluates fullscreen, re-asserts topmost (except over a game), follows the virtual desktop. |
 
 ## Clicks and actions
 
@@ -160,21 +160,36 @@ Once a pressed tile moves past 4 px, `shelf_drag` asks the shell for a real file
 
 Two `SetWinEventHook` callbacks feed it:
 
-- **Foreground changed** posts `WM_FG`, which re-asserts topmost immediately and arms `T_FS`.
-- **The foreground window moved or resized** posts `WM_FG` with `FG_MOVED`, which only re-arms `T_FS`. Dragging a window fires this on every mouse move, so the expensive work waits until movement settles.
+- **Foreground changed** posts `WM_FG`, which arms `T_FS`.
+- **The foreground window moved or resized** posts `WM_FG` too. Dragging a window fires this on every mouse move, so the expensive work waits until movement settles.
+
+Neither re-asserts topmost on the spot: the new foreground may be a game entering exclusive fullscreen, and pushing a topmost window over it at that moment can knock it out of fullscreen. `T_FS` re-asserts after the decision, and only when it isn't a game.
 
 When `T_FS` fires, `Ui::evaluate_fullscreen` calls `fullscreen::evaluate`, which decides:
 
-1. The foreground exe is on `deny_list` → **hide**.
-2. `suppress_fullscreen = false`, or the exe is on `allow_list` → **show**.
-3. The shell reports D3D fullscreen, presentation mode or "busy" (`SHQueryUserNotificationState`), **or** the foreground window covers the whole monitor and isn't a shell window → **hide**. Shell windows are the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, and "no foreground window". The desktop covers the whole monitor and Windows can report "busy" while it is focused, so without this exemption the pill stayed a thin line on the desktop.
-4. Otherwise → **show**.
+1. The foreground exe is on `deny_list` → **game**.
+2. `suppress_fullscreen = false`, the exe is on `allow_list`, or the foreground is a shell window → **show**. Shell windows are the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, and "no foreground window". The desktop covers the whole monitor and Windows can report "busy" while it is focused, so without this exemption the pill stayed a thin line on the desktop.
+3. The shell reports D3D fullscreen, presentation mode or "busy" (`SHQueryUserNotificationState`), **or** the window covers the whole monitor without a title bar (`WS_CAPTION`; borderless fullscreen) → **game**.
+4. The window covers the whole monitor but has a title bar → **hide**. This is a maximised window with an auto-hiding taskbar, where drag and drop must keep working.
+5. Otherwise → **show**.
+
+The inputs live in `fullscreen::Fg` and the decision is the pure `fullscreen::decide`, which is unit-tested.
 
 "Hide" sets `fs_hidden`. With `fullscreen_mode = "sentinel"`, the scene becomes the 3 px `Sentinel` bar (hovering it still opens the pill). With `"hide"`, `Ui::hidden()` becomes true and the window fades out, unless a drag is armed or the model is forcing visibility.
 
-Every change of decision is logged once to `hytte.log` (`fullscreen: hide=… foreground=… covers=… shell=…`, via `logging::note_fullscreen`), so a pill that backs off unexpectedly can be explained from the log.
+"Game" also sets `fs_hidden`, and `Ui::set_gaming` makes Hytte step aside completely, so it costs a game no frames and no input latency:
 
-`Ui::hidden()` combines everything that hides the window: the tray **Pause**, or fullscreen in hide mode. When hidden, the `vis` spring fades to 0, and the window is then actually hidden with `ShowWindow(SW_HIDE)`. It is shown again before fading back in.
+- `hidden()` is true whatever `fullscreen_mode` says, even over a drop or forced visibility, and `vis` is snapped to 0 so no fade frames are drawn over the game. A visible overlay would force DWM to compose the game instead of letting it flip independently.
+- `input_hooks(false)` removes the low-level mouse hook and the LOCATIONCHANGE hook, which every mouse move in the system otherwise passes through. The foreground hook stays, because it is how leaving the game is noticed. Limit: a game that switches itself to windowed mode without a focus change keeps Hytte hidden until the next Alt-Tab.
+- The global hotkey is unregistered (`register_hotkey` skips while gaming), so the game can use the chord.
+- `SetPriorityClass(PROCESS_MODE_BACKGROUND_BEGIN)` gives every Hytte thread background CPU, I/O and memory priority.
+- `fullscreen::GAMING` is set, and the port and resource-hog checks skip their scans (`ports.rs`).
+
+Leaving reverses each step, and asks for a fresh port scan.
+
+Every change of decision is logged once to `hytte.log` (`fullscreen: Game foreground=… Fg { busy, covers, caption, shell }`, via `logging::note_fullscreen`), as are `game mode on` / `game mode off`. A pill that backs off unexpectedly, or a game that isn't detected, can be explained from the log.
+
+`Ui::hidden()` combines everything that hides the window: the tray **Pause**, game mode, or fullscreen in hide mode. When hidden, the `vis` spring fades to 0, and the window is then actually hidden with `ShowWindow(SW_HIDE)`. It is shown again before fading back in.
 
 ## Virtual desktops
 

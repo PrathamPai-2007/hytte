@@ -31,8 +31,8 @@ When adding a feature, check it doesn't add a row here without a good reason.
 
 | Source | Interval | Notes |
 |---|---|---|
-| Port watcher | every `poll_secs` (5 s) | One `GetExtendedTcpTable` call per address family. Processes are opened only for watched ports. |
-| Resource-hog sampler | with the port watcher's tick (`poll_secs`, 5 s) | One process snapshot, then two cheap calls per process. Turn off with `[hog] enabled = false`. |
+| Port watcher | every `poll_secs` (5 s), skipped in game mode | One `GetExtendedTcpTable` call per address family. Processes are opened only for watched ports. |
+| Resource-hog sampler | with the port watcher's tick (`poll_secs`, 5 s), skipped in game mode | One process snapshot, then two cheap calls per process. Turn off with `[hog] enabled = false`. |
 | Downloads watcher | on a change in the Downloads folder | Blocks in `ReadDirectoryChangesW`; wakes only for file-name and size changes there. |
 | Calendar watcher (opt-in) | on a store change, or when the next event has started (at most every 30 min) | Reads the next 24 hours. |
 | Mic watcher | on a mute or device callback, or 60 s safety timeout | Reads the cached endpoints' mute state; re-enumerates only after a device change notification. |
@@ -45,7 +45,9 @@ When adding a feature, check it doesn't add a row here without a good reason.
 | Countdown timer | 1 Hz **only while a timer runs unpaused** | Redraws the fuse. |
 | Expiry timer | once, at the next deadline | |
 | Foreground change / move | per event, debounced to one check per 150 ms | |
-| Low-level mouse hook | every mouse event system-wide | The callback is O(1): atomics only, and it posts a message only when a drag enters or leaves the top-edge zone. |
+| Low-level mouse hook | every mouse event system-wide, **removed in game mode** | The callback is O(1): atomics only, and it posts a message only when a drag enters or leaves the top-edge zone. |
+
+**Game mode.** While a game or other real fullscreen app is in front, Hytte removes both system-wide hooks, hides its window, releases its hotkey, runs at background priority and skips the port and hog scans. What is left is a few blocked threads and the foreground hook. See [section 7](07-window-and-input.md#fullscreen-suppression).
 
 None of these draws a frame unless the model actually changes.
 
@@ -59,7 +61,7 @@ None of these draws a frame unless the model actually changes.
 | Running task, waiting agent, playing media in a media scene, drag over the pill, expanded privacy dots | ~30 fps |
 | Failed task | ~30 fps for the first 8 s (the pulse fades), then none |
 | Fullscreen sentinel | none (it never animates) |
-| Hidden or paused | none |
+| Hidden, paused or in game mode | none |
 
 ## Measuring
 

@@ -32,7 +32,7 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 - **Keyboard and looks.** A global hotkey opens the pill for arrow keys and Tab; light, dark or follow-Windows themes; the glow takes the album art's colour; the pill can follow you to another monitor.
 - **Battery and power mode** on laptops.
 - **Camera and mic dots** that tell you when an app is using them.
-- **Gets out of the way of games and videos**, shrinking to a hairline when something is fullscreen.
+- **Gets out of the way of games and videos.** While a game or other fullscreen app is in front, Hytte vanishes completely and stops touching your input, so it costs no FPS or input lag. A maximised window just shrinks it to a hairline.
 - **Stays out of screen share** if you want: one setting keeps the pill out of screenshots, recordings and calls.
 - **Keeps itself up to date.** When a new version is out, Hytte asks once and updates itself in place.
 
@@ -113,7 +113,7 @@ Some tools only print progress in a real terminal, so ask for it: `hytte run -- 
 | A blue `i` card | Your next calendar event is about to start. |
 | A green battery that fills | You just plugged in the charger. |
 | An amber battery that drains (red when low) | You just unplugged it. |
-| A thin grey line | Something is fullscreen; hover it to bring the pill back. |
+| A thin grey line | A maximised window covers the screen; hover the line to bring the pill back. |
 
 | Idle | Home card | Muted | Muted, opened |
 |---|---|---|---|
@@ -235,13 +235,13 @@ monitor = "primary"            # "primary", "active" (the focused window's) or "
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
-fullscreen_mode = "sentinel"   # "sentinel" = thin line, "hide" = disappear completely
+fullscreen_mode = "sentinel"   # over maximised windows: "sentinel" = thin line, "hide" = disappear (games always hide)
 finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
 hide_from_capture = false      # true = keep the pill out of screenshots and screen share
 check_updates = true           # look for a new version once a day (needs a restart)
 add_to_path = true             # put the Hytte folder on PATH so `hytte` works in terminals
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]
-deny_list = []                 # apps that always hide Hytte, e.g. ["game.exe"]
+deny_list = []                 # apps that always get game mode, e.g. ["game.exe"]
 output_folder = "D:\\Hytte"    # where file actions save results (default: next to the file)
 
 [shell]
@@ -285,7 +285,7 @@ The full list of settings, including which ones need a restart, is in [the confi
 | Problem | Try this |
 |---|---|
 | Nothing happens when I start Hytte | It may already be running: look for it in the tray. Only one copy runs at a time. |
-| I can't see the pill | Something may be fullscreen (look for a thin grey line), or Hytte is paused (tray menu). |
+| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
 | `hytte: daemon not running` | Run `hytte` to start the pill. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `.\hytte.exe setup` from the Hytte folder. |
 | `notch` isn't recognised | The command is `hytte` now; see [Upgrading](#upgrading-from-an-older-version-with-notchexe). |
@@ -303,7 +303,7 @@ Logs are written to `%APPDATA%\Hytte\hytte.log`.
 ## Good to know
 
 - Dropping files onto the pill works on the monitor the pill is on.
-- Hytte can't draw over games running in **exclusive fullscreen**; it backs off instead.
+- **Games.** When a game (or a video, slideshow or anything else) is truly fullscreen, Hytte goes into *game mode*. It hides with no fade, removes its system-wide mouse hooks, releases its hotkey, drops itself to background CPU, disk and memory priority, and pauses its port and resource checks. Alt-Tab out or quit the game and it comes straight back. Notifications that arrive meanwhile wait for you. If a game isn't detected, add its exe to `deny_list`; `hytte.log` shows what Hytte decided (`fullscreen: Game …`).
 - Images dragged straight from a **browser** aren't supported yet. Save the image first.
 - `hytte.exe` isn't code-signed yet, so Windows SmartScreen may warn you the first time you run it.
 

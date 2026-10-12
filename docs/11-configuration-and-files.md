@@ -71,8 +71,8 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `renderer` | `"gpu"` | `"gpu"`: Direct2D into a DirectComposition swap chain. `"classic"`: Direct2D into a layered window. Read at startup only (the window's style depends on it), so changing it needs a restart. If the GPU pipeline can't start, Hytte uses `classic` anyway. |
-| `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front. |
-| `fullscreen_mode` | `"sentinel"` | `"sentinel"`: shrink to a 3 px bar; `"hide"`: fade out completely. |
+| `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front: game mode for real fullscreen apps ([section 7](07-window-and-input.md#fullscreen-suppression)), `fullscreen_mode` for maximised windows. |
+| `fullscreen_mode` | `"sentinel"` | Over a maximised window that covers the screen: `"sentinel"` shrinks to a 3 px bar, `"hide"` fades out completely. Games always hide fully. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
 | `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Read at startup. |
 | `hide_from_capture` | `false` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |

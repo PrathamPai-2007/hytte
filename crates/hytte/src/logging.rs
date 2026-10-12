@@ -40,13 +40,12 @@ pub fn line(msg: &str) {
     }
 }
 
-/// Logs why the pill backs off, once per change, so a stuck "thin line" can be diagnosed.
-pub fn note_fullscreen(hide: bool, exe: Option<&str>, covers: bool, shell: bool) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static LAST: AtomicBool = AtomicBool::new(false);
-    if LAST.swap(hide, Ordering::Relaxed) != hide {
-        line(&format!(
-            "fullscreen: hide={hide} foreground={exe:?} covers={covers} shell={shell}"
-        ));
+/// Logs why the pill backs off, once per change of `state`, so a stuck "thin line" or a
+/// missed game can be diagnosed.
+pub fn note_fullscreen(state: u8, detail: &str) {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    static LAST: AtomicU8 = AtomicU8::new(0);
+    if LAST.swap(state, Ordering::Relaxed) != state {
+        line(&format!("fullscreen: {detail}"));
     }
 }

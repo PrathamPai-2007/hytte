@@ -54,8 +54,10 @@ pub fn spawn_watcher(mut cfg: Ports, mut hog_cfg: Hog, ui_tx: Sender<UiEvent>) {
             if let Some(next) = NEXT_HOG.lock().unwrap().take() {
                 hog_cfg = next;
             }
+            // A game is in front: no snapshots or scans (and the game is no "hog").
+            let gaming = crate::fullscreen::GAMING.load(std::sync::atomic::Ordering::Relaxed);
             #[cfg(windows)]
-            if hog_cfg.enabled {
+            if hog_cfg.enabled && !gaming {
                 let now = std::time::Instant::now();
                 let samples = sampler.sample(now);
                 for a in tracker.update(now, &samples, &hog_cfg) {
@@ -63,10 +65,12 @@ pub fn spawn_watcher(mut cfg: Ports, mut hog_cfg: Hog, ui_tx: Sender<UiEvent>) {
                 }
             }
             let poll = Duration::from_secs(cfg.poll_secs.max(1));
-            let now = hytte_proto::ports::current(&cfg.watch, cfg.show_all);
-            if last.as_ref() != Some(&now) {
-                last = Some(now.clone());
-                let _ = ui_tx.send(UiEvent::Ports(now));
+            if !gaming {
+                let now = hytte_proto::ports::current(&cfg.watch, cfg.show_all);
+                if last.as_ref() != Some(&now) {
+                    last = Some(now.clone());
+                    let _ = ui_tx.send(UiEvent::Ports(now));
+                }
             }
             let (m, c) = wake();
             let mut flag = m.lock().unwrap();

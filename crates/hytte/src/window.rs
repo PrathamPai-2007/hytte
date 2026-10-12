@@ -172,8 +172,49 @@ mod win {
         }
     }
 
-    /// `WM_FG` wparam: the foreground window only moved/resized (no z-order change).
-    const FG_MOVED: usize = 1;
+    static MOUSE_HOOK: AtomicIsize = AtomicIsize::new(0);
+    static LOC_HOOK: AtomicIsize = AtomicIsize::new(0);
+
+    /// The system-wide hooks every mouse move passes through: the low-level mouse hook (arms
+    /// the drop zone during drags) and foreground LOCATIONCHANGE (fullscreen detection when a
+    /// window resizes). Off while a game is in front.
+    // ponytail: permanent LL hook with an O(1) callback outside games; install only on drag if it ever shows in profiles
+    fn input_hooks(on: bool) {
+        use windows::Win32::UI::Accessibility::UnhookWinEvent;
+        unsafe {
+            if on {
+                if MOUSE_HOOK.load(Ordering::Relaxed) == 0 {
+                    let inst = windows::Win32::System::LibraryLoader::GetModuleHandleW(None)
+                        .map(|m| HINSTANCE(m.0))
+                        .ok();
+                    if let Ok(h) = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_ll), inst, 0) {
+                        MOUSE_HOOK.store(h.0 as isize, Ordering::Relaxed);
+                    }
+                }
+                if LOC_HOOK.load(Ordering::Relaxed) == 0 {
+                    let h = SetWinEventHook(
+                        EVENT_OBJECT_LOCATIONCHANGE,
+                        EVENT_OBJECT_LOCATIONCHANGE,
+                        None,
+                        Some(win_event),
+                        0,
+                        0,
+                        WINEVENT_OUTOFCONTEXT,
+                    );
+                    LOC_HOOK.store(h.0 as isize, Ordering::Relaxed);
+                }
+            } else {
+                let h = MOUSE_HOOK.swap(0, Ordering::Relaxed);
+                if h != 0 {
+                    let _ = UnhookWindowsHookEx(HHOOK(h as *mut _));
+                }
+                let h = LOC_HOOK.swap(0, Ordering::Relaxed);
+                if h != 0 {
+                    let _ = UnhookWinEvent(HWINEVENTHOOK(h as *mut _));
+                }
+            }
+        }
+    }
 
     fn reassert_topmost(hwnd: HWND) {
         unsafe {
@@ -213,6 +254,8 @@ mod win {
         perf: crate::perf::Perf,
         prev_vblank: u64,
         fs_hidden: bool,
+        /// A game (real fullscreen app) is in front: hidden, no input hooks, background priority.
+        gaming: bool,
         paused: bool,
         armed: bool,
         shown: bool,
@@ -266,6 +309,7 @@ mod win {
         fn hidden(&self) -> bool {
             // A drag near the top edge or a fresh drop must stay reachable even over fullscreen.
             self.paused
+                || self.gaming
                 || (self.fs_hidden
                     && self.cfg.general.fullscreen_mode == "hide"
                     && !self.armed
@@ -598,7 +642,7 @@ mod win {
                 self.refresh_monitor();
             }
             if general {
-                self.evaluate_fullscreen();
+                self.evaluate_fullscreen(HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _));
             }
         }
 
@@ -683,7 +727,8 @@ mod win {
             unsafe {
                 let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
                 let spec = &self.cfg.general.hotkey;
-                if spec.is_empty() {
+                // A game may want the same chord: give it back while one is in front.
+                if spec.is_empty() || self.gaming {
                     return;
                 }
                 match crate::config::parse_hotkey(spec) {
@@ -1127,17 +1172,59 @@ mod win {
             }
         }
 
-        fn evaluate_fullscreen(&mut self) {
-            let hide = crate::fullscreen::evaluate(&self.cfg.general, self.mon)
-                == crate::fullscreen::Suppress::Hide;
-            if hide != self.fs_hidden {
+        fn evaluate_fullscreen(&mut self, hwnd: HWND) {
+            use crate::fullscreen::Suppress;
+            let s = crate::fullscreen::evaluate(&self.cfg.general, self.mon);
+            let gaming = s == Suppress::Game;
+            let hide = s != Suppress::Show;
+            let entering = gaming && !self.gaming;
+            if gaming != self.gaming {
+                self.set_gaming(hwnd, gaming);
+            }
+            if hide != self.fs_hidden || entering {
                 self.fs_hidden = hide;
                 if !hide {
                     self.hover = false;
                 }
                 self.layout();
+                if entering {
+                    // Gone at once: no fade frames drawn over the game.
+                    self.anim.vis.snap();
+                }
                 self.kick();
             }
+        }
+
+        /// Step completely aside for a game, or come back. Nothing of Hytte should cost the
+        /// game a frame or a millisecond of input latency: no window over it (an overlay
+        /// forces DWM composition), no system-wide mouse / location hooks, no global hotkey,
+        /// background CPU / IO / memory priority, and the pollers pause (`GAMING`).
+        fn set_gaming(&mut self, hwnd: HWND, on: bool) {
+            use windows::Win32::System::Threading::{
+                SetPriorityClass, PROCESS_MODE_BACKGROUND_BEGIN, PROCESS_MODE_BACKGROUND_END,
+            };
+            self.gaming = on;
+            crate::fullscreen::GAMING.store(on, Ordering::Relaxed);
+            input_hooks(!on);
+            self.register_hotkey(hwnd);
+            self.armed = false;
+            ARMED.store(false, Ordering::Relaxed);
+            unsafe {
+                let mode = if on {
+                    PROCESS_MODE_BACKGROUND_BEGIN
+                } else {
+                    PROCESS_MODE_BACKGROUND_END
+                };
+                let _ = SetPriorityClass(GetCurrentProcess(), mode);
+            }
+            if !on {
+                crate::ports::request_refresh();
+            }
+            crate::logging::line(if on {
+                "game mode on: hidden, input hooks off, background priority"
+            } else {
+                "game mode off"
+            });
         }
     }
 
@@ -1263,6 +1350,7 @@ mod win {
                 perf: crate::perf::Perf::new(),
                 prev_vblank: 0,
                 fs_hidden: false,
+                gaming: false,
                 paused: false,
                 armed: false,
                 shown: false,
@@ -1307,6 +1395,7 @@ mod win {
                 Ordering::Relaxed,
             );
 
+            // The foreground hook stays on even in game mode: it is how leaving the game is seen.
             let _ = SetWinEventHook(
                 EVENT_SYSTEM_FOREGROUND,
                 EVENT_SYSTEM_FOREGROUND,
@@ -1316,18 +1405,7 @@ mod win {
                 0,
                 WINEVENT_OUTOFCONTEXT,
             );
-            let _ = SetWinEventHook(
-                EVENT_OBJECT_LOCATIONCHANGE,
-                EVENT_OBJECT_LOCATIONCHANGE,
-                None,
-                Some(win_event),
-                0,
-                0,
-                WINEVENT_OUTOFCONTEXT,
-            );
-            // ponytail: permanent LL hook with an O(1) callback; install only on drag if it ever shows in profiles
-            let mouse_hook =
-                SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_ll), Some(hinstance), 0).ok();
+            input_hooks(true);
 
             let mut tray = crate::tray::Tray::new(hwnd);
             tray.add();
@@ -1383,9 +1461,7 @@ mod win {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
-            if let Some(h) = mouse_hook {
-                let _ = UnhookWindowsHookEx(h);
-            }
+            input_hooks(false);
             // Release the D3D/DXGI/DirectComposition objects here, on this thread. Left to the
             // thread-local's destructor they are freed inside ExitProcess under the loader lock,
             // where GPU drivers deadlock: the process then never exits (and holds the single-
@@ -1505,14 +1581,12 @@ mod win {
     ) {
         // LOCATIONCHANGE fires for every moving window and caret: only the
         // foreground window's own rect matters for fullscreen detection.
-        if event == EVENT_OBJECT_LOCATIONCHANGE {
-            if id_object != 0 || hwnd != unsafe { GetForegroundWindow() } {
-                return;
-            }
-            // Dragging a window fires this per mouse move: only re-arm the debounce.
-            post_w(WM_FG, FG_MOVED);
+        if event == EVENT_OBJECT_LOCATIONCHANGE
+            && (id_object != 0 || hwnd != unsafe { GetForegroundWindow() })
+        {
             return;
         }
+        // Dragging a window fires this per mouse move: WM_FG only re-arms the debounce.
         post(WM_FG);
     }
 
@@ -1751,9 +1825,9 @@ mod win {
                 return LRESULT(0);
             }
             WM_FG => {
-                if wparam.0 != FG_MOVED {
-                    reassert_topmost(hwnd);
-                }
+                // No reassert_topmost here: the new foreground may be a game going fullscreen,
+                // and a topmost window pushed over it can knock it out of exclusive mode.
+                // T_FS reasserts once the decision is made.
                 unsafe {
                     SetTimer(Some(hwnd), T_FS, 150, None);
                 }
@@ -1967,10 +2041,13 @@ mod win {
                         }
                     }
                     T_FS => {
-                        // Settled after a foreground change or move: stay above it.
-                        reassert_topmost(hwnd);
+                        // Settled after a foreground change or move: stay above it,
+                        // unless it is a game.
                         ui.follow_monitor();
-                        ui.evaluate_fullscreen();
+                        ui.evaluate_fullscreen(hwnd);
+                        if !ui.gaming {
+                            reassert_topmost(hwnd);
+                        }
                         ui.follow_desktop(hwnd);
                     }
                     _ => {}
