@@ -313,4 +313,4 @@ Want to know how Hytte works or contribute? Start with the [developer documentat
 
 ## License
 
-MIT.
+MIT. See [LICENSE](LICENSE).
