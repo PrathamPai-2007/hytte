@@ -76,7 +76,7 @@ Example: let tasks carry a `url` to open when clicked.
 2. Add a length limit in `validate()`. Pipe input is untrusted.
 3. Extend the `old_messages_still_parse` test with a message containing the field.
 4. Carry it through `TaskState` (`tasks.rs`) → `TaskView` (`Model::upsert` in `ui_state.rs`).
-5. Teach the CLI to send it (`cli/main.rs` or `cli/agent.rs`).
+5. Teach the CLI to send it (`cli/mod.rs` or `cli/agent.rs`).
 6. Use it in the renderer or in an action.
 7. Update the field table in [section 4](04-ipc-protocol.md#message-format).
 
@@ -118,11 +118,11 @@ Example: "Rotate 90°" for images.
 
 The job runs on a Drop Vault worker automatically; you don't need any threading code.
 
-## Add a `notch` subcommand
+## Add a `hytte` subcommand
 
-1. Add a match arm in `cli/main.rs::main`, ideally dispatching into its own module in `cli/`.
+1. Add a match arm in `cli/mod.rs::run`, ideally dispatching into its own module in `cli/`. The command name must not collide with what `main()` treats as "no arguments" (the daemon).
 2. Build a `HytteMessage` and call `send_msg`. Decide what happens when it returns `false` (daemon down): silent for anything a hook calls, at most one line otherwise.
-3. Add the command to `usage()`, to [section 5](05-cli.md), and to the README if users will type it.
+3. Add the command to `USAGE` in `cli/mod.rs`, to [section 5](05-cli.md), and to the README if users will type it.
 4. Keep startup fast: no config reads and no heavy dependencies.
 
 ## Add continuous motion
@@ -135,7 +135,7 @@ The job runs on a Drop Vault worker automatically; you don't need any threading 
 
 ## Add support for another shell
 
-1. Write `cli/shell/init.<shell>`. It must: guard against double-loading; on command start, call `notch hook start --id <unique id> --cmd <command line> --pid <Windows pid of the shell> --cwd <dir>` in the background; when the prompt returns, call `notch hook end --id <same id> --code <exit code> --duration-ms <ms>` in the background; never print anything; never change the exit code it reports.
+1. Write `cli/shell/init.<shell>`. It must: guard against double-loading; on command start, call `hytte hook start --id <unique id> --cmd <command line> --pid <Windows pid of the shell> --cwd <dir>` in the background; when the prompt returns, call `hytte hook end --id <same id> --code <exit code> --duration-ms <ms>` in the background; never print anything; never change the exit code it reports.
 2. Embed it in `cli/hook.rs` with `include_str!`, add it to `init()`'s match and to `usage()`, and add it to the `scripts_are_embedded` test.
 3. Document the profile line in the README and in [section 5](05-cli.md#how-the-shell-integrations-work).
 
@@ -146,4 +146,4 @@ The job runs on a Drop Vault worker automatically; you don't need any threading 
 - Check the idle cost ([section 12](12-performance.md)) if you added a worker, a timer or an animation.
 - Update the docs section you touched. These docs are only useful while they are true.
 
-Back to the [index](README.md).
+Next: [15. Updates](15-updates.md)

@@ -10,29 +10,35 @@
 ## Build
 
 ```powershell
-cargo build --workspace            # debug build of both binaries
+cargo build --workspace            # debug build
 cargo build --release --workspace  # optimised build (LTO; slower to compile)
 ```
 
-Both binaries land in `target\debug\` or `target\release\`: `hytte.exe` and `notch.exe`.
+The one program, `hytte.exe`, lands in `target\debug\` or `target\release\`. The build also compiles `crates/hytte/hytte.rc` (icons, manifest, version info) with the Windows SDK's resource compiler, which comes with the Build Tools.
 
 ## Run
 
 ```powershell
-cargo run -p hytte --bin hytte                              # start the daemon
-cargo run -p hytte --bin notch -- run -- cmd /c "exit 3"    # send it a failing task
+cargo run -p hytte                                # start the daemon
+cargo run -p hytte -- run -- cmd /c "exit 3"      # CLI mode: send it a failing task
 ```
 
 Only one daemon can run per user session (`single_instance.rs` holds the named mutex `Local\HytteSingleInstance`). If you already have an installed Hytte running, quit it from the tray first, or your dev build exits immediately with "another instance is running".
 
-`notch run` starts `hytte.exe` automatically if it finds one **next to `notch.exe`** and the pipe isn't answering. That is convenient with `cargo run`, since both binaries share a target folder.
+`hytte run` starts the daemon automatically (this same exe, detached) if the pipe isn't answering.
+
+To try a dev build without touching your real settings, point `APPDATA` somewhere else first. Every file Hytte writes lives under `%APPDATA%\Hytte` ([section 11](11-configuration-and-files.md)). Also set `add_to_path = false` in that copy's `config.toml`, so the dev folder isn't put on your `PATH`:
+
+```powershell
+$env:APPDATA = "$env:TEMP\hytte-dev"; .\target\release\hytte.exe
+```
 
 ### Putting the pill into every state
 
 You rarely need a real workload to test a scene:
 
 ```powershell
-$n = "target\debug\notch.exe"
+$n = "target\debug\hytte.exe"
 & $n run -- cmd /c "echo boom 1>&2 & exit 3"           # failed task with stderr
 & $n run -- powershell -c "Start-Sleep 8"               # running task (spinner)
 & $n set --progress 40 --label "Uploading" --task up1   # determinate progress
@@ -45,7 +51,7 @@ For the rest: drag a file onto the pill (shelf, Drop Vault), play music in any a
 
 ## Debugging
 
-`hytte.exe` is a GUI-subsystem program (`#![windows_subsystem = "windows"]` in `main.rs`), so it has **no console**: `println!` and `eprintln!` output goes nowhere. Use these instead:
+In daemon mode `hytte.exe` has **no console** (see [section 1](01-overview.md#one-program-two-modes)), so `println!` and `eprintln!` output goes nowhere. Use these instead:
 
 | Tool | How |
 |---|---|
@@ -53,7 +59,7 @@ For the rest: drag a file onto the pill (shelf, Drop Vault), play music in any a
 | Frame telemetry | Set `HYTTE_PERF=1` before starting the daemon. Every 240 animated frames, `perf.rs` logs p50 / p99 / max draw+present cost and draw-only cost, the gap between frames, and how many frames missed a vblank. |
 | A debugger | Visual Studio, WinDbg or VS Code with the C++ debugger can attach to `hytte.exe`. Debug builds include symbols in the `.pdb` next to the exe. |
 
-`notch.exe` is a normal console program, so its errors print to the terminal.
+In CLI mode it is a normal console program, so its errors print to the terminal.
 
 ### Debugging tips
 
@@ -77,7 +83,7 @@ cargo test -p hytte-proto        # the shared crate's tests run on any OS
 
 `cargo check` does not need the MSVC linker, so this works anywhere. What you **can't** do on a non-Windows host:
 
-- Link or run `hytte.exe` / `notch.exe`.
+- Link or run `hytte.exe`.
 - Run the `hytte` crate's tests. They don't compile for a non-Windows host, because COM `#[implement]` types pull in Windows-only parts of `windows-core`.
 
 If you need to run the platform-independent tests (springs, UI model, shelf, conversions, timer, ...) off Windows, create a throwaway crate whose `main.rs` declares just those modules (`animation`, `config`, `convert`, `drop`, `power`, `shelf`, `tasks`, `timer`, `transforms`, `ui_state`, `media`, `perf`, `logging`, `fullscreen`) pointing at the files in `crates/hytte/src`. Those modules keep their Windows-only code behind `#[cfg(windows)]`.

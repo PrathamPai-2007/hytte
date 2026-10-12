@@ -6,14 +6,15 @@ This section explains how the pieces fit together at runtime. Later sections zoo
 
 ```text
  terminals / scripts / agent hooks
-        │  notch.exe (one short-lived process per message)
+        │  hytte <command> (one short-lived CLI process per message)
         ▼
  \\.\pipe\hytte ── pipe listener ── per-connection thread ──┐  HytteMessage
                                                             ▼
                                                   task registry thread
                                                             │  TaskUpdate
- workers: media, privacy, mic, power, ports,               │
- drop pool, thumbnails, shelf staging  ── UiEvent ──┐       │
+ workers: media, privacy, mic, power, ports,                │
+ downloads, calendar, drop pool,                            │
+ thumbnails, shelf staging  ── UiEvent ─────────────┐       │
                                                     ▼       ▼
                                               bridge thread
                                                     │  push into Shared.pending
@@ -38,14 +39,17 @@ Two rules hold everywhere:
 
 `crates/hytte/src/main.rs`, in order:
 
+0. If there are any arguments, `cli::run` handles them and the process ends: that is CLI mode ([section 5](05-cli.md)). Otherwise `detach_console` makes sure the daemon holds no console ([section 1](01-overview.md#one-program-two-modes)).
 1. `logging::init()` installs the panic hook that writes to `hytte.log`.
-2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex. If another daemon holds it, this process exits with code 0.
+2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex, retrying for up to 5 s. The retry lets a freshly updated exe wait while the old one finishes quitting. If another daemon still holds the mutex, this process exits with code 0. `update::cleanup` then deletes a `hytte.exe.old` left by an update.
 3. `config::load()` reads `config.toml`, creating it with defaults if it is missing. Then `ensure_autostart` writes or removes the `Run` registry value, and `ensure_start_menu` (on its own thread) refreshes the Start Menu shortcut.
 4. Two channels for the task pipeline are created: `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI).
 5. A `UiEvent` channel is created. Then `pipe_server::spawn_listener` and `tasks::spawn_registry` start. The listener gets the task channel and a `UiEvent` sender, which it needs for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer).
-6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports` and the `config` watcher. A background thread also runs `setup::ensure_on_path` unless `add_to_path = false`.
+6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. `update::spawn_checker` starts the daily update check (unless `check_updates = false`). A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), then `setup::migrate_profiles`, which rewrites shell hooks that still call the old `notch` command.
 7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
 8. `window::run` takes over the main thread and never returns until Quit.
+
+On Quit (tray menu, or `window::quit()` after an update), the window is destroyed and the message loop ends. The UI thread then **drops `Ui` itself**, before removing the tray icon and returning. `Ui` owns the GPU renderer's D3D11 / DXGI / DirectComposition objects. Left to the thread-local destructor, they would be released during `ExitProcess` under the loader lock, where GPU drivers can deadlock. The process would then never exit and would keep the single-instance mutex until a reboot.
 
 `window::win::run_windows` then:
 
@@ -82,7 +86,9 @@ Two rules hold everywhere:
 | Thumbnail loader | `Ui::request_thumbs` | one thumbnail | the shell thumbnail call |
 | Shelf staging | `Ui::handle_events` (`ShelfAdd`) | one drop | file copies |
 | Start Menu shortcut | `config::ensure_start_menu` | a moment at startup | COM shell link calls |
-| PATH setup | `setup::ensure_on_path` | a moment at startup | one registry read and, if needed, write (`[general] add_to_path`) |
+| PATH setup | `setup::ensure_on_path`, then `setup::migrate_profiles` | a moment at startup | one registry read and, if needed, write (`[general] add_to_path`); profile reads |
+| Update checker | `update::spawn_checker` | whole process | a 60 s sleep, then one check a day (`[general] check_updates`) |
+| Manual update check | `update::check_now` | one tray click | `curl.exe`, then a message box |
 | Terminal setup | `setup::tray_setup` | one tray click | profile file writes and message boxes |
 
 ## How threads talk to the UI thread
@@ -143,7 +149,7 @@ Hytte is ambient. A failure in one feature must never take down the pill or bloc
 
 - OS calls that may fail return `Option` / `Result` and are mostly ignored with `let _ =` or a fallback value (for example, no battery → the battery row disappears).
 - Workers retry or fall back to a slow safety poll instead of exiting.
-- The CLI never fails a shell prompt: if the daemon is down, messages are dropped silently (shell hooks) or with a one-line note (`notch set`, `notch agent`), and `notch run` still runs the command.
+- The CLI never fails a shell prompt: if the daemon is down, messages are dropped silently (shell hooks) or with a one-line note (`hytte set`, `hytte agent`), and `hytte run` still runs the command.
 - Panics in a worker thread end only that thread; the panic message goes to `hytte.log`.
 
 Next: [4. IPC protocol and task lifecycle](04-ipc-protocol.md)

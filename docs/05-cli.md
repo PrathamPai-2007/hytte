@@ -1,26 +1,26 @@
-# 5. The `notch` CLI and shell integrations
+# 5. The `hytte` CLI and shell integrations
 
-`notch.exe` is the client half of Hytte. It is built from `crates/hytte/src/cli/` as a second `[[bin]]` of the `hytte` package. It runs in terminals, shell prompts and agent hooks, often on every command, so it has to be **fast to start** and **must never break the caller**.
+`hytte <command>` is the client half of Hytte: the same `hytte.exe` as the daemon, started with arguments ([section 1](01-overview.md#one-program-two-modes)). Its code lives in `crates/hytte/src/cli/`. `main()` hands any arguments to `cli::run` before the daemon's logging, mutex or config are touched. It runs in terminals, shell prompts and agent hooks, often on every command, so it has to be **fast to start** and **must never break the caller**.
 
 ## Design rules
 
-1. **Best effort.** If the daemon isn't running, `notch` says so at most once and carries on. `notch run` still runs your command, and shell hooks stay completely silent.
-2. **No GUI side effects from hooks.** Only `notch run` may start the daemon; hooks never spawn windows.
+1. **Best effort.** If the daemon isn't running, `hytte` says so at most once and carries on. `hytte run` still runs your command, and shell hooks stay completely silent.
+2. **No GUI side effects from hooks.** Only `hytte run` may start the daemon; hooks never spawn windows.
 3. **Small and quick.** The CLI uses only `std`, `windows`, `serde_json` and `hytte-proto`, with no runtime to initialise.
-4. **Exit codes are preserved.** `notch run` exits with the wrapped command's code.
+4. **Exit codes are preserved.** `hytte run` exits with the wrapped command's code.
 
 ## How a message is sent
 
-`send_msg` serialises a `HytteMessage` with `to_line()` (JSON plus `\n`) and opens `\\.\pipe\hytte` as a file for writing with `FILE_FLAG_WRITE_THROUGH`. It writes the line and closes the pipe. If the open fails (no daemon), it returns `false`. There is no retry and no wait, apart from `notch run`'s auto-start described below.
+`send_msg` serialises a `HytteMessage` with `to_line()` (JSON plus `\n`) and opens `\\.\pipe\hytte` as a file for writing with `FILE_FLAG_WRITE_THROUGH`. It writes the line and closes the pipe. If the open fails (no daemon), it returns `false`. There is no retry and no wait, apart from `hytte run`'s auto-start described below.
 
 ## Subcommands
 
-Dispatch is in `cli/main.rs::main`.
+Dispatch is in `cli/mod.rs::run`. `hytte help` (also `-h`, `--help`) prints the command list, and `hytte --version` (also `-V`) prints `hytte <version>`. Both exit 0. An unknown command prints the list to stderr and exits 2.
 
-### `notch run [--no-progress] -- <cmd> [args...]` (`cmd_run`)
+### `hytte run [--no-progress] -- <cmd> [args...]` (`cmd_run`)
 
 1. Creates a task id (`<pid>-<unix ms>`) and a label (the command line, truncated to 128 characters).
-2. Sends `Start` with `pid` = notch's own pid. If that fails and a `hytte.exe` exists **next to `notch.exe`**, it starts it detached (`DETACHED_PROCESS | CREATE_NO_WINDOW`), waits up to 3 s for the pipe to appear, and sends `Start` again.
+2. Sends `Start` with `pid` = the CLI process's own pid. If that fails, it starts the daemon: this same exe with no arguments, detached (`DETACHED_PROCESS | CREATE_NO_WINDOW`) and with **null stdio**, so a pipe the caller reads from (`hytte run -- x | tee`) isn't held open by the daemon. It waits up to 3 s for the pipe to appear, then sends `Start` again.
 3. Spawns the command with **stdin and stdout inherited** (the terminal behaves exactly as normal) and **stderr piped**.
 4. Copies stderr to its own stderr as **raw bytes**, as they arrive, so `\r`-redrawn progress bars draw live and output that isn't UTF-8 passes through. Alongside, it keeps the last 5 lines in a ring buffer; for a redrawn line, only the text after its last `\r`, which is what the terminal showed.
    - Unless `--no-progress` is given, each chunk also goes through `progress::Scanner`, which reports the newest percentage it finds. It understands **OSC 9;4** sequences (`ESC ] 9 ; 4 ; 1 ; <pct>`, the ones Windows Terminal shows as a tab progress bar) and plain **`NN%`** text (1–3 digits, optional fraction, at most 100) in the current line. A new value is sent as a `Progress` message, at most every 250 ms and only when it changed. Sending stops for the rest of the run if the daemon is gone. The scanner's buffers are capped (512-byte line, 32-byte OSC body).
@@ -29,13 +29,13 @@ Dispatch is in `cli/main.rs::main`.
 5. On exit, sends `Done` (exit code 0) or `Failed` with the exit code, the duration and the stderr tail.
 6. Exits with the child's exit code. If the command couldn't be spawned, it reports `Failed` with "spawn failed: …" and exits `127`.
 
-Because the task's `pid` is the `notch` process, closing the terminal turns the task "lost" (see [section 4](04-ipc-protocol.md)), and clicking the row focuses the terminal hosting `notch`.
+Because the task's `pid` is the `hytte run` process, closing the terminal turns the task "lost" (see [section 4](04-ipc-protocol.md)), and clicking the row focuses the terminal hosting it.
 
-### `notch set --progress N --label L [--task ID]` (`cmd_set`)
+### `hytte set --progress N --label L [--task ID]` (`cmd_set`)
 
 Sends one `Progress` message with `progress = N` (0–100). Use the same `--task` on every call to update one entry; without it, every call creates a new task. No `pid` is sent, so the 30 s silence rule applies.
 
-### `notch agent <start|needs-input|resume|tool|done|fail> [--name N] [--pid P] [--message M] [--detail D]` (`cli/agent.rs`)
+### `hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> [--name N] [--pid P] [--message M] [--detail D]` (`cli/agent.rs`)
 
 | Subcommand | Event |
 |---|---|
@@ -46,31 +46,31 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 | `fail` | `Failed` |
 
 - `--name` defaults to `Agent` and becomes the label.
-- `--pid` defaults to `hytte_proto::sys::owner_pid(own pid)`. That climbs the process tree, skipping up to six throw-away shells (`cmd`, `sh`, `bash`, `zsh`, `fish`, `pwsh`, `powershell`, `nu`, `conhost`), to find the long-lived agent or terminal behind a hook. Agent hooks usually run as `agent → shell → notch`, so the shell's parent is what you want.
+- `--pid` defaults to `hytte_proto::sys::owner_pid(own pid)`. That climbs the process tree, skipping up to six throw-away shells (`cmd`, `sh`, `bash`, `zsh`, `fish`, `pwsh`, `powershell`, `nu`, `conhost`), to find the long-lived agent or terminal behind a hook. Agent hooks usually run as `agent → shell → hytte`, so the shell's parent is what you want.
 - The task id is `agent:<name>:<pid>`, so all of one agent's events update a single row.
 - `needs-input` without `--message` reads **stdin** when it isn't a terminal (up to 64 KiB), parses it as JSON, and uses its `message` field (first 300 characters). That is exactly the payload Claude Code's `Notification` hook pipes in.
 
-`notch agent tool` reports what the agent is doing *right now*, as a `Progress` update whose `line` is a short phrase. With `--detail "text"` the text is used as is; with no `--detail` it reads a Claude Code `PreToolUse` payload (`{"tool_name": ..., "tool_input": ...}`) from stdin and `describe_tool` turns it into a phrase: `Editing render.rs`, `Reading lib.rs`, `Running: cargo build`, `Searching: fn main`, `Subagent: ...`, `Using create_issue` (MCP tools), capped at 120 characters. If neither is available it sends nothing. Each agent keeps its own row (the task id is `agent:<name>:<pid>`), so two agents show two rows with their own step and elapsed time.
+`hytte agent tool` reports what the agent is doing *right now*, as a `Progress` update whose `line` is a short phrase. With `--detail "text"` the text is used as is; with no `--detail` it reads a Claude Code `PreToolUse` payload (`{"tool_name": ..., "tool_input": ...}`) from stdin and `describe_tool` turns it into a phrase: `Editing render.rs`, `Reading lib.rs`, `Running: cargo build`, `Searching: fn main`, `Subagent: ...`, `Using create_issue` (MCP tools), capped at 120 characters. If neither is available it sends nothing. Each agent keeps its own row (the task id is `agent:<name>:<pid>`), so two agents show two rows with their own step and elapsed time.
 
-`notch agent hooks claude` prints a ready-made Claude Code hooks block:
+`hytte agent hooks claude` prints a ready-made Claude Code hooks block:
 
 | Claude Code hook | Runs |
 |---|---|
-| `UserPromptSubmit` | `notch agent resume --name "Claude Code"` |
-| `Notification` | `notch agent needs-input --name "Claude Code"` |
-| `Stop` | `notch agent done --name "Claude Code"` |
+| `UserPromptSubmit` | `hytte agent resume --name "Claude Code"` |
+| `Notification` | `hytte agent needs-input --name "Claude Code"` |
+| `Stop` | `hytte agent done --name "Claude Code"` |
 
-`notch agent hooks claude --tools` prints the same block plus a `PreToolUse` hook (`notch agent tool --name "Claude Code"`, matcher `*`) for the live view. It is opt-in because it runs `notch` before every tool call; `notch` starts in a few milliseconds, but it is still a process per call.
+`hytte agent hooks claude --tools` prints the same block plus a `PreToolUse` hook (`hytte agent tool --name "Claude Code"`, matcher `*`) for the live view. It is opt-in because it runs `hytte` before every tool call; the CLI starts in a few milliseconds, but it is still a process per call.
 
-`notch agent hooks claude --approve` adds a `PermissionRequest` hook (`notch agent ask --name "Claude Code"`, matcher `*`). The flags combine: `--tools --approve` prints both.
+`hytte agent hooks claude --approve` adds a `PermissionRequest` hook (`hytte agent ask --name "Claude Code"`, matcher `*`). The flags combine: `--tools --approve` prints both.
 
-### `notch agent ask [--name N] [--pid P]` (`cli/agent.rs`)
+### `hytte agent ask [--name N] [--pid P]` (`cli/agent.rs`)
 
-`notch agent ask` answers a Claude Code permission prompt from the pill.
+`hytte agent ask` answers a Claude Code permission prompt from the pill.
 
 1. It reads the `PermissionRequest` payload from stdin. `ask_text` turns the payload into one line: the `describe_tool` phrase, or `Using <tool>`.
 2. If a Bash command has more than one line, the line starts with `(N lines, see terminal)`. If it is longer than 60 characters, the line starts with `(long, see terminal)`. The chip clips long text at the end, so the warning goes first, where it is always visible.
-3. It sends an [`Ask`](04-ipc-protocol.md#asking-the-human-ask-and-answer) over a read-write pipe connection (`ask_pipe` in `cli/main.rs`) and waits up to `ASK_WAIT_SECS` + 2 s.
+3. It sends an [`Ask`](04-ipc-protocol.md#asking-the-human-ask-and-answer) over a read-write pipe connection (`ask_pipe` in `cli/mod.rs`) and waits up to `ASK_WAIT_SECS` + 2 s.
 4. On **Allow** or **Deny** it prints the hook decision:
 
 ```json
@@ -79,28 +79,32 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 
 With no answer (no daemon, timeout, chip dismissed) it prints nothing and exits 0. Claude Code then shows its normal prompt in the terminal. That prompt appears only after the hook returns, so dismissing the chip is the quick way back to the terminal.
 
-### `notch ports [--all]` and `notch kill :PORT [--force]` (`cli/portscmd.rs`)
+### `hytte ports [--all]` and `hytte kill :PORT [--force]` (`cli/portscmd.rs`)
 
 These talk to the OS directly through `hytte_proto::ports` and work without the daemon.
 
 - `ports` lists listeners on the default watch list (the same ports as the config default), or every non-system listener with `--all`.
 - `kill` finds the listener on that port (from all listeners), asks `Stop node.exe (pid 1234) listening on :3000? [y/N]` unless `--force` is given, then terminates the process. Pids 0–4 and the CLI's own pid are refused.
 
-### `notch setup [--undo]` (`setup.rs`)
+### `hytte setup [--undo]` (`setup.rs`)
 
-Makes `notch` work without manual steps. `setup.rs` is shared with the daemon: `cli/main.rs` includes it with `#[path = "../setup.rs"]`, and the tray's **Set up terminal integration** calls the same functions.
+Makes `hytte` work in terminals without manual steps. The CLI, the daemon's startup and the tray's **Set up terminal integration** all call the same functions in `setup.rs`.
 
-1. **PATH** (`ensure_on_path`): adds the folder holding `notch.exe` to the user's `HKCU\Environment\Path`, keeping the value's type (`REG_EXPAND_SZ` or `REG_SZ`), then broadcasts `WM_SETTINGCHANGE "Environment"` on a background thread so newly opened terminals see it. It does nothing if `notch.exe` already resolves on `PATH` (for example a winget alias) or under `cargo run`. The added folder is recorded in `%APPDATA%\Hytte\path.txt`, and if Hytte has since moved, the stale entry is removed. Entries compare case-insensitively, ignoring quotes and a trailing `\`, after `%VAR%` expansion (`path_with`, `path_without`).
-2. **Profiles** (`setup_shells`): adds a block between `# >>> hytte >>>` and `# <<< hytte <<<` to the Windows PowerShell 5.1 profile, the PowerShell 7 profile (if PowerShell 7 is installed) and `~/.bashrc` (if Git Bash is installed). The PowerShell line only runs if `notch` exists, so uninstalling never breaks the profile. The bash block is inserted **above** any `starship init` line (Starship chains an existing DEBUG trap); the PowerShell block is appended, so it loads **after** Starship (which replaces `prompt`). Files keep their encoding (UTF-8, UTF-8 with BOM, UTF-16 LE) and line endings, and are written through a temp file, except through symlinks. A second run changes nothing; `--undo` removes the blocks.
-3. If Windows PowerShell's execution policy is `Restricted` or `AllSigned`, the output says how to allow profiles (`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`). `notch setup` never changes the policy. The tray item asks first and, on Yes, writes `RemoteSigned` for the current user only (`allow_ps51_profiles`, the registry value that command sets).
+1. **PATH** (`ensure_on_path`): adds the folder holding `hytte.exe` to the user's `HKCU\Environment\Path`, keeping the value's type (`REG_EXPAND_SZ` or `REG_SZ`), then broadcasts `WM_SETTINGCHANGE "Environment"` on a background thread so newly opened terminals see it. It does nothing if `hytte.exe` already resolves on `PATH` (for example a winget alias) or under `cargo run`. The added folder is recorded in `%APPDATA%\Hytte\path.txt`, and if Hytte has since moved, the stale entry is removed (unless that folder still holds a `hytte.exe` or an old `notch.exe`). Entries compare case-insensitively, ignoring quotes and a trailing `\`, after `%VAR%` expansion (`path_with`, `path_without`).
+2. **Profiles** (`setup_shells`): adds a block between `# >>> hytte >>>` and `# <<< hytte <<<` to the Windows PowerShell 5.1 profile, the PowerShell 7 profile (if PowerShell 7 is installed) and `~/.bashrc` (if Git Bash is installed). The PowerShell line only runs if `hytte` exists, so uninstalling never breaks the profile. The bash block is inserted **above** any `starship init` line (Starship chains an existing DEBUG trap); the PowerShell block is appended, so it loads **after** Starship (which replaces `prompt`). Files keep their encoding (UTF-8, UTF-8 with BOM, UTF-16 LE) and line endings, and are written through a temp file, except through symlinks. A second run changes nothing; `--undo` removes the blocks.
+3. If Windows PowerShell's execution policy is `Restricted` or `AllSigned`, the output says how to allow profiles (`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`). `hytte setup` never changes the policy. The tray item asks first and, on Yes, writes `RemoteSigned` for the current user only (`allow_ps51_profiles`, the registry value that command sets).
 
 A shell counts as set up only when **every** detected profile has the block, so a profile you added earlier by hand (say Git Bash) doesn't stop setup from adding the others.
 
 The daemon also runs step 1 at every startup unless `[general] add_to_path = false`.
 
-### `notch init <pwsh|bash|zsh|nu>` and `notch hook <start|end> ...` (`cli/hook.rs`)
+#### Upgrading from `notch`
 
-`init` prints a shell integration script. The scripts live in `cli/shell/` and are embedded into the binary with `include_str!`, so the installed `notch.exe` is always in sync with its scripts.
+Before 1.0 the CLI was a separate `notch.exe`, and profile blocks ran `notch init ...`. After an upgrade that line would quietly stop working, because its `Get-Command notch` / `command -v notch` guard no longer matches. So `setup::migrate_block` recognises a Hytte block containing `notch init` and replaces it with the current line, keeping the block's position (bash stays above Starship). The daemon runs this for every detected profile at startup (`migrate_profiles`), and `hytte setup` does it too. Claude Code hooks live in the user's own `settings.json`, which Hytte doesn't edit; users re-run `hytte agent hooks claude` once (the README says so).
+
+### `hytte init <pwsh|bash|zsh|nu>` and `hytte hook <start|end> ...` (`cli/hook.rs`)
+
+`init` prints a shell integration script (`powershell` and `nushell` work as aliases for `pwsh` and `nu`). The scripts live in `cli/shell/` and are embedded into the binary with `include_str!`, so the installed `hytte.exe` is always in sync with its scripts. `.gitattributes` keeps them LF even in a Windows checkout with `core.autocrlf`, since bash and zsh choke on `\r`.
 
 `hook start --id I --cmd C --pid P [--cwd D]` and `hook end --id I --code N [--duration-ms MS]` are what the bash, zsh and Nushell scripts call. They build `source = "shell"` messages (`end` maps code 0 to `Done` and anything else to `Failed`) and always exit successfully, even if the daemon is down. `--cmd` is truncated to 512 characters.
 
@@ -111,9 +115,9 @@ All four scripts follow the same idea. Send a **start** event when a command is 
 | Shell | "Command starts" hook | "Prompt returns" hook | How it sends |
 |---|---|---|---|
 | PowerShell (`init.ps1`) | A PSReadLine **Enter** key handler that reads the buffer, then accepts the line | A wrapped `prompt` function | Writes to the pipe **directly** with `NamedPipeClientStream` (40 ms connect timeout): no process spawn per command |
-| bash (`init.bash`) | `trap … DEBUG` (first command of each line only; skips completion and its own functions) | `PROMPT_COMMAND` | `notch hook …` in a background subshell |
-| zsh (`init.zsh`) | `preexec` via `add-zsh-hook` | `precmd` | `notch hook …` in a background subshell |
-| Nushell (`init.nu`) | `hooks.pre_execution` | `hooks.pre_prompt` | `notch hook …` via `job spawn` |
+| bash (`init.bash`) | `trap … DEBUG` (first command of each line only; skips completion and its own functions) | `PROMPT_COMMAND` | `hytte hook …` in a background subshell |
+| zsh (`init.zsh`) | `preexec` via `add-zsh-hook` | `precmd` | `hytte hook …` in a background subshell |
+| Nushell (`init.nu`) | `hooks.pre_execution` | `hooks.pre_prompt` | `hytte hook …` via `job spawn` |
 
 Details worth knowing:
 
@@ -127,7 +131,7 @@ Details worth knowing:
 
 - Keep startup cheap: no new heavy dependencies, no config file reads, no network.
 - Anything a hook calls must exit 0 and print nothing, whatever happens.
-- When you change a script in `cli/shell/`, rebuild `notch.exe`. Users get the new script the next time their shell starts, because the profile line runs `notch init` each time.
-- `cli/hook.rs` has a test that every embedded script mentions `notch`. Add behavioural tests next to the code you change.
+- When you change a script in `cli/shell/`, rebuild `hytte.exe`. Users get the new script the next time their shell starts, because the profile line runs `hytte init` each time.
+- `cli/hook.rs` has a test that every embedded script names `hytte init` and that the bash, zsh and Nushell ones call `hytte hook` (never the old `notch`). Add behavioural tests next to the code you change.
 
 Next: [6. The UI model](06-ui-model.md)

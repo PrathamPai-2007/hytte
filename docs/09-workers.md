@@ -98,7 +98,7 @@ There is no cheap "a socket started listening" event in Windows (ETW would be th
 
 Before acting on **Open** or **Kill**, the UI re-checks that the same pid still listens on that port (`port_alive`), so a stale row is removed instead of killing the wrong process. `hytte_proto::ports::kill` refuses pids 0–4 and its own pid.
 
-The same module powers `notch ports` and `notch kill`, so the CLI and the panel always agree.
+The same module powers `hytte ports` and `hytte kill`, so the CLI and the panel always agree.
 
 ### Resource hogs (`hog.rs`, `[hog]`)
 

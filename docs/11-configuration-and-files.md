@@ -10,11 +10,13 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 | `%APPDATA%\Hytte\shelf.json` | `shelf::save` | The shelf list, when `[shelf] persist = true`. |
 | `%APPDATA%\Hytte\shelf\` | `shelf::stage` | Copies (in `mode = "copy"`) and dropped text snippets. |
 | `%APPDATA%\Hytte\timer.json` | `timer::save` | The running timer, so it survives a restart. Deleted when the timer stops or finishes. |
-| `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics, a line whenever the fullscreen decision changes, and frame telemetry when `HYTTE_PERF=1`. Nothing else is written during normal operation. |
+| `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics; a line whenever the fullscreen decision changes; hotkey registration failures; GPU renderer lost or unavailable; startup failures (window, renderer, Start Menu shortcut, `PATH`); migrated shell profiles; update checks, prompts and installs; frame telemetry when `HYTTE_PERF=1`. |
+| `%APPDATA%\Hytte\update-skip` | `update.rs` | The release tag the user answered **No** to, so the daily check doesn't ask about it again. A newer release is still offered. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. |
-| `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `notch` resolves in new terminals (`[general] add_to_path`). |
+| `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `hytte` resolves in new terminals (`[general] add_to_path`). |
 | `%APPDATA%\Hytte\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
-| PowerShell profiles, `~/.bashrc` | `setup::setup_shells` | Only when the user chooses **Set up terminal integration** or runs `notch setup`: a block between `# >>> hytte >>>` and `# <<< hytte <<<`. |
+| PowerShell profiles, `~/.bashrc` | `setup::setup_shells` | Only when the user chooses **Set up terminal integration** or runs `hytte setup`: a block between `# >>> hytte >>>` and `# <<< hytte <<<`. A block from before 1.0 (which ran `notch`) is rewritten at startup by `setup::migrate_profiles`. |
+| `hytte.exe.new`, `hytte.exe.old` next to `hytte.exe` | `update.rs` | Only during an update: the download, and the previous exe moved aside. `.old` is deleted at the next start. |
 | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Hytte.lnk` | `config::ensure_start_menu` | A Start Menu shortcut so Windows Search finds Hytte. Rewritten on every launch, so it heals itself if the exe moves. |
 
 `config::data_dir()` (the folder of `config.toml`) is the base for every Hytte file. If `APPDATA` isn't set, it falls back to the current directory.
@@ -37,12 +39,17 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 |---|---|
 | `[shell] ignore` | `model.ignore` is rebuilt. |
 | `[general] autostart` | `ensure_autostart` updates the `Run` value. |
+| `[general] hotkey` | The old hotkey is unregistered and the new one registered. |
+| `[general] hide_from_capture` | `SetWindowDisplayAffinity` is called again. |
+| `[general] monitor` | `refresh_monitor` moves the pill. |
+| `[general] theme`, `adaptive_glow`, `glow_strength` | Re-read; the next frame uses them. |
+| `[timer] rounds` | The running Focus cycle shows the new number of dots. |
 | `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
 | `[hog]` | `ports::reconfigure_hog` hands them to the same thread, used from the next tick. |
 | `[general]` fullscreen keys | `evaluate_fullscreen` runs again. |
 | Everything else | Already read at the point of use (`self.cfg`, or `config::load()` for `output_folder`). |
 
-Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path` only matters at the next startup.
+Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path`, `check_updates` and `renderer` only matter at the next startup.
 
 ### Writing the file
 
@@ -55,7 +62,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | Key | Default | Meaning |
 |---|---|---|
 | `autostart` | `false` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
-| `add_to_path` | `true` | At startup, add the folder holding `notch.exe` to the user's `PATH` if `notch` isn't found already. Set to `false` to manage `PATH` yourself. |
+| `add_to_path` | `true` | At startup, add the folder holding `hytte.exe` to the user's `PATH` if `hytte` isn't found already. Set to `false` to manage `PATH` yourself. |
 | `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) or `"cursor"` (the monitor under the pointer). `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
 | `solid_pill` | `true` | Reserved. |
 | `acrylic` | `false` | Draw the pill body at 84 % opacity instead of solid. There is no blur behind it. |
@@ -67,6 +74,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front. |
 | `fullscreen_mode` | `"sentinel"` | `"sentinel"`: shrink to a 3 px bar; `"hide"`: fade out completely. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
+| `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Read at startup. |
 | `hide_from_capture` | `false` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
 | `output_folder` | none | Folder for Drop Vault results; if unset or missing, results go next to the source file. |
 | `allow_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"`. |
@@ -146,6 +154,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `HYTTE_PERF=1` | Log frame-time statistics to `hytte.log` ([section 12](12-performance.md)). |
 | `HYTTE_HARDWARE=1` | `classic` renderer only: draw with the GPU-backed Direct2D DC target instead of the (faster) software one ([section 8](08-rendering-and-animation.md)). For comparison only. |
 | `HYTTE_WT_PID` | Used only by the ignored manual test in `tabs.rs`. |
+| `HYTTE_UPDATE_API` | Replaces the GitHub "latest release" URL the updater asks, for testing ([section 15](15-updates.md#testing-an-update)). `file://` URLs work. |
 
 ## Adding a setting
 

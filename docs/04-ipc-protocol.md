@@ -23,7 +23,7 @@ Each connection thread (`serve_connection`) reads chunks into a buffer, splits i
 
 ## Message format
 
-Newline-delimited JSON: one object per line, UTF-8. A client may send several lines on one connection; `notch.exe` sends exactly one and disconnects.
+Newline-delimited JSON: one object per line, UTF-8. A client may send several lines on one connection; the `hytte` CLI sends exactly one and disconnects.
 
 ```json
 {"v":1,"task_id":"agent:Claude Code:4242","event":"NeedsInput","label":"Claude Code",
@@ -45,7 +45,7 @@ Newline-delimited JSON: one object per line, UTF-8. A client may send several li
 | `delay_ms` | integer | no | | Don't show the task until this long after it starts. |
 | `message` | string | no | ≤ 1024 bytes | Free text, shown in amber while `NeedsInput`. |
 | `cwd` | string | no | ≤ 1024 bytes | The working directory (carried; not displayed today). |
-| `line` | string | no | ≤ 512 bytes | The command's latest output line (`notch run` sends it), shown in mono under a running task in the expanded list. Additive: older daemons ignore it. |
+| `line` | string | no | ≤ 512 bytes | The command's latest output line (`hytte run` sends it), shown in mono under a running task in the expanded list. Additive: older daemons ignore it. |
 
 `event` is one of:
 
@@ -76,11 +76,11 @@ Each client picks ids so that its own updates land on the same task:
 
 | Client | Id format | Example |
 |---|---|---|
-| `notch run` | `<notch pid>-<unix ms>` | `8120-1730000000000` |
-| `notch set` | a fresh id per call, unless `--task` is given | `upload-1` |
+| `hytte run` | `<CLI pid>-<unix ms>` | `8120-1730000000000` |
+| `hytte set` | a fresh id per call, unless `--task` is given | `upload-1` |
 | PowerShell hook | `ps-<shell pid>-<sequence>` | `ps-4242-17` |
 | bash / zsh / Nushell hooks | `sh-…`, `zsh-…`, `nu-…` with the same shape | `zsh-901-3` |
-| `notch agent` | `agent:<name>:<owner pid>` | `agent:Claude Code:4242` |
+| `hytte agent` | `agent:<name>:<owner pid>` | `agent:Claude Code:4242` |
 
 ## The task registry
 
@@ -102,8 +102,8 @@ A lost task is removed from the map and `TaskUpdate::Lost(id)` is sent to the UI
 
 Practical consequences:
 
-- `notch run` sends its own pid, so closing the terminal mid-build turns the task into "lost" within about 5 s.
-- `notch set` sends no pid, so a script that reports progress must send an update at least every 30 s or the task goes grey.
+- `hytte run` sends its own pid, so closing the terminal mid-build turns the task into "lost" within about 5 s.
+- `hytte set` sends no pid, so a script that reports progress must send an update at least every 30 s or the task goes grey.
 - Agents send the pid of their long-lived ancestor process (see [section 5](05-cli.md)), so a crashed agent is noticed.
 
 ## The UI side of a task
@@ -144,7 +144,7 @@ The timed removals are done by `Model::expire` (see [section 6](06-ui-model.md))
 
 ## Asking the human: `Ask` and `Answer`
 
-A client can put a yes/no question on the pill and wait for the answer on the same connection. `notch agent ask` uses this to answer Claude Code permission prompts.
+A client can put a yes/no question on the pill and wait for the answer on the same connection. `hytte agent ask` uses this to answer Claude Code permission prompts.
 
 ```json
 {"v":1,"name":"Claude Code","pid":4242,"text":"Running: cargo publish"}
@@ -167,7 +167,7 @@ No reply is sent if the time runs out, the chip is dismissed, or a newer ask rep
 
 ## Writing your own client
 
-Any program can talk to the pipe directly; you don't need `notch.exe`. In PowerShell:
+Any program can talk to the pipe directly; you don't need the `hytte` CLI. In PowerShell:
 
 ```powershell
 $c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'hytte', [System.IO.Pipes.PipeDirection]::Out)
@@ -178,4 +178,4 @@ $c.Write($b, 0, $b.Length); $c.Dispose()
 
 Keep messages small, always end lines with `\n`, and remember to send a final `Done` or `Failed`, or include a `pid` so the registry can clean up after you.
 
-Next: [5. The `notch` CLI and shell integrations](05-cli.md)
+Next: [5. The `hytte` CLI and shell integrations](05-cli.md)

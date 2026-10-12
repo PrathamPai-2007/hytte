@@ -1,10 +1,14 @@
+<p align="center">
+  <img src="crates/hytte/assets/logo.png" alt="Hytte logo" width="96">
+</p>
+
 # Hytte
 
 **A smart little notch for the top of your Windows 11 screen.**
 
 Hytte puts a small pill at the top-centre of your screen. It stays quiet until something worth knowing happens: a build finishes, an AI agent needs your answer, a dev server starts, music plays, or you drag a file toward the top of the screen. Then it opens, shows you what matters, and tucks itself away again.
 
-It never steals focus from what you're typing, and it uses almost no CPU while idle.
+It never steals focus from what you're typing, and it uses almost no CPU while idle. It's one small program, `hytte.exe`, which is both the pill and the command you type in your terminal.
 
 <p align="center">
   <img src="docs/img/task.png" alt="The pill showing two running tasks" width="420"><br>
@@ -30,54 +34,61 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 - **Camera and mic dots** that tell you when an app is using them.
 - **Gets out of the way of games and videos**, shrinking to a hairline when something is fullscreen.
 - **Stays out of screen share** if you want: one setting keeps the pill out of screenshots, recordings and calls.
+- **Keeps itself up to date.** When a new version is out, Hytte asks once and updates itself in place.
 
 ## Install
 
 You need **Windows 11 (22H2 or newer, 64-bit)**.
 
-1. Download the latest `hytte-<version>-x64.zip` from the [Releases](../../releases) page.
-2. Unzip it somewhere permanent, for example `C:\Tools\Hytte`.
-3. Run `hytte.exe`. The pill appears at the top of your screen and an icon appears in the system tray. Hytte also adds its folder to your `PATH`, so the `notch` command works in any terminal you open from now on.
-4. Right-click the tray icon and choose **Set up terminal integration**. This makes your terminal report long-running commands to the pill (see [Track every command automatically](#track-every-command-automatically)).
+1. Download `hytte.exe` (or the `hytte-<version>-x64.zip`) from the [latest release](https://github.com/PrathamPai-2007/hytte/releases/latest).
+2. Put it somewhere permanent, for example `C:\Tools\Hytte\hytte.exe`. Hytte updates itself in that folder, so pick one you can write to (your user folder is fine; `Program Files` isn't).
+3. Run `hytte.exe`. The pill appears at the top of your screen and the Hytte icon appears in the system tray. Hytte also adds its folder to your `PATH`, so the `hytte` command works in any terminal you open from now on.
+4. Click the tray icon and choose **Set up terminal integration**. This makes your terminal report long-running commands to the pill (see [Track every command automatically](#track-every-command-automatically)).
 
-To start Hytte automatically, right-click the tray icon and tick **Launch at startup**.
+To start Hytte automatically, click the tray icon and tick **Launch at startup**.
 
 <details>
 <summary>Build it yourself instead</summary>
 
-Install [Rust](https://rustup.rs), then:
+Install [Rust](https://rustup.rs) and the Visual Studio Build Tools ("Desktop development with C++"), then:
 
 ```powershell
-git clone <this repo>
+git clone https://github.com/PrathamPai-2007/hytte.git
 cd hytte
-cargo build --release --workspace
+cargo build --release
 ```
 
-`hytte.exe` and `notch.exe` end up in `target\release\`.
+`hytte.exe` ends up in `target\release\`. The [developer docs](docs/02-getting-started.md) cover the rest.
 </details>
 
-The zip contains two programs:
+### One program, two jobs
 
-| Program | What it is |
-|---|---|
-| `hytte.exe` | The app itself, the pill and the tray icon. |
-| `notch.exe` | A small command you use from terminals and scripts to talk to the pill. |
+Run `hytte` with nothing after it and you get the pill. Run it with a command and it's a terminal tool that talks to the pill:
+
+```powershell
+hytte                      # start the pill (does nothing if it's already running)
+hytte run -- npm test      # run a command and show it on the pill
+hytte help                 # every command
+hytte --version
+```
+
+Typing `hytte` in a terminal hands you your prompt straight back; the pill keeps running on its own.
 
 ## A five-minute tour
 
 **1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. Scroll over it to flip between panels, or click the dots along the bottom.
 
-**2. Track a slow command.** Put `notch run --` in front of anything:
+**2. Track a slow command.** Put `hytte run --` in front of anything:
 
 ```powershell
-notch run -- npm run build
+hytte run -- npm run build
 ```
 
-You'll see a spinner and a timer, then a green tick or a red cross. If the command prints its progress (like `45%`), the pill shows a filling bar instead of a spinner. On failure, the last error lines appear with a **Copy error** button. Your command runs exactly as before; if Hytte isn't running, nothing changes.
+You'll see a spinner and a timer, then a green tick or a red cross. If the command prints its progress (like `45%`), the pill shows a filling bar instead of a spinner. On failure, the last error lines appear with a **Copy error** button. Your command runs exactly as before and keeps its exit code; if the pill isn't running, `hytte run` starts it.
 
-Some tools only print progress in a real terminal, so ask for it: `notch run -- git clone --progress <url>`. To ignore percentages a command prints, use `notch run --no-progress -- <cmd>`.
+Some tools only print progress in a real terminal, so ask for it: `hytte run -- git clone --progress <url>`. To ignore percentages a command prints, use `hytte run --no-progress -- <cmd>`.
 
-**3. Track every slow command automatically.** Choose **Set up terminal integration** in the tray menu, or add one line to your shell yourself (see [below](#track-every-command-automatically)). Anything that runs longer than 3 seconds then shows up without the `notch run` prefix.
+**3. Track every slow command automatically.** Choose **Set up terminal integration** in the tray menu, or add one line to your shell yourself (see [below](#track-every-command-automatically)). Anything that runs longer than 3 seconds then shows up without the `hytte run` prefix.
 
 **4. Park a file.** Drag a file toward the top of the screen and drop it on the pill. Later, drag it back out of the pill into Explorer, an email or a chat window. Click a file on the shelf to see what you can do with it.
 
@@ -114,24 +125,37 @@ Some tools only print progress in a real terminal, so ask for it: `notch run -- 
 - **Kill** on a port asks once ("Kill?"); click again within 3 seconds to confirm.
 - Hytte never takes keyboard focus away from what you're doing.
 
-**Tray icon (right-click):** **Pause** hides the pill, **Launch at startup**, **Set up terminal integration**, **Open settings folder**, **Quit**.
+### The tray icon
+
+<img src="docs/img/tray.png" alt="The tray menu" width="260" align="right">
+
+The Hytte icon sits in the system tray. It's dark on a light taskbar and white on a dark one, and it switches by itself when you change themes. Click it (left or right) for the menu:
+
+- **Pause** hides the pill until you untick it.
+- **Launch at startup** starts Hytte when you sign in.
+- **Set up terminal integration** adds the shell hook (choose it again to remove it).
+- **Open settings folder** opens the folder with `config.toml` and the log.
+- **Check for updates…** looks for a newer version right now.
+- **Quit** closes Hytte.
+
+<br clear="right">
 
 ## Common setups
 
 ### Track every command automatically
 
-The easy way: right-click the tray icon and choose **Set up terminal integration**, or run `notch setup`. Then open a new terminal. This adds the line to your PowerShell (5.1 and 7) and Git Bash profiles. Choosing it again, or running `notch setup --undo`, removes the line.
+The easy way: click the tray icon and choose **Set up terminal integration**, or run `hytte setup`. Then open a new terminal. This adds the line to your PowerShell (5.1 and 7) and Git Bash profiles. Choosing it again, or running `hytte setup --undo`, removes the line.
 
 To do it by hand, or for zsh and Nushell, add the line for your shell, then open a new terminal:
 
 | Shell | Add this line | To this file |
 |---|---|---|
-| PowerShell | `notch init pwsh \| Out-String \| Invoke-Expression` | `$PROFILE` |
-| bash / Git Bash | `eval "$(notch init bash)"` | `~/.bashrc` |
-| zsh | `eval "$(notch init zsh)"` | `~/.zshrc` |
-| Nushell | run `notch init nu \| save -f ~/.config/nushell/notch.nu`, then add `source ~/.config/nushell/notch.nu` | `config.nu` |
+| PowerShell | `hytte init pwsh \| Out-String \| Invoke-Expression` | `$PROFILE` |
+| bash / Git Bash | `eval "$(hytte init bash)"` | `~/.bashrc` |
+| zsh | `eval "$(hytte init zsh)"` | `~/.zshrc` |
+| Nushell | run `hytte init nu \| save -f ~/.config/nushell/hytte.nu`, then add `source ~/.config/nushell/hytte.nu` | `config.nu` |
 
-Using Starship? In bash, put the line *before* the `starship init` line. In PowerShell, put it *after*. `notch setup` does this for you.
+Using Starship? In bash, put the line *before* the `starship init` line. In PowerShell, put it *after*. `hytte setup` does this for you.
 
 If Windows PowerShell says running scripts is disabled (or never loads the hook), Windows' default policy is blocking your profile. The tray setup offers to fix it; or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
@@ -140,27 +164,27 @@ Commands under 3 seconds never show up, and editors and pagers such as `vim`, `l
 ### Get pinged when Claude Code needs you
 
 ```powershell
-notch agent hooks claude
+hytte agent hooks claude
 ```
 
 This prints a block of settings. Paste it into your Claude Code `settings.json`. From then on, the pill turns amber whenever Claude is waiting for you.
 
-Want to see what Claude is doing as well? Use `notch agent hooks claude --tools` instead. It adds a hook that runs before every tool call, so each agent's row shows its current step ("Running: cargo build") and how long it has been going. It runs `notch` once per tool call, which is quick but not free, so it is optional.
+Want to see what Claude is doing as well? Use `hytte agent hooks claude --tools` instead. It adds a hook that runs before every tool call, so each agent's row shows its current step ("Running: cargo build") and how long it has been going. It runs `hytte` once per tool call, which is quick but not free, so it is optional.
 
 Want to answer Claude's permission prompts from the pill? Add `--approve` (it combines with `--tools`):
 
 ```powershell
-notch agent hooks claude --approve
+hytte agent hooks claude --approve
 ```
 
 When Claude wants to run something you haven't allowed yet, the pill opens with the command and **Allow** / **Deny**. If the command has several lines or is long, the pill says so first ("2 lines, see terminal"), so check the terminal before you allow it. Claude's own prompt in the terminal appears after the pill gives up (30 seconds), or straight away if you press **Dismiss**.
 
-For other tools, have them run `notch agent needs-input --name "MyTool" --message "waiting for you"` when they need you, and `notch agent done --name "MyTool"` when they finish.
+For other tools, have them run `hytte agent needs-input --name "MyTool" --message "waiting for you"` when they need you, and `hytte agent done --name "MyTool"` when they finish.
 
 ### Report progress from a script
 
 ```powershell
-notch set --progress 40 --label "Uploading" --task upload-1
+hytte set --progress 40 --label "Uploading" --task upload-1
 ```
 
 Use the same `--task` name each time to update one entry.
@@ -168,13 +192,38 @@ Use the same `--task` name each time to update one entry.
 ### Ports from the terminal
 
 ```powershell
-notch ports            # list dev servers
-notch kill :3000       # stop whatever is on port 3000 (asks first)
+hytte ports            # list dev servers
+hytte kill :3000       # stop whatever is on port 3000 (asks first)
 ```
+
+## Updating
+
+Hytte checks for a new version about a minute after it starts and then once a day. When one is out, it asks:
+
+<p align="center"><img src="docs/img/update.png" alt="Hytte asking to update" width="420"></p>
+
+Choose **Yes** and Hytte downloads the new `hytte.exe`, checks it's the version it expected, swaps it into the same folder and restarts. Your settings, shelf, autostart and terminal setup all stay as they are. Choose **No** and it won't ask about that version again, only about a newer one.
+
+- To check right now, use **Check for updates…** in the tray menu.
+- To turn the automatic check off, set `check_updates = false` in the settings. The tray item still works.
+- The check only talks to GitHub (`api.github.com` and `github.com`), using Windows' own `curl.exe`. Nothing about you or your machine is sent.
+- If Hytte lives in a folder you can't write to, it tells you and changes nothing. Download the new version from the [releases page](https://github.com/PrathamPai-2007/hytte/releases) and replace `hytte.exe` yourself.
+
+## Upgrading from an older version (with `notch.exe`)
+
+Before version 1.0, Hytte came as two programs: `hytte.exe` and a separate `notch.exe` for the terminal. Now `hytte.exe` does both, and the command is `hytte` instead of `notch` (`notch run -- …` becomes `hytte run -- …`). To upgrade:
+
+1. Quit the old Hytte from the tray.
+2. Replace the old `hytte.exe` with the new one and **delete `notch.exe`**.
+3. Start the new `hytte.exe`. It updates the terminal integration lines in your PowerShell and Git Bash profiles by itself; open a new terminal afterwards.
+4. If you use the Claude Code hooks, run `hytte agent hooks claude` again (with the same `--tools` / `--approve` flags as before) and paste the result over the old block in your Claude Code `settings.json`.
+5. Replace `notch` with `hytte` in any scripts of your own, and in a hand-written zsh or Nushell setup.
+
+Release numbers were reset at the same time: the old releases are now `v0.1.0` to `v0.4.0`, and this is `v1.0.0`.
 
 ## Settings
 
-Settings live in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**). The file is created on first run, and every setting is optional. Changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
+Settings live in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
 
 The ones people change most:
 
@@ -187,15 +236,17 @@ hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard us
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
 fullscreen_mode = "sentinel"   # "sentinel" = thin line, "hide" = disappear completely
-finish_peek_secs = 5            # how long the pill opens when a task finishes (0 = never)
+finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
 hide_from_capture = false      # true = keep the pill out of screenshots and screen share
+check_updates = true           # look for a new version once a day (needs a restart)
+add_to_path = true             # put the Hytte folder on PATH so `hytte` works in terminals
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]
 deny_list = []                 # apps that always hide Hytte, e.g. ["game.exe"]
 output_folder = "D:\\Hytte"    # where file actions save results (default: next to the file)
 
 [shell]
 threshold_ms = 3000            # how long a command must run before it shows
-ignore = ["vim", "nvim", "ssh", "less", "man", "top", "htop", "tmux", "fzf"]
+ignore = ["vim", "nvim", "vi", "nano", "less", "more", "man", "ssh", "top", "htop", "tmux", "fzf", "git-credential-manager"]
 
 [shelf]
 mode = "reference"             # "reference" points at your file, "copy" keeps its own copy
@@ -225,19 +276,22 @@ enabled = false                # off by default: event titles are private
 lead_min = 10                  # minutes before the start to show the heads-up
 ```
 
-**Keyboard.** Set `hotkey` (for example `"Win+Alt+N"`), restart or save the file, then press it: the pill opens and takes focus. **Left / Right** switch panels, **Tab** moves a highlight over the buttons, **Enter** presses one, **Esc** closes it and gives focus back to what you were doing.
+**Keyboard.** Set `hotkey` (for example `"Win+Alt+N"`) and save the file, then press it: the pill opens and takes focus. **Left / Right** switch panels, **Tab** moves a highlight over the buttons, **Enter** presses one, **Esc** closes it and gives focus back to what you were doing.
 
-The full list of settings is in [the configuration guide](docs/11-configuration-and-files.md).
+The full list of settings, including which ones need a restart, is in [the configuration guide](docs/11-configuration-and-files.md).
 
 ## Troubleshooting
 
 | Problem | Try this |
 |---|---|
-| "another instance is running" | Hytte is already running. Look for it in the tray. |
+| Nothing happens when I start Hytte | It may already be running: look for it in the tray. Only one copy runs at a time. |
 | I can't see the pill | Something may be fullscreen (look for a thin grey line), or Hytte is paused (tray menu). |
-| `notch: daemon not running` | Start `hytte.exe`. Your command still ran. |
-| `notch` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `notch setup` from the Hytte folder (`.\notch.exe setup`). |
+| `hytte: daemon not running` | Run `hytte` to start the pill. Your command still ran. |
+| `hytte` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `.\hytte.exe setup` from the Hytte folder. |
+| `notch` isn't recognised | The command is `hytte` now; see [Upgrading](#upgrading-from-an-older-version-with-notchexe). |
 | Shell commands don't show up | Use **Set up terminal integration** in the tray, then open a new terminal. Commands under 3 seconds are hidden on purpose. |
+| A console window flashes when Hytte starts | That happens on Windows 11 versions before 24H2. It closes by itself, and Hytte keeps running. |
+| "The update didn't install" | Usually the folder isn't writable. Move `hytte.exe` somewhere under your user folder, or update by hand from the releases page. |
 | A port isn't listed | Add it to `[ports] watch`, or set `show_all = true`. |
 | The hotkey does nothing | Another app may own that combination (see `hytte.log`), or it has no modifier. Try another, such as `"Ctrl+Alt+H"`. |
 | A "resource" warning I don't want | Press **Ignore** for that program, or raise `[hog] cpu_pct` / `mem_mb`, or set `[hog] enabled = false`. |
@@ -248,14 +302,14 @@ Logs are written to `%APPDATA%\Hytte\hytte.log`.
 
 ## Good to know
 
-- Only the **primary monitor** is supported for now.
+- Dropping files onto the pill works on the monitor the pill is on.
 - Hytte can't draw over games running in **exclusive fullscreen**; it backs off instead.
 - Images dragged straight from a **browser** aren't supported yet. Save the image first.
-- The binaries aren't signed yet, so Windows SmartScreen may warn you the first time.
+- `hytte.exe` isn't code-signed yet, so Windows SmartScreen may warn you the first time you run it.
 
 ## For developers
 
-Want to know how Hytte works or contribute? Start with the [developer documentation](docs/README.md). It walks through the architecture, every subsystem, and how to add features.
+Want to know how Hytte works or contribute? Start with the [developer documentation](docs/README.md). It walks through the architecture, every subsystem, how updates work, and how to add features.
 
 ## License
 

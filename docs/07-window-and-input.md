@@ -16,13 +16,13 @@ Created once in `run_windows`:
 | `WS_EX_NOACTIVATE` | Never becomes the active window. Together with `WM_MOUSEACTIVATE → MA_NOACTIVATE`, clicking the pill never steals keyboard focus. |
 | Class `HyttePill`, `CS_DBLCLKS` | The class name is also how fullscreen detection recognises Hytte's own window. |
 
-The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the primary monitor's top edge. With the `gpu` renderer the window *is* that canvas and a region limits what is visible and clickable; with `classic`, only the part that holds the pill (plus margins for the glow) is drawn and presented each frame. See [section 8](08-rendering-and-animation.md).
+The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the top edge of the monitor chosen by `[general] monitor` (below). With the `gpu` renderer the window *is* that canvas and a region limits what is visible and clickable; with `classic`, only the part that holds the pill (plus margins for the glow) is drawn and presented each frame. See [section 8](08-rendering-and-animation.md).
 
 The renderer is picked before the window exists, because the style depends on it: `run_windows` creates a `WS_EX_NOREDIRECTIONBITMAP` window and tries `Renderer::new_gpu`; if that fails (or `[general] renderer = "classic"`) it destroys that window and creates a layered one for `Renderer::new`. A static `LIVE` flag keeps the destroyed window's `WM_DESTROY` from ending the message loop before it starts.
 
 ### Monitor and DPI
 
-`Ui::refresh_monitor` reads the rectangle and effective DPI of the monitor the pill hangs from, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
+`Ui::refresh_monitor` reads the rectangle and effective DPI of the monitor the pill hangs from, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`app.manifest`, embedded through `hytte.rc` by `build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
 
 `[general] monitor` chooses the monitor (`Ui::wanted_monitor`):
 
