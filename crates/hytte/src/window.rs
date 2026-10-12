@@ -1166,6 +1166,9 @@ mod win {
                 lpfnWndProc: Some(wndproc),
                 hInstance: hinstance,
                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+                // Icon 1 in hytte.rc: shown for the window in Alt+Tab-like shell surfaces.
+                hIcon: LoadIconW(Some(hinstance), windows::core::PCWSTR(1 as _))
+                    .unwrap_or_default(),
                 lpszClassName: cls,
                 ..Default::default()
             };
@@ -1990,10 +1993,12 @@ mod win {
                     ui.layout();
                     ui.kick();
                 });
+                crate::tray::Tray::new(hwnd).refresh();
             }
             x if x == WM_TRAY => {
                 let code = (lparam.0 & 0xFFFF) as u32;
-                if code == WM_RBUTTONUP {
+                // Left or right click: the same menu (there is no window to open).
+                if code == WM_RBUTTONUP || code == WM_LBUTTONUP {
                     let (paused, auto) = with_ui(|ui| (ui.paused, ui.cfg.general.autostart))
                         .unwrap_or((false, false));
                     let terminal = crate::setup::is_set_up();

@@ -1,4 +1,26 @@
-//! Tray icon: Quit / Settings / Pause.
+//! Tray icon and its menu. The glyph follows the taskbar's light/dark setting.
+
+/// Windows' "system" (taskbar) light mode, which is separate from the apps' light mode.
+#[cfg(windows)]
+fn taskbar_light() -> bool {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut v = 0u32;
+    let mut n = std::mem::size_of::<u32>() as u32;
+    unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"),
+            w!("SystemUsesLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut v as *mut _ as *mut _),
+            Some(&mut n),
+        )
+        .is_ok()
+            && v == 1
+    }
+}
 
 #[cfg(windows)]
 pub struct Tray {
@@ -13,25 +35,57 @@ impl Tray {
     }
 
     pub fn add(&mut self) {
-        use windows::Win32::UI::Shell::{
-            Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NOTIFYICONDATAW,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION};
+        use windows::Win32::UI::Shell::{Shell_NotifyIconW, NIM_ADD};
         unsafe {
-            let mut nid = NOTIFYICONDATAW::default();
-            nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-            nid.hWnd = self.hwnd;
-            nid.uID = 1;
-            nid.uFlags = NIF_MESSAGE | NIF_TIP | NIF_ICON;
-            nid.uCallbackMessage = super::window::WM_TRAY;
-            nid.hIcon = LoadIconW(None, IDI_APPLICATION).unwrap_or_default();
-            let tip: Vec<u16> = "Hytte\0".encode_utf16().collect();
-            let n = tip.len().min(127);
-            nid.szTip[..n].copy_from_slice(&tip[..n]);
-            if Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
+            if Shell_NotifyIconW(NIM_ADD, &self.data()).as_bool() {
                 self.added = true;
             }
         }
+    }
+
+    /// Swaps the glyph after the taskbar theme changed (`WM_SETTINGCHANGE`).
+    pub fn refresh(&self) {
+        use windows::Win32::UI::Shell::{Shell_NotifyIconW, NIM_MODIFY};
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data());
+        }
+    }
+
+    /// Icon, tooltip and callback: everything `add` and `refresh` send.
+    fn data(&self) -> windows::Win32::UI::Shell::NOTIFYICONDATAW {
+        use windows::core::PCWSTR;
+        use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows::Win32::UI::Shell::{NIF_ICON, NIF_MESSAGE, NIF_TIP, NOTIFYICONDATAW};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, LoadIconW, LoadImageW, HICON, IDI_APPLICATION, IMAGE_ICON, LR_SHARED,
+            SM_CXSMICON,
+        };
+        let mut nid = NOTIFYICONDATAW::default();
+        nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        nid.hWnd = self.hwnd;
+        nid.uID = 1;
+        nid.uFlags = NIF_MESSAGE | NIF_TIP | NIF_ICON;
+        nid.uCallbackMessage = super::window::WM_TRAY;
+        // Resources from hytte.rc: 2 = dark glyph (light taskbar), 3 = white glyph (dark taskbar).
+        // Loaded at the small-icon size so the 16/20/24 px frame is used, not a scaled one; shared,
+        // so refreshing on every WM_SETTINGCHANGE does not leak handles.
+        let id = if taskbar_light() { 2usize } else { 3 };
+        unsafe {
+            let s = GetSystemMetrics(SM_CXSMICON);
+            nid.hIcon = GetModuleHandleW(None)
+                .ok()
+                .and_then(|m| {
+                    LoadImageW(Some(m.into()), PCWSTR(id as _), IMAGE_ICON, s, s, LR_SHARED).ok()
+                })
+                .map(|h| HICON(h.0))
+                .unwrap_or_else(|| LoadIconW(None, IDI_APPLICATION).unwrap_or_default());
+        }
+        let tip: Vec<u16> = concat!("Hytte ", env!("CARGO_PKG_VERSION"), "\0")
+            .encode_utf16()
+            .collect();
+        let n = tip.len().min(127);
+        nid.szTip[..n].copy_from_slice(&tip[..n]);
+        nid
     }
 
     pub fn remove(&mut self) {
@@ -84,6 +138,7 @@ impl Tray {
         Self
     }
     pub fn add(&mut self) {}
+    pub fn refresh(&self) {}
     pub fn remove(&mut self) {}
     pub fn popup(&self, _paused: bool, _autostart: bool, _terminal: bool) {}
 }
