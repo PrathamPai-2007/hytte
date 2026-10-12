@@ -27,4 +27,4 @@ image = { workspace = true }
 miniz_oxide = "0.8"
 
 [build-dependencies]
-embed-manifest = "1"
+embed-resource = "3"

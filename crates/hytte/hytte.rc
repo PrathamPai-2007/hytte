@@ -1,0 +1,34 @@
+// Win32 resources for hytte.exe, compiled by build.rs (embed-resource).
+// HYTTE_VER_COMMA (1,3,0,0) and HYTTE_VER_STR ("1.3.0") come from the crate version.
+#include <winver.h>
+
+1 ICON "assets/hytte.ico"
+2 ICON "assets/tray-light.ico"
+3 ICON "assets/tray-dark.ico"
+
+1 24 "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION HYTTE_VER_COMMA
+PRODUCTVERSION HYTTE_VER_COMMA
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Hytte"
+      VALUE "FileDescription", "Hytte - dynamic notch for Windows 11"
+      VALUE "FileVersion", HYTTE_VER_STR
+      VALUE "InternalName", "hytte"
+      VALUE "OriginalFilename", "hytte.exe"
+      VALUE "ProductName", "Hytte"
+      VALUE "ProductVersion", HYTTE_VER_STR
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
