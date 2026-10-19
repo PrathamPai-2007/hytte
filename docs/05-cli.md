@@ -35,7 +35,7 @@ Because the task's `pid` is the `hytte run` process, closing the terminal turns 
 
 Sends one `Progress` message with `progress = N` (0–100). Use the same `--task` on every call to update one entry; without it, every call creates a new task. No `pid` is sent, so the 30 s silence rule applies.
 
-### `hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> [--name N] [--pid P] [--message M] [--detail D]` (`cli/agent.rs`)
+### `hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> [--name N] [--pid P] [--message M] [--detail D] [--ack]` (`cli/agent.rs`)
 
 | Subcommand | Event |
 |---|---|
@@ -48,25 +48,16 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 - `--name` defaults to `Agent` and becomes the label.
 - `--pid` defaults to `hytte_proto::sys::owner_pid(own pid)`. That climbs the process tree, skipping up to six throw-away shells (`cmd`, `sh`, `bash`, `zsh`, `fish`, `pwsh`, `powershell`, `nu`, `conhost`), to find the long-lived agent or terminal behind a hook. Agent hooks usually run as `agent → shell → hytte`, so the shell's parent is what you want.
 - The task id is `agent:<name>:<pid>`, so all of one agent's events update a single row.
-- `needs-input` without `--message` reads **stdin** when it isn't a terminal (up to 64 KiB), parses it as JSON, and uses its `message` field (first 300 characters). That is exactly the payload Claude Code's `Notification` hook pipes in.
+- `needs-input` without `--message` reads **stdin** when it isn't a terminal (up to 64 KiB), parses it as JSON, and uses its `message` field (first 300 characters). That is the payload Claude Code's and Gemini CLI's `Notification` hooks pipe in.
+- `--ack` prints `{}` once the subcommand is done. Gemini CLI, Antigravity and Cursor read a hook's stdout as JSON, so their hooks pass it; Claude Code and Codex don't need it.
 
 `hytte agent tool` reports what the agent is doing *right now*, as a `Progress` update whose `line` is a short phrase. With `--detail "text"` the text is used as is; with no `--detail` it reads a Claude Code `PreToolUse` payload (`{"tool_name": ..., "tool_input": ...}`) from stdin and `describe_tool` turns it into a phrase: `Editing render.rs`, `Reading lib.rs`, `Running: cargo build`, `Searching: fn main`, `Subagent: ...`, `Using create_issue` (MCP tools), capped at 120 characters. If neither is available it sends nothing. Each agent keeps its own row (the task id is `agent:<name>:<pid>`), so two agents show two rows with their own step and elapsed time.
 
-`hytte agent hooks claude` prints a ready-made Claude Code hooks block:
-
-| Claude Code hook | Runs |
-|---|---|
-| `UserPromptSubmit` | `hytte agent resume --name "Claude Code"` |
-| `Notification` | `hytte agent needs-input --name "Claude Code"` |
-| `Stop` | `hytte agent done --name "Claude Code"` |
-
-`hytte agent hooks claude --tools` prints the same block plus a `PreToolUse` hook (`hytte agent tool --name "Claude Code"`, matcher `*`) for the live view. It is opt-in because it runs `hytte` before every tool call; the CLI starts in a few milliseconds, but it is still a process per call.
-
-`hytte agent hooks claude --approve` adds a `PermissionRequest` hook (`hytte agent ask --name "Claude Code"`, matcher `*`). The flags combine: `--tools --approve` prints both.
+`hytte agent hooks claude` prints the Claude Code hooks block that `hytte setup agents` installs (`agents::claude_hooks`), with this exe's full path, for people who'd rather paste it in themselves. The pre-1.1 `--tools` and `--approve` flags are still accepted and do nothing: both hooks are always in now.
 
 ### `hytte agent ask [--name N] [--pid P]` (`cli/agent.rs`)
 
-`hytte agent ask` answers a Claude Code permission prompt from the pill.
+`hytte agent ask` answers an agent's permission prompt from the pill. Claude Code and Codex call it from their `PermissionRequest` hook; the OpenCode plugin calls it from `permission.ask` with the same payload shape.
 
 1. It reads the `PermissionRequest` payload from stdin. `ask_text` turns the payload into one line: the `describe_tool` phrase, or `Using <tool>`.
 2. If a Bash command has more than one line, the line starts with `(N lines, see terminal)`. If it is longer than 60 characters, the line starts with `(long, see terminal)`. The chip clips long text at the end, so the warning goes first, where it is always visible.
@@ -74,10 +65,35 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 4. On **Allow** or **Deny** it prints the hook decision:
 
 ```json
-{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","message":"Allowed from Hytte"}}}
+{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}
 ```
 
-With no answer (no daemon, timeout, chip dismissed) it prints nothing and exits 0. Claude Code then shows its normal prompt in the terminal. That prompt appears only after the hook returns, so dismissing the chip is the quick way back to the terminal.
+   A deny adds `"message": "Denied from Hytte"`, which the agent reads as the reason (it is only read with a deny).
+
+With no answer it prints nothing and exits 0, and the agent shows its normal prompt in the terminal. That prompt appears only after the hook returns, so the daemon hangs up as soon as it knows there will be no answer: the chip was dismissed, a newer ask replaced it, Hytte is paused or in game mode (the ask is dropped on arrival, and a pending one when a game starts), or `ASK_WAIT_SECS` ran out. The hooks are installed with a `timeout` above that wait, so the agent never kills the hook first.
+
+### `hytte setup agents [--undo]` (`agents.rs`)
+
+Connects the AI coding agents installed for this user; the tray's **Connect AI agents** calls the same `agents::connect`. Each agent is found by its config folder and gets Hytte's hooks merged into its own file:
+
+| Agent | File | Hooks → `hytte agent …` |
+|---|---|---|
+| Claude Code | `~/.claude/settings.json` (or `%CLAUDE_CONFIG_DIR%`) | `UserPromptSubmit` → `resume`, `PreToolUse` → `tool`, `PermissionRequest` → `ask`, `Notification` (`permission_prompt\|elicitation_dialog`) → `needs-input`, `Stop` → `done` |
+| Codex | `~/.codex/hooks.json` (or `%CODEX_HOME%`) | the same, without `Notification` (Codex has none); the user trusts them once with `/hooks` |
+| OpenCode | `~/.config/opencode/plugins/hytte.js` | a plugin (`agent_plugin.js`, embedded): `session.status` busy → `resume`, `permission.asked` → `needs-input`, `permission.replied` → `resume`, `session.idle` → `done` (sub-agent sessions skipped), and `permission.ask` → `ask` |
+| Gemini CLI | `~/.gemini/settings.json` | `BeforeAgent` → `resume`, `Notification` → `needs-input`, `AfterAgent` → `done`, all with `--ack` |
+| Antigravity | `~/.gemini/config/hooks.json`, shared by `agy`, the IDE and Antigravity 2.0 | a named hook `"hytte"`: `PreInvocation` → `resume`, `Stop` → `done`, with `--ack` |
+| Cursor | `~/.cursor/hooks.json` | `postToolUse` → `resume`, `stop` → `done`, with `--ack`. Only informational hooks: Cursor blocks the action when a gating hook's reply doesn't match its schema. |
+
+How the merge behaves:
+
+- **Ours vs. theirs.** A handler is Hytte's when its command mentions `hytte` and runs ` agent ` (`agents::ours`), which also catches a block pasted by hand from an older version. Those are removed and the current set added; everything else in the file stays where it was (`serde_json` is built with `preserve_order`, and `hooks` is edited in place). A matcher group or event left empty is dropped. A second run changes nothing.
+- **Safety.** A file that isn't plain JSON (comments, say) is left alone and reported. The first write to a file the user already had saves it as `<file>.hytte-backup`. Writes go through `setup::write_file` (temp file and rename).
+- **Command line.** `exe_cmd` writes this exe's full path with forward slashes, which cmd, PowerShell and Git Bash all accept, and quotes it only when it contains a space. No `PATH` lookup is involved.
+- **`--undo`** removes Hytte's handlers, and deletes the files Hytte created that hold nothing else (the plugin, a bare Codex, Cursor or Antigravity file).
+- **Moved exe.** At daemon startup, `agents::repair` rewrites the entries only for files whose Hytte entries all point at an exe that no longer exists. Entries that still work are never touched, so starting a second copy (a dev build) doesn't take them over.
+
+The daemon side: an agent's task row is `agent:<name>:<pid>`, where `pid` is the agent process (`owner_pid`), so liveness and click-to-focus follow the agent. A shell command whose name is one of `ui_state::AGENT_CLIS` (`claude`, `codex`, `opencode`, `gemini`, `agy`, `cursor-agent`) is not shown as a terminal task, since the agent reports itself. A `NeedsInput` and a pending ask are forced visible over a maximised window or fullscreen video (thin-line mode), but not in game mode.
 
 ### `hytte ports [--all]` and `hytte kill :PORT [--force]` (`cli/portscmd.rs`)
 
@@ -100,7 +116,7 @@ The daemon also runs step 1 at every startup unless `[general] add_to_path = fal
 
 #### Upgrading from `notch`
 
-Before 1.0 the CLI was a separate `notch.exe`, and profile blocks ran `notch init ...`. After an upgrade that line would quietly stop working, because its `Get-Command notch` / `command -v notch` guard no longer matches. So `setup::migrate_block` recognises a Hytte block containing `notch init` and replaces it with the current line, keeping the block's position (bash stays above Starship). The daemon runs this for every detected profile at startup (`migrate_profiles`), and `hytte setup` does it too. Claude Code hooks live in the user's own `settings.json`, which Hytte doesn't edit; users re-run `hytte agent hooks claude` once (the README says so).
+Before 1.0 the CLI was a separate `notch.exe`, and profile blocks ran `notch init ...`. After an upgrade that line would quietly stop working, because its `Get-Command notch` / `command -v notch` guard no longer matches. So `setup::migrate_block` recognises a Hytte block containing `notch init` and replaces it with the current line, keeping the block's position (bash stays above Starship). The daemon runs this for every detected profile at startup (`migrate_profiles`), and `hytte setup` does it too. Claude Code hooks pasted in by hand before 1.1 call bare `hytte`, which still works; **Connect AI agents** replaces them with the full-path set.
 
 ### `hytte init <pwsh|bash|zsh|nu>` and `hytte hook <start|end> ...` (`cli/hook.rs`)
 

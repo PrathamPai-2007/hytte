@@ -58,7 +58,7 @@ Right after each `DwmFlush`, the ticker samples DWM's composition timing (`DwmGe
 2. **Layout.** `layout()` refreshes every spring's target from the model ([section 6](06-ui-model.md)).
 3. **Step.** `anim.step(dt)` advances all springs and reports whether anything is still moving.
 4. **Visibility.** Show the window if it should become visible. Hide it once the `vis` fade-out has reached ~0.
-5. **Crop.** `Renderer::plan(w, h, armed)` sizes the region to draw: the pill plus 28 px of margin for the glow on the sides and bottom, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels. A `Crop` also carries `clip`, the box that holds the pill and glow: the classic renderer's crop *is* that box, while the gpu renderer's crop is the whole canvas and `clip` becomes the window region.
+5. **Crop.** `Renderer::plan(w, h, armed, room, glow)` sizes the region to draw: the pill plus 28 px of margin for the glow on the sides and bottom (4 px when the scene has no glow, so the thin line over a fullscreen video takes almost no clicks), plus `room` for a bubble, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels. A `Crop` also carries `clip`, the box that holds the pill and glow: the classic renderer's crop *is* that box, while the gpu renderer's crop is the whole canvas and `clip` becomes the window region.
 6. **Position.** The crop is centred horizontally on the monitor at its top edge (`origin_for`).
 7. **Draw.** `Renderer::draw(frame, crop, &mut hits)` paints the scene and fills the hit list.
 8. **Present.** `Renderer::present` shows the frame with the whole-window opacity (from the `vis` spring): `UpdateLayeredWindow` (classic), or a window-region update plus `Present` (gpu). The caller also passes the box the pill is heading towards, which the gpu renderer uses to avoid chasing every frame with the region.
@@ -82,7 +82,7 @@ Order of painting (`Renderer::scene`):
    - The `Sentinel` scene is just a thin rounded bar and stops here.
 2. **Timer fuse.** While a timer runs, a glowing line burns down along the pill edge (`timer_filament`).
 3. **Outgoing content.** If the scene just changed, the **previous** scene's content is drawn with opacity `out`, drifting up a few pixels and clipped to the current pill rectangle. Its hit regions are thrown away and it gets no hover state, so you can't click something that is fading out.
-4. **Current content.** The current scene, with opacity `content` × a height factor (content fades away as the pill gets very short), sliding down from 6 px above into place. `Renderer::content` dispatches to one function per scene: `idle`, `compact_task`, `compact_media`, `exp_tasks`, `exp_media`, `exp_ports`, `exp_shelf`, `exp_home`, `exp_drop`, `exp_chip`, `exp_timer`, `exp_timer_done`, plus the tab dots.
+4. **Current content.** The current scene, with opacity `content` × a height factor (content fades away as the pill gets very short), sliding down from 6 px above into place. `Renderer::content` dispatches to one function per scene: `idle`, `compact_task`, `compact_media`, `exp_tasks` (which draws the `servers` section under the task rows), `exp_media`, `exp_shelf`, `exp_home`, `exp_power`, `exp_drop`, `exp_chip`, `exp_timer`, `exp_timer_done`, `exp_charge`, plus the tab dots.
 5. **Overlays.** The privacy dots and the red mic lock, where the scene doesn't already show that information.
 
 ### Drawing helpers
@@ -101,7 +101,7 @@ One `ID2D1SolidColorBrush` is reused for every solid colour (`solid` just change
 ### Theme, icons and the shared element slide
 
 - **Theme.** `Frame::light` (from `[general] theme`: `dark`, `light`, or `auto`, which reads the Windows app mode and is re-read on `WM_SETTINGCHANGE`) switches the palette. Text and lines use `Renderer::fg()` (white, or near-black on the light pill) and `ink()` (the opposite, for things drawn on a `fg` shape), and `body_colors()` gives the pill gradient. The body brush is cached per (acrylic, light).
-- **Icons.** Media transport and the microphone are glyphs from Segoe Fluent Icons (`Renderer::glyph`, using the `icon` text format), so they are sharp at every DPI. The rest of the icons (spinner, bell, lock, tick, cross) are drawn as shapes because they animate.
+- **Icons.** The quick-control tiles (mic, volume, keep awake, timer), the volume bar, the bell and the album-art placeholder are glyphs from Segoe Fluent Icons (`Renderer::glyph` / `glyph_l`), so they are sharp at every DPI. The media transport (`play_icon`, `pause_icon`, `skip_icon`), the spinner, lock, tick, cross and battery are drawn as shapes. The finished-timer bell is rotated (`rotate`) so it can swing.
 - **Shared elements.** Between a compact scene and its expanded twin (`CompactMedia` ↔ `ExpMedia`, `CompactTask` ↔ `ExpTasks`), the album art and the primary task's icon and label slide from one place to the other instead of cross-fading in two. `Renderer::morph_for` takes the progress from the pill's own height spring, so the elements move exactly as fast as the pill grows, overshoot included. `hero(compact, exp, natural)` returns where an element goes: while morphing it is the interpolated rect, drawn fully opaque and without the scenes' own slide offsets (otherwise the outgoing and incoming copies would sit a few pixels apart and the fades would dim it); otherwise `natural`. Both scenes must use identical end points, which is why `label_ends` and `exp_label_w` are shared.
 - **Press, page and bubble.** A button under the pointer shrinks 6 % and brightens while the left button is down (`Frame::pressed`). A paged change slides content in from the side (see [section 6](06-ui-model.md#paging-squash-and-other-motion-state)). The bubble ([section 6](06-ui-model.md#bubbles)) is drawn first, from behind the pill, with its own body, rim and content.
 
@@ -158,9 +158,10 @@ Ambient animation is the only thing that keeps frames running when no spring is 
 | An expanded scene shows privacy dots | They breathe only when expanded; collapsed, they are static. |
 | Something is dragged over the pill | The drop zone animates. |
 | The plug-in or unplug card is showing (3 s) | The battery fills up (or drains, amber, red at 20 % or less); it expires on its own. |
+| The timer-finished card is showing (at most 2 min) | The bell swings and sends out ripples while the alarm rings. |
+| Media is playing **and** a media scene is shown | The equaliser and timeline. |
 
 The bubble spring moves for a fraction of a second when it opens or closes, like any other spring, and then rests: the timer bubble's clock is redrawn by the existing 1 Hz timer redraw, not by an animation.
-| Media is playing **and** a media scene is shown | The equaliser and timeline. |
 
 Never in the `Sentinel` (fullscreen) scene, never while hidden, and never with reduced motion.
 

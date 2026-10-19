@@ -45,7 +45,7 @@ Two rules hold everywhere:
 3. `config::load()` reads `config.toml`, creating it with defaults if it is missing. Then `ensure_autostart` writes or removes the `Run` registry value, and `ensure_start_menu` (on its own thread) refreshes the Start Menu shortcut.
 4. Two channels for the task pipeline are created: `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI).
 5. A `UiEvent` channel is created. Then `pipe_server::spawn_listener` and `tasks::spawn_registry` start. The listener gets the task channel and a `UiEvent` sender, which it needs for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer).
-6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. `update::spawn_checker` starts the daily update check (unless `check_updates = false`). A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), then `setup::migrate_profiles`, which rewrites shell hooks that still call the old `notch` command.
+6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. `update::spawn_checker` starts the daily update check (unless `check_updates = false`). A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), then `setup::migrate_profiles`, which rewrites shell hooks that still call the old `notch` command, then `agents::repair`, which re-points agent hooks whose exe has moved.
 7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
 8. `window::run` takes over the main thread and never returns until Quit.
 
@@ -57,7 +57,7 @@ On Quit (tray menu, or `window::quit()` after an update), the window is destroye
 2. Calls `OleInitialize` (the UI thread is a COM single-threaded apartment, which OLE drag and drop requires).
 3. Registers the window class, then creates the topmost, tool, no-activate popup window together with its renderer: a `WS_EX_NOREDIRECTIONBITMAP` window and the GPU renderer, or (if that fails or `[general] renderer = "classic"`) a layered window and the classic one.
 4. Builds the `Ui` struct: model, animation state, config, shelf loaded from disk, saved timer restored. It then sizes everything for the monitor's DPI and draws the first frame.
-5. Registers the OLE drop target, power-setting notifications (`WM_POWERBROADCAST`), the `TaskbarCreated` message (to re-add the tray icon if Explorer restarts), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
+5. Registers the OLE drop target, power-setting notifications (`WM_POWERBROADCAST`), the `TaskbarCreated` message (to re-add the tray icon and re-check fullscreen if Explorer restarts), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
 6. Adds the tray icon.
 7. Starts the **bridge** thread and the **ticker** (frame clock) thread.
 8. Runs the standard `GetMessageW` / `DispatchMessageW` loop.
@@ -139,7 +139,7 @@ When you add code that calls into COM or shows UI from the UI thread, ask whethe
 | Thread | Apartment | Why |
 |---|---|---|
 | UI thread | STA, via `OleInitialize` | OLE drag and drop, the drop target, the virtual desktop manager. |
-| Mic watcher | MTA | Audio endpoint APIs; the device-change callback arrives on a system thread. |
+| Mic watcher | MTA | Audio endpoint APIs (microphones and the default speaker); the device-change callback arrives on a system thread. |
 | Terminal tabs | MTA | UI Automation calls into other processes. |
 | Start Menu shortcut | STA, for its short life | `IShellLinkW`. |
 
@@ -147,7 +147,7 @@ When you add code that calls into COM or shows UI from the UI thread, ask whethe
 
 Hytte is ambient. A failure in one feature must never take down the pill or block the user:
 
-- OS calls that may fail return `Option` / `Result` and are mostly ignored with `let _ =` or a fallback value (for example, no battery → the battery row disappears).
+- OS calls that may fail return `Option` / `Result` and are mostly ignored with `let _ =` or a fallback value (for example, no battery → there is no Power pane).
 - Workers retry or fall back to a slow safety poll instead of exiting.
 - The CLI never fails a shell prompt: if the daemon is down, messages are dropped silently (shell hooks) or with a one-line note (`hytte set`, `hytte agent`), and `hytte run` still runs the command.
 - Panics in a worker thread end only that thread; the panic message goes to `hytte.log`.

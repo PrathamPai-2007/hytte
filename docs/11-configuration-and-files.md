@@ -12,10 +12,11 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 | `%APPDATA%\Hytte\timer.json` | `timer::save` | The running timer, so it survives a restart. Deleted when the timer stops or finishes. |
 | `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics; a line whenever the fullscreen decision changes; hotkey registration failures; GPU renderer lost or unavailable; startup failures (window, renderer, Start Menu shortcut, `PATH`); migrated shell profiles; update checks, prompts and installs; frame telemetry when `HYTTE_PERF=1`. |
 | `%APPDATA%\Hytte\update-skip` | `update.rs` | The release tag the user answered **No** to, so the daily check doesn't ask about it again. A newer release is still offered. |
-| `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. |
+| `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. With autostart off, a copy removes the value only when it points at that copy or at an exe that no longer exists, so a second copy (a dev build) can't switch off the installed one. |
 | `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `hytte` resolves in new terminals (`[general] add_to_path`). |
 | `%APPDATA%\Hytte\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
 | PowerShell profiles, `~/.bashrc` | `setup::setup_shells` | Only when the user chooses **Set up terminal integration** or runs `hytte setup`: a block between `# >>> hytte >>>` and `# <<< hytte <<<`. A block from before 1.0 (which ran `notch`) is rewritten at startup by `setup::migrate_profiles`. |
+| Agent settings: `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.config/opencode/plugins/hytte.js`, `~/.gemini/settings.json`, `~/.gemini/config/hooks.json`, `~/.cursor/hooks.json` | `agents::connect` | Only when the user chooses **Connect AI agents** or runs `hytte setup agents`: Hytte's hooks merged in, the rest kept; the user's original saved once as `<file>.hytte-backup`. At startup `agents::repair` re-points them if Hytte moved. See [section 5](05-cli.md#hytte-setup-agents---undo-agentsrs). |
 | `hytte.exe.new`, `hytte.exe.old` next to `hytte.exe` | `update.rs` | Only during an update: the download, and the previous exe moved aside. `.old` is deleted at the next start. |
 | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Hytte.lnk` | `config::ensure_start_menu` | A Start Menu shortcut so Windows Search finds Hytte. Rewritten on every launch, so it heals itself if the exe moves. |
 
@@ -100,7 +101,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `watch` | `3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888` | Ports shown in the Ports panel. |
+| `watch` | `3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888` | Ports shown under **SERVERS** in the Tasks panel. |
 | `show_all` | `false` | Show every non-system listener instead. |
 | `poll_secs` | `5` | Rescan interval (minimum 1). Opening the pill always rescans immediately. |
 
@@ -138,14 +139,14 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `sound` | `true` | Play the chime when a timer ends. |
+| `sound` | `true` | Ring when a timer ends, until **Stop alarm** (2 minutes at most). |
 | `break_min` | `5` | Short break length after a Focus session. |
 | `long_break_min` | `15` | Long break length. |
 | `rounds` | `4` | Every `rounds`-th Focus session is followed by a long break. A Focus or Break timer shows this many round dots. |
 
 ## The timer's persistence
 
-`timer.rs` stores the end time as **wall-clock** milliseconds since the Unix epoch (`ends_ms`), or the remaining milliseconds while paused (`paused_ms`). A restart or a sleep doesn't lose time, and a timer that ended while the PC was off fires shortly after Hytte starts. The chime is a tiny WAV synthesised in code (`chime_wav`: two decaying sine notes) and played asynchronously from memory, so there is no audio file to ship.
+`timer.rs` stores the end time as **wall-clock** milliseconds since the Unix epoch (`ends_ms`), or the remaining milliseconds while paused (`paused_ms`). A restart or a sleep doesn't lose time, and a timer that ended while the PC was off fires shortly after Hytte starts. The alarm is a tiny WAV synthesised in code (`chime_wav`: three decaying bell notes and a pause) and looped asynchronously from memory (`PlaySound` with `SND_LOOP`), so there is no audio file to ship. `timer::ring(false)` stops it. The end times on the timer and the finished card ("ends 14:35", "ended 2:35 PM") come from `timer::clock`, which converts the wall-clock milliseconds to local time and formats them with `GetTimeFormatEx`, so they follow the user's 12 / 24-hour setting.
 
 ## Environment variables
 

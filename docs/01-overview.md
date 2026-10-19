@@ -38,7 +38,7 @@ These words are used consistently in the code and in these docs.
 | **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window itself never resizes. |
 | **Scene** | What the pill is currently showing, for example `Idle`, `CompactTask` or `ExpShelf`. Exactly one scene is active at a time. See `ui_state::Scene`. |
 | **Compact / expanded** | Compact scenes are the small, collapsed states (`Idle`, `CompactTask`, `CompactMedia`). Expanded scenes (`Exp*`) are shown on hover or when the pill "peeks". |
-| **Panel** | A page of the expanded pill: Tasks, Shelf, Media, Ports, Timer, Home. Panels are reached with the tab dots or the mouse wheel. Each panel maps to one expanded scene. |
+| **Panel** | A page of the expanded pill, left to right: Shelf, Media, Home (the quick controls, the default), Tasks (with the listening dev servers under them), Timer, Power. Panels are reached with the tab dots or the mouse wheel. Each panel maps to one expanded scene. |
 | **Peek** | The pill opening on its own for a few seconds (an agent needs input, a file landed on the shelf). |
 | **Sentinel** | The 3 px grey bar shown instead of the pill while a fullscreen app is in front. |
 | **Task** | Something being tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` progress report. |
@@ -58,7 +58,7 @@ crates/
   proto/                   hytte-proto: code shared by daemon and CLI
     src/lib.rs             HytteMessage (the pipe protocol), TaskEvent, validation, Ask / Answer
     src/ports.rs           listening-port discovery, filtering and kill, DEFAULT_WATCH
-    src/sys.rs             process-tree helpers (parent pid, "owner" pid)
+    src/sys.rs             process-tree helpers (parent pid, ancestor chains, "owner" pid)
   hytte/                   the package that builds hytte.exe
     Cargo.toml
     build.rs               compiles hytte.rc into the exe (fails the build if it can't)
@@ -77,7 +77,7 @@ crates/
     src/ports.rs           port-watcher worker
     src/media.rs           media session watcher + album art
     src/privacy.rs         camera / microphone in-use watcher
-    src/mic.rs             global microphone mute
+    src/mic.rs             global microphone mute, speaker volume and mute
     src/hog.rs             resource-hog alert (CPU / memory sampling and the "how long" rule)
     src/downloads.rs       browser downloads as tasks (folder change notifications)
     src/calendar.rs        heads-up before the next calendar event
@@ -87,11 +87,13 @@ crates/
     src/drop.rs            Drop Vault job queue and worker pool
     src/transforms.rs      Drop Vault actions (image clean, JSON/YAML, OCR, ...)
     src/convert.rs         "Compress under 5 MB" and the hand-written PDF writer
-    src/timer.rs           Timer / Focus / Break state, persistence, chime
+    src/timer.rs           Timer / Focus / Break state, persistence, alarm, local clock
     src/fullscreen.rs      fullscreen suppression decision
     src/tray.rs            tray icon (follows the taskbar theme) and its menu
     src/config.rs          config.toml, autostart, Start Menu shortcut
     src/setup.rs           PATH and shell-profile setup, migration of old notch hooks
+    src/agents.rs          hytte setup agents: hooks for Claude Code, Codex, Gemini, Antigravity, Cursor
+    src/agent_plugin.js    the OpenCode plugin agents.rs writes (embedded)
     src/update.rs          update check against GitHub Releases and in-place self-replace
     src/logging.rs         log file and panic hook
     src/perf.rs            optional frame-time telemetry (HYTTE_PERF=1)

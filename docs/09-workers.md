@@ -10,7 +10,7 @@ Each worker watches one part of the system and reports changes to the UI thread 
 |---|---|---|---|
 | Media | `media.rs` | WinRT change events + 30 s safety timeout | `Media`, `MediaArt` |
 | Privacy | `privacy.rs` | Registry change notifications + 10 s safety timeout | `Privacy` |
-| Microphone | `mic.rs` | Endpoint-volume callbacks and device notifications (60 s safety timeout) | `MicMute` |
+| Microphone and speaker | `mic.rs` | Endpoint-volume callbacks and device notifications (60 s safety timeout) | `MicMute`, `Speaker` |
 | Battery | `power.rs` | Power broadcasts forwarded by the window, plus a power-mode callback (5 min safety timeout) | `Power` |
 | Ports | `ports.rs` | `poll_secs` poll, woken early on demand | `Ports` |
 | Resource hogs | `hog.rs` (ticked by `ports.rs`) | Rides the port watcher's tick | `Hog` |
@@ -59,31 +59,31 @@ The worker opens both keys with `KEY_NOTIFY`, arms `RegNotifyChangeKeyValue` (su
 
 If the keys don't exist, it falls back to a 10 s poll.
 
-## Microphone mute (`mic.rs`)
+## Microphone mute and speaker volume (`mic.rs`)
 
 "Muted" means **every active capture endpoint** is muted (`IAudioEndpointVolume::GetMute`). Toggling mutes all of them, or unmutes all if they are all muted already.
 
 The watcher (in a multithreaded COM apartment):
 
-- creates one `IMMDeviceEnumerator` and registers an `IMMNotificationClient` (`DeviceChanges`) that wakes it when a device is added, removed or changes state;
-- keeps the activated endpoint list, and subscribes an `IAudioEndpointVolumeCallback` (`MuteChanges`) to every endpoint, so a mute change made anywhere (a hardware key, Windows Settings, another app) wakes it at once;
-- blocks on a small channel that both callbacks feed. On a wake it re-enumerates (and re-subscribes) only if a device changed, reads the mute state from the cached endpoints, and sends `UiEvent::MicMute` on change. One toggle notifies every endpoint, and the burst is folded into one recheck.
+- creates one `IMMDeviceEnumerator` and registers an `IMMNotificationClient` (`DeviceChanges`) that wakes it when a device is added, removed or changes state, or when the default speaker changes (headphones plugged in);
+- keeps the activated capture endpoints and the **default render endpoint** (`eRender`, `eConsole`), and subscribes an `IAudioEndpointVolumeCallback` (`MuteChanges`) to each, so a mute or volume change made anywhere (a hardware key, the volume flyout, Windows Settings, another app) wakes it at once;
+- blocks on a small channel that both callbacks feed. On a wake it re-enumerates (and re-subscribes) only if a device changed, reads the state from the cached endpoints, and sends `UiEvent::MicMute` and `UiEvent::Speaker((volume, muted))` (`None` without an output device) when they change. One toggle notifies every endpoint, and the burst is folded into one recheck.
 
 A 60 s timeout is a safety net against a missed callback. If device notifications can't be registered, the watcher falls back to re-enumerating every 2 s, as it used to.
 
-Clicking **Mute** in the pill calls `mic::toggle` directly and updates the model at once, so the UI doesn't wait for the callback. The ignored test `mic::tests::mute_change_wakes_the_watcher` flips the real mute and checks that the callback, not the timeout, reports it (`cargo test -p hytte mic -- --ignored`).
+The **Mic** tile calls `mic::toggle`, the **Sound** tile `mic::toggle_speaker`, and the volume bar and wheel `mic::set_volume` (which also unmutes when the level is above 0). Each returns the new state, so the model updates at once and the UI doesn't wait for the callback; while the bar is dragged, `Speaker` events are ignored until the button is released. The ignored test `mic::tests::mute_change_wakes_the_watcher` flips the real mute and checks that the callback, not the timeout, reports it (`cargo test -p hytte mic -- --ignored`).
 
 ## Battery and power mode (`power.rs`)
 
 `power::read` produces `Option<Battery>`. It runs once at startup and again whenever `power::poke()` is called:
 
-- **Percentage and AC state** from `GetSystemPowerStatus`. No battery (flag 128) or unknown (255) → `None`, and the Home card hides the battery row.
+- **Percentage and AC state** from `GetSystemPowerStatus`. No battery (flag 128) or unknown (255) → `None`, and there is no Power pane. On battery, `BatteryLifeTime` gives the estimate shown as "3 h 10 min left", rounded to 5 minutes so it doesn't wake the UI every tick.
 - **Charge rate in watts** from the battery driver: `IOCTL_BATTERY_QUERY_TAG`, then `IOCTL_BATTERY_QUERY_STATUS`. The battery's device path is found once with SetupDi and cached. A failed query forgets the cached path so it is looked up again (the battery was swapped or the driver reloaded). A driver that reports an unknown rate keeps the path and just shows no wattage.
 - **Power mode** (Saver / Balanced / Performance) from the undocumented but stable `powrprof.dll` exports `PowerGetActualOverlayScheme` and `PowerSetActiveOverlayScheme`. The DLL is loaded and the exports resolved once.
 
 `poke` is called from three places: the window procedure on `WM_POWERBROADCAST` (the window registers for the AC/DC power-source and battery-percentage settings with `RegisterPowerSettingNotification`, and also gets resume broadcasts), and a `PowerRegisterForEffectivePowerModeNotifications` callback that the worker registers itself. A 5 min timeout is only a safety net. Nothing polls.
 
-The charge rate changes continuously while charging but has no notification, so it is refreshed when you look at it: selecting the Home panel, or hovering the pill open on it, calls `power::read` immediately.
+The charge rate changes continuously while charging but has no notification, so it is refreshed when you look at it: selecting the Power panel, or hovering the pill open on it, calls `power::read` immediately.
 
 When a reading moves between battery and AC, `Model::set_power` starts the plug-in or unplug card ([section 6](06-ui-model.md)).
 
@@ -93,12 +93,12 @@ There is no cheap "a socket started listening" event in Windows (ETW would be th
 
 1. `listeners()` calls `GetExtendedTcpTable` for IPv4 and IPv6 listening sockets with owning pids. It keeps only sockets bound to "any" (`0.0.0.0` / `::`) or loopback (`127.x` / `::1`).
 2. `filter()` drops pid 0 / 4 and keeps only watched ports (or everything with `show_all`). It then looks up the exe name for each **remaining** row (that opens the process, so it is done last), drops known system hosts (`svchost.exe`, `lsass.exe`, `msedgewebview2.exe`, ...), removes duplicate IPv4/IPv6 rows, and sorts by port.
-3. If the list changed, it sends `UiEvent::Ports`.
-4. It waits on a condvar for `poll_secs` (default 5 s). `ports::request_refresh()` wakes it immediately; the UI calls it when the pill opens, when the Ports panel is selected, and after a kill. `ports::reconfigure()` (a config reload) stores new settings that the loop picks up before its next scan, then wakes it the same way.
+3. If the list changed, it walks each port's process up its ancestors (`hytte_proto::sys::ancestors`, one Toolhelp snapshot, at most 8 levels) and sends `UiEvent::Ports(ports, ancestors)`. `Model::task_for_port` then ties a server to the running task whose pid is the server's own or one of its ancestors, so the row can show the task's label and focus its terminal.
+4. It waits on a condvar for `poll_secs` (default 5 s). `ports::request_refresh()` wakes it immediately; the UI calls it when the pill opens, when the Tasks panel is selected, after a kill, and on leaving game mode. `ports::reconfigure()` (a config reload) stores new settings that the loop picks up before its next scan, then wakes it the same way.
 
 Before acting on **Open** or **Kill**, the UI re-checks that the same pid still listens on that port (`port_alive`), so a stale row is removed instead of killing the wrong process. `hytte_proto::ports::kill` refuses pids 0–4 and its own pid.
 
-The same module powers `hytte ports` and `hytte kill`, so the CLI and the panel always agree.
+The same module powers `hytte ports` and `hytte kill`, so the CLI and the pill always agree.
 
 ### Resource hogs (`hog.rs`, `[hog]`)
 

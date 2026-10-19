@@ -22,7 +22,7 @@ The renderer is picked before the window exists, because the style depends on it
 
 ### Monitor and DPI
 
-`Ui::refresh_monitor` reads the rectangle and effective DPI of the monitor the pill hangs from, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. It runs at startup and on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`. The app manifest (`app.manifest`, embedded through `hytte.rc` by `build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
+`Ui::refresh_monitor` reads the rectangle and effective DPI of the monitor the pill hangs from, computes `scale = dpi / 96`, resizes the renderer's bitmap (or swap chain), and recomputes the drop-zone rectangle. The top edge is the work area's top when that is lower than the monitor's, so with a taskbar docked at the top the pill hangs below it. It runs at startup, on `WM_DISPLAYCHANGE` / `WM_DPICHANGED`, and when `[general] monitor` changes. The app manifest (`app.manifest`, embedded through `hytte.rc` by `build.rs`) declares per-monitor DPI awareness v2, so Windows doesn't bitmap-stretch the pill.
 
 `[general] monitor` chooses the monitor (`Ui::wanted_monitor`):
 
@@ -51,12 +51,16 @@ Thread-local UI state (accessed through `with_ui`; see [section 3](03-architectu
 | `pressed`, `light` | The left button is down over a clickable region; the resolved `[general] theme`. |
 | `kb`, `kb_focus` | Keyboard mode (the window that had focus before, to give it back) and the region that has the focus ring. |
 | `thumb_req`, `tabs`, `vdm` | Thumbnails already requested, the terminal-tabs worker, and the virtual desktop manager. |
+| `hmon` | The `HMONITOR` the pill hangs from; fullscreen checks compare against it. |
+| `scrub` | The volume bar is being dragged: its left and right edge. |
+| `ringing`, `awake_on` | The timer alarm is playing; keep-awake is held. |
+| `gpu_retry` | GPU rebuild backoff in ms (0 while the renderer is healthy). |
 
 Three methods do most of the work:
 
 - `layout()`: computes the scene from the model and sets every spring target (size, glow, hover brightness, visibility).
 - `kick()`: makes sure the frame clock is running.
-- `after_model_change()`: called after **any** model change. It finishes a due timer, (re)arms `T_TIMER` and `T_EXPIRE`, requests missing thumbnails, then runs `layout()` and `kick()`.
+- `after_model_change()`: called after **any** model change. It finishes a due timer, (re)arms `T_TIMER` and `T_EXPIRE`, starts or stops the alarm (`timer::ring`, while `timer_done` is set and `[timer] sound` is on), takes or releases keep-awake (`SetThreadExecutionState` with `ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED` while `Model::awake` is active; Windows releases it if Hytte exits), turns a due calendar heads-up into a card, requests missing thumbnails, then runs `layout()` and `kick()`.
 
 ## Messages handled by `wndproc`
 
@@ -67,23 +71,24 @@ Three methods do most of the work:
 | `WM_UI` (custom) | `Ui::handle_events`: drains all queued `UiEvent`s. |
 | `WM_FG` (custom) | The foreground window changed or moved; see [Fullscreen](#fullscreen-suppression). |
 | `WM_DRAG_ARM` / `WM_DRAG_END` (custom) | A drag entered the top-edge zone / the button was released. |
-| `WM_MOUSEMOVE` | Updates the pointer, starts leave-tracking, starts or cancels the hover timers, starts a tile drag past 4 px, and redraws so hover effects follow the pointer. |
+| `WM_MOUSEMOVE` | While the volume bar is dragged, sets the volume (`scrub_to`) and nothing else. Otherwise updates the pointer, starts leave-tracking, starts or cancels the hover timers, starts a tile drag past 4 px, and redraws so hover effects follow the pointer. |
 | `WM_MOUSELEAVE` | The pointer left the window: clears it and arms the collapse timer. |
 | `WM_HOTKEY` | The `[general] hotkey` was pressed: enters or leaves [keyboard mode](#keyboard). |
 | `WM_KEYDOWN` | In keyboard mode: Esc, Left/Right, Tab / Shift+Tab, Enter / Space. |
 | `WM_KILLFOCUS` | Ends keyboard mode without taking focus back. |
-| `WM_MOUSEWHEEL` | Switches panels one per notch, or nudges the timer minutes in the timer panel. |
+| `WM_MOUSEWHEEL` | Over the volume bar or the **Sound** tile: the volume, 2 % per notch. On the timer setup card: the minutes. Otherwise switches panels, one per notch. |
 | `WM_SETCURSOR` | A hand cursor over clickable regions. |
-| `WM_LBUTTONDOWN` | On a shelf tile: remembers it and captures the mouse, ready for a drag. |
-| `WM_LBUTTONUP` | A click: runs the `Action` under the pointer. |
-| `WM_RBUTTONUP` | Over the pill: toggles the timer panel. |
+| `WM_LBUTTONDOWN` | On a shelf tile: remembers it and captures the mouse, ready for a drag. On the volume bar: sets the volume where it was pressed and captures the mouse for the drag (`scrub`). |
+| `WM_CAPTURECHANGED` | Capture taken away mid-drag (Alt+Tab, a dialog): the volume drag ends. |
+| `WM_LBUTTONUP` | Ends a volume drag (and re-reads the real level), otherwise a click: runs the `Action` under the pointer. |
+| `WM_RBUTTONUP` | Over the pill: opens or closes the timer setup card (`timer_panel`). |
 | `WM_TIMER` | See the timers below. |
 | `WM_DISPLAYCHANGE`, `WM_DPICHANGED` | `refresh_monitor`, then re-evaluate fullscreen. |
 | `WM_SETTINGCHANGE` | Re-reads the Windows "Animation effects" setting (`reduce_motion`). |
 | `WM_TRAY` (custom) | Right-click on the tray icon: shows the menu. |
-| `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, which works on its own thread and reports in a message box). |
-| `TaskbarCreated` (registered) | Explorer restarted: re-adds the tray icon. |
-| `WM_POWERBROADCAST` | Power source, charge level or resume changed: wakes the power worker (`power::poke`). |
+| `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, which works on its own thread and reports in a message box), 15 Check for updates (`update::check_now`), 16 Connect AI agents (`agents::tray`, likewise). |
+| `TaskbarCreated` (registered) | Explorer restarted: re-adds the tray icon and posts `WM_FG` to re-check fullscreen. |
+| `WM_POWERBROADCAST` | Power source, charge level or resume changed: wakes the power worker (`power::poke`). On resume (`PBT_APMRESUMEAUTOMATIC`) it also posts `WM_FG`. |
 | `WM_DESTROY` | Ends the message loop (unless the window was torn down during startup). |
 
 ## Timers
@@ -92,11 +97,13 @@ All are one-shot Win32 timers: the handler kills the timer first, so each fires 
 
 | Id | Delay | Armed when | On fire |
 |---|---|---|---|
-| `T_DWELL` | 120 ms | The pointer enters the pill | If still inside: `hover = true` (the pill opens) and a port rescan is requested. |
-| `T_COLLAPSE` | 300 ms | The pointer leaves while open | If still outside: `hover = false` and the timer panel closes. Re-entering in time cancels it, so grazing the edge doesn't flicker. |
+| `T_DWELL` | 120 ms | The pointer enters the pill | If still inside: `hover = true` (the pill opens), a port rescan is requested, and the battery is re-read when the Power panel is the one opening. |
+| `T_COLLAPSE` | 300 ms | The pointer leaves while open | If still outside: `hover = false` and the timer setup card closes. Re-entering in time cancels it, so grazing the edge doesn't flicker. |
 | `T_EXPIRE` | Until the model's next deadline | After every model change | `after_model_change` (calls `Model::expire`). |
 | `T_TIMER` | At most 1 s | While a countdown timer runs unpaused | `after_model_change`: redraws the fuse and fires the timer when it reaches zero. |
-| `T_FS` | 150 ms | On a foreground change or move | Re-evaluates fullscreen, re-asserts topmost (except over a game), follows the virtual desktop. |
+| `T_FS` | 150 ms | On a foreground change or move | Follows the monitor (`active` / `cursor`), re-evaluates fullscreen, re-asserts topmost (except over a game), follows the virtual desktop. |
+| `T_TRIM` | 30 s | A frame finds nothing moving | If still settled: trims the working set ([section 12](12-performance.md)). |
+| `T_GPU` | 1 s, doubling to 30 s | A GPU rebuild failed | Tries `rebuild_gpu` again ([section 8](08-rendering-and-animation.md#the-gpu-renderer)). |
 
 ## Clicks and actions
 
@@ -107,12 +114,15 @@ The renderer records a list of **hit regions** while drawing each frame (`Hit { 
 | `DismissTask`, `DismissChip` | Removes a finished task / the chip. |
 | `CopyText`, `OpenPath` | Clipboard / opens Explorer. |
 | `MediaPrev`, `MediaToggle`, `MediaNext`, `FocusMedia` | Media transport commands (on a short-lived thread) / brings the player to the front. |
-| `FocusTerminal(pid, id)` | Finds the terminal window for `pid` and focuses it, then asks the tabs worker to select the remembered tab. |
-| `SelectPanel` | Switches the panel. Opening Ports forces a rescan; opening Home re-reads the battery. |
-| `ToggleMic` | Mutes or unmutes every capture device. |
-| `OpenPort`, `KillPort` | Opens `http://localhost:<port>` / two-step kill (first click arms **Kill?** for 3 s). If the process is already gone, the row is just removed. |
+| `FocusTerminal(pid, id)` | Finds the terminal window for `pid` and focuses it, then asks the tabs worker to select the remembered tab. Used by task rows and by server rows that belong to a task. |
+| `SelectPanel` | Switches the panel. Opening Tasks forces a port rescan; opening Power re-reads the battery. |
+| `ToggleMic` | Mutes or unmutes every capture device (the **Mic** tile). |
+| `ToggleSpeaker`, `Volume` | Mutes or unmutes the default speaker (the **Sound** tile; `Volume` is the bar, whose mouse presses are a drag handled by `scrub_to`, so this action is only reached from the keyboard). |
+| `CycleAwake` | Keep-awake: Off → 1 hour → On → Off (`Awake::next`). |
+| `OpenTimer` | The **Timer** tile: the Timer panel if a timer runs, otherwise the setup card. |
+| `OpenPort`, `KillPort` | A server's **Open** / **Stop**: opens `http://localhost:<port>` / two-step kill (first click arms **Kill?** for 3 s). If the process is already gone, the row is just removed. |
 | `ShelfTile`, `RemoveShelf`, `ShelfOp` | Select a tile / remove it / queue a Drop Vault job (shows "Working…"). |
-| `TimerMinutes`, `TimerStart`, `TimerBreak`, `TimerAdd`, `TimerPause`, `TimerStop`, `TimerDismiss` | Timer controls. Every change is saved to `timer.json`. |
+| `TimerMinutes`, `TimerNudge`, `TimerStart`, `TimerBreak`, `TimerAdd`, `TimerPause`, `TimerStop`, `TimerDismiss` | Timer controls: a preset, − / +, **Start timer** / **Start focus**, the offered break, **+5** (on the finished card it starts a new 5 min timer), the ring (pause / resume), **Stop**, **Stop alarm** / **Dismiss**. Every change to a running timer is saved to `timer.json`. |
 | `SetPowerMode` | Sets the Windows power mode. |
 
 Every action ends with `after_model_change`.
@@ -140,7 +150,7 @@ Clicking another window ends keyboard mode without taking focus back (`WM_KILLFO
 
 ### Arming the top edge
 
-The window only receives drops where it is hit-testable (non-transparent pixels, or inside the window region), and the collapsed pill is small. So a **low-level mouse hook** (`mouse_ll`) watches for a left-button drag that enters a zone ±230 logical px around the screen centre and 40 px tall at the top edge. It then sets `ARMED` and posts `WM_DRAG_ARM`. The hook itself only touches atomics and posts messages.
+The window only receives drops where it is hit-testable (non-transparent pixels, or inside the window region), and the collapsed pill is small. So a **low-level mouse hook** (`mouse_ll`) watches for a left-button drag that enters a zone ±230 logical px around the screen centre and 40 px tall at the top edge. It then sets `ARMED` and posts `WM_DRAG_ARM`. A window being moved or resized by its title bar (`GetGUIThreadInfo` reports `GUI_INMOVESIZE`, `moving_window`) is not a file, so it doesn't arm. The hook itself only touches atomics and posts messages.
 
 While `armed`, the renderer widens the presented area to the whole canvas width and fills the 40 px strip with an almost invisible colour (alpha 0.008). Windows then routes drops anywhere in the strip to Hytte, and the user doesn't have to aim. Releasing the button posts `WM_DRAG_END`.
 
@@ -205,6 +215,6 @@ On every `T_FS`, `Ui::follow_desktop` asks `IVirtualDesktopManager` whether the 
 
 ## Tray
 
-`tray.rs` adds a notification-area icon whose callback message is `WM_TRAY`. Right-clicking it builds a popup menu (Pause, Launch at startup and Set up terminal integration show check marks). `SetForegroundWindow` is called on Hytte's window first, because Windows requires it for the menu to close properly when you click elsewhere. The icon is re-added when Explorer restarts (`TaskbarCreated`) and removed on exit.
+`tray.rs` adds a notification-area icon whose callback message is `WM_TRAY`. Right-clicking it builds a popup menu (Pause, Launch at startup, Set up terminal integration and Connect AI agents show check marks). `SetForegroundWindow` is called on Hytte's window first, because Windows requires it for the menu to close properly when you click elsewhere. The icon is re-added when Explorer restarts (`TaskbarCreated`) and removed on exit.
 
 Next: [8. Rendering and animation](08-rendering-and-animation.md)

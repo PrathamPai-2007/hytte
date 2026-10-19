@@ -18,21 +18,21 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 ## What it can do
 
 - **Watch long commands.** See when a build, test run or download finishes, and whether it failed, without staring at the terminal. A running command's latest output line shows under it.
-- **Tell you when an AI agent is waiting.** Claude Code, Aider and similar tools can ping the pill. It turns amber, and one click takes you to the right terminal. Optionally it also shows what each agent is doing right now ("Editing render.rs").
-- **Answer Claude Code from the pill.** When Claude asks permission to run something, the pill shows the command with **Allow** and **Deny**, so you don't have to switch windows (optional).
-- **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up with **Open** and **Kill** buttons.
+- **Follow your AI agents.** Claude Code, Codex, OpenCode, Gemini CLI, Antigravity and Cursor show up by name with what they're doing right now ("Editing render.rs"). When one is waiting for you the pill turns amber, even over a maximised terminal, and one click takes you to the right terminal. One click in the tray connects them all.
+- **Answer permission prompts from the pill.** When Claude Code, Codex or OpenCode asks to run something, the pill shows the command with **Allow** and **Deny**, so you don't have to switch windows.
+- **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up under your tasks, with **Open** and **Stop** buttons. A server you started from a terminal is labelled with that command, and clicking it takes you to the terminal.
 - **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them.
 - **Quick file actions.** Shrink an image under 5 MB, turn it into a PDF, strip its location data, copy the text out of it, or tidy up JSON. One click each.
 - **Control music.** See what's playing and skip or pause.
-- **Mute every microphone at once**, with a red lock on the pill so you always know.
-- **Timer and focus sessions.** Right-click the pill to start a countdown or a Pomodoro. A focus cycle shows its rounds as dots, and a running timer splits off as a small clock beside the pill.
+- **Quick controls.** One pane of tiles: mute every microphone at once (with a red lock on the pill so you always know), mute the speakers, keep the PC awake (an hour, or until you turn it off), and the timer. Under them a volume bar you can drag, click or scroll.
+- **Timer and focus sessions.** Start a countdown or a Pomodoro from the **Timer** tile (or right-click the pill). The running timer is a ring you click to pause, with its end time, the focus rounds as dots, **+5** and **Stop**; collapsed, it burns down as a thin fuse along the pill, and splits off as a small clock beside a task or music. When it ends, an alarm rings until you stop it (two minutes at most).
 - **Browser downloads.** A download in progress is a task with its growing size; when it finishes you get **Open** and **Shelve**.
 - **Runaway processes.** If one program keeps a lot of CPU or memory for a while, the pill says so, with **Kill** (asks twice) and **Ignore**.
 - **Your next meeting** (optional). A heads-up a few minutes before it starts, with **Join** for Teams, Meet and Zoom links.
 - **Keyboard and looks.** A global hotkey opens the pill for arrow keys and Tab; light, dark or follow-Windows themes; the glow takes the album art's colour; the pill can follow you to another monitor.
-- **Battery and power mode** on laptops.
+- **Battery and power mode** on laptops, on their own pane: charge, what the battery is doing, the time left, and Saver / Balanced / Performance.
 - **Camera and mic dots** that tell you when an app is using them.
-- **Gets out of the way of games and videos.** While a game or other fullscreen app is in front, Hytte vanishes completely and stops touching your input, so it costs no FPS or input lag. A maximised window just shrinks it to a hairline.
+- **Gets out of the way of games and videos.** While a game or other fullscreen app is in front, Hytte vanishes completely and stops touching your input, so it costs no FPS or input lag. A maximised window, or a video playing fullscreen in a browser or player, just shrinks it to a hairline.
 - **Stays out of screen share** if you want: one setting keeps the pill out of screenshots, recordings and calls.
 - **Keeps itself up to date.** When a new version is out, Hytte asks once and updates itself in place.
 
@@ -44,6 +44,7 @@ You need **Windows 11 (22H2 or newer, 64-bit)**.
 2. Put it somewhere permanent, for example `C:\Tools\Hytte\hytte.exe`. Hytte updates itself in that folder, so pick one you can write to (your user folder is fine; `Program Files` isn't).
 3. Run `hytte.exe`. The pill appears at the top of your screen and the Hytte icon appears in the system tray. Hytte also adds its folder to your `PATH`, so the `hytte` command works in any terminal you open from now on.
 4. Click the tray icon and choose **Set up terminal integration**. This makes your terminal report long-running commands to the pill (see [Track every command automatically](#track-every-command-automatically)).
+5. Using AI coding agents? Choose **Connect AI agents** in the same menu (see [Follow your AI agents](#follow-your-ai-agents)).
 
 To start Hytte automatically, click the tray icon and tick **Launch at startup**.
 
@@ -76,7 +77,7 @@ Typing `hytte` in a terminal hands you your prompt straight back; the pill keeps
 
 ## A five-minute tour
 
-**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. Scroll over it to flip between panels, or click the dots along the bottom.
+**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. It opens on the quick controls, unless it is showing a task or music, which open their own pane. Scroll over it to flip between panes, or click the dots along the bottom. Left to right: Shelf, Media, the quick controls, Tasks (and dev servers), Timer, and Power on laptops.
 
 **2. Track a slow command.** Put `hytte run --` in front of anything:
 
@@ -92,7 +93,7 @@ Some tools only print progress in a real terminal, so ask for it: `hytte run -- 
 
 **4. Park a file.** Drag a file toward the top of the screen and drop it on the pill. Later, drag it back out of the pill into Explorer, an email or a chat window. Click a file on the shelf to see what you can do with it.
 
-**5. Start a timer.** Right-click the pill, scroll to pick the minutes, then press **Timer** or **Focus**.
+**5. Start a timer.** Open the quick controls (the pane the pill opens on), press **Timer**, pick the minutes (presets, − / +, or scroll), then **Start timer** or **Start focus**. Right-clicking the pill opens the same card.
 
 ## What the pill is telling you
 
@@ -113,16 +114,19 @@ Some tools only print progress in a real terminal, so ask for it: `hytte run -- 
 | A blue `i` card | Your next calendar event is about to start. |
 | A green battery that fills | You just plugged in the charger. |
 | An amber battery that drains (red when low) | You just unplugged it. |
-| A thin grey line | A maximised window covers the screen; hover the line to bring the pill back. |
+| A thin grey line | A maximised window or a fullscreen video covers the screen; hover the line to bring the pill back. |
+| A green bell card | A timer finished. The alarm rings until you press **Stop alarm** (two minutes at most). |
 
-| Idle | Home card | Muted | Muted, opened |
+| Idle | Quick controls | Muted | Muted, opened |
 |---|---|---|---|
 | <img src="docs/img/idle.png" width="200"> | <img src="docs/img/home.png" width="200"> | <img src="docs/img/muted.png" width="200"> | <img src="docs/img/muted-open.png" width="200"> |
 
 **Clicking things:**
-- Click a task to jump to the terminal it's running in. In Windows Terminal, the right tab is selected too.
+- Click a task to jump to the terminal it's running in. In Windows Terminal, the right tab is selected too. A dev server started from that terminal works the same way.
 - Click the album art to bring the music app to the front.
-- **Kill** on a port asks once ("Kill?"); click again within 3 seconds to confirm.
+- **Stop** on a dev server asks once ("Kill?"); click again within 3 seconds to confirm.
+- Click the timer's ring to pause or resume it.
+- On the quick controls, drag or click the volume bar, or scroll over it (or over **Sound**) to change the volume 2 % at a time. **Awake** goes Off → 1 hour → On.
 - Hytte never takes keyboard focus away from what you're doing.
 
 ### The tray icon
@@ -134,6 +138,7 @@ The Hytte icon sits in the system tray. It's dark on a light taskbar and white o
 - **Pause** hides the pill until you untick it.
 - **Launch at startup** starts Hytte when you sign in.
 - **Set up terminal integration** adds the shell hook (choose it again to remove it).
+- **Connect AI agents** hooks Hytte into the coding agents you have installed (choose it again to disconnect them).
 - **Open settings folder** opens the folder with `config.toml` and the log.
 - **Check for updates…** looks for a newer version right now.
 - **Quit** closes Hytte.
@@ -161,25 +166,26 @@ If Windows PowerShell says running scripts is disabled (or never loads the hook)
 
 Commands under 3 seconds never show up, and editors and pagers such as `vim`, `less` and `ssh` are ignored, so the pill doesn't flicker.
 
-### Get pinged when Claude Code needs you
+### Follow your AI agents
 
-```powershell
-hytte agent hooks claude
-```
+Click the tray icon and choose **Connect AI agents**, or run `hytte setup agents`. Hytte finds the agents you have installed and adds a few small hooks to each one's settings:
 
-This prints a block of settings. Paste it into your Claude Code `settings.json`. From then on, the pill turns amber whenever Claude is waiting for you.
+| Agent | What the pill shows | Where Hytte adds it |
+|---|---|---|
+| Claude Code (terminal, desktop app, IDE) | working, current step, waiting, done, **Allow / Deny** | `~/.claude/settings.json` |
+| Codex | working, current step, done, **Allow / Deny** | `~/.codex/hooks.json` |
+| OpenCode | working, waiting, done, **Allow / Deny** | `~/.config/opencode/plugins/hytte.js` |
+| Gemini CLI | working, waiting, done | `~/.gemini/settings.json` |
+| Antigravity (`agy`, the IDE) | working, done | `~/.gemini/config/hooks.json` |
+| Cursor | working, done | `~/.cursor/hooks.json` |
 
-Want to see what Claude is doing as well? Use `hytte agent hooks claude --tools` instead. It adds a hook that runs before every tool call, so each agent's row shows its current step ("Running: cargo build") and how long it has been going. It runs `hytte` once per tool call, which is quick but not free, so it is optional.
+Restart agents that are already running. Codex asks you to approve new hooks once: type `/hooks` in Codex and trust them.
 
-Want to answer Claude's permission prompts from the pill? Add `--approve` (it combines with `--tools`):
+Your own settings and hooks are kept as they are, and the first time Hytte changes a file it saves the original next to it as `<file>.hytte-backup`. Choosing the tray item again, or running `hytte setup agents --undo`, takes Hytte's hooks out again. The hooks run `hytte.exe` by its full path; if you move Hytte, it fixes them the next time it starts.
 
-```powershell
-hytte agent hooks claude --approve
-```
+**Allow / Deny.** When an agent wants to run something you haven't allowed yet, the pill opens with the command, even over a maximised window. If the command has several lines or is long, the pill says so first ("2 lines, see terminal"), so check the terminal before you allow it. The agent's own prompt appears in the terminal when the pill gets no answer (30 seconds), straight away if you press **Dismiss**, and at once while you're in a game or Hytte is paused.
 
-When Claude wants to run something you haven't allowed yet, the pill opens with the command and **Allow** / **Deny**. If the command has several lines or is long, the pill says so first ("2 lines, see terminal"), so check the terminal before you allow it. Claude's own prompt in the terminal appears after the pill gives up (30 seconds), or straight away if you press **Dismiss**.
-
-For other tools, have them run `hytte agent needs-input --name "MyTool" --message "waiting for you"` when they need you, and `hytte agent done --name "MyTool"` when they finish.
+Agents you start from a terminal show up under their own name instead of as a long-running command. For other tools, have them run `hytte agent needs-input --name "MyTool" --message "waiting for you"` when they need you, and `hytte agent done --name "MyTool"` when they finish.
 
 ### Report progress from a script
 
@@ -216,10 +222,10 @@ Before version 1.0, Hytte came as two programs: `hytte.exe` and a separate `notc
 1. Quit the old Hytte from the tray.
 2. Replace the old `hytte.exe` with the new one and **delete `notch.exe`**.
 3. Start the new `hytte.exe`. It updates the terminal integration lines in your PowerShell and Git Bash profiles by itself; open a new terminal afterwards.
-4. If you use the Claude Code hooks, run `hytte agent hooks claude` again (with the same `--tools` / `--approve` flags as before) and paste the result over the old block in your Claude Code `settings.json`.
+4. If you pasted the Claude Code hooks in by hand, choose **Connect AI agents** in the tray: it replaces the old block.
 5. Replace `notch` with `hytte` in any scripts of your own, and in a hand-written zsh or Nushell setup.
 
-Release numbers were reset at the same time: the old releases are now `v0.1.0` to `v0.4.0`, and this is `v1.0.0`.
+Release numbers were reset at the same time: the old releases are now `v0.1.0` to `v0.4.0`, and the merged `hytte.exe` started at `v1.0.0`.
 
 ## Settings
 
@@ -260,7 +266,7 @@ show_all = false               # true = show every server, not just the ports ab
 sound = false                  # beep when an agent needs you
 
 [timer]
-sound = true                   # chime when a timer ends
+sound = true                   # ring when a timer ends, until stopped (2 min at most)
 
 [hog]
 enabled = true                 # warn about a process that keeps using lots of CPU or memory
@@ -285,10 +291,11 @@ The full list of settings, including which ones need a restart, is in [the confi
 | Problem | Try this |
 |---|---|
 | Nothing happens when I start Hytte | It may already be running: look for it in the tray. Only one copy runs at a time. |
-| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
+| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window or fullscreen video may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
 | `hytte: daemon not running` | Run `hytte` to start the pill. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `.\hytte.exe setup` from the Hytte folder. |
 | `notch` isn't recognised | The command is `hytte` now; see [Upgrading](#upgrading-from-an-older-version-with-notchexe). |
+| An AI agent never shows up, or never asks on the pill | Choose **Connect AI agents** in the tray (or run `hytte setup agents` to see what it did for each agent), then restart the agent. In Codex, trust the hooks with `/hooks`. |
 | Shell commands don't show up | Use **Set up terminal integration** in the tray, then open a new terminal. Commands under 3 seconds are hidden on purpose. |
 | A console window flashes when Hytte starts | That happens on Windows 11 versions before 24H2. It closes by itself, and Hytte keeps running. |
 | "The update didn't install" | Usually the folder isn't writable. Move `hytte.exe` somewhere under your user folder, or update by hand from the releases page. |

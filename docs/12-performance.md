@@ -31,11 +31,11 @@ When adding a feature, check it doesn't add a row here without a good reason.
 
 | Source | Interval | Notes |
 |---|---|---|
-| Port watcher | every `poll_secs` (5 s), skipped in game mode | One `GetExtendedTcpTable` call per address family. Processes are opened only for watched ports. |
+| Port watcher | every `poll_secs` (5 s), skipped in game mode | One `GetExtendedTcpTable` call per address family. Processes are opened only for watched ports. When the list changes, one process snapshot finds each server's ancestors. |
 | Resource-hog sampler | with the port watcher's tick (`poll_secs`, 5 s), skipped in game mode | One process snapshot, then two cheap calls per process. Turn off with `[hog] enabled = false`. |
 | Downloads watcher | on a change in the Downloads folder | Blocks in `ReadDirectoryChangesW`; wakes only for file-name and size changes there. |
 | Calendar watcher (opt-in) | on a store change, or when the next event has started (at most every 30 min) | Reads the next 24 hours. |
-| Mic watcher | on a mute or device callback, or 60 s safety timeout | Reads the cached endpoints' mute state; re-enumerates only after a device change notification. |
+| Mic watcher | on a mute or device callback, or 60 s safety timeout | Reads the cached endpoints' mute state and the default speaker's volume; re-enumerates only after a device change notification. |
 | Power watcher | on a power broadcast or power-mode callback, or 5 min safety timeout | `GetSystemPowerStatus`. On laptops, also two IOCTLs on the cached battery device. |
 | Memory trim | once, 30 s after the last frame | `SetProcessWorkingSetSize`. |
 | Privacy watcher | on registry change, or 10 s safety timeout | |
@@ -43,7 +43,8 @@ When adding a feature, check it doesn't add a row here without a good reason.
 | Media watcher | on WinRT event, or 30 s safety timeout | |
 | Task registry | every 5 s **only while tasks exist** | Checks owner liveness. |
 | Countdown timer | 1 Hz **only while a timer runs unpaused** | Redraws the fuse. |
-| Expiry timer | once, at the next deadline | |
+| Expiry timer | once, at the next deadline | Also ends a one-hour keep-awake. |
+| GPU rebuild retry | 1 s doubling to 30 s, **only after a failed rebuild** | Stops once the renderer is back. |
 | Foreground change / move | per event, debounced to one check per 150 ms | |
 | Low-level mouse hook | every mouse event system-wide, **removed in game mode** | The callback is O(1): atomics only, and it posts a message only when a drag enters or leaves the top-edge zone. |
 
@@ -60,6 +61,7 @@ None of these draws a frame unless the model actually changes.
 | A spring settling (resize, fade) | one per vblank, until settled |
 | Running task, waiting agent, playing media in a media scene, drag over the pill, expanded privacy dots | ~30 fps |
 | Failed task | ~30 fps for the first 8 s (the pulse fades), then none |
+| Timer-finished card | ~30 fps while it is up (at most 2 min; the bell swings) |
 | Fullscreen sentinel | none (it never animates) |
 | Hidden, paused or in game mode | none |
 

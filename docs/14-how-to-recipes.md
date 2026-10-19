@@ -97,6 +97,9 @@ Example: a "Clipboard history" panel.
    - write `exp_clipboard`, drawing with `cc(...)` colours and registering clicks with `hit()` / `button()`.
 3. **Ambient** (`Model::ambient`): only if the panel animates continuously, and only with a stop condition.
 4. **Tests:** extend `panels_and_selection` and `scene_priority` in `ui_state.rs`.
+5. **Look at it** without running the pill: add a `shoot(...)` call for the new scene to the `snapshots` test in `render.rs` (`mod snap`), then run `HYTTE_SNAP_DIR=<dir> cargo test -p hytte snapshots -- --ignored` and open the BMP. Pass `true` for `light` to check the light theme too.
+
+A small, related feature can share a pane instead of adding one, as the dev servers share the Tasks pane: `panels()` shows Tasks when there are visible tasks **or** listening ports, `Model::size(ExpTasks)` adds `servers_h()`, and `exp_tasks` draws `servers` under the rows.
 
 ## Add a clickable action
 
@@ -132,6 +135,14 @@ The job runs on a Drop Vault worker automatically; you don't need any threading 
 3. Make sure it rests at a sensible static value when it stops; the last drawn frame stays on screen.
 4. Check it is disabled with reduced motion (it is, if it only runs through `ambient`).
 5. Add a test in `ui_state.rs` that `ambient` turns false once the condition ends (see `idle_frames_stop_for_settled_failures_and_sentinel`).
+
+## Connect another AI agent
+
+1. Find where the agent reads user-level hooks and what it sends on stdin. Look for three moments: the user submits a prompt (→ `hytte agent resume`), the agent waits for the user (→ `needs-input`, which reads a JSON `message` from stdin), and the turn ends (→ `done`).
+2. In `agents.rs`, add a `Kind`, a row in `targets()` (the config folder that proves it's installed, and the file to write), and its hooks in `json_hooks` (or reuse `claude_hooks` if it speaks Claude Code's format, as Codex does). If the agent reads a hook's stdout as JSON, add `--ack`.
+3. Only gate a permission through `hytte agent ask` if the agent's hook can say "no decision" safely. An agent that blocks the action on an unexpected reply (Cursor) gets informational hooks only.
+4. Add its CLI name to `ui_state::AGENT_CLIS`, so the shell hook doesn't also show it as a long-running command.
+5. Add a test next to the others in `agents.rs` (connect, connect again changes nothing, undo restores the file), and a row in the README's agent table and in [section 5](05-cli.md#hytte-setup-agents---undo-agentsrs).
 
 ## Add support for another shell
 

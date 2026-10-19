@@ -44,10 +44,10 @@ $n = "target\debug\hytte.exe"
 & $n set --progress 40 --label "Uploading" --task up1   # determinate progress
 & $n agent needs-input --name "Claude Code" --message "Approve edit?"   # amber
 & $n agent resume --name "Claude Code"                  # back to running
-python -m http.server 3000                              # appears in the Ports panel
+& $n run -- python -m http.server 3000                  # a task, with :3000 under SERVERS
 ```
 
-For the rest: drag a file onto the pill (shelf, Drop Vault), play music in any app (media), right-click the pill (timer), and use the Home card's **Mute** button (mic lock).
+For the rest: drag a file onto the pill (shelf, Drop Vault), play music in any app (media), press **Timer** on the quick controls (or right-click the pill), and press the **Mic** tile there (mic lock).
 
 ## Debugging
 

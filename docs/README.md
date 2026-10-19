@@ -14,7 +14,7 @@ Read the sections in order the first time: each one builds on the previous ones.
 | 6 | [The UI model](06-ui-model.md) | `Model`, scenes, panels, the scene-priority rules, sizes, glow, and timed expiry. |
 | 7 | [Window, input and timers](07-window-and-input.md) | The Win32 window, the message loop, hover and click handling, drag and drop, fullscreen. |
 | 8 | [Rendering and animation](08-rendering-and-animation.md) | Direct2D drawing, the frame clock, springs, cross-fades, and why idle costs nothing. |
-| 9 | [Background workers](09-workers.md) | Media, privacy, microphone, battery, ports, Windows Terminal tabs and thumbnails. |
+| 9 | [Background workers](09-workers.md) | Media, privacy, microphone and speaker, battery, ports (dev servers), Windows Terminal tabs and thumbnails. |
 | 10 | [Shelf and Drop Vault](10-shelf-and-drop-vault.md) | Storing files on the shelf and the image / JSON / PDF / OCR actions. |
 | 11 | [Configuration and files on disk](11-configuration-and-files.md) | Every setting, every file Hytte writes, autostart and the Start Menu shortcut. |
 | 12 | [Performance](12-performance.md) | The budgets, every source of idle wake-ups, and the rules that keep Hytte cheap. |

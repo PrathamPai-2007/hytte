@@ -144,7 +144,7 @@ The timed removals are done by `Model::expire` (see [section 6](06-ui-model.md))
 
 ## Asking the human: `Ask` and `Answer`
 
-A client can put a yes/no question on the pill and wait for the answer on the same connection. `hytte agent ask` uses this to answer Claude Code permission prompts.
+A client can put a yes/no question on the pill and wait for the answer on the same connection. `hytte agent ask` uses this to answer agents' permission prompts (Claude Code, Codex, OpenCode).
 
 ```json
 {"v":1,"name":"Claude Code","pid":4242,"text":"Running: cargo publish"}
@@ -163,7 +163,7 @@ A client can put a yes/no question on the pill and wait for the answer on the sa
 {"allow":true}
 ```
 
-No reply is sent if the time runs out, the chip is dismissed, or a newer ask replaces it. Only one ask is shown at a time, and the replaced one's sender is dropped. Clients must treat a closed pipe or a timeout as "no answer". An `Ask` line never parses as a `HytteMessage`, so an older daemon ignores it and the client sees no answer.
+No reply is sent if the time runs out, the chip is dismissed, or a newer ask replaces it, and none while Hytte is paused or in game mode (the ask is dropped on arrival, and a pending one when a game starts). Only one ask is shown at a time, and the replaced one's sender is dropped. A connection carries one ask: once it is answered or dropped, the daemon flushes and hangs up, so the client learns "no answer" at once instead of waiting out its own timeout. Clients must treat a closed pipe or a timeout as "no answer". The chip is forced visible over a maximised window or fullscreen video, where the pill would otherwise be the thin line. An `Ask` line never parses as a `HytteMessage`, so an older daemon ignores it and the client sees no answer.
 
 ## Writing your own client
 
