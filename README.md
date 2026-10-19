@@ -291,7 +291,7 @@ The full list of settings, including which ones need a restart, is in [the confi
 | Problem | Try this |
 |---|---|
 | Nothing happens when I start Hytte | It may already be running: look for it in the tray. Only one copy runs at a time. |
-| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window or fullscreen video may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
+| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window or fullscreen video may have hidden it (or shrunk it to a thin line if you set `fullscreen_mode = "sentinel"`), or Hytte is paused (tray menu). |
 | `hytte: daemon not running` | Run `hytte` to start the pill. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `.\hytte.exe setup` from the Hytte folder. |
 | `notch` isn't recognised | The command is `hytte` now; see [Upgrading](#upgrading-from-an-older-version-with-notchexe). |
