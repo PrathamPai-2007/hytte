@@ -28,6 +28,35 @@ pub fn init() {
     }));
 }
 
+/// Local "HH:MM:SS", so log lines can be lined up with what the user was doing.
+fn stamp() -> String {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::SYSTEMTIME;
+        use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
+        let unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let ft = unix_ms * 10_000 + 116_444_736_000_000_000; // 100 ns ticks since 1601
+        let ft = windows::Win32::Foundation::FILETIME {
+            dwLowDateTime: ft as u32,
+            dwHighDateTime: (ft >> 32) as u32,
+        };
+        let (mut utc, mut local) = (SYSTEMTIME::default(), SYSTEMTIME::default());
+        unsafe {
+            if FileTimeToSystemTime(&ft, &mut utc).is_ok()
+                && SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_ok()
+            {
+                return format!(
+                    "{:02}:{:02}:{:02}",
+                    local.wHour, local.wMinute, local.wSecond
+                );
+            }
+        }
+    }
+    String::from("--:--:--")
+}
+
 /// Append one line to the log (best effort).
 pub fn line(msg: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -36,7 +65,7 @@ pub fn line(msg: &str) {
         .open(log_path())
     {
         use std::io::Write;
-        let _ = writeln!(f, "{msg}");
+        let _ = writeln!(f, "{} {msg}", stamp());
     }
 }
 
