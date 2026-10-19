@@ -183,7 +183,7 @@ fn encode(text: &str, enc: Enc) -> Vec<u8> {
 }
 
 /// Writes via a temp file + rename, except through a symlink (dotfile setups), which is written in place.
-fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p)?;
     }

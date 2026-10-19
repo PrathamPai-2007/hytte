@@ -136,18 +136,24 @@ pub fn load() -> Option<Timer> {
     serde_json::from_str(&std::fs::read_to_string(path()).ok()?).ok()
 }
 
-/// Two soft decaying sine notes (E5 then A5), 22.05 kHz mono 16-bit WAV.
+/// One alarm phrase: three soft decaying bell notes (E5, A5, E6, each with a quiet octave
+/// overtone) and a pause, 22.05 kHz mono 16-bit WAV. Looped while a finished timer rings.
 pub fn chime_wav() -> Vec<u8> {
     const SR: u32 = 22_050;
     let mut pcm: Vec<i16> = vec![];
-    for (hz, secs) in [(659.25f32, 0.55f32), (880.0, 0.85)] {
+    for (hz, secs) in [
+        (659.25f32, 0.32f32),
+        (880.0, 0.32),
+        (1318.5, 0.9),
+        (0.0, 1.1),
+    ] {
         let n = (SR as f32 * secs) as usize;
         for i in 0..n {
             let t = i as f32 / SR as f32;
-            let env = (t / 0.01).min(1.0) * (-5.5 * t).exp();
-            pcm.push(
-                ((t * hz * std::f32::consts::TAU).sin() * env * 0.35 * i16::MAX as f32) as i16,
-            );
+            let env = (t / 0.008).min(1.0) * (-4.5 * t).exp();
+            let ph = t * hz * std::f32::consts::TAU;
+            let v = (ph.sin() + 0.18 * (2.0 * ph).sin()) * env * 0.30;
+            pcm.push((v * i16::MAX as f32) as i16);
         }
     }
     let data = (pcm.len() * 2) as u32;
@@ -170,19 +176,60 @@ pub fn chime_wav() -> Vec<u8> {
     w
 }
 
-pub fn play_chime() {
+/// Start (looping) or stop the alarm.
+pub fn ring(on: bool) {
     #[cfg(windows)]
     {
-        use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY};
+        use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_LOOP, SND_MEMORY};
         static WAV: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-        let w = WAV.get_or_init(chime_wav);
         unsafe {
-            let _ = PlaySoundW(
-                windows::core::PCWSTR(w.as_ptr() as *const u16),
-                None,
-                SND_MEMORY | SND_ASYNC,
-            );
+            if on {
+                let w = WAV.get_or_init(chime_wav);
+                let _ = PlaySoundW(
+                    windows::core::PCWSTR(w.as_ptr() as *const u16),
+                    None,
+                    SND_MEMORY | SND_ASYNC | SND_LOOP,
+                );
+            } else {
+                let _ = PlaySoundW(windows::core::PCWSTR::null(), None, Default::default());
+            }
         }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = on;
+    }
+}
+
+/// A wall-clock moment (Unix ms) as the user's local short time, "14:35" or "2:35 PM".
+pub fn clock(unix_ms: u64) -> String {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+        use windows::Win32::Globalization::{GetTimeFormatEx, TIME_NOSECONDS};
+        use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
+        // 100 ns ticks since 1601.
+        let ft = unix_ms * 10_000 + 116_444_736_000_000_000;
+        let ft = FILETIME {
+            dwLowDateTime: ft as u32,
+            dwHighDateTime: (ft >> 32) as u32,
+        };
+        let (mut utc, mut local) = (SYSTEMTIME::default(), SYSTEMTIME::default());
+        let mut buf = [0u16; 32];
+        unsafe {
+            if FileTimeToSystemTime(&ft, &mut utc).is_err()
+                || SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_err()
+            {
+                return String::new();
+            }
+            let n = GetTimeFormatEx(None, TIME_NOSECONDS, Some(&local), None, Some(&mut buf));
+            String::from_utf16_lossy(&buf[..(n as usize).saturating_sub(1)])
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = unix_ms;
+        String::new()
     }
 }
 
@@ -249,7 +296,8 @@ mod tests {
             u32::from_le_bytes(w[4..8].try_into().unwrap()) as usize,
             w.len() - 8
         );
-        assert!(w.len() < 100_000);
+        // One looped phrase, a few seconds of 16-bit mono.
+        assert!(w.len() < 200_000);
     }
 
     #[test]

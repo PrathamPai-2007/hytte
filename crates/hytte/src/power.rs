@@ -22,18 +22,34 @@ pub struct Battery {
     /// Signed watts: positive charging, negative discharging; None when the driver stays silent.
     pub watts: Option<f32>,
     pub mode: Mode,
+    /// Windows' estimate of the minutes left on battery (None while plugged in or unknown).
+    pub mins_left: Option<u32>,
 }
 
 impl Battery {
     pub fn status(&self) -> String {
-        let flow = match self.watts {
+        format!("{}%  ·  {}", self.pct, self.flow())
+    }
+
+    /// Where the energy goes: "charging 24.5 W", "using 8.2 W", "full", ...
+    pub fn flow(&self) -> String {
+        match self.watts {
             Some(w) if w >= 0.5 => format!("charging {w:.1} W"),
             Some(w) if w <= -0.5 => format!("using {:.1} W", -w),
             _ if self.plugged && self.pct >= 100 => "full".into(),
             _ if self.plugged => "plugged in".into(),
             _ => "on battery".into(),
-        };
-        format!("{}%  ·  {flow}", self.pct)
+        }
+    }
+
+    /// "3 h 10 min left", when Windows has an estimate.
+    pub fn left(&self) -> Option<String> {
+        let m = self.mins_left?;
+        Some(match (m / 60, m % 60) {
+            (0, m) => format!("{m} min left"),
+            (h, 0) => format!("{h} h left"),
+            (h, m) => format!("{h} h {m} min left"),
+        })
     }
 }
 
@@ -209,6 +225,10 @@ mod imp {
             plugged,
             watts,
             mode: mode(),
+            // Seconds, u32::MAX when unknown; rounded to 5 min so it doesn't wake the UI every tick.
+            mins_left: (!plugged && st.BatteryLifeTime != u32::MAX)
+                .then(|| (st.BatteryLifeTime / 60 + 2) / 5 * 5)
+                .filter(|m| *m > 0),
         })
     }
 
@@ -342,10 +362,21 @@ mod tests {
             plugged,
             watts,
             mode: Mode::Balanced,
+            mins_left: None,
         };
         assert_eq!(b(78, true, Some(24.46)).status(), "78%  ·  charging 24.5 W");
         assert_eq!(b(40, false, Some(-8.2)).status(), "40%  ·  using 8.2 W");
         assert_eq!(b(100, true, Some(0.0)).status(), "100%  ·  full");
         assert_eq!(b(55, false, None).status(), "55%  ·  on battery");
+        let left = |m| {
+            Battery {
+                mins_left: Some(m),
+                ..b(55, false, None)
+            }
+            .left()
+        };
+        assert_eq!(left(190).as_deref(), Some("3 h 10 min left"));
+        assert_eq!(left(120).as_deref(), Some("2 h left"));
+        assert_eq!(left(25).as_deref(), Some("25 min left"));
     }
 }

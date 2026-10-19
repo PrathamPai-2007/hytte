@@ -17,10 +17,14 @@ pub const CHIP_HOLD: Duration = Duration::from_secs(10);
 /// Width the red mute lock takes from the pill's right edge.
 pub const LOCK_W: f32 = 26.0;
 pub const KILL_CONFIRM: Duration = Duration::from_secs(3);
-/// How long the timer-finished card waits before folding away on its own.
-pub const TIMER_DONE_HOLD: Duration = Duration::from_secs(30);
+/// How long the timer-finished card (and its alarm) waits before folding away on its own.
+pub const TIMER_DONE_HOLD: Duration = Duration::from_secs(120);
+/// Keep-awake for a while: how long the first click on the tile holds the PC up.
+pub const AWAKE_FOR: Duration = Duration::from_secs(3600);
 /// How long a failed task's red pulse takes to fade to rest.
 pub const FAIL_PULSE: Duration = Duration::from_secs(8);
+/// Height of one dev-server row in the Tasks pane.
+pub const SERVER_ROW: f32 = 36.0;
 /// Height of the output ticker line under a running task in the expanded list.
 pub const LINE_H: f32 = 14.0;
 /// How long the plug-in card stays after the charger is connected.
@@ -34,9 +38,12 @@ pub enum UiEvent {
     MediaArt(Option<Arc<ArtBitmap>>),
     Privacy(bool, bool, Option<String>),
     MicMute(bool),
+    /// The default speaker: (volume 0..1, muted); None without an output device.
+    Speaker(Option<(f32, bool)>),
     Power(Option<crate::power::Battery>),
     DropDone(crate::drop::DropResult),
-    Ports(Vec<PortInfo>),
+    /// Listening ports, and each port's process with its ancestors (parent first).
+    Ports(Vec<PortInfo>, std::collections::HashMap<u32, Vec<u32>>),
     /// A process has been using a lot of CPU or memory.
     Hog(crate::hog::Alert),
     /// A browser download finished: its name and where it landed.
@@ -167,9 +174,36 @@ pub enum Panel {
     Tasks,
     Shelf,
     Media,
-    Ports,
     Timer,
+    Power,
     Home,
+}
+
+/// Keep the PC (and its screen) awake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Awake {
+    #[default]
+    Off,
+    Until(Instant),
+    On,
+}
+
+impl Awake {
+    pub fn active(self, now: Instant) -> bool {
+        match self {
+            Awake::Off => false,
+            Awake::Until(t) => now < t,
+            Awake::On => true,
+        }
+    }
+    /// The tile cycles off -> an hour -> until turned off -> off.
+    pub fn next(self, now: Instant) -> Self {
+        match self {
+            Awake::Off => Awake::Until(now + AWAKE_FOR),
+            Awake::Until(_) => Awake::On,
+            Awake::On => Awake::Off,
+        }
+    }
 }
 
 /// What an extra chip button does when clicked.
@@ -213,6 +247,11 @@ pub struct Chip {
 }
 
 impl Chip {
+    /// Short enough for one line of the card, which then needs less height.
+    pub fn one_line(&self) -> bool {
+        self.summary.chars().count() < 44 && !self.summary.contains('\n')
+    }
+
     pub fn new(summary: impl Into<String>, since: Instant) -> Self {
         Self {
             summary: summary.into(),
@@ -234,9 +273,9 @@ pub enum Scene {
     CompactMedia,
     ExpTasks,
     ExpMedia,
-    ExpPorts,
     ExpShelf,
     ExpHome,
+    ExpPower,
     ExpDrop,
     ExpChip,
     ExpTimer,
@@ -275,6 +314,9 @@ pub struct Model {
     pub mic: bool,
     pub privacy_app: Option<String>,
     pub mic_muted: bool,
+    /// The default speaker: (volume 0..1, muted).
+    pub speaker: Option<(f32, bool)>,
+    pub awake: Awake,
     /// None on machines without a battery.
     pub power: Option<crate::power::Battery>,
     /// When the charger was last plugged in or out; the card shows for [`CHARGE_HOLD`].
@@ -294,6 +336,8 @@ pub struct Model {
     /// (subject, start) of the event whose heads-up was shown, so it isn't repeated.
     pub calendar_seen: Option<(String, i64)>,
     pub ports: Vec<PortInfo>,
+    /// Each port's pid -> its ancestors, to find the terminal task that started it.
+    pub port_parents: std::collections::HashMap<u32, Vec<u32>>,
     /// Port whose Kill button is armed ("Kill?") and until when.
     pub kill_armed: Option<(u16, Instant)>,
     pub shelf: Vec<ShelfItem>,
@@ -310,6 +354,8 @@ pub struct Model {
     /// Minutes the panel will start with (wheel / presets).
     pub timer_min: u32,
     pub timer_done: Option<(crate::timer::TimerKind, Instant)>,
+    /// The timer that just finished (its length and when it ended), for the finished card.
+    pub timer_last: Option<crate::timer::Timer>,
     /// Length of the break offered after a finished focus session.
     pub timer_break: u32,
     /// Focus sessions finished, for long-break spacing.
@@ -319,6 +365,17 @@ pub struct Model {
 }
 
 /// First word of a command line, lower-cased, without path or `.exe`.
+/// AI coding agents started from a shell. They report themselves through their hooks
+/// (`hytte setup agents`), so the shell's "running for an hour" row would only duplicate them.
+pub const AGENT_CLIS: &[&str] = &[
+    "claude",
+    "codex",
+    "opencode",
+    "gemini",
+    "agy",
+    "cursor-agent",
+];
+
 pub fn command_name(label: &str) -> String {
     let first = label.split_whitespace().next().unwrap_or("");
     let base = first
@@ -346,7 +403,8 @@ impl Model {
     fn upsert(&mut self, s: TaskState, now: Instant) {
         let shell = s.source == "shell";
         let terminal = matches!(s.event, TaskEvent::Done | TaskEvent::Failed);
-        if shell && self.ignore.contains(&command_name(&s.label)) {
+        let name = command_name(&s.label);
+        if shell && (self.ignore.contains(&name) || AGENT_CLIS.contains(&name.as_str())) {
             return;
         }
         let existing = self.tasks.iter().position(|t| t.id == s.task_id);
@@ -435,8 +493,13 @@ impl Model {
         self.power = p;
     }
 
-    pub fn set_ports(&mut self, p: Vec<PortInfo>) {
+    pub fn set_ports(
+        &mut self,
+        p: Vec<PortInfo>,
+        parents: std::collections::HashMap<u32, Vec<u32>>,
+    ) {
         self.ports = p;
+        self.port_parents = parents;
         if let Some((port, _)) = self.kill_armed {
             if !self.ports.iter().any(|x| x.port == port) {
                 self.kill_armed = None;
@@ -484,6 +547,9 @@ impl Model {
         if self.charge_since.is_some_and(|s| now >= s + CHARGE_HOLD) {
             self.charge_since = None;
         }
+        if !self.awake.active(now) {
+            self.awake = Awake::Off;
+        }
         if self
             .timer_done
             .is_some_and(|(_, s)| now.duration_since(s) >= TIMER_DONE_HOLD)
@@ -526,6 +592,9 @@ impl Model {
         if let Some((_, s)) = self.timer_done {
             keep(s + TIMER_DONE_HOLD);
         }
+        if let Awake::Until(t) = self.awake {
+            keep(t);
+        }
         next
     }
 
@@ -543,6 +612,7 @@ impl Model {
             self.focus_done += 1;
         }
         self.timer_done = Some((t.kind, now));
+        self.timer_last = Some(t.clone());
         Some(t.kind)
     }
 
@@ -611,8 +681,26 @@ impl Model {
         v
     }
 
+    /// The task whose process started this server (it, or one of its ancestors, is the task's).
+    pub fn task_for_port(&self, p: &PortInfo) -> Option<&TaskView> {
+        let chain = self.port_parents.get(&p.pid);
+        self.tasks.iter().find(|t| {
+            t.running()
+                && t.pid
+                    .is_some_and(|tp| tp == p.pid || chain.is_some_and(|c| c.contains(&tp)))
+        })
+    }
+
     pub fn visible_count(&self) -> usize {
         self.tasks.iter().filter(|t| self.visible(t)).count()
+    }
+
+    /// Height of the Servers section under the tasks (header + rows), 0 without ports.
+    pub fn servers_h(&self) -> f64 {
+        match self.ports.len().min(5) {
+            0 => 0.0,
+            n => 26.0 + n as f64 * SERVER_ROW as f64,
+        }
     }
 
     /// The task shown in the compact pill.
@@ -638,25 +726,28 @@ impl Model {
     }
 
     /// Panels that currently have something to show, in priority order.
+    /// Left to right: shelf, music, the quick controls (home), then what comes and goes (dev
+    /// work, a running timer), and the battery at the right end.
     pub fn panels(&self) -> Vec<Panel> {
         let mut v = vec![];
-        if self.visible_count() > 0 {
-            v.push(Panel::Tasks);
-        }
-        if self.timer.is_some() {
-            v.push(Panel::Timer);
-        }
         if !self.shelf.is_empty() {
             v.push(Panel::Shelf);
         }
         if self.media.is_some() {
             v.push(Panel::Media);
         }
-        if !self.ports.is_empty() {
-            v.push(Panel::Ports);
-        }
-        // System card (mic, battery) is always reachable.
+        // Quick controls (mic, sound, keep awake, timer) are always there.
         v.push(Panel::Home);
+        // Terminal tasks and the dev servers they run share one pane.
+        if self.visible_count() > 0 || !self.ports.is_empty() {
+            v.push(Panel::Tasks);
+        }
+        if self.timer.is_some() {
+            v.push(Panel::Timer);
+        }
+        if self.power.is_some() {
+            v.push(Panel::Power);
+        }
         v
     }
 
@@ -671,14 +762,27 @@ impl Model {
 
     /// Drag-over or a fresh drop: the user is interacting, so ignore fullscreen suppression.
     pub fn forced(&self) -> bool {
-        self.drop_over || self.now.zip(self.force_until).is_some_and(|(n, f)| n < f)
+        // A finished timer stays in view over fullscreen for as long as its card (and alarm) is up.
+        // So does an agent's Allow / Deny: over a maximised terminal it would otherwise
+        // wait unseen behind the thin line.
+        self.drop_over
+            || self.timer_done.is_some()
+            || self.chip.as_ref().is_some_and(|c| {
+                c.extra
+                    .iter()
+                    .any(|(_, a)| matches!(a, ChipAction::Answer(..)))
+            })
+            || self.now.zip(self.force_until).is_some_and(|(n, f)| n < f)
     }
 
     pub fn panel(&self) -> Panel {
         let ps = self.panels();
         match self.selected {
             Some(p) if ps.contains(&p) => p,
-            _ => ps[0],
+            // Unpicked: what the collapsed pill shows (a task, music), else the quick controls.
+            _ if self.visible_count() > 0 => Panel::Tasks,
+            _ if self.media.as_ref().is_some_and(|m| m.playing) => Panel::Media,
+            _ => Panel::Home,
         }
     }
 
@@ -708,8 +812,8 @@ impl Model {
                 Panel::Tasks => Scene::ExpTasks,
                 Panel::Shelf => Scene::ExpShelf,
                 Panel::Media => Scene::ExpMedia,
-                Panel::Ports => Scene::ExpPorts,
                 Panel::Timer => Scene::ExpTimer,
+                Panel::Power => Scene::ExpPower,
                 Panel::Home => Scene::ExpHome,
             };
         }
@@ -745,17 +849,22 @@ impl Model {
             }
             Scene::CompactTask => (292.0, 32.0),
             Scene::CompactMedia => (240.0, 32.0),
-            Scene::ExpMedia => (380.0, 128.0 + tab),
-            Scene::ExpHome => (380.0, if self.power.is_some() { 132.0 } else { 86.0 } + tab),
+            Scene::ExpMedia => (380.0, 132.0 + tab),
+            Scene::ExpHome => (380.0, 136.0 + tab),
+            Scene::ExpPower => (380.0, 112.0 + tab),
             Scene::ExpDrop => (380.0, 116.0),
-            Scene::ExpChip | Scene::ExpTimerDone => (380.0, 96.0),
+            Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
+            Scene::ExpChip => (380.0, 96.0),
+            Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
-            Scene::ExpTimer => (380.0, 92.0 + tab),
-            Scene::ExpPorts => (380.0, 20.0 + self.ports.len().min(5) as f64 * 34.0 + tab),
+            // Running: ring + controls. Not running: the setup card.
+            Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
+            Scene::ExpTimer => (380.0, 170.0 + tab),
+            Scene::ExpShelf if self.shelf_sel.is_some() => (380.0, 136.0 + tab),
             Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpTasks => {
                 let rows = self.rows();
-                let mut h = 22.0 + rows.len() as f64 * 34.0 + tab;
+                let mut h = 22.0 + rows.len() as f64 * 34.0 + tab + self.servers_h();
                 for t in &rows {
                     if t.needs_input() {
                         h += 20.0;
@@ -781,11 +890,7 @@ impl Model {
         if self.mic_muted
             && matches!(
                 scene,
-                Scene::Idle
-                    | Scene::CompactMedia
-                    | Scene::ExpHome
-                    | Scene::ExpMedia
-                    | Scene::ExpPorts
+                Scene::Idle | Scene::CompactMedia | Scene::ExpHome | Scene::ExpMedia
             )
         {
             return (RED, 0.8);
@@ -803,9 +908,13 @@ impl Model {
             {
                 (self.art_accent.unwrap_or([1.0; 3]), 0.40)
             }
-            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpPorts => {
-                ([1.0; 3], 0.10)
-            }
+            Scene::ExpPower => match self.power {
+                Some(b) if b.plugged => (GREEN, 0.35),
+                Some(b) if b.pct <= 20 => (RED, 0.5),
+                _ => ([1.0; 3], 0.10),
+            },
+            Scene::ExpTasks if self.visible_count() == 0 => ([1.0; 3], 0.10),
+            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
                 Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),
@@ -831,6 +940,8 @@ impl Model {
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
             || self.drop_over
             || scene == Scene::ExpCharge
+            // The bell swings while the alarm rings.
+            || scene == Scene::ExpTimerDone
             || (self.media.as_ref().is_some_and(|m| m.playing)
                 && matches!(scene, Scene::CompactMedia | Scene::ExpMedia))
     }
@@ -1093,6 +1204,29 @@ bang"
     }
 
     #[test]
+    fn an_agent_ask_shows_over_fullscreen() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        assert_eq!(m.scene(false, true), Scene::Sentinel);
+        let mut c = Chip::new("Claude Code: Running: cargo build", t0);
+        c.extra = vec![("Allow".into(), ChipAction::Answer(1, true))];
+        m.chip = Some(c);
+        assert_ne!(m.scene(false, true), Scene::Sentinel);
+    }
+
+    #[test]
+    fn agent_clis_are_left_to_their_hooks() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(shell("s", "claude --resume", TaskEvent::Start, 0, t0), t0);
+        m.apply_task(
+            shell("o", r"C:in\opencode.exe", TaskEvent::Start, 0, t0),
+            t0,
+        );
+        assert!(m.tasks.is_empty());
+    }
+
+    #[test]
     fn ignored_shell_commands_are_dropped() {
         let t0 = Instant::now();
         let mut m = Model {
@@ -1147,13 +1281,29 @@ bang"
             is_dir: false,
             owned: false,
         }];
-        assert_eq!(m.panels(), vec![Panel::Shelf, Panel::Ports, Panel::Home]);
+        // Shelf and music to the left of home, dev work and the battery to its right; a
+        // listening port puts the Tasks pane up even without a task.
+        m.power = Some(crate::power::Battery {
+            pct: 50,
+            plugged: false,
+            watts: None,
+            mode: crate::power::Mode::Balanced,
+            mins_left: None,
+        });
+        assert_eq!(
+            m.panels(),
+            vec![Panel::Shelf, Panel::Home, Panel::Tasks, Panel::Power]
+        );
         assert!(m.tabs());
-        assert_eq!(m.panel(), Panel::Shelf);
-        m.selected = Some(Panel::Ports);
-        assert_eq!(m.panel(), Panel::Ports);
+        assert_eq!(m.panel(), Panel::Home, "home is the default");
+        m.selected = Some(Panel::Tasks);
+        assert_eq!(m.panel(), Panel::Tasks);
         m.ports.clear();
-        assert_eq!(m.panel(), Panel::Shelf, "stale selection falls back");
+        assert_eq!(m.panel(), Panel::Home, "stale selection falls back to home");
+        // A running task in the collapsed pill opens on its own pane.
+        m.selected = None;
+        m.apply_task(st("t", TaskEvent::Start, Instant::now()), Instant::now());
+        assert_eq!(m.panel(), Panel::Tasks);
     }
 
     #[test]
@@ -1164,10 +1314,10 @@ bang"
             pid: 9,
             exe: "node.exe".into(),
         }];
-        assert_eq!(m.panels(), vec![Panel::Ports, Panel::Home]);
-        assert_eq!(m.step_panel(1), Panel::Home);
-        assert_eq!(m.step_panel(1), Panel::Ports, "wraps forward");
-        assert_eq!(m.step_panel(-1), Panel::Home, "wraps backward");
+        assert_eq!(m.panels(), vec![Panel::Home, Panel::Tasks]);
+        assert_eq!(m.step_panel(1), Panel::Tasks);
+        assert_eq!(m.step_panel(1), Panel::Home, "wraps forward");
+        assert_eq!(m.step_panel(-1), Panel::Tasks, "wraps backward");
     }
 
     #[test]
@@ -1270,6 +1420,7 @@ bang"
             plugged,
             watts: None,
             mode: crate::power::Mode::Balanced,
+            mins_left: None,
         }
     }
 
@@ -1303,7 +1454,7 @@ bang"
         assert_eq!(m.charge_since, Some(t0));
         m.expire(t0);
         assert_eq!(m.scene(false, false), Scene::ExpCharge);
-        // Hovering still opens the real panel, and a charge card is not interactive state.
+        // Hovering still opens the real panel (home), and a charge card is not interactive state.
         assert_eq!(m.scene(true, false), Scene::ExpHome);
         assert!(m.ambient(Scene::ExpCharge, t0));
         // The single expiry timer is armed for exactly the end of the card.
@@ -1359,7 +1510,7 @@ bang"
         m.adaptive_glow = true;
         assert_eq!(m.glow(Scene::ExpMedia), ([0.9, 0.2, 0.2], 0.40));
         // Other scenes keep their own colours.
-        assert_eq!(m.glow(Scene::ExpPorts).0, [1.0; 3]);
+        assert_eq!(m.glow(Scene::ExpHome).0, [1.0; 3]);
     }
 
     #[test]

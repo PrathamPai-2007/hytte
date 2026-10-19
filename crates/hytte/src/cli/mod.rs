@@ -27,6 +27,7 @@ usage:
   hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> ...   # AI agent / long-task monitor
   hytte init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s
   hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
+  hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
   hytte ports [--all]                    # list dev-server listeners
   hytte kill :PORT [--force]             # stop whatever listens on PORT
   hytte --version | help";
@@ -324,6 +325,17 @@ fn cmd_set(args: &[String]) {
 
 #[cfg(windows)]
 fn cmd_setup(args: &[String]) {
+    if args.first().is_some_and(|a| a == "agents") {
+        let undo = match &args[1..] {
+            [] => false,
+            [a] if a == "--undo" => true,
+            _ => usage(),
+        };
+        for line in crate::agents::connect(undo) {
+            println!("{line}");
+        }
+        return;
+    }
     let undo = match args {
         [] => false,
         [a] if a == "--undo" => true,

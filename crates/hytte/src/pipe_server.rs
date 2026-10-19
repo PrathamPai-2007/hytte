@@ -98,6 +98,8 @@ fn run_windows_loop(tx: Sender<HytteMessage>, ui_tx: Sender<UiEvent>) {
                 std::thread::spawn(move || {
                     let h = windows::Win32::Foundation::HANDLE(addr as *mut _);
                     serve_connection(h, &tx, &ui_tx);
+                    // An ask's answer must reach the client before the hang-up discards it.
+                    let _ = windows::Win32::Storage::FileSystem::FlushFileBuffers(h);
                     let _ = DisconnectNamedPipe(h);
                     let _ = windows::Win32::Foundation::CloseHandle(h);
                 });
@@ -147,6 +149,9 @@ fn serve_connection(
                 if ask.validate() {
                     answer(h, ask, tx, ui_tx);
                 }
+                // One ask per connection. Hanging up lets an unanswered asker fall back at once
+                // instead of waiting out its own timeout.
+                return;
             }
         }
     }

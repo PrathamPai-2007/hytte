@@ -1,9 +1,10 @@
-//! Global microphone mute: every active capture endpoint, via IAudioEndpointVolume.
-//! Changes made elsewhere (hardware key, Settings) arrive as endpoint-volume
-//! callbacks, so the watcher sleeps until Windows says something changed; toggling
+//! Global microphone mute (every active capture endpoint) and the default speaker's volume
+//! and mute, via IAudioEndpointVolume.
+//! Changes made elsewhere (hardware key, the volume flyout, Settings) arrive as endpoint-volume
+//! callbacks, so the watcher sleeps until Windows says something changed; changing them
 //! from Hytte updates the UI immediately. It reuses one device enumerator and the
 //! activated endpoints, re-enumerating (and re-subscribing) only when Windows
-//! reports a capture device was added, removed or changed state.
+//! reports a device was added, removed, changed state or became the default.
 
 use crate::ui_state::UiEvent;
 use crossbeam_channel::Sender;
@@ -34,6 +35,55 @@ pub fn toggle() -> Option<bool> {
     }
 }
 
+/// The default speaker: (volume 0..1, muted), or None without an output device.
+pub fn speaker() -> Option<(f32, bool)> {
+    #[cfg(windows)]
+    {
+        imp::speaker_state(&imp::speaker_endpoint()?)
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Set the default speaker's volume (0..1); turning it up also unmutes. Returns the new state.
+pub fn set_volume(v: f32) -> Option<(f32, bool)> {
+    #[cfg(windows)]
+    {
+        let e = imp::speaker_endpoint()?;
+        unsafe {
+            let _ = e.SetMasterVolumeLevelScalar(v.clamp(0.0, 1.0), std::ptr::null());
+            if v > 0.0 {
+                let _ = e.SetMute(false, std::ptr::null());
+            }
+        }
+        imp::speaker_state(&e)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = v;
+        None
+    }
+}
+
+/// Mute or unmute the default speaker. Returns the new state.
+pub fn toggle_speaker() -> Option<(f32, bool)> {
+    #[cfg(windows)]
+    {
+        let e = imp::speaker_endpoint()?;
+        let (_, muted) = imp::speaker_state(&e)?;
+        unsafe {
+            let _ = e.SetMute(!muted, std::ptr::null());
+        }
+        imp::speaker_state(&e)
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 #[cfg(windows)]
 mod imp {
     use super::*;
@@ -45,7 +95,7 @@ mod imp {
         IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
     };
     use windows::Win32::Media::Audio::{
-        eCapture, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
+        eCapture, eConsole, eRender, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
         IMMNotificationClient_Impl, AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE,
         DEVICE_STATE_ACTIVE,
     };
@@ -77,6 +127,27 @@ mod imp {
                         .ok()
                 })
                 .collect()
+        }
+    }
+
+    fn speaker_of(en: &IMMDeviceEnumerator) -> Option<IAudioEndpointVolume> {
+        unsafe {
+            en.GetDefaultAudioEndpoint(eRender, eConsole)
+                .ok()?
+                .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+                .ok()
+        }
+    }
+
+    pub fn speaker_endpoint() -> Option<IAudioEndpointVolume> {
+        speaker_of(&enumerator()?)
+    }
+
+    pub fn speaker_state(e: &IAudioEndpointVolume) -> Option<(f32, bool)> {
+        unsafe {
+            let v = e.GetMasterVolumeLevelScalar().ok()?;
+            let m = e.GetMute().ok()?.as_bool();
+            Some(((v * 100.0).round() / 100.0, m))
         }
     }
 
@@ -148,10 +219,14 @@ mod imp {
         }
         fn OnDefaultDeviceChanged(
             &self,
-            _flow: EDataFlow,
-            _role: ERole,
+            flow: EDataFlow,
+            role: ERole,
             _id: &PCWSTR,
         ) -> windows::core::Result<()> {
+            // A new default speaker (headphones plugged in): follow it.
+            if flow == eRender && role == eConsole {
+                let _ = self.0.try_send(Wake::Devices);
+            }
             Ok(())
         }
         fn OnPropertyValueChanged(
@@ -212,23 +287,35 @@ mod imp {
             .as_ref()
             .is_some_and(|en| unsafe { en.RegisterEndpointNotificationCallback(&client) }.is_ok());
         let mut subs: Option<Subscribed> = None;
+        let mut spk: Option<Subscribed> = None;
         let mut dirty = true;
         let mut last = None;
+        let mut last_spk = None;
         loop {
             // Without device notifications we re-enumerate every wake, as before.
             if dirty || !notified {
                 drop(subs.take()); // unsubscribe the old set first
-                let eps = match &en {
-                    Some(en) => endpoints_of(en),
-                    None => endpoints(),
+                drop(spk.take());
+                let (eps, speaker) = match &en {
+                    Some(en) => (endpoints_of(en), speaker_of(en)),
+                    None => (endpoints(), speaker_endpoint()),
                 };
                 subs = Some(Subscribed::new(eps, &tx));
+                spk = Some(Subscribed::new(speaker.into_iter().collect(), &tx));
                 dirty = false;
             }
             let m = subs.as_ref().is_some_and(Subscribed::muted);
             if last != Some(m) {
                 last = Some(m);
                 let _ = ui_tx.send(UiEvent::MicMute(m));
+            }
+            let s = spk
+                .as_ref()
+                .and_then(|s| s.eps.first())
+                .and_then(|(e, _)| speaker_state(e));
+            if last_spk != Some(s) {
+                last_spk = Some(s);
+                let _ = ui_tx.send(UiEvent::Speaker(s));
             }
             // Mute changes and device changes wake us. The timeout is only a safety net
             // (a missed callback); with no device notifications it is the old 2 s poll.

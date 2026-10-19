@@ -61,6 +61,15 @@ pub enum Action {
     /// Run a Drop Vault transform on a shelf item.
     ShelfOp(u64, crate::transforms::Conv),
     ToggleMic,
+    ToggleSpeaker,
+    /// Click on the volume bar: the level comes from where it was clicked.
+    Volume,
+    /// Keep-awake tile: off -> an hour -> on -> off.
+    CycleAwake,
+    /// Timer tile: the running timer's pane, or the setup card.
+    OpenTimer,
+    /// Timer setup: minutes up (+1) or down (-1) one wheel notch.
+    TimerNudge(i32),
     /// Set the minutes the timer panel will start with.
     TimerMinutes(u32),
     TimerStart(crate::timer::TimerKind),
@@ -108,6 +117,8 @@ pub struct Frame<'a> {
     pub focus: Option<usize>,
     /// A drag is in flight near the top edge: widen the (invisible) hit zone.
     pub armed: bool,
+    /// The timer alarm is sounding.
+    pub ringing: bool,
 }
 
 struct Fmts {
@@ -125,6 +136,10 @@ struct Fmts {
     small_c: IDWriteTextFormat,
     /// Segoe Fluent Icons glyphs, centred in their box (see `glyph`).
     icon: IDWriteTextFormat,
+    /// The same, larger (tiles, placeholders).
+    icon_l: IDWriteTextFormat,
+    /// Big display numbers (timer, battery percent).
+    hero: IDWriteTextFormat,
 }
 
 pub struct Renderer {
@@ -245,6 +260,27 @@ fn union_rect(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> (i32, i32, i3
 
 fn contains_rect(outer: (i32, i32, i32, i32), inner: (i32, i32, i32, i32)) -> bool {
     outer.0 <= inner.0 && outer.1 <= inner.1 && outer.2 >= inner.2 && outer.3 >= inner.3
+}
+
+/// Fluent volume glyph for a level 0..1.
+fn volume_glyph(v: f32) -> char {
+    match v {
+        v if v <= 0.0 => '\u{E992}',
+        v if v < 0.34 => '\u{E993}',
+        v if v < 0.67 => '\u{E994}',
+        _ => '\u{E995}',
+    }
+}
+
+fn capitalise(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+}
+
+/// Rough width of a button label in logical px (10.5 px semibold).
+fn text_w(s: &str) -> f32 {
+    s.chars().count() as f32 * 6.1
 }
 
 fn fmt_clock(ms: u64) -> String {
@@ -899,6 +935,239 @@ impl Renderer {
         );
     }
 
+    /// A filled call-to-action: the accent itself with dark ink on it.
+    fn primary(
+        &self,
+        label: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        accent: [f32; 3],
+        action: Action,
+    ) {
+        let hov = self.hit(x, y, w, h, action);
+        let down = hov && self.pressed.get();
+        let (x, y, w, h) = if down {
+            (x + w * 0.02, y + h * 0.03, w * 0.96, h * 0.94)
+        } else {
+            (x, y, w, h)
+        };
+        self.fill_rr(
+            x,
+            y,
+            w,
+            h,
+            h / 2.0,
+            self.cc(accent, if hov { 1.0 } else { 0.86 }),
+        );
+        self.text(
+            label,
+            &self.f.btn,
+            x,
+            y,
+            w,
+            h,
+            self.cc([0.03, 0.03, 0.05], 0.92),
+        );
+    }
+
+    /// A round icon button; `draw` paints the icon centred on (cx, cy) in the given colour.
+    fn round_btn(
+        &self,
+        cx: f32,
+        cy: f32,
+        r: f32,
+        accent: [f32; 3],
+        action: Action,
+        draw: impl Fn(f32, f32, D2D1_COLOR_F),
+    ) {
+        let hov = self.hit(cx - r, cy - r, r * 2.0, r * 2.0, action);
+        let down = hov && self.pressed.get();
+        let rr = if down { r * 0.94 } else { r };
+        let a = if down {
+            0.34
+        } else if hov {
+            0.24
+        } else {
+            0.12
+        };
+        self.circle(cx, cy, rr, self.cc(accent, a));
+        draw(cx, cy, self.cc(self.fg(), if hov { 1.0 } else { 0.88 }));
+    }
+
+    /// A larger Segoe Fluent Icons glyph centred on (cx, cy).
+    fn glyph_l(&self, cp: char, cx: f32, cy: f32, c: D2D1_COLOR_F) {
+        let mut b = [0u8; 4];
+        self.text(
+            cp.encode_utf8(&mut b),
+            &self.f.icon_l,
+            cx - 16.0,
+            cy - 16.0,
+            32.0,
+            32.0,
+            c,
+        );
+    }
+
+    /// Clockwise arc from 12 o'clock covering `frac` of the circle.
+    fn arc(&self, cx: f32, cy: f32, r: f32, frac: f32, c: D2D1_COLOR_F, width: f32) {
+        if frac <= 0.002 {
+            return;
+        }
+        if frac >= 0.998 {
+            self.ring(cx, cy, r, c, width);
+            return;
+        }
+        let a = frac * std::f32::consts::TAU;
+        unsafe {
+            let Ok(g) = self.factory.CreatePathGeometry() else {
+                return;
+            };
+            let Ok(sk) = g.Open() else { return };
+            sk.BeginFigure(v(cx, cy - r), D2D1_FIGURE_BEGIN_HOLLOW);
+            sk.AddArc(&D2D1_ARC_SEGMENT {
+                point: v(cx + r * a.sin(), cy - r * a.cos()),
+                size: D2D_SIZE_F {
+                    width: r,
+                    height: r,
+                },
+                rotationAngle: 0.0,
+                sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                arcSize: if frac > 0.5 {
+                    D2D1_ARC_SIZE_LARGE
+                } else {
+                    D2D1_ARC_SIZE_SMALL
+                },
+            });
+            sk.EndFigure(D2D1_FIGURE_END_OPEN);
+            let _ = sk.Close();
+            self.rt.DrawGeometry(&g, self.solid(c), width, &self.round);
+        }
+    }
+
+    /// Two rounded bars.
+    fn pause_icon(&self, cx: f32, cy: f32, s: f32, c: D2D1_COLOR_F) {
+        let bw = s * 0.3;
+        self.fill_rr(cx - s * 0.38, cy - s / 2.0, bw, s, bw / 2.5, c);
+        self.fill_rr(cx + s * 0.08, cy - s / 2.0, bw, s, bw / 2.5, c);
+    }
+
+    /// A play triangle, nudged right so it looks centred.
+    fn play_icon(&self, cx: f32, cy: f32, s: f32, c: D2D1_COLOR_F) {
+        let h = s / 2.0;
+        self.poly(
+            &[(cx - h * 0.7, cy - h), (cx - h * 0.7, cy + h), (cx + h, cy)],
+            c,
+        );
+    }
+
+    /// Previous (dir -1) or next (dir +1) track: a triangle against a bar.
+    fn skip_icon(&self, cx: f32, cy: f32, dir: f32, c: D2D1_COLOR_F) {
+        let h = 6.5;
+        self.poly(
+            &[
+                (cx - 5.0 * dir, cy - h),
+                (cx - 5.0 * dir, cy + h),
+                (cx + 4.0 * dir, cy),
+            ],
+            c,
+        );
+        let bx = if dir > 0.0 { cx + 4.5 } else { cx - 7.0 };
+        self.fill_rr(bx, cy - h, 2.5, h * 2.0, 1.2, c);
+    }
+
+    /// Rotate what is drawn next by `deg` around (cx, cy); returns the transform to restore.
+    fn rotate(&self, deg: f32, cx: f32, cy: f32) -> Matrix3x2 {
+        let mut cur = Matrix3x2::default();
+        unsafe { self.rt.GetTransform(&mut cur) };
+        let (s, c) = deg.to_radians().sin_cos();
+        let r = Matrix3x2 {
+            M11: c,
+            M12: s,
+            M21: -s,
+            M22: c,
+            M31: cx - c * cx + s * cy,
+            M32: cy - s * cx - c * cy,
+        };
+        let m = Matrix3x2 {
+            M11: r.M11 * cur.M11 + r.M12 * cur.M21,
+            M12: r.M11 * cur.M12 + r.M12 * cur.M22,
+            M21: r.M21 * cur.M11 + r.M22 * cur.M21,
+            M22: r.M21 * cur.M12 + r.M22 * cur.M22,
+            M31: r.M31 * cur.M11 + r.M32 * cur.M21 + cur.M31,
+            M32: r.M31 * cur.M12 + r.M32 * cur.M22 + cur.M32,
+        };
+        unsafe { self.rt.SetTransform(&m) };
+        cur
+    }
+
+    /// A quick-control tile: icon, name and state. `on` tints it with that accent.
+    fn tile(
+        &self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        icon: char,
+        label: &str,
+        sub: &str,
+        on: Option<[f32; 3]>,
+        action: Action,
+    ) {
+        let hov = self.hit(x, y, w, h, action);
+        let down = hov && self.pressed.get();
+        let (x, y, w, h) = if down {
+            (x + w * 0.03, y + h * 0.03, w * 0.94, h * 0.94)
+        } else {
+            (x, y, w, h)
+        };
+        match on {
+            Some(c) => {
+                self.fill_rr(x, y, w, h, 14.0, self.cc(c, if hov { 0.30 } else { 0.22 }));
+                self.stroke_rr(
+                    x + 0.5,
+                    y + 0.5,
+                    w - 1.0,
+                    h - 1.0,
+                    13.5,
+                    self.cc(c, 0.35),
+                    1.0,
+                    false,
+                );
+            }
+            None => self.fill_rr(
+                x,
+                y,
+                w,
+                h,
+                14.0,
+                self.cc(self.fg(), if hov { 0.11 } else { 0.06 }),
+            ),
+        }
+        let ic = on.unwrap_or(self.fg());
+        self.glyph_l(icon, x + w / 2.0, y + 20.0, self.cc(ic, 0.95));
+        self.text(
+            label,
+            &self.f.btn,
+            x,
+            y + 33.0,
+            w,
+            14.0,
+            self.cc(self.fg(), 0.95),
+        );
+        let sc = if on.is_some() { ic } else { GRAY };
+        self.text(
+            sub,
+            &self.f.small_c,
+            x,
+            y + 46.0,
+            w,
+            13.0,
+            self.cc(sc, 0.95),
+        );
+    }
+
     // ------------------------------------------------------------------ shape
 
     fn pill_geometry(&self, w: f32, h: f32, rb: f32, e: f32) -> Option<ID2D1PathGeometry> {
@@ -1085,7 +1354,13 @@ impl Renderer {
             .model
             .timer
             .as_ref()
-            .filter(|_| an.scene != Scene::ExpTimerDone)
+            // Collapsed only: expanded, the timer pane and the Timer tile show it.
+            .filter(|_| {
+                matches!(
+                    an.scene,
+                    Scene::Idle | Scene::CompactTask | Scene::CompactMedia
+                )
+            })
         {
             let m = fr.model;
             let centre = an.scene == Scene::Idle && m.ports.is_empty() && m.shelf.is_empty();
@@ -1144,9 +1419,9 @@ impl Renderer {
         self.content(fr, an.scene, w, h, pad_r);
         self.focus_live.set(false);
         self.morph.set(None);
-        // The Home card already spells out mic/camera state.
+        // The quick controls spell out the mic state (its tile), not the camera's: keep the dots.
         let home = an.scene == Scene::ExpHome;
-        if m.privacy_active() && !home {
+        if m.privacy_active() {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
             self.privacy_dots(
                 m,
@@ -1179,9 +1454,9 @@ impl Renderer {
             Scene::CompactMedia => self.compact_media(fr, w, h, pad_r),
             Scene::ExpTasks => self.exp_tasks(fr, w, h),
             Scene::ExpMedia => self.exp_media(fr, w, h),
-            Scene::ExpPorts => self.exp_ports(fr, w, h),
             Scene::ExpShelf => self.exp_shelf(fr, w, h),
             Scene::ExpHome => self.exp_home(fr, w, h),
+            Scene::ExpPower => self.exp_power(fr, w, h),
             Scene::ExpDrop => self.exp_drop(fr, w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
             Scene::ExpTimer => self.exp_timer(fr, w, h),
@@ -1193,9 +1468,9 @@ impl Renderer {
                 scene,
                 Scene::ExpTasks
                     | Scene::ExpMedia
-                    | Scene::ExpPorts
                     | Scene::ExpShelf
                     | Scene::ExpHome
+                    | Scene::ExpPower
                     | Scene::ExpTimer
             )
         {
@@ -1635,8 +1910,28 @@ impl Renderer {
             }
         }
         let _ = m;
-        self.fill_rr(x, y, s, s, r, self.cc(PURPLE, 0.22));
-        self.text("♪", &self.f.center, x, y, s, s, self.cc(self.fg(), 0.8));
+        self.fill_rr(x, y, s, s, r, self.cc(PURPLE, 0.20));
+        self.stroke_rr(
+            x + 0.5,
+            y + 0.5,
+            s - 1.0,
+            s - 1.0,
+            r,
+            self.cc(PURPLE, 0.30),
+            1.0,
+            false,
+        );
+        if s >= 40.0 {
+            self.glyph_l('\u{EC4F}', x + s / 2.0, y + s / 2.0, self.cc(PURPLE, 0.95));
+        } else {
+            self.glyph(
+                '\u{EC4F}',
+                x + s / 2.0,
+                y + s / 2.0,
+                s,
+                self.cc(PURPLE, 0.95),
+            );
+        }
     }
 
     fn compact_media(&self, fr: &Frame, w: f32, h: f32, pad_r: f32) {
@@ -1819,6 +2114,101 @@ impl Renderer {
                 y += 28.0;
             }
         }
+        if !fr.model.ports.is_empty() {
+            self.servers(fr, w, y);
+        }
+    }
+
+    /// The dev servers listening right now, under the tasks: the port, what runs it, and
+    /// the terminal task that started it when there is one.
+    fn servers(&self, fr: &Frame, w: f32, y0: f32) {
+        let m = fr.model;
+        let mut y = y0 + 4.0;
+        if !m.rows().is_empty() {
+            self.line((16.0, y), (w - 16.0, y), self.cc(self.fg(), 0.07), 1.0);
+        }
+        self.text(
+            "SERVERS",
+            &self.f.small_l,
+            18.0,
+            y + 4.0,
+            120.0,
+            16.0,
+            self.cc(GRAY, 0.75),
+        );
+        y += 22.0;
+        let row = crate::ui_state::SERVER_ROW;
+        for p in m.ports.iter().take(5) {
+            let cy = y + row / 2.0;
+            let task = m.task_for_port(p);
+            // Click the row: the terminal that runs it (as a task row does).
+            let row_hov = match task.and_then(|t| t.pid.map(|pid| (pid, t.id.clone()))) {
+                Some((pid, id)) => self.hit(
+                    8.0,
+                    y + 1.0,
+                    w - 16.0,
+                    row - 2.0,
+                    Action::FocusTerminal(pid, id),
+                ),
+                None => false,
+            };
+            if row_hov {
+                self.fill_rr(
+                    8.0,
+                    y + 1.0,
+                    w - 16.0,
+                    row - 2.0,
+                    10.0,
+                    self.cc(self.fg(), 0.05),
+                );
+            }
+            // A soft live dot.
+            self.circle(24.0, cy, 6.0, self.cc(GREEN, 0.16));
+            self.circle(24.0, cy, 3.2, self.cc(GREEN, 1.0));
+            self.text(
+                &format!(":{}", p.port),
+                &self.f.big,
+                40.0,
+                y + 2.0,
+                74.0,
+                20.0,
+                self.cc(self.fg(), 0.97),
+            );
+            let exe = p.exe.trim_end_matches(".exe");
+            let sub = match task {
+                Some(t) => format!("{exe}  ·  {}", t.label),
+                None => exe.to_string(),
+            };
+            self.text(
+                &sub,
+                &self.f.small,
+                41.0,
+                y + 19.0,
+                w - 41.0 - 130.0,
+                14.0,
+                self.cc(GRAY, 1.0),
+            );
+            let armed = m.kill_armed.is_some_and(|(port, _)| port == p.port);
+            self.button(
+                "Open",
+                w - 16.0 - 54.0 - 6.0 - 54.0,
+                cy - 12.0,
+                54.0,
+                24.0,
+                BLUE,
+                Action::OpenPort(p.port),
+            );
+            self.button(
+                if armed { "Kill?" } else { "Stop" },
+                w - 16.0 - 54.0,
+                cy - 12.0,
+                54.0,
+                24.0,
+                RED,
+                Action::KillPort(p.port, p.pid),
+            );
+            y += row;
+        }
     }
 
     fn exp_media(&self, fr: &Frame, w: f32, h: f32) {
@@ -1884,15 +2274,20 @@ impl Renderer {
         };
         let bx = tx;
         let bw = right - tx;
-        self.fill_rr(bx, 66.0, bw, 4.0, 2.0, self.cc(self.fg(), 0.14));
-        self.fill_rr(
-            bx,
-            66.0,
-            (bw * frac).max(if md.dur_ms > 0 { 3.0 } else { 0.0 }),
-            4.0,
-            2.0,
-            self.cc(self.fg(), 0.92),
-        );
+        // The album's own colour when adaptive glow is on, plain ink otherwise.
+        let acc = fr
+            .model
+            .art_accent
+            .filter(|_| fr.model.adaptive_glow && !self.light.get())
+            .unwrap_or(self.fg());
+        self.fill_rr(bx, 65.0, bw, 5.0, 2.5, self.cc(self.fg(), 0.12));
+        if md.dur_ms > 0 {
+            let fw = (bw * frac).max(5.0);
+            self.fill_rr(bx, 65.0, fw, 5.0, 2.5, self.cc(acc, 0.92));
+            if md.playing {
+                self.circle(bx + fw - 2.5, 67.5, 5.0, self.cc(self.fg(), 1.0));
+            }
+        }
         self.text(
             &fmt_clock(pos),
             &self.f.small,
@@ -1911,38 +2306,32 @@ impl Renderer {
             14.0,
             self.cc(GRAY, 1.0),
         );
-        // Transport controls.
+        // Transport controls, clear of the tab dots.
         let cx = tx + bw / 2.0;
-        let cy = h - 26.0;
-        let hov = self.hit(cx - 56.0, cy - 14.0, 28.0, 28.0, Action::MediaPrev);
-        self.glyph(
-            '\u{E892}',
-            cx - 42.0,
-            cy,
-            28.0,
-            self.cc(self.fg(), if hov { 1.0 } else { 0.78 }),
-        );
-        let hov = self.hit(cx + 28.0, cy - 14.0, 28.0, 28.0, Action::MediaNext);
-        self.glyph(
-            '\u{E893}',
-            cx + 42.0,
-            cy,
-            28.0,
-            self.cc(self.fg(), if hov { 1.0 } else { 0.78 }),
-        );
-        let hov = self.hit(cx - 16.0, cy - 16.0, 32.0, 32.0, Action::MediaToggle);
-        self.circle(
-            cx,
-            cy,
-            if hov { 16.0 } else { 15.0 },
-            self.cc(self.fg(), 0.95),
-        );
-        let dark = self.cc(self.ink(), 1.0);
-        // Pause / Play; the play triangle sits a hair right of centre to look centred.
-        if md.playing {
-            self.glyph('\u{E769}', cx, cy, 24.0, dark);
+        let cy = h - if fr.model.tabs() { 14.0 } else { 0.0 } - 26.0;
+        for (dir, action) in [(-1.0, Action::MediaPrev), (1.0, Action::MediaNext)] {
+            let x = cx + dir * 46.0;
+            let hov = self.hit(x - 16.0, cy - 16.0, 32.0, 32.0, action);
+            if hov {
+                self.circle(x, cy, 16.0, self.cc(self.fg(), 0.09));
+            }
+            self.skip_icon(x, cy, dir, self.cc(self.fg(), if hov { 1.0 } else { 0.8 }));
+        }
+        let hov = self.hit(cx - 18.0, cy - 18.0, 36.0, 36.0, Action::MediaToggle);
+        let down = hov && self.pressed.get();
+        let r = if down {
+            16.0
+        } else if hov {
+            18.0
         } else {
-            self.glyph('\u{E768}', cx + 0.5, cy, 24.0, dark);
+            17.0
+        };
+        self.circle(cx, cy, r, self.cc(self.fg(), 0.95));
+        let dark = self.cc(self.ink(), 1.0);
+        if md.playing {
+            self.pause_icon(cx, cy, 13.0, dark);
+        } else {
+            self.play_icon(cx + 1.0, cy, 14.0, dark);
         }
     }
 
@@ -1978,58 +2367,13 @@ impl Renderer {
         }
     }
 
-    fn exp_ports(&self, fr: &Frame, w: f32, _h: f32) {
-        let m = fr.model;
-        let mut y = 10.0;
-        for p in m.ports.iter().take(5) {
-            let cy = y + 17.0;
-            self.circle(24.0, cy, 3.2, self.cc(GREEN, 1.0));
-            self.text(
-                &format!(":{}", p.port),
-                &self.f.big,
-                36.0,
-                y + 5.0,
-                70.0,
-                24.0,
-                self.cc(self.fg(), 0.97),
-            );
-            self.text(
-                &p.exe,
-                &self.f.body,
-                106.0,
-                y + 8.0,
-                w - 106.0 - 140.0,
-                18.0,
-                self.cc(GRAY, 1.0),
-            );
-            let armed = m.kill_armed.is_some_and(|(port, _)| port == p.port);
-            self.button(
-                "Open",
-                w - 16.0 - 56.0 - 8.0 - 56.0,
-                y + 5.0,
-                56.0,
-                24.0,
-                BLUE,
-                Action::OpenPort(p.port),
-            );
-            self.button(
-                if armed { "Kill?" } else { "Kill" },
-                w - 16.0 - 56.0,
-                y + 5.0,
-                56.0,
-                24.0,
-                RED,
-                Action::KillPort(p.port, p.pid),
-            );
-            y += 34.0;
-        }
-    }
-
     fn exp_shelf(&self, fr: &Frame, w: f32, _h: f32) {
         let m = fr.model;
         let thumbs = self.thumbs.borrow();
+        // The row of tiles is centred (70 px a tile, 60 of it the tile itself).
+        let x0 = (w - (m.shelf.len().min(5) as f32 * 70.0 - 10.0)) / 2.0;
         for (i, it) in m.shelf.iter().take(5).enumerate() {
-            let (x, y, s) = (20.0 + i as f32 * 70.0, 14.0, 60.0);
+            let (x, y, s) = (x0 + i as f32 * 70.0, 14.0, 60.0);
             let sel = m.shelf_sel == Some(it.id);
             let hov = self.hit(x, y, s, s, Action::ShelfTile(it.id));
             self.fill_rr(
@@ -2109,11 +2453,11 @@ impl Renderer {
             self.text(
                 &it.name,
                 &self.f.small_c,
-                x - 5.0,
-                y + s + 2.0,
-                s + 10.0,
+                x - 2.0,
+                y + s + 3.0,
+                s + 4.0,
                 14.0,
-                self.cc(self.fg(), 0.85),
+                self.cc(self.fg(), if sel { 0.95 } else { 0.7 }),
             );
             if hov || sel {
                 let h2 = self.hit(
@@ -2165,9 +2509,9 @@ impl Renderer {
                 self.button(
                     label,
                     x,
-                    94.0,
+                    98.0,
                     *cw,
-                    22.0,
+                    26.0,
                     PURPLE,
                     Action::ShelfOp(it.id, *op),
                 );
@@ -2186,171 +2530,231 @@ impl Renderer {
         }
     }
 
+    /// Quick controls: microphone, sound, keep awake and the timer as tiles, the speaker
+    /// volume as a bar under them.
     fn exp_home(&self, fr: &Frame, w: f32, _h: f32) {
+        use crate::ui_state::Awake;
         let m = fr.model;
-        // Microphone row.
-        let muted = m.mic_muted;
-        let col = if muted { RED } else { GRAY };
-        self.fill_rr(
-            12.0,
-            8.0,
-            w - 24.0,
-            38.0,
-            12.0,
-            self.cc(col, if muted { 0.16 } else { 0.06 }),
-        );
-        if muted {
-            self.lock_icon(32.0, 27.0, RED, 1.0);
+        let now = fr.now;
+        let (gap, y, th) = (8.0, 12.0, 62.0);
+        let tw = (w - 32.0 - gap * 3.0) / 4.0;
+        let x = |i: f32| 16.0 + i * (tw + gap);
+        let (mic_icon, mic_sub, mic_on) = if m.mic_muted {
+            ('\u{F781}', "Muted", Some(RED))
+        } else if m.mic {
+            ('\u{E720}', "In use", Some(CAM))
         } else {
-            self.glyph('\u{E720}', 32.0, 27.0, 24.0, self.cc(self.fg(), 0.85));
-        }
-        let sub = if muted {
-            "Muted · apps hear nothing".to_string()
-        } else if m.cam || m.mic {
-            let what = match (m.cam, m.mic) {
-                (true, true) => "Camera + microphone",
-                (true, false) => "Camera",
-                _ => "Microphone",
-            };
-            match &m.privacy_app {
-                Some(a) => format!("{what} in use · {a}"),
-                None => format!("{what} in use"),
-            }
-        } else {
-            "Live · click Mute to silence every mic".to_string()
+            ('\u{E720}', "On", None)
         };
+        self.tile(
+            x(0.0),
+            y,
+            tw,
+            th,
+            mic_icon,
+            "Mic",
+            mic_sub,
+            mic_on,
+            Action::ToggleMic,
+        );
+        let (snd_icon, snd_sub, snd_on) = match m.speaker {
+            Some((_, true)) => ('\u{E74F}', "Muted".to_string(), Some(AMBER)),
+            Some((v, false)) => (volume_glyph(v), format!("{}%", (v * 100.0).round()), None),
+            None => ('\u{E74F}', "No output".to_string(), None),
+        };
+        self.tile(
+            x(1.0),
+            y,
+            tw,
+            th,
+            snd_icon,
+            "Sound",
+            &snd_sub,
+            snd_on,
+            Action::ToggleSpeaker,
+        );
+        let awake_sub = match m.awake {
+            Awake::Off => "Off".to_string(),
+            Awake::On => "On".to_string(),
+            Awake::Until(t) => {
+                let mins = t.saturating_duration_since(now).as_secs().div_ceil(60);
+                format!("{mins} min")
+            }
+        };
+        let awake_on = m.awake.active(now).then_some(ORANGE);
+        self.tile(
+            x(2.0),
+            y,
+            tw,
+            th,
+            '\u{E890}',
+            "Awake",
+            &awake_sub,
+            awake_on,
+            Action::CycleAwake,
+        );
+        let wall = crate::timer::now_ms();
+        let (timer_sub, timer_on) = match &m.timer {
+            Some(t) => (crate::timer::fmt(t.remaining_ms(wall)), Some(BLUE)),
+            None => ("Start".to_string(), None),
+        };
+        self.tile(
+            x(3.0),
+            y,
+            tw,
+            th,
+            '\u{E916}',
+            "Timer",
+            &timer_sub,
+            timer_on,
+            Action::OpenTimer,
+        );
+
+        // Volume bar: click to set, scroll to nudge.
+        let (bx, by, bw, bh) = (16.0, y + th + 12.0, w - 32.0, 32.0);
+        let hov = self.hit(bx, by, bw, bh, Action::Volume);
+        self.fill_rr(
+            bx,
+            by,
+            bw,
+            bh,
+            bh / 2.0,
+            self.cc(self.fg(), if hov { 0.10 } else { 0.06 }),
+        );
+        match m.speaker {
+            Some((vol, muted)) => {
+                let fw = (bw * vol).max(bh);
+                let (fill, a) = if muted {
+                    (GRAY, 0.30)
+                } else {
+                    (self.fg(), 0.9)
+                };
+                self.fill_rr(bx, by, fw, bh, bh / 2.0, self.cc(fill, a));
+                let icon = if muted { '\u{E74F}' } else { volume_glyph(vol) };
+                let on_fill = if muted { self.fg() } else { self.ink() };
+                self.glyph(icon, bx + 17.0, by + bh / 2.0, 20.0, self.cc(on_fill, 0.9));
+            }
+            None => {
+                self.text(
+                    "No output device",
+                    &self.f.small_c,
+                    bx,
+                    by,
+                    bw,
+                    bh,
+                    self.cc(GRAY, 0.9),
+                );
+            }
+        }
+    }
+
+    /// Battery and power mode.
+    fn exp_power(&self, fr: &Frame, w: f32, _h: f32) {
+        let Some(b) = fr.model.power else { return };
+        let low = b.pct <= 20 && !b.plugged;
+        let col = if low {
+            RED
+        } else if b.plugged {
+            GREEN
+        } else {
+            self.fg()
+        };
+        // A big battery: outline, nub, charge, and a bolt while plugged in.
+        let (ix, iy, iw, ih) = (22.0, 22.0, 40.0, 21.0);
+        self.stroke_rr(ix, iy, iw, ih, 6.0, self.cc(self.fg(), 0.55), 1.6, false);
+        self.fill_rr(
+            ix + iw + 2.0,
+            iy + 6.5,
+            3.0,
+            ih - 13.0,
+            1.4,
+            self.cc(self.fg(), 0.55),
+        );
+        let fw = ((iw - 6.0) * b.pct as f32 / 100.0).max(3.0);
+        self.fill_rr(ix + 3.0, iy + 3.0, fw, ih - 6.0, 3.5, self.cc(col, 0.95));
+        if b.plugged {
+            let (cx, cy) = (ix + iw / 2.0, iy + ih / 2.0);
+            let bolt = [
+                (cx + 1.5, cy - 8.0),
+                (cx - 4.5, cy + 1.0),
+                (cx - 0.5, cy + 1.0),
+                (cx - 1.5, cy + 8.0),
+                (cx + 4.5, cy - 1.0),
+                (cx + 0.5, cy - 1.0),
+            ];
+            self.poly(&bolt, self.cc(self.ink(), 0.9));
+        }
+        let pct = format!("{}%", b.pct);
         self.text(
-            "Microphone",
-            &self.f.title,
-            52.0,
+            &pct,
+            &self.f.hero,
+            80.0,
             10.0,
-            w - 52.0 - 100.0,
-            20.0,
+            120.0,
+            34.0,
             self.cc(self.fg(), 0.97),
         );
+        let sub = match b.left() {
+            Some(l) => format!("{}  ·  {l}", capitalise(&b.flow())),
+            None => capitalise(&b.flow()),
+        };
+        let sc = if low { RED } else { GRAY };
         self.text(
             &sub,
             &self.f.small,
-            52.0,
-            27.0,
-            w - 52.0 - 100.0,
+            81.0,
+            41.0,
+            w - 97.0,
             16.0,
-            self.cc(if muted { RED } else { GRAY }, 1.0),
+            self.cc(sc, 1.0),
         );
-        self.button(
-            if muted { "Unmute" } else { "Mute" },
-            w - 24.0 - 68.0,
-            15.0,
-            68.0,
-            24.0,
-            if muted { RED } else { self.fg() },
-            Action::ToggleMic,
-        );
-        let mut hint_y = 56.0;
-        // Battery row (laptops only).
-        if let Some(b) = &m.power {
-            let low = b.pct <= 20 && !b.plugged;
-            let bc = if low {
-                RED
-            } else if b.plugged {
-                GREEN
-            } else {
-                self.fg()
-            };
-            self.stroke_rr(
-                20.5,
-                59.5,
-                24.0,
-                12.0,
+
+        // Power mode: one segmented control.
+        let (sx, sy, sw, sh) = (16.0, 68.0, w - 32.0, 32.0);
+        self.fill_rr(sx, sy, sw, sh, sh / 2.0, self.cc(self.fg(), 0.06));
+        let seg = sw / 3.0;
+        let modes = [
+            (Mode::Saver, "Saver", GREEN),
+            (Mode::Balanced, "Balanced", BLUE),
+            (Mode::Performance, "Performance", ORANGE),
+        ];
+        for (i, (mode, label, accent)) in modes.into_iter().enumerate() {
+            let x = sx + i as f32 * seg;
+            let on = b.mode == mode;
+            let hov = self.hit(x, sy, seg, sh, Action::SetPowerMode(mode));
+            let (ix, iy, iw, ih) = (x + 3.0, sy + 3.0, seg - 6.0, sh - 6.0);
+            if on {
+                self.fill_rr(ix, iy, iw, ih, ih / 2.0, self.cc(accent, 0.26));
+                self.stroke_rr(
+                    ix + 0.5,
+                    iy + 0.5,
+                    iw - 1.0,
+                    ih - 1.0,
+                    ih / 2.0,
+                    self.cc(accent, 0.6),
+                    1.0,
+                    false,
+                );
+            } else if hov {
+                self.fill_rr(ix, iy, iw, ih, ih / 2.0, self.cc(self.fg(), 0.07));
+            }
+            let dot_x = x + seg / 2.0 - text_w(label) / 2.0 - 5.0;
+            self.circle(
+                dot_x,
+                sy + sh / 2.0,
                 3.0,
-                self.cc(self.fg(), 0.7),
-                1.2,
-                false,
-            );
-            self.fill_rr(45.0, 63.0, 2.5, 5.0, 1.0, self.cc(self.fg(), 0.7));
-            self.fill_rr(
-                22.5,
-                61.5,
-                (20.0 * b.pct as f32 / 100.0).max(2.0),
-                8.0,
-                1.8,
-                self.cc(bc, 0.95),
+                self.cc(accent, if on { 1.0 } else { 0.55 }),
             );
             self.text(
-                &b.status(),
-                &self.f.body,
-                58.0,
-                56.0,
-                w - 58.0 - 16.0,
-                20.0,
-                self.cc(self.fg(), 0.92),
+                label,
+                &self.f.btn,
+                x + 6.0,
+                sy,
+                seg,
+                sh,
+                self.cc(self.fg(), if on { 1.0 } else { 0.7 }),
             );
-            let modes = [
-                (Mode::Saver, "Saver"),
-                (Mode::Balanced, "Balanced"),
-                (Mode::Performance, "Performance"),
-            ];
-            let (bw, gap) = (96.0, 6.0);
-            let mut x = (w - (bw * 3.0 + gap * 2.0)) / 2.0;
-            for (mode, label) in modes {
-                let on = b.mode == mode;
-                let hov = self.hit(x, 82.0, bw, 24.0, Action::SetPowerMode(mode));
-                let accent = match mode {
-                    Mode::Saver => GREEN,
-                    Mode::Balanced => BLUE,
-                    Mode::Performance => ORANGE,
-                };
-                self.fill_rr(
-                    x,
-                    82.0,
-                    bw,
-                    24.0,
-                    12.0,
-                    self.cc(
-                        accent,
-                        if on {
-                            0.34
-                        } else if hov {
-                            0.16
-                        } else {
-                            0.07
-                        },
-                    ),
-                );
-                if on {
-                    self.stroke_rr(
-                        x + 0.5,
-                        82.5,
-                        bw - 1.0,
-                        23.0,
-                        11.5,
-                        self.cc(accent, 0.8),
-                        1.2,
-                        false,
-                    );
-                }
-                self.text(
-                    label,
-                    &self.f.btn,
-                    x,
-                    82.0,
-                    bw,
-                    24.0,
-                    self.cc(self.fg(), if on { 1.0 } else { 0.78 }),
-                );
-                x += bw + gap;
-            }
-            hint_y = 110.0;
         }
-        self.text(
-            "Drop files here  ·  hytte run -- <cmd>",
-            &self.f.small_c,
-            0.0,
-            hint_y,
-            w,
-            16.0,
-            self.cc(GRAY, 0.6),
-        );
     }
 
     fn exp_drop(&self, fr: &Frame, w: f32, h: f32) {
@@ -2433,12 +2837,13 @@ impl Renderer {
             40.0,
             self.cc(self.fg(), 0.95),
         );
+        let by = if c.one_line() { 44.0 } else { 60.0 };
         let mut x = 16.0;
         if let Some(p) = &c.open {
             self.button(
                 "Open",
                 x,
-                60.0,
+                by,
                 62.0,
                 24.0,
                 PURPLE,
@@ -2450,7 +2855,7 @@ impl Renderer {
             self.button(
                 "Copy",
                 x,
-                60.0,
+                by,
                 62.0,
                 24.0,
                 PURPLE,
@@ -2467,18 +2872,10 @@ impl Renderer {
                 ChipAction::Answer(_, true) => GREEN,
                 _ => accent,
             };
-            self.button(label, x, 60.0, bw, 24.0, col, Action::Chip(act.clone()));
+            self.button(label, x, by, bw, 24.0, col, Action::Chip(act.clone()));
             x += bw + 8.0;
         }
-        self.button(
-            "Dismiss",
-            x,
-            60.0,
-            70.0,
-            24.0,
-            self.fg(),
-            Action::DismissChip,
-        );
+        self.button("Dismiss", x, by, 70.0, 24.0, self.fg(), Action::DismissChip);
     }
 
     /// The card shown for a moment after the charger is plugged in (a battery that fills up)
@@ -2591,109 +2988,177 @@ impl Renderer {
     }
 
     fn exp_timer(&self, fr: &Frame, w: f32, _h: f32) {
+        use crate::timer::TimerKind;
         let m = fr.model;
+        let wall = crate::timer::now_ms();
         if let Some(t) = &m.timer {
-            let left = t.remaining_ms(crate::timer::now_ms());
+            let left = t.remaining_ms(wall);
+            let paused = t.paused_ms.is_some();
+            let frac = t.frac(wall);
+            let col = if paused {
+                AMBER
+            } else if left < 60_000 {
+                RED
+            } else if frac <= 0.2 {
+                AMBER
+            } else {
+                BLUE
+            };
+            // The ring is the countdown and the pause / resume button.
+            let (cx, cy, r) = (46.0, 46.0, 27.0);
+            let d = 2.0 * r + 8.0;
+            let hov = self.hit(cx - r - 4.0, cy - r - 4.0, d, d, Action::TimerPause);
+            self.circle(cx, cy, r - 4.0, self.cc(col, if hov { 0.16 } else { 0.07 }));
+            self.ring(cx, cy, r, self.cc(self.fg(), 0.09), 5.0);
+            self.arc(cx, cy, r, frac, self.cc(col, 0.95), 5.0);
+            let ic = self.cc(self.fg(), if hov { 1.0 } else { 0.85 });
+            if paused {
+                self.play_icon(cx, cy, 15.0, ic);
+            } else {
+                self.pause_icon(cx, cy, 14.0, ic);
+            }
             self.text(
                 &crate::timer::fmt(left),
-                &self.f.big,
-                20.0,
-                10.0,
-                140.0,
-                28.0,
-                self.cc(self.fg(), 1.0),
-            );
-            self.text(
-                &if t.paused_ms.is_some() {
-                    format!("{} · paused", t.kind.name())
-                } else {
-                    t.kind.name().to_string()
-                },
-                &self.f.small_r,
-                w - 190.0,
+                &self.f.hero,
+                88.0,
                 14.0,
                 150.0,
-                20.0,
-                self.cc(GRAY, 1.0),
+                34.0,
+                self.cc(self.fg(), 0.97),
+            );
+            let sub = if paused {
+                format!("{} · paused", t.kind.name())
+            } else {
+                format!(
+                    "{} · ends {}",
+                    t.kind.name(),
+                    crate::timer::clock(t.ends_ms)
+                )
+            };
+            let sc = if paused { AMBER } else { GRAY };
+            self.text(
+                &sub,
+                &self.f.small,
+                89.0,
+                47.0,
+                170.0,
+                16.0,
+                self.cc(sc, 1.0),
             );
             // A focus cycle is a row of dots: filled for finished rounds, lit for the one running.
-            if t.kind != crate::timer::TimerKind::Plain {
-                let (filled, total) = crate::timer::round_dots(
-                    m.focus_done,
-                    m.rounds,
-                    t.kind == crate::timer::TimerKind::Focus,
-                );
-                let x0 = w - 16.0 - total as f32 * 12.0;
+            if t.kind != TimerKind::Plain {
+                let focus = t.kind == TimerKind::Focus;
+                let (filled, total) = crate::timer::round_dots(m.focus_done, m.rounds, focus);
                 for i in 0..total {
                     let on = i < filled;
-                    let cx = x0 + i as f32 * 12.0 + 4.0;
-                    let live = on && i + 1 == filled && t.kind == crate::timer::TimerKind::Focus;
+                    let dx = 93.0 + i as f32 * 12.0;
+                    let live = on && i + 1 == filled && focus;
                     if on {
-                        self.circle(cx, 36.0, 3.6, self.cc(if live { BLUE } else { GREEN }, 1.0));
+                        self.circle(dx, 73.0, 3.4, self.cc(if live { BLUE } else { GREEN }, 1.0));
                     } else {
-                        self.ring(cx, 36.0, 3.0, self.cc(GRAY, 0.6), 1.2);
+                        self.ring(dx, 73.0, 2.8, self.cc(GRAY, 0.6), 1.2);
                     }
                 }
             }
-            let pause = if t.paused_ms.is_some() {
-                "Resume"
-            } else {
-                "Pause"
-            };
-            self.button(pause, 16.0, 50.0, 70.0, 26.0, AMBER, Action::TimerPause);
-            self.button("+5 min", 92.0, 50.0, 66.0, 26.0, BLUE, Action::TimerAdd(5));
-            self.button("Stop", 164.0, 50.0, 56.0, 26.0, RED, Action::TimerStop);
+            let fg = self.fg();
+            let bx = w - 16.0 - 19.0;
+            self.round_btn(bx, cy, 19.0, RED, Action::TimerStop, |x, y, c| {
+                self.fill_rr(x - 5.5, y - 5.5, 11.0, 11.0, 2.5, c)
+            });
+            self.round_btn(bx - 46.0, cy, 19.0, fg, Action::TimerAdd(5), |x, y, c| {
+                self.text("+5", &self.f.center, x - 19.0, y - 19.0, 38.0, 38.0, c)
+            });
             return;
         }
+        // Setup: length, presets, start.
         self.text(
             &format!("{} min", m.timer_min),
-            &self.f.big,
+            &self.f.hero,
             20.0,
             10.0,
-            140.0,
-            28.0,
-            self.cc(self.fg(), 1.0),
+            200.0,
+            36.0,
+            self.cc(self.fg(), 0.97),
         );
         self.text(
-            "Scroll to adjust",
-            &self.f.small_r,
-            w - 190.0,
+            "Press − / + or scroll to change the minutes",
+            &self.f.small,
+            21.0,
+            44.0,
+            w - 21.0 - 104.0,
             14.0,
-            150.0,
-            20.0,
-            self.cc(GRAY, 1.0),
+            self.cc(GRAY, 0.9),
         );
-        let mut x = 16.0;
-        for p in [5u32, 10, 15, 30, 45] {
-            let accent = if p == m.timer_min { BLUE } else { self.fg() };
-            self.button(
-                &p.to_string(),
+        let fg = self.fg();
+        let bx = w - 16.0 - 18.0;
+        self.round_btn(bx, 30.0, 18.0, fg, Action::TimerNudge(1), |x, y, c| {
+            self.line((x - 6.0, y), (x + 6.0, y), c, 2.0);
+            self.line((x, y - 6.0), (x, y + 6.0), c, 2.0);
+        });
+        self.round_btn(
+            bx - 44.0,
+            30.0,
+            18.0,
+            fg,
+            Action::TimerNudge(-1),
+            |x, y, c| {
+                self.line((x - 6.0, y), (x + 6.0, y), c, 2.0);
+            },
+        );
+        let presets = [5u32, 10, 25, 45, 60];
+        let (gap, py, ph) = (6.0, 68.0, 28.0);
+        let pw = (w - 32.0 - gap * (presets.len() - 1) as f32) / presets.len() as f32;
+        for (i, p) in presets.into_iter().enumerate() {
+            let x = 16.0 + i as f32 * (pw + gap);
+            let on = p == m.timer_min;
+            let hov = self.hit(x, py, pw, ph, Action::TimerMinutes(p));
+            let a = if on {
+                0.28
+            } else if hov {
+                0.12
+            } else {
+                0.06
+            };
+            self.fill_rr(
                 x,
-                50.0,
-                36.0,
-                26.0,
-                accent,
-                Action::TimerMinutes(p),
+                py,
+                pw,
+                ph,
+                ph / 2.0,
+                self.cc(if on { BLUE } else { fg }, a),
             );
-            x += 40.0;
+            let tc = self.cc(fg, if on { 1.0 } else { 0.75 });
+            self.text(&format!("{p} min"), &self.f.btn, x, py, pw, ph, tc);
         }
-        self.button(
-            "Timer",
-            w - 16.0 - 62.0 - 6.0 - 62.0,
-            50.0,
-            62.0,
-            26.0,
+        let bw = (w - 32.0 - 8.0) / 2.0;
+        let start = |k| Action::TimerStart(k);
+        self.primary(
+            "Start timer",
+            16.0,
+            106.0,
+            bw,
+            32.0,
             BLUE,
-            Action::TimerStart(crate::timer::TimerKind::Plain),
+            start(TimerKind::Plain),
         );
-        self.button(
-            "Focus",
-            w - 16.0 - 62.0,
-            50.0,
-            62.0,
-            26.0,
+        self.primary(
+            "Start focus",
+            24.0 + bw,
+            106.0,
+            bw,
+            32.0,
             GREEN,
-            Action::TimerStart(crate::timer::TimerKind::Focus),
+            start(TimerKind::Focus),
+        );
+        let close = "Right-click the pill to close";
+        self.text(
+            close,
+            &self.f.small,
+            ((w - text_w(close)) / 2.0).max(16.0),
+            144.0,
+            text_w(close) + 12.0,
+            14.0,
+            self.cc(GRAY, 0.75),
         );
     }
 
@@ -2703,60 +3168,101 @@ impl Renderer {
         let Some((kind, _)) = m.timer_done else {
             return;
         };
-        self.circle(26.0, 24.0, 9.0, self.cc(GREEN, 0.2));
-        self.line((22.2, 24.4), (25.0, 27.4), self.cc(GREEN, 1.0), 2.0);
-        self.line((25.0, 27.4), (30.2, 21.2), self.cc(GREEN, 1.0), 2.0);
+        // A bell in a halo; while the alarm rings it swings and sends out ripples.
+        let (cx, cy) = (40.0, 38.0);
+        let ringing = fr.ringing;
+        let t = self.t.get();
+        if ringing {
+            for k in 0..2 {
+                let ph = (t * 0.8 + k as f32 * 0.5).fract();
+                self.ring(
+                    cx,
+                    cy,
+                    21.0 + ph * 12.0,
+                    self.cc(GREEN, (1.0 - ph) * 0.35),
+                    1.5,
+                );
+            }
+        }
+        self.circle(cx, cy, 21.0, self.cc(GREEN, 0.18));
+        // The alarm phrase is ~2.6 s: swing during the notes, rest in the pause.
+        let phrase = (t % 2.64) / 1.5;
+        let swing = if ringing && phrase < 1.0 {
+            (t * 22.0).sin() * 14.0 * (1.0 - phrase)
+        } else {
+            0.0
+        };
+        let saved = self.rotate(swing, cx, cy - 9.0);
+        self.glyph_l('\u{EA8F}', cx, cy, self.cc(GREEN, 1.0));
+        unsafe { self.rt.SetTransform(&saved) };
         let title = match kind {
-            Plain => "Timer finished",
-            Focus => "Focus session finished",
+            Plain => "Time's up",
+            Focus => "Focus session done",
             Break => "Break is over",
         };
         self.text(
             title,
             &self.f.big,
-            46.0,
-            10.0,
-            w - 60.0,
-            28.0,
+            74.0,
+            16.0,
+            w - 90.0,
+            22.0,
             self.cc(self.fg(), 0.97),
         );
+        if let Some(last) = &m.timer_last {
+            let mins = last.total_ms / 60_000;
+            let what = kind.name().to_lowercase();
+            let ended = crate::timer::clock(last.ends_ms);
+            let sub = format!("{mins} min {what}  ·  ended {ended}");
+            self.text(
+                &sub,
+                &self.f.small,
+                75.0,
+                39.0,
+                w - 90.0,
+                16.0,
+                self.cc(GRAY, 1.0),
+            );
+        }
+        let (y, h) = (70.0, 30.0);
         let mut x = 16.0;
         match kind {
             Focus => {
                 let label = format!("Start {} min break", m.timer_break);
-                let bw = 28.0 + 6.0 * label.len() as f32;
-                self.button(
+                let bw = 30.0 + 6.2 * label.len() as f32;
+                self.primary(
                     &label,
                     x,
-                    56.0,
+                    y,
                     bw,
-                    26.0,
+                    h,
                     GREEN,
                     Action::TimerBreak(m.timer_break),
                 );
                 x += bw + 8.0;
             }
             Break => {
-                self.button(
+                self.primary(
                     "Start focus",
                     x,
-                    56.0,
-                    92.0,
-                    26.0,
+                    y,
+                    104.0,
+                    h,
                     GREEN,
                     Action::TimerStart(Focus),
                 );
-                x += 100.0;
+                x += 112.0;
             }
             Plain => {}
         }
-        self.button("+5 min", x, 56.0, 64.0, 26.0, BLUE, Action::TimerAdd(5));
+        self.button("+5 min", x, y, 70.0, h, BLUE, Action::TimerAdd(5));
+        let dismiss = if ringing { "Stop alarm" } else { "Dismiss" };
         self.button(
-            "Dismiss",
-            x + 72.0,
-            56.0,
-            70.0,
-            26.0,
+            dismiss,
+            w - 16.0 - 88.0,
+            y,
+            88.0,
+            h,
             self.fg(),
             Action::TimerDismiss,
         );
@@ -2896,6 +3402,13 @@ impl Fmts {
             // predecessor, Segoe MDL2 Assets, which the font fallback covers on older builds.
             let icon = mk(w!("Segoe Fluent Icons"), 16.0, DWRITE_FONT_WEIGHT_NORMAL)?;
             icon.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            let icon_l = mk(w!("Segoe Fluent Icons"), 20.0, DWRITE_FONT_WEIGHT_NORMAL)?;
+            icon_l.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            let hero = mk(
+                w!("Segoe UI Variable Display"),
+                27.0,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            )?;
             Ok(Self {
                 title,
                 body,
@@ -2910,7 +3423,353 @@ impl Fmts {
                 big_c,
                 small_c,
                 icon,
+                icon_l,
+                hero,
             })
         }
+    }
+}
+
+/// Offscreen pictures of the expanded scenes, for eyeballing UI changes without running the
+/// pill: `HYTTE_SNAP_DIR=<dir> cargo test snapshots -- --ignored` writes one BMP per scene,
+/// composited over a dark wallpaper grey.
+#[cfg(test)]
+mod snap {
+    use super::*;
+    use crate::ui_state::MediaInfo;
+    use hytte_proto::ports::PortInfo;
+
+    fn shoot(
+        r: &mut Renderer,
+        dir: &std::path::Path,
+        name: &str,
+        m: &Model,
+        scene: Scene,
+        light: bool,
+    ) {
+        let mut an = Anim::new(120.0, 24.0);
+        an.set_scene(scene, m.size(scene), m.glow(scene));
+        for _ in 0..240 {
+            an.step(1.0 / 60.0);
+        }
+        let fr = Frame {
+            model: m,
+            anim: &an,
+            now: Instant::now(),
+            dt: 1.0 / 60.0,
+            mouse: None,
+            acrylic: false,
+            pressed: false,
+            light,
+            focus: None,
+            armed: false,
+            ringing: true,
+        };
+        let crop = r.plan(an.rect.w.pos as f32, an.rect.h.pos as f32, false, 0.0, true);
+        let mut hits = vec![];
+        r.draw(&fr, crop, &mut hits);
+        let (w, h) = (crop.w_px, crop.h_px);
+        let cw = w;
+        // The renderer's DIB is selected into its DC, which GetDIBits can't read: copy it out.
+        let px: Vec<u8> = unsafe {
+            let bi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w,
+                    biHeight: -h,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let dc = CreateCompatibleDC(Some(r.mem));
+            let mut bits = std::ptr::null_mut();
+            let bmp = CreateDIBSection(Some(dc), &bi, DIB_RGB_COLORS, &mut bits, None, 0).unwrap();
+            let old = SelectObject(dc, bmp.into());
+            BitBlt(dc, 0, 0, w, h, Some(r.mem), 0, 0, SRCCOPY).unwrap();
+            let _ = GdiFlush();
+            let v = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize).to_vec();
+            SelectObject(dc, old);
+            let _ = DeleteObject(bmp.into());
+            let _ = DeleteDC(dc);
+            v
+        };
+        // Premultiplied BGRA over the wallpaper, written as a bottom-up 24-bit BMP.
+        let bg = if light {
+            [236.0, 230.0, 226.0]
+        } else {
+            [58.0, 52.0, 46.0]
+        };
+        let row = (w * 3 + 3) / 4 * 4;
+        let mut out = Vec::new();
+        out.extend(b"BM");
+        out.extend((54 + row * h).to_le_bytes());
+        out.extend([0u8; 4]);
+        out.extend(54u32.to_le_bytes());
+        out.extend(40u32.to_le_bytes());
+        out.extend(w.to_le_bytes());
+        out.extend(h.to_le_bytes());
+        out.extend(1u16.to_le_bytes());
+        out.extend(24u16.to_le_bytes());
+        out.extend([0u8; 24]);
+        for y in (0..h).rev() {
+            for x in 0..w {
+                let i = ((y * cw + x) * 4) as usize;
+                let a = px[i + 3] as f32 / 255.0;
+                for c in 0..3 {
+                    out.push((px[i + c] as f32 + bg[c] * (1.0 - a)).min(255.0) as u8);
+                }
+            }
+            out.extend(std::iter::repeat_n(0u8, (row - w * 3) as usize));
+        }
+        std::fs::write(dir.join(format!("{name}.bmp")), out).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn snapshots() {
+        let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut r = Renderer::new().unwrap();
+        r.set_scale(2.0);
+        let now = Instant::now();
+        let wall = crate::timer::now_ms();
+
+        let mut m = Model::default();
+        m.now = Some(now);
+        m.timer_min = 25;
+        m.rounds = 4;
+        m.timer_break = 5;
+        for light in [false, true] {
+            let sfx = if light { "-light" } else { "" };
+            shoot(
+                &mut r,
+                &dir,
+                &format!("timer-setup{sfx}"),
+                &m,
+                Scene::ExpTimer,
+                light,
+            );
+        }
+        let mut t =
+            crate::timer::Timer::start(crate::timer::TimerKind::Focus, 25, wall - 9 * 60_000);
+        m.timer = Some(t.clone());
+        m.focus_done = 1;
+        shoot(&mut r, &dir, "timer-running", &m, Scene::ExpTimer, false);
+        t.toggle_pause(wall);
+        m.timer = Some(t);
+        shoot(&mut r, &dir, "timer-paused", &m, Scene::ExpTimer, false);
+        m.timer = None;
+        m.timer_last = Some(crate::timer::Timer::start(
+            crate::timer::TimerKind::Focus,
+            25,
+            wall - 25 * 60_000,
+        ));
+        for k in [
+            crate::timer::TimerKind::Focus,
+            crate::timer::TimerKind::Plain,
+        ] {
+            m.timer_done = Some((k, now));
+            shoot(
+                &mut r,
+                &dir,
+                &format!("timer-done-{k:?}"),
+                &m,
+                Scene::ExpTimerDone,
+                false,
+            );
+        }
+        m.timer_done = None;
+
+        m.media = Some(MediaInfo {
+            title: "Midnight City".into(),
+            artist: "M83".into(),
+            playing: true,
+            app: "Spotify.exe".into(),
+            pos_ms: 95_000,
+            dur_ms: 243_000,
+        });
+        m.media_stamp = Some(now);
+        for light in [false, true] {
+            let sfx = if light { "-light" } else { "" };
+            shoot(
+                &mut r,
+                &dir,
+                &format!("media{sfx}"),
+                &m,
+                Scene::ExpMedia,
+                light,
+            );
+        }
+        shoot(
+            &mut r,
+            &dir,
+            "media-compact",
+            &m,
+            Scene::CompactMedia,
+            false,
+        );
+        m.media = None;
+
+        m.power = Some(crate::power::Battery {
+            pct: 64,
+            plugged: false,
+            watts: Some(-7.4),
+            mode: Mode::Balanced,
+            mins_left: Some(190),
+        });
+        shoot(&mut r, &dir, "power", &m, Scene::ExpPower, false);
+        shoot(&mut r, &dir, "power-light", &m, Scene::ExpPower, true);
+        m.power.as_mut().unwrap().plugged = true;
+        m.power.as_mut().unwrap().watts = Some(24.5);
+        m.power.as_mut().unwrap().mins_left = None;
+        shoot(&mut r, &dir, "power-charging", &m, Scene::ExpPower, false);
+        m.speaker = Some((0.64, false));
+        shoot(&mut r, &dir, "home", &m, Scene::ExpHome, false);
+        shoot(&mut r, &dir, "home-light", &m, Scene::ExpHome, true);
+        m.mic_muted = true;
+        m.speaker = Some((0.92, false));
+        m.awake = crate::ui_state::Awake::Until(now + std::time::Duration::from_secs(52 * 60));
+        m.timer = Some(crate::timer::Timer::start(
+            crate::timer::TimerKind::Plain,
+            10,
+            wall,
+        ));
+        shoot(&mut r, &dir, "home-active", &m, Scene::ExpHome, false);
+        m.timer = None;
+        shoot(&mut r, &dir, "sentinel", &m, Scene::Sentinel, false);
+
+        let mut m = Model::default();
+        m.now = Some(now);
+        shoot(&mut r, &dir, "idle", &m, Scene::Idle, false);
+        let task = |id: &str, label: &str, ev, progress, line: Option<&str>, err: Option<&str>| {
+            crate::tasks::TaskUpdate::Upsert(crate::tasks::TaskState {
+                task_id: id.into(),
+                label: label.into(),
+                progress,
+                event: ev,
+                duration_ms: Some(83_000),
+                stderr_tail: err.map(Into::into),
+                source: "run".into(),
+                pid: None,
+                delay_ms: 0,
+                message: None,
+                exit_code: None,
+                line: line.map(Into::into),
+                updated: now,
+            })
+        };
+        let t0 = now - std::time::Duration::from_secs(90);
+        m.apply_task(
+            task(
+                "a",
+                "cargo build --release",
+                TaskEvent::Progress,
+                Some(62),
+                Some("Compiling hytte v1.1.0"),
+                None,
+            ),
+            t0,
+        );
+        shoot(&mut r, &dir, "task-compact", &m, Scene::CompactTask, false);
+        m.apply_task(
+            task(
+                "b",
+                "npm test",
+                TaskEvent::Start,
+                None,
+                Some("PASS src/app.test.ts"),
+                None,
+            ),
+            t0,
+        );
+        m.apply_task(
+            task(
+                "c",
+                "pytest -q",
+                TaskEvent::Failed,
+                None,
+                None,
+                Some("E   AssertionError: 3 != 4\nFAILED tests/test_math.py::test_add"),
+            ),
+            t0,
+        );
+        m.now = Some(now);
+        shoot(&mut r, &dir, "tasks", &m, Scene::ExpTasks, false);
+        // One pane: a dev server started from a terminal task sits under it, linked.
+        let mut m = Model::default();
+        m.now = Some(now);
+        let mut dev = task(
+            "d",
+            "npm run dev",
+            TaskEvent::Start,
+            None,
+            Some("ready in 412 ms"),
+            None,
+        );
+        if let crate::tasks::TaskUpdate::Upsert(st) = &mut dev {
+            st.pid = Some(700);
+        }
+        m.apply_task(dev, t0);
+        m.ports = vec![
+            PortInfo {
+                port: 5173,
+                pid: 4388,
+                exe: "node.exe".into(),
+            },
+            PortInfo {
+                port: 8000,
+                pid: 9012,
+                exe: "python.exe".into(),
+            },
+        ];
+        m.port_parents = [(4388, vec![4300, 700, 12]), (9012, vec![1])]
+            .into_iter()
+            .collect();
+        m.now = Some(now);
+        shoot(&mut r, &dir, "dev", &m, Scene::ExpTasks, false);
+        m.tasks.clear();
+        shoot(&mut r, &dir, "dev-servers-only", &m, Scene::ExpTasks, false);
+        m.ports.clear();
+        m.shelf = [
+            "report-final.pdf",
+            "screenshot 2026-10-19.png",
+            "notes.txt",
+            "build",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, n)| crate::shelf::ShelfItem {
+            id: i as u64 + 1,
+            path: n.into(),
+            name: (*n).into(),
+            is_dir: *n == "build",
+            owned: false,
+        })
+        .collect();
+        shoot(&mut r, &dir, "shelf", &m, Scene::ExpShelf, false);
+        m.shelf_sel = Some(2);
+        shoot(&mut r, &dir, "shelf-selected", &m, Scene::ExpShelf, false);
+        let mut m = Model::default();
+        m.now = Some(now);
+        let mut c = crate::ui_state::Chip::new("Saved invoice.pdf to Downloads", now);
+        c.open = Some("C:\\x".into());
+        m.chip = Some(c);
+        shoot(&mut r, &dir, "chip", &m, Scene::ExpChip, false);
+        m.chip = None;
+        m.drop_over = true;
+        shoot(&mut r, &dir, "drop", &m, Scene::ExpDrop, false);
+        m.drop_over = false;
+        m.power = Some(crate::power::Battery {
+            pct: 41,
+            plugged: true,
+            watts: Some(31.0),
+            mode: Mode::Balanced,
+            mins_left: None,
+        });
+        m.charge_in = true;
+        shoot(&mut r, &dir, "charge", &m, Scene::ExpCharge, false);
     }
 }

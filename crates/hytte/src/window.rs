@@ -286,6 +286,13 @@ mod win {
         ask: Option<(u64, Sender<bool>)>,
         /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
         gpu_retry: u32,
+        /// The timer alarm is playing.
+        ringing: bool,
+        /// Keep-awake is held (SetThreadExecutionState).
+        awake_on: bool,
+        /// Dragging on the volume bar: its left and right edge (logical px). The bar follows
+        /// the pointer, and Windows' own volume notifications wait until the drag ends.
+        scrub: Option<(f32, f32)>,
     }
 
     thread_local! {
@@ -462,10 +469,10 @@ mod win {
                                 s.delay_ms = self.cfg.shell.threshold_ms;
                             }
                             if s.event == hytte_proto::TaskEvent::NeedsInput {
-                                self.model.peek(
-                                    Panel::Tasks,
-                                    now + Duration::from_secs(self.cfg.agent.peek_secs),
-                                );
+                                let until = now + Duration::from_secs(self.cfg.agent.peek_secs);
+                                self.model.peek(Panel::Tasks, until);
+                                // An agent waiting on you shows even over a maximised terminal.
+                                self.model.force_until = Some(until);
                                 if self.cfg.agent.sound {
                                     unsafe {
                                         let _ =
@@ -509,7 +516,7 @@ mod win {
                                 .peek(Panel::Tasks, now + Duration::from_secs(secs));
                         }
                     }
-                    UiEvent::Ports(p) => self.model.set_ports(p),
+                    UiEvent::Ports(p, parents) => self.model.set_ports(p, parents),
                     UiEvent::TaskGone(id) => self.model.remove_task(&id),
                     UiEvent::Calendar(ev) => self.model.set_calendar(
                         ev,
@@ -577,6 +584,9 @@ mod win {
                     UiEvent::Media(m) => self.model.apply_media(m, now),
                     UiEvent::MediaArt(a) => self.model.set_art(a),
                     UiEvent::MicMute(m) => self.model.mic_muted = m,
+                    // Mid-drag, a late notification for an earlier level would pull the bar back.
+                    UiEvent::Speaker(s) if self.scrub.is_none() => self.model.speaker = s,
+                    UiEvent::Speaker(_) => {}
                     UiEvent::Power(p) => self.model.set_power(p, now),
                     UiEvent::Privacy(c, m, app) => {
                         self.model.cam = c;
@@ -595,6 +605,8 @@ mod win {
                     UiEvent::DragEnter => self.model.drop_over = true,
                     UiEvent::DragLeave => self.model.drop_over = false,
                     UiEvent::Config(cfg) => self.apply_config(*cfg),
+                    // Nowhere to show it: dropping `reply` sends the agent to its terminal prompt now.
+                    UiEvent::Ask { .. } if self.paused || self.gaming => {}
                     UiEvent::Ask { id, summary, reply } => {
                         // Urgent: it takes the chip over. A replaced ask's sender drops here.
                         let mut c = Chip::new(summary, now);
@@ -820,10 +832,6 @@ mod win {
                     t.long_break_min,
                 );
                 self.model.timer_panel = false;
-                self.model.force_until = Some(now + Duration::from_secs(8));
-                if t.sound {
-                    crate::timer::play_chime();
-                }
                 crate::timer::save(None);
             }
             // 1 Hz redraw for the fuse, only while a timer runs; no timer = no wake-ups.
@@ -848,6 +856,21 @@ mod win {
                 None => unsafe {
                     let _ = KillTimer(Some(hwnd), T_EXPIRE);
                 },
+            }
+            self.sync_ring();
+            // Keep awake: held by this thread, released by Windows if Hytte exits.
+            let awake = self.model.awake.active(now);
+            if awake != self.awake_on {
+                self.awake_on = awake;
+                use windows::Win32::System::Power::{
+                    SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+                };
+                let flags = if awake {
+                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+                } else {
+                    ES_CONTINUOUS
+                };
+                unsafe { SetThreadExecutionState(flags) };
             }
             // A calendar heads-up that has come due becomes a card (never over another one).
             if self.model.chip.is_none() {
@@ -922,6 +945,7 @@ mod win {
                     light: self.light,
                     focus: self.kb.and(self.kb_focus),
                     armed: self.armed,
+                    ringing: self.ringing,
                 };
                 self.rend.draw(&fr, crop, &mut self.hits);
                 let drawn = now.elapsed().as_micros() as u32;
@@ -1018,6 +1042,28 @@ mod win {
                 }
                 Action::SelectPanel(p) => self.select_panel(p),
                 Action::ToggleMic => self.toggle_mic(),
+                Action::ToggleSpeaker => {
+                    if let Some(s) = crate::mic::toggle_speaker() {
+                        self.model.speaker = Some(s);
+                    }
+                }
+                // Mouse presses on the bar are handled as a drag (`scrub_to`); this is the keyboard.
+                Action::Volume => {
+                    if let Some(s) = crate::mic::toggle_speaker() {
+                        self.model.speaker = Some(s);
+                    }
+                }
+                Action::CycleAwake => self.model.awake = self.model.awake.next(Instant::now()),
+                Action::OpenTimer => {
+                    if self.model.timer.is_some() {
+                        self.select_panel(Panel::Timer);
+                    } else {
+                        self.model.timer_panel = true;
+                    }
+                }
+                Action::TimerNudge(d) => {
+                    self.model.timer_min = crate::timer::nudge(self.model.timer_min, d);
+                }
                 Action::TimerMinutes(m) => self.model.timer_min = m,
                 Action::TimerStart(k) => self.start_timer(k, self.model.timer_min),
                 Action::TimerBreak(m) => self.start_timer(crate::timer::TimerKind::Break, m),
@@ -1170,10 +1216,26 @@ mod win {
             self.model.timer_panel = false;
             self.model.selected = Some(p);
             match p {
-                Panel::Ports => crate::ports::request_refresh(),
-                Panel::Home => self.model.power = crate::power::read().or(self.model.power),
+                Panel::Tasks => crate::ports::request_refresh(),
+                Panel::Power => self.model.power = crate::power::read().or(self.model.power),
                 _ => {}
             }
+        }
+
+        /// Set the volume from where the pointer is on the bar being dragged.
+        fn scrub_to(&mut self) {
+            let (Some((l, r)), Some((mx, _))) = (self.scrub, self.mouse_logical()) else {
+                return;
+            };
+            let f = ((mx - l - 6.0) / (r - l - 12.0)).clamp(0.0, 1.0);
+            let f = (f * 100.0).round() / 100.0;
+            // Shown at once; Windows is only told when the level actually changed.
+            let muted = self.model.speaker.is_some_and(|(_, m)| m) && f == 0.0;
+            if self.model.speaker.map(|(v, _)| v) != Some(f) {
+                self.model.speaker = Some((f, muted));
+                let _ = crate::mic::set_volume(f);
+            }
+            self.kick();
         }
 
         fn toggle_mic(&mut self) {
@@ -1190,6 +1252,19 @@ mod win {
                 return;
             }
             self.wheel -= steps * 120;
+            // Over the volume bar or the sound tile, the wheel is the volume (2% a notch, as
+            // in the Windows flyout).
+            let over_volume = self
+                .hit_at()
+                .is_some_and(|h| matches!(h.action, Action::Volume | Action::ToggleSpeaker));
+            if over_volume {
+                if let Some((v, _)) = self.model.speaker {
+                    if let Some(s) = crate::mic::set_volume(v + steps as f32 * 0.02) {
+                        self.model.speaker = Some(s);
+                    }
+                }
+                return;
+            }
             if self.model.timer_panel && self.model.timer.is_none() {
                 self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
                 return;
@@ -1201,6 +1276,16 @@ mod win {
             self.anim.nav = -steps.signum() as f32;
             if !self.hover {
                 self.model.peek(p, Instant::now() + Duration::from_secs(3));
+            }
+        }
+
+        /// The alarm rings as long as the finished card is up (dismissed, or its hold ran out),
+        /// but not over a game: the card is hidden there, so nothing could stop it.
+        fn sync_ring(&mut self) {
+            let ring = self.cfg.timer.sound && self.model.timer_done.is_some() && !self.gaming;
+            if ring != self.ringing {
+                self.ringing = ring;
+                crate::timer::ring(ring);
             }
         }
 
@@ -1242,6 +1327,10 @@ mod win {
                 PROCESS_MODE_BACKGROUND_BEGIN, PROCESS_MODE_BACKGROUND_END,
             };
             self.gaming = on;
+            if on {
+                // A pending agent ask goes back to its terminal rather than wait unseen.
+                self.ask = None;
+            }
             crate::fullscreen::GAMING.store(on, Ordering::Relaxed);
             input_hooks(!on);
             self.register_hotkey(hwnd);
@@ -1262,6 +1351,7 @@ mod win {
             if !on {
                 crate::ports::request_refresh();
             }
+            self.sync_ring();
             crate::logging::line(if on {
                 "game mode on: hidden, input hooks off, background priority"
             } else {
@@ -1415,6 +1505,9 @@ mod win {
                 kb_focus: None,
                 ask: None,
                 gpu_retry: 0,
+                ringing: false,
+                awake_on: false,
+                scrub: None,
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
@@ -1899,6 +1992,16 @@ mod win {
                 return LRESULT(0);
             }
             WM_MOUSEMOVE => {
+                let scrubbing = with_ui(|ui| {
+                    ui.scrub.is_some() && {
+                        ui.set_mouse_client(lparam);
+                        ui.scrub_to();
+                        true
+                    }
+                });
+                if scrubbing == Some(true) {
+                    return LRESULT(0);
+                }
                 // Past a 4 px threshold with the button held, a shelf tile becomes a real drag.
                 let start = with_ui(|ui| {
                     ui.set_mouse_client(lparam);
@@ -2014,7 +2117,14 @@ mod win {
                         Some(Action::ShelfTile(id)) => ui.mouse.map(|p| (id, p)),
                         _ => None,
                     };
-                    if ui.drag.is_some() {
+                    ui.scrub = ui
+                        .hit_at()
+                        .filter(|h| h.action == Action::Volume)
+                        .map(|h| (h.rect.0, h.rect.2));
+                    if ui.scrub.is_some() {
+                        ui.scrub_to();
+                    }
+                    if ui.drag.is_some() || ui.scrub.is_some() {
                         // Capture so a fast flick off the pill still reaches us and starts the drag.
                         unsafe {
                             SetCapture(hwnd);
@@ -2022,6 +2132,10 @@ mod win {
                     }
                 });
                 return LRESULT(0);
+            }
+            WM_CAPTURECHANGED => {
+                // Capture taken away mid-drag (Alt+Tab, a dialog): the drag is over.
+                with_ui(|ui| ui.scrub = None);
             }
             WM_LBUTTONUP => {
                 with_ui(|ui| {
@@ -2032,6 +2146,14 @@ mod win {
                     ui.drag = None;
                     unsafe {
                         let _ = ReleaseCapture();
+                    }
+                    if ui.scrub.is_some() {
+                        // The level was applied while dragging; settle on the final one.
+                        ui.scrub_to();
+                        ui.scrub = None;
+                        ui.model.speaker = crate::mic::speaker().or(ui.model.speaker);
+                        ui.after_model_change(hwnd);
+                        return;
                     }
                     if let Some(a) = ui.hit_at().map(|h| h.action.clone()) {
                         ui.run_action(hwnd, a);
@@ -2066,7 +2188,7 @@ mod win {
                             ui.hover = true;
                             // Opening the pill: make sure the port list and charge rate are not stale.
                             crate::ports::request_refresh();
-                            if ui.model.panel() == Panel::Home && ui.model.power.is_some() {
+                            if ui.model.panel() == Panel::Power && ui.model.power.is_some() {
                                 ui.model.power = crate::power::read().or(ui.model.power);
                             }
                             ui.layout();
@@ -2154,7 +2276,8 @@ mod win {
                     let (paused, auto) = with_ui(|ui| (ui.paused, ui.cfg.general.autostart))
                         .unwrap_or((false, false));
                     let terminal = crate::setup::is_set_up();
-                    crate::tray::Tray::new(hwnd).popup(paused, auto, terminal);
+                    let agents = crate::agents::is_connected();
+                    crate::tray::Tray::new(hwnd).popup(paused, auto, terminal, agents);
                 }
                 return LRESULT(0);
             }
@@ -2180,6 +2303,7 @@ mod win {
                             .spawn();
                     }
                     14 => crate::setup::tray_setup(),
+                    16 => crate::agents::tray(),
                     15 => crate::update::check_now(),
                     13 => {
                         with_ui(|ui| {

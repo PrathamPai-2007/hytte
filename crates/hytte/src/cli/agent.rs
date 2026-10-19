@@ -4,29 +4,6 @@
 use hytte_proto::{Ask, HytteMessage, TaskEvent, PROTOCOL_VERSION};
 use std::io::{IsTerminal, Read};
 
-const HOOKS_CLAUDE: &str = r#"{
-  "hooks": {
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "hytte agent resume --name \"Claude Code\"" }] }],
-    "Notification":     [{ "hooks": [{ "type": "command", "command": "hytte agent needs-input --name \"Claude Code\"" }] }],
-    "Stop":             [{ "hooks": [{ "type": "command", "command": "hytte agent done --name \"Claude Code\"" }] }]
-  }
-}"#;
-
-/// The plain hooks, plus (`--tools`) one that reports every tool call so the pill can say what
-/// the agent is doing (it runs `hytte` before each call, a few milliseconds each), and
-/// (`--approve`) one that puts Claude's permission prompts on the pill as Allow / Deny.
-fn hooks_claude(tools: bool, approve: bool) -> serde_json::Value {
-    let mut v: serde_json::Value = serde_json::from_str(HOOKS_CLAUDE).expect("valid hooks JSON");
-    let hook = |c: &str| serde_json::json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": c }] }]);
-    if tools {
-        v["hooks"]["PreToolUse"] = hook(r#"hytte agent tool --name "Claude Code""#);
-    }
-    if approve {
-        v["hooks"]["PermissionRequest"] = hook(r#"hytte agent ask --name "Claude Code""#);
-    }
-    v
-}
-
 pub fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  hytte agent start       [--name N] [--pid P]");
@@ -35,7 +12,8 @@ pub fn usage() -> ! {
     eprintln!("  hytte agent done|fail   [--name N] [--pid P]");
     eprintln!("  hytte agent tool        [--name N] [--pid P] [--detail D]   (tool call may arrive as hook JSON on stdin)");
     eprintln!("  hytte agent ask         [--name N] [--pid P]                 (permission request as hook JSON on stdin; answered on the pill)");
-    eprintln!("  hytte agent hooks claude [--tools] [--approve]                 # print Claude Code hooks config");
+    eprintln!("  hytte agent hooks claude                                        # print the Claude Code hooks (`hytte setup agents` installs them)");
+    eprintln!("  --ack prints {{}} after any of these, for agents that read hook output as JSON");
     std::process::exit(2);
 }
 
@@ -45,6 +23,8 @@ pub struct Opts {
     message: Option<String>,
     /// What the agent is doing right now (`hytte agent tool`).
     detail: Option<String>,
+    /// Print `{}` when done: Gemini, Antigravity and Cursor read a hook's stdout as JSON.
+    ack: bool,
 }
 
 fn parse(args: &[String]) -> Opts {
@@ -53,9 +33,15 @@ fn parse(args: &[String]) -> Opts {
         pid: hytte_proto::sys::owner_pid(std::process::id()),
         message: None,
         detail: None,
+        ack: false,
     };
     let mut i = 0;
     while i < args.len() {
+        if args[i] == "--ack" {
+            o.ack = true;
+            i += 1;
+            continue;
+        }
         let v = args.get(i + 1).cloned();
         match (args[i].as_str(), v) {
             ("--name", Some(v)) => o.name = v,
@@ -127,18 +113,16 @@ pub fn ask_text(payload: &serde_json::Value) -> Option<String> {
     Some(format!("{flag}{text}"))
 }
 
-/// Claude Code `PermissionRequest` hook output for an answer given on the pill.
+/// `PermissionRequest` hook output (Claude Code, Codex) for an answer given on the pill.
+/// `message` is only read with a deny: it tells the agent why.
 pub fn decision_json(allow: bool) -> serde_json::Value {
-    let (behavior, message) = if allow {
-        ("allow", "Allowed from Hytte")
+    let decision = if allow {
+        serde_json::json!({ "behavior": "allow" })
     } else {
-        ("deny", "Denied from Hytte")
+        serde_json::json!({ "behavior": "deny", "message": "Denied from Hytte" })
     };
     serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": { "behavior": behavior, "message": message }
-        }
+        "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision }
     })
 }
 
@@ -187,18 +171,34 @@ pub fn run(
 ) {
     let Some(sub) = args.first() else { usage() };
     if sub == "hooks" {
+        // `--tools` / `--approve` were opt-ins before 1.1; both are always in now.
         let flags = args.get(2..).unwrap_or_default();
         if args.get(1).map(String::as_str) != Some("claude")
             || flags.iter().any(|f| f != "--tools" && f != "--approve")
         {
             usage();
         }
-        let has = |f: &str| flags.iter().any(|a| a == f);
-        let v = hooks_claude(has("--tools"), has("--approve"));
+        let exe = std::env::current_exe()
+            .map(|p| crate::agents::exe_cmd(&p))
+            .unwrap_or_else(|_| "hytte".into());
+        let v = serde_json::json!({ "hooks": crate::agents::claude_hooks(&exe, "Claude Code") });
         println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
         return;
     }
-    let mut o = parse(&args[1..]);
+    let o = parse(&args[1..]);
+    let ack = o.ack;
+    report(sub, o, send, ask);
+    if ack {
+        println!("{{}}");
+    }
+}
+
+fn report(
+    sub: &str,
+    mut o: Opts,
+    send: impl Fn(&HytteMessage) -> bool,
+    ask: impl Fn(&Ask) -> Option<bool>,
+) {
     if sub == "ask" {
         // No answer (no daemon, timeout, dismissed): print nothing, so Claude asks in the terminal.
         let Some(text) = payload_from_stdin().as_ref().and_then(ask_text) else {
@@ -215,7 +215,7 @@ pub fn run(
         }
         return;
     }
-    let event = match sub.as_str() {
+    let event = match sub {
         "start" => TaskEvent::Start,
         "needs-input" => {
             if o.message.is_none() {
@@ -254,17 +254,12 @@ mod tests {
             pid: 7,
             message: Some("approve?".into()),
             detail: None,
+            ack: false,
         };
         let m = build(TaskEvent::NeedsInput, &o);
         assert_eq!(m.task_id, "agent:Claude Code:7");
         assert_eq!((m.source.as_deref(), m.pid), (Some("agent"), Some(7)));
         assert!(m.validate());
-    }
-
-    #[test]
-    fn hooks_json_is_valid() {
-        let v: serde_json::Value = serde_json::from_str(HOOKS_CLAUDE).unwrap();
-        assert!(v["hooks"]["Notification"].is_array());
     }
 
     #[test]
@@ -316,6 +311,7 @@ mod tests {
             pid: 7,
             message: None,
             detail: Some("Editing render.rs".into()),
+            ack: false,
         };
         let m = build(TaskEvent::Progress, &o);
         assert_eq!(m.line.as_deref(), Some("Editing render.rs"));
@@ -324,19 +320,10 @@ mod tests {
     }
 
     #[test]
-    fn hook_flags_add_their_hooks_only() {
-        let v = hooks_claude(true, false);
-        assert!(v["hooks"]["PreToolUse"].is_array());
-        assert!(v["hooks"]["Stop"].is_array());
-        assert!(v["hooks"].get("PermissionRequest").is_none());
-        let v = hooks_claude(false, true);
-        assert_eq!(
-            v["hooks"]["PermissionRequest"][0]["hooks"][0]["command"],
-            r#"hytte agent ask --name "Claude Code""#
-        );
-        let plain = hooks_claude(false, false);
-        assert!(plain["hooks"].get("PreToolUse").is_none());
-        assert!(plain["hooks"].get("PermissionRequest").is_none());
+    fn ack_is_a_flag_without_a_value() {
+        let o = parse(&["--ack".into(), "--name".into(), "Gemini".into()]);
+        assert!(o.ack);
+        assert_eq!(o.name, "Gemini");
     }
 
     #[test]
@@ -370,7 +357,9 @@ mod tests {
             "PermissionRequest"
         );
         assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "allow");
+        assert!(v["hookSpecificOutput"]["decision"].get("message").is_none());
         let v = decision_json(false);
         assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "deny");
+        assert!(v["hookSpecificOutput"]["decision"]["message"].is_string());
     }
 }

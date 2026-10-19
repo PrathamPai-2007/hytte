@@ -518,8 +518,8 @@ pub fn ensure_autostart(enable: bool) {
     {
         use windows::Win32::Foundation::ERROR_SUCCESS;
         use windows::Win32::System::Registry::{
-            RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
-            KEY_SET_VALUE, REG_SZ,
+            RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+            HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ,
         };
         let sub: Vec<u16> = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\0"
             .encode_utf16()
@@ -530,7 +530,7 @@ pub fn ensure_autostart(enable: bool) {
                 HKEY_CURRENT_USER,
                 windows::core::PCWSTR(sub.as_ptr()),
                 None,
-                KEY_SET_VALUE,
+                KEY_SET_VALUE | KEY_QUERY_VALUE,
                 &mut hkey,
             ) == ERROR_SUCCESS
             {
@@ -550,8 +550,26 @@ pub fn ensure_autostart(enable: bool) {
                         );
                     }
                 } else {
+                    // Only this copy's entry, or one whose exe is gone: a second copy (a dev
+                    // build, a portable one) must not switch off the installed one's autostart.
                     let name: Vec<u16> = "Hytte\0".encode_utf16().collect();
-                    let _ = RegDeleteValueW(hkey, windows::core::PCWSTR(name.as_ptr()));
+                    let mut buf = [0u16; 1024];
+                    let mut len = (buf.len() * 2) as u32;
+                    let read = RegQueryValueExW(
+                        hkey,
+                        windows::core::PCWSTR(name.as_ptr()),
+                        None,
+                        None,
+                        Some(buf.as_mut_ptr() as *mut u8),
+                        Some(&mut len),
+                    ) == ERROR_SUCCESS;
+                    let set = String::from_utf16_lossy(&buf[..(len as usize / 2).min(buf.len())]);
+                    let set = set.trim_end_matches('\0').trim().trim_matches('"');
+                    let mine = std::env::current_exe()
+                        .is_ok_and(|e| e.display().to_string().eq_ignore_ascii_case(set));
+                    if read && (mine || !std::path::Path::new(set).is_file()) {
+                        let _ = RegDeleteValueW(hkey, windows::core::PCWSTR(name.as_ptr()));
+                    }
                 }
                 let _ = RegCloseKey(hkey);
             }

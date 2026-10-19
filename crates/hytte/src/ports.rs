@@ -69,7 +69,10 @@ pub fn spawn_watcher(mut cfg: Ports, mut hog_cfg: Hog, ui_tx: Sender<UiEvent>) {
                 let now = hytte_proto::ports::current(&cfg.watch, cfg.show_all);
                 if last.as_ref() != Some(&now) {
                     last = Some(now.clone());
-                    let _ = ui_tx.send(UiEvent::Ports(now));
+                    // Who started each server: lets the pane tie it to its terminal task.
+                    let pids: Vec<u32> = now.iter().map(|p| p.pid).collect();
+                    let chains = hytte_proto::sys::ancestors(&pids, 8);
+                    let _ = ui_tx.send(UiEvent::Ports(now, chains));
                 }
             }
             let (m, c) = wake();

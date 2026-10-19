@@ -10,6 +10,7 @@
 // Direct2D drawing helpers take geometry + colour; Win32 structs and test models are built field by field.
 #![allow(clippy::too_many_arguments, clippy::field_reassign_with_default)]
 
+mod agents;
 mod animation;
 mod calendar;
 mod cli;
@@ -89,6 +90,10 @@ fn main() {
             // Pre-1.0 shell hooks called `notch`; point them at `hytte` so tracking keeps working.
             for l in setup::migrate_profiles() {
                 logging::line(&format!("setup: migrated {l}"));
+            }
+            // Agent hooks still pointing at where Hytte used to live.
+            for l in agents::repair() {
+                logging::line(&format!("agents: {l}"));
             }
         });
     }
