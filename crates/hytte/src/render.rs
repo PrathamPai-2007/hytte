@@ -3081,7 +3081,7 @@ impl Renderer {
             self.cc(self.fg(), 0.97),
         );
         self.text(
-            "Press − / + or scroll to change the minutes",
+            "Right-click the pill to close",
             &self.f.small,
             21.0,
             44.0,
@@ -3149,16 +3149,6 @@ impl Renderer {
             32.0,
             GREEN,
             start(TimerKind::Focus),
-        );
-        let close = "Right-click the pill to close";
-        self.text(
-            close,
-            &self.f.small,
-            ((w - text_w(close)) / 2.0).max(16.0),
-            144.0,
-            text_w(close) + 12.0,
-            14.0,
-            self.cc(GRAY, 0.75),
         );
     }
 

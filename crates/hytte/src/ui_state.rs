@@ -859,7 +859,7 @@ impl Model {
             Scene::ExpCharge => (300.0, 52.0),
             // Running: ring + controls. Not running: the setup card.
             Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
-            Scene::ExpTimer => (380.0, 170.0 + tab),
+            Scene::ExpTimer => (380.0, 152.0 + tab),
             Scene::ExpShelf if self.shelf_sel.is_some() => (380.0, 136.0 + tab),
             Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpTasks => {
