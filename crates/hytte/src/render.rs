@@ -435,9 +435,11 @@ impl Renderer {
 
     /// Bounding box of the pill + glow (or the whole hot zone while a drag is armed).
     /// `room` is extra width (each side, so the pill stays centred) for a bubble beside it.
-    pub fn plan(&self, pw: f32, ph: f32, armed: bool, room: f32) -> Crop {
-        const MARGIN: f32 = 28.0;
-        let (mut w, mut h) = (pw + 2.0 * (MARGIN + room), ph + MARGIN);
+    /// The box is also what eats clicks, so without a glow it hugs the pill: the thin line
+    /// over a fullscreen video must not block the browser tabs around it.
+    pub fn plan(&self, pw: f32, ph: f32, armed: bool, room: f32, glow: bool) -> Crop {
+        let margin = if glow { 28.0 } else { 4.0 };
+        let (mut w, mut h) = (pw + 2.0 * (margin + room), ph + margin);
         if armed {
             w = w.max(CANVAS_W);
             h = h.max(HOT_ZONE_H);

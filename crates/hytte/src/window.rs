@@ -84,6 +84,7 @@ mod win {
     const T_FS: usize = 4;
     const T_TIMER: usize = 5;
     const T_TRIM: usize = 6;
+    const T_GPU: usize = 7;
     /// Idle this long (no frames) before the working set is trimmed.
     const TRIM_MS: u32 = 30_000;
     const DWELL_MS: u32 = 120;
@@ -243,6 +244,8 @@ mod win {
         shared: Arc<Shared>,
         scale: f32,
         mon: (i32, i32, i32, i32),
+        /// The `HMONITOR` the pill hangs from (fullscreen checks compare against it).
+        hmon: isize,
         hover: bool,
         inside: bool,
         /// Cursor in screen px (stable while the window moves/resizes).
@@ -281,6 +284,8 @@ mod win {
         /// sends the agent back to its own terminal prompt.
         // ponytail: one pending ask at a time; queue them if parallel agents collide often
         ask: Option<(u64, Sender<bool>)>,
+        /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
+        gpu_retry: u32,
     }
 
     thread_local! {
@@ -364,7 +369,12 @@ mod win {
                 self.anim.rect.h.pos as f32,
                 self.armed,
                 self.anim.bubble_room(),
+                self.glowing(),
             )
+        }
+
+        fn glowing(&self) -> bool {
+            self.anim.glow.pos.max(self.anim.glow.target) > 0.01
         }
 
         fn origin_for(&self, crop: Crop) -> (i32, i32) {
@@ -418,9 +428,12 @@ mod win {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
                 };
+                self.hmon = hmon.0 as isize;
                 if GetMonitorInfoW(hmon, &mut mi).as_bool() {
                     let r = mi.rcMonitor;
-                    self.mon = (r.left, r.top, r.right, r.bottom);
+                    // A taskbar docked at the top (any edge works since 24H2): hang below it.
+                    let top = mi.rcWork.top.max(r.top);
+                    self.mon = (r.left, top, r.right, r.bottom);
                 }
                 let (mut dx, mut dy) = (96u32, 96u32);
                 let _ = GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
@@ -920,18 +933,15 @@ mod win {
                         self.anim.rect.h.target as f32,
                         self.armed,
                         self.anim.bubble_room(),
+                        self.glowing(),
                     )
                     .clip;
                 self.rend
                     .present(hwnd, crop, origin.0, origin.1, a, heading);
-                if self.rend.lost() {
+                if self.rend.lost() && self.gpu_retry == 0 {
                     // Driver reset or adapter removed: rebuild the GPU pipeline and redraw.
                     crate::logging::line("gpu renderer: device lost, rebuilding");
-                    if let Err(e) = self.rend.rebuild_gpu(hwnd) {
-                        crate::logging::line(&format!("gpu renderer: rebuild failed: {e}"));
-                    }
-                    self.thumb_req.clear();
-                    self.kick();
+                    self.rebuild_gpu(hwnd);
                 }
                 // Skip the first frame after idle: its gap is the idle time, not a frame.
                 if moving && gap.as_millis() < 100 {
@@ -951,6 +961,28 @@ mod win {
                 // Settled: give the pages back once it has stayed that way.
                 unsafe {
                     SetTimer(Some(hwnd), T_TRIM, TRIM_MS, None);
+                }
+            }
+        }
+
+        /// Rebuild a lost GPU pipeline. On failure (driver mid-update, adapter gone) retry on
+        /// `T_GPU` with backoff instead of hammering the driver every frame.
+        fn rebuild_gpu(&mut self, hwnd: HWND) {
+            match self.rend.rebuild_gpu(hwnd) {
+                Ok(()) => {
+                    self.gpu_retry = 0;
+                    self.thumb_req.clear();
+                    self.kick();
+                }
+                Err(e) => {
+                    self.gpu_retry = (self.gpu_retry * 2).clamp(1_000, 30_000);
+                    crate::logging::line(&format!(
+                        "gpu renderer: rebuild failed: {e}; retry in {} ms",
+                        self.gpu_retry
+                    ));
+                    unsafe {
+                        SetTimer(Some(hwnd), T_GPU, self.gpu_retry, None);
+                    }
                 }
             }
         }
@@ -1174,7 +1206,10 @@ mod win {
 
         fn evaluate_fullscreen(&mut self, hwnd: HWND) {
             use crate::fullscreen::Suppress;
-            let s = crate::fullscreen::evaluate(&self.cfg.general, self.mon);
+            // None: an overlay (Game Bar, GPU / OEM tools) is in front; keep the current state.
+            let Some(s) = crate::fullscreen::evaluate(&self.cfg.general, self.hmon) else {
+                return;
+            };
             let gaming = s == Suppress::Game;
             let hide = s != Suppress::Show;
             let changed = gaming != self.gaming;
@@ -1347,6 +1382,7 @@ mod win {
                 shared: shared.clone(),
                 scale: 1.0,
                 mon: (0, 0, 1920, 1080),
+                hmon: 0,
                 hover: false,
                 inside: false,
                 mouse: None,
@@ -1378,6 +1414,7 @@ mod win {
                 kb: None,
                 kb_focus: None,
                 ask: None,
+                gpu_retry: 0,
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
@@ -1597,6 +1634,15 @@ mod win {
         post(WM_FG);
     }
 
+    /// A window is being dragged by its title bar or resized: that left-drag is not a file.
+    fn moving_window() -> bool {
+        let mut gi = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe { GetGUIThreadInfo(0, &mut gi).is_ok() && gi.flags.contains(GUI_INMOVESIZE) }
+    }
+
     unsafe extern "system" fn mouse_ll(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         if code >= 0 {
             match wp.0 as u32 {
@@ -1612,6 +1658,7 @@ mod win {
                     if ms.pt.y < ZONE_B.load(Ordering::Relaxed)
                         && ms.pt.x >= ZONE_L.load(Ordering::Relaxed)
                         && ms.pt.x <= ZONE_R.load(Ordering::Relaxed)
+                        && !moving_window()
                     {
                         ARMED.store(true, Ordering::Relaxed);
                         post(WM_DRAG_ARM);
@@ -2047,6 +2094,7 @@ mod win {
                             }
                         }
                     }
+                    T_GPU => ui.rebuild_gpu(hwnd),
                     T_FS => {
                         // Settled after a foreground change or move: stay above it,
                         // unless it is a game.
@@ -2076,6 +2124,10 @@ mod win {
             WM_POWERBROADCAST => {
                 // Power source / charge level changed, or the PC resumed.
                 crate::power::poke();
+                if wparam.0 as u32 == PBT_APMRESUMEAUTOMATIC {
+                    // The foreground may have changed fullscreen state while asleep.
+                    post(WM_FG);
+                }
                 return LRESULT(1);
             }
             WM_DISPLAYCHANGE | WM_DPICHANGED => {
@@ -2143,6 +2195,8 @@ mod win {
             }
             x if x != 0 && x == TASKBAR_CREATED.load(Ordering::Relaxed) => {
                 crate::tray::Tray::new(hwnd).add();
+                // Explorer restarted: the taskbar is new, re-check fullscreen and stay on top.
+                post(WM_FG);
                 return LRESULT(0);
             }
             WM_DESTROY => {

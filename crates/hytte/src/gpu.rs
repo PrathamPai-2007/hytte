@@ -11,11 +11,31 @@ use windows::core::Interface;
 use windows::Win32::Foundation::{E_FAIL, HMODULE, HWND};
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
-use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D::{
+    D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
+};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::DirectComposition::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
+
+fn device(kind: D3D_DRIVER_TYPE) -> windows::core::Result<ID3D11Device> {
+    let mut d3d = None;
+    unsafe {
+        D3D11CreateDevice(
+            None,
+            kind,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut d3d),
+            None,
+            None,
+        )?;
+    }
+    d3d.ok_or_else(|| windows::core::Error::from(E_FAIL))
+}
 
 pub struct Gpu {
     /// Draw target for the renderer; the swap chain's back buffer is attached per frame.
@@ -33,19 +53,14 @@ pub struct Gpu {
 impl Gpu {
     pub fn new(factory: &ID2D1Factory1, hwnd: HWND, w: u32, h: u32) -> windows::core::Result<Self> {
         unsafe {
-            let mut d3d = None;
-            D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_HARDWARE,
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut d3d),
-                None,
-                None,
-            )?;
-            let d3d = d3d.ok_or_else(|| windows::core::Error::from(E_FAIL))?;
+            // No usable hardware driver (Basic Display Adapter, a driver mid-update, some
+            // remote sessions): WARP draws on the CPU but keeps DirectComposition working.
+            let d3d = device(D3D_DRIVER_TYPE_HARDWARE).or_else(|e| {
+                crate::logging::line(&format!(
+                    "gpu renderer: no hardware device ({e}), using WARP"
+                ));
+                device(D3D_DRIVER_TYPE_WARP)
+            })?;
             let dxgi: IDXGIDevice = d3d.cast()?;
             let dc = factory
                 .CreateDevice(&dxgi)?
