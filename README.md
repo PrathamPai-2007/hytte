@@ -241,7 +241,7 @@ monitor = "primary"            # "primary", "active" (the focused window's) or "
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
-fullscreen_mode = "sentinel"   # over maximised windows and fullscreen video: "sentinel" = thin line, "hide" = disappear (games always hide)
+fullscreen_mode = "hide"       # over maximised windows and fullscreen video: "sentinel" = thin line, "hide" = disappear (games always hide)
 finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
 hide_from_capture = false      # true = keep the pill out of screenshots and screen share
 check_updates = true           # look for a new version once a day (needs a restart)

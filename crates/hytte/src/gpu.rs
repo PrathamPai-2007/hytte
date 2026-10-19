@@ -53,13 +53,14 @@ pub struct Gpu {
 impl Gpu {
     pub fn new(factory: &ID2D1Factory1, hwnd: HWND, w: u32, h: u32) -> windows::core::Result<Self> {
         unsafe {
-            // No usable hardware driver (Basic Display Adapter, a driver mid-update, some
-            // remote sessions): WARP draws on the CPU but keeps DirectComposition working.
-            let d3d = device(D3D_DRIVER_TYPE_HARDWARE).or_else(|e| {
+            // WARP, not the hardware driver: the pill is a few hundred pixels, and loading the
+            // GPU's user-mode driver costs ~40 MB private plus ~20 threads, while WARP draws it
+            // in under half the time (measured). Hardware stays as the fallback.
+            let d3d = device(D3D_DRIVER_TYPE_WARP).or_else(|e| {
                 crate::logging::line(&format!(
-                    "gpu renderer: no hardware device ({e}), using WARP"
+                    "gpu renderer: WARP unavailable ({e}), using hardware"
                 ));
-                device(D3D_DRIVER_TYPE_WARP)
+                device(D3D_DRIVER_TYPE_HARDWARE)
             })?;
             let dxgi: IDXGIDevice = d3d.cast()?;
             let dc = factory

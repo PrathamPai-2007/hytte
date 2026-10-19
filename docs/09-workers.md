@@ -55,6 +55,8 @@ HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentSt
 
 Each app has a subkey (classic desktop apps are one level deeper, under `NonPackaged`). A device is **in use** when an app's `LastUsedTimeStart` is non-zero and its `LastUsedTimeStop` is zero.
 
+Windows never writes the stop time for a classic app that crashed or was killed mid-capture, so that entry stays "in use" for weeks (a game that exited badly left the mic dot lit permanently). A `NonPackaged` entry therefore only counts while a process with that exe name is running (`privacy::running`, one process snapshot per scan).
+
 The worker opens both keys with `KEY_NOTIFY`, arms `RegNotifyChangeKeyValue` (subtree, value changes) on an event per key, and waits on both events with a 10 s safety timeout. When one fires, it re-arms only that key, rescans both devices (`in_use`), and sends `UiEvent::Privacy(cam, mic, app)` if anything changed. `friendly_name` turns a key name into an app name (`Microsoft.WindowsCamera_8wekyb3d8bbwe` → `WindowsCamera`, `C:#Program Files#Zoom#bin#Zoom.exe` → `Zoom`).
 
 If the keys don't exist, it falls back to a 10 s poll.

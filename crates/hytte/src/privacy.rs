@@ -168,7 +168,9 @@ fn in_use(device: &str) -> Option<String> {
                     if let Some(c) = open(k, &np) {
                         let a = active(c);
                         let _ = RegCloseKey(c);
-                        if a {
+                        // Windows never writes Stop for an app that crashed or was killed mid-capture,
+                        // so a bare "no Stop" entry can be stale for weeks: it must still be running.
+                        if a && running(&friendly_name(&np)) {
                             found = Some(friendly_name(&np));
                             let _ = RegCloseKey(k);
                             break 'outer;
@@ -183,6 +185,35 @@ fn in_use(device: &str) -> Option<String> {
         }
         let _ = RegCloseKey(root);
         found
+    }
+}
+
+/// True if a process named `<stem>.exe` exists.
+#[cfg(windows)]
+fn running(stem: &str) -> bool {
+    use windows::Win32::System::Diagnostics::ToolHelp::*;
+    let want = format!("{stem}.exe");
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return true; // can't tell: trust the registry
+        };
+        let mut e = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut hit = false;
+        let mut ok = Process32FirstW(snap, &mut e).is_ok();
+        while ok && !hit {
+            let n = e
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(e.szExeFile.len());
+            hit = String::from_utf16_lossy(&e.szExeFile[..n]).eq_ignore_ascii_case(&want);
+            ok = Process32NextW(snap, &mut e).is_ok();
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snap);
+        hit
     }
 }
 

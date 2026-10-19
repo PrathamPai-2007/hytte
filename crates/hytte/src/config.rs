@@ -35,7 +35,7 @@ pub struct General {
     pub renderer: String,
     #[serde(default = "default_true")]
     pub suppress_fullscreen: bool,
-    #[serde(default = "default_sentinel")]
+    #[serde(default = "default_fullscreen_mode")]
     pub fullscreen_mode: String, // "hide" | "sentinel"
     #[serde(default)]
     pub output_folder: Option<String>,
@@ -102,8 +102,8 @@ fn default_true() -> bool {
 fn default_finish_peek() -> u64 {
     5
 }
-fn default_sentinel() -> String {
-    "sentinel".into()
+fn default_fullscreen_mode() -> String {
+    "hide".into()
 }
 fn default_glow() -> f32 {
     1.2
@@ -130,7 +130,7 @@ impl Default for General {
             theme: default_theme(),
             renderer: default_renderer(),
             suppress_fullscreen: true,
-            fullscreen_mode: "sentinel".into(),
+            fullscreen_mode: "hide".into(),
             output_folder: None,
             allow_list: vec![],
             deny_list: vec![],

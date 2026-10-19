@@ -6,12 +6,25 @@ Hytte runs all day next to everything else on the machine, so its idle cost matt
 
 | Budget | Target | Last measured (release build) |
 |---|---|---|
-| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.2 % |
-| Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 55–75 MB working set |
+| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.1 % (78 ms of CPU in 30 s) |
+| Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 10 MB private (committed) bytes; working set ≈ 3 MB after the 30 s trim, 43 MB peak at startup. 34 threads, 400 handles. |
 | Animation | Monitor refresh rate during transitions only | vsync-paced; parks when settled |
-| Frame cost while a spring moves | well under one refresh period | `gpu`: p50 ≈ 2.1 ms, p99 ≈ 3.5 ms. `classic`: p50 ≈ 3.6 ms, p99 ≈ 6 ms. The very first version took 6.5 / 10 ms. |
+| Frame cost while a spring moves | well under one refresh period | `gpu`: p50 ≈ 0.45 ms, p99 ≈ 1.0 ms (120 Hz display, WARP device). `classic`: p50 ≈ 3.6 ms, p99 ≈ 6 ms. The very first version took 6.5 / 10 ms. |
 
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`) for a smaller binary and less resident code.
+
+### Why the GPU renderer uses WARP
+
+The pill is a few hundred pixels, so a real GPU has nothing to gain, but loading its user-mode driver is expensive. Measured on an AMD machine, idle, release build:
+
+| `gpu` device | Private bytes | Threads | Handles | Frame cost p50 / p99 |
+|---|---|---|---|---|
+| Hardware driver (before) | 55 MB | 48 | 1,660 | 0.88 / 1.5 ms |
+| WARP (now) | 10 MB | 34 | 400 | 0.45 / 1.0 ms |
+
+The driver (`amdxx64.dll`) alone is ≈ 62 MB of mapped image and a pool of its own threads. WARP draws the same frames in about half the time and the same DirectComposition path. Frame pacing is unchanged (gap p50 8.3 ms, the display's 120 Hz). The `classic` renderer is ≈ 11 MB private.
+
+Measure it yourself: start the exe with an isolated `%APPDATA%`, wait 45 s, and read `PrivateMemorySize64` (the working set is small only because of the trim). For frame cost use `HYTTE_PERF=1` and run `hytte run -- ping -n 3 127.0.0.1` in a loop, which makes the pill expand and collapse.
 
 ## The rules
 

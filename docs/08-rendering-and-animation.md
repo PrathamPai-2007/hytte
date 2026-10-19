@@ -20,11 +20,11 @@ The `gpu` renderer falls back to `classic` by itself if the D3D11 / DirectCompos
 
 ### The GPU renderer
 
-- `Gpu::new` creates a hardware D3D11 device (BGRA support), a Direct2D device and device context, a **flip-model composition swap chain** with premultiplied alpha, and a DirectComposition device, target and visual. The swap chain is always the whole canvas (460 × 310 logical px, scaled by DPI).
+- `Gpu::new` creates a WARP D3D11 device (BGRA support; see [section 12](12-performance.md#why-the-gpu-renderer-uses-warp)), a Direct2D device and device context, a **flip-model composition swap chain** with premultiplied alpha, and a DirectComposition device, target and visual. The swap chain is always the whole canvas (460 × 310 logical px, scaled by DPI).
 - Each frame, `Gpu::begin` wraps the current back buffer as the device context's target, `draw` clears it and paints, and `Gpu::end` releases it. `Gpu::present` calls `Present(0, 0)` (pacing is the frame clock's job, not the swap chain's). The whole-window fade (`vis`) is a DirectComposition effect group's opacity, so it costs nothing to draw.
 - The window never moves or resizes after the monitor is known: it is the canvas, centred on the top edge. What is visible and clickable is a **window region** covering the pill and its glow (the same box the classic path presents). Setting a region is a window-manager round trip, so `present` jumps it straight to where the pill is *heading*, leaves it alone while the pill moves, and trims it to the exact box once it settles.
 - If Direct2D or DXGI reports a lost device (`D2DERR_RECREATE_TARGET`, `DXGI_ERROR_DEVICE_REMOVED` / `RESET`), `Renderer::rebuild_gpu` drops the old pipeline, builds a new one for the same window, and clears everything the old device made (brushes, album art and thumbnails, which are then fetched again). If the rebuild fails (a driver mid-update, the adapter gone), it is retried on a timer with backoff from 1 s to 30 s rather than every frame.
-- With no usable hardware D3D device (Basic Display Adapter, a broken driver, some remote sessions), `Gpu::new` falls back to WARP, which draws on the CPU but keeps the DirectComposition path.
+- WARP draws on the CPU and avoids loading the GPU driver (≈ 45 MB less memory). If WARP can't be created, `Gpu::new` falls back to the hardware device.
 
 ### The classic renderer
 
@@ -38,7 +38,8 @@ On the development machine (60 Hz display, `HYTTE_PERF=1`, a task starting and f
 |---|---|
 | classic, GPU-backed DC target (the old default) | 6.5 ms |
 | classic, software target | 3.6 ms |
-| gpu | 2.1 ms |
+| gpu (hardware device, before) | 0.9 ms |
+| gpu (WARP device, now) | 0.45 ms |
 
 ## The frame clock
 
