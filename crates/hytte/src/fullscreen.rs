@@ -90,15 +90,20 @@ pub fn decide(cfg: &General, fg_exe: Option<&str>, fg: Fg) -> Option<Suppress> {
     if fg.ignore {
         return None;
     }
-    let s = if fg.busy {
+    // `busy` and `fs` are system-wide: a game left running behind a maximised window still sets
+    // them, so they only count for a foreground that looks fullscreen itself.
+    let maximised = fg.zoomed && fg.caption;
+    let s = if fg.busy && fg.covers && !fg.zoomed {
         Suppress::Game
-    } else if fg.covers && !fg.zoomed && (fg.fs || (!fg.caption && !fg.frame)) {
+    } else if fg.covers && ((fg.fs && !maximised) || (!fg.zoomed && !fg.caption && !fg.frame)) {
+        // A window that goes fullscreen from maximised stays zoomed but drops its title bar.
         if fg_exe.is_some_and(|e| is(e, MEDIA)) {
             Suppress::Hide
         } else {
             Suppress::Game
         }
-    } else if fg.covers {
+    } else if fg.covers || fg.zoomed {
+        // Maximised fills the work area: with a visible taskbar it doesn't cover the monitor.
         Suppress::Hide
     } else {
         Suppress::Show
@@ -271,7 +276,7 @@ mod tests {
     #[test]
     fn lists_override() {
         let mut g = General::default();
-        let busy = fg(true, false, false, false);
+        let busy = fg(true, true, false, false);
         assert_eq!(decide(&g, Some("game.exe"), busy), GAME);
         g.allow_list = vec!["GAME.exe".into()];
         assert_eq!(decide(&g, Some("game.exe"), busy), SHOW);
@@ -300,8 +305,33 @@ mod tests {
         // Borderless fullscreen, even when the notification state misses it.
         assert_eq!(decide(&g, None, fg(false, true, false, false)), GAME);
         // Exclusive fullscreen / presentation reported by the shell.
-        assert_eq!(decide(&g, None, fg(true, false, true, false)), GAME);
+        assert_eq!(decide(&g, None, fg(true, true, false, false)), GAME);
+        // The flag is system-wide: it doesn't make a windowed app a game.
+        assert_eq!(decide(&g, None, fg(true, false, true, false)), SHOW);
         assert_eq!(decide(&g, None, fg(false, false, true, false)), SHOW);
+        // Maximised with a visible taskbar: fills the work area only, still the thin line.
+        let maxed = Fg {
+            zoomed: true,
+            frame: true,
+            ..fg(false, false, true, false)
+        };
+        assert_eq!(decide(&g, Some("msedge.exe"), maxed), HIDE);
+        // A game left running behind a maximised window (auto-hide taskbar, so it covers).
+        let behind = Fg {
+            busy: true,
+            fs: true,
+            covers: true,
+            ..maxed
+        };
+        assert_eq!(decide(&g, Some("Photos.exe"), behind), HIDE);
+        // Fullscreen from maximised: still zoomed, title bar gone, the shell says fullscreen.
+        let fs_zoomed = Fg {
+            fs: true,
+            zoomed: true,
+            ..fg(false, true, false, false)
+        };
+        assert_eq!(decide(&g, Some("game.exe"), fs_zoomed), GAME);
+        assert_eq!(decide(&g, Some("msedge.exe"), fs_zoomed), HIDE);
         // Frameless but maximised (Electron, VS Code): just maximised.
         let electron = Fg {
             zoomed: true,
@@ -339,5 +369,11 @@ mod tests {
         };
         assert_eq!(decide(&g, None, elsewhere(true)), SHOW);
         assert_eq!(decide(&g, None, elsewhere(false)), GAME);
+        let maxed_elsewhere = Fg {
+            zoomed: true,
+            covers: false,
+            ..elsewhere(true)
+        };
+        assert_eq!(decide(&g, None, maxed_elsewhere), SHOW);
     }
 }
