@@ -241,9 +241,9 @@ monitor = "primary"            # "primary", "active" (the focused window's) or "
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
-fullscreen_mode = "hide"       # over maximised windows and fullscreen video: "sentinel" = thin line, "hide" = disappear (games always hide)
+fullscreen_mode = "sentinel"   # over maximised windows and fullscreen video: "sentinel" = thin line, "hide" = disappear (games always hide)
 finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
-hide_from_capture = false      # true = keep the pill out of screenshots and screen share
+hide_from_capture = true       # keep the pill out of screenshots and screen share (false = capturable)
 check_updates = true           # look for a new version once a day (needs a restart)
 add_to_path = true             # put the Hytte folder on PATH so `hytte` works in terminals
 allow_list = []                # apps that never make Hytte back off, e.g. ["Code.exe"]
@@ -291,7 +291,7 @@ The full list of settings, including which ones need a restart, is in [the confi
 | Problem | Try this |
 |---|---|
 | Nothing happens when I start Hytte | It may already be running: look for it in the tray. Only one copy runs at a time. |
-| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window or fullscreen video may have hidden it (or shrunk it to a thin line if you set `fullscreen_mode = "sentinel"`), or Hytte is paused (tray menu). |
+| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window or fullscreen video may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
 | `hytte: daemon not running` | Run `hytte` to start the pill. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `.\hytte.exe setup` from the Hytte folder. |
 | `notch` isn't recognised | The command is `hytte` now; see [Upgrading](#upgrading-from-an-older-version-with-notchexe). |

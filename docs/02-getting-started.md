@@ -65,7 +65,7 @@ In CLI mode it is a normal console program, so its errors print to the terminal.
 
 - The UI thread state lives in a thread-local (`window.rs`, `UI`). A breakpoint in `Ui::frame` fires on every frame while anything moves. Prefer `Ui::handle_events` or `Ui::after_model_change` to catch state changes.
 - Mouse hover depends on timers (`T_DWELL`, `T_COLLAPSE`). Stopping in the debugger while hovering will make the pill open or close unexpectedly when you resume.
-- If the pill seems "stuck", check the tray **Pause** item and whether a fullscreen window is in front.
+- If the pill seems "stuck", check the tray **Pause** item and whether a fullscreen window is in front (the sentinel bar).
 
 ## Working from macOS or Linux
 

@@ -73,11 +73,10 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `renderer` | `"gpu"` | `"gpu"`: Direct2D into a DirectComposition swap chain. `"classic"`: Direct2D into a layered window. Read at startup only (the window's style depends on it), so changing it needs a restart. If the GPU pipeline can't start, Hytte uses `classic` anyway. |
 | `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front: game mode for real fullscreen apps ([section 7](07-window-and-input.md#fullscreen-suppression)), `fullscreen_mode` for maximised windows. |
-| `fullscreen_mode` | `"hide"` | Over a maximised window that covers the screen, or a fullscreen browser / media player: `"hide"` fades out completely, `"sentinel"` shrinks to a 3 px bar instead. Games always hide fully. |
-| `config_version` | `1` | Marks which one-time config migrations have run. Don't edit. In 1.2 the first launch sets `fullscreen_mode = "hide"` once for existing configs (`config::migrate`); a value you set afterwards is kept. Add a step there and bump `CONFIG_VERSION` for the next forced change. |
+| `fullscreen_mode` | `"sentinel"` | Over a maximised window that covers the screen, or a fullscreen browser / media player: `"sentinel"` shrinks to a 3 px bar, `"hide"` fades out completely. Games always hide fully. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
 | `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Read at startup. |
-| `hide_from_capture` | `false` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
+| `hide_from_capture` | `true` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
 | `output_folder` | none | Folder for Drop Vault results; if unset or missing, results go next to the source file. |
 | `allow_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"`. |
 | `deny_list` | `[]` | Exe names that always get game mode while in front (for a game that isn't detected, or a browser game you want treated as one). |

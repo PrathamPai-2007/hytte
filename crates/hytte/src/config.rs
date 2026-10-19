@@ -35,11 +35,8 @@ pub struct General {
     pub renderer: String,
     #[serde(default = "default_true")]
     pub suppress_fullscreen: bool,
-    #[serde(default = "default_fullscreen_mode")]
+    #[serde(default = "default_sentinel")]
     pub fullscreen_mode: String, // "hide" | "sentinel"
-    /// Which one-time config migrations have run (see `migrate`). Don't edit.
-    #[serde(default)]
-    pub config_version: u32,
     #[serde(default)]
     pub output_folder: Option<String>,
     #[serde(default)]
@@ -50,7 +47,7 @@ pub struct General {
     #[serde(default = "default_finish_peek")]
     pub finish_peek_secs: u64,
     /// Keep the pill out of screenshots, recordings and screen share.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub hide_from_capture: bool,
     /// Look for a newer release on GitHub once a day and offer to install it. Read at startup.
     #[serde(default = "default_true")]
@@ -105,8 +102,8 @@ fn default_true() -> bool {
 fn default_finish_peek() -> u64 {
     5
 }
-fn default_fullscreen_mode() -> String {
-    "hide".into()
+fn default_sentinel() -> String {
+    "sentinel".into()
 }
 fn default_glow() -> f32 {
     1.2
@@ -133,13 +130,12 @@ impl Default for General {
             theme: default_theme(),
             renderer: default_renderer(),
             suppress_fullscreen: true,
-            fullscreen_mode: "hide".into(),
-            config_version: CONFIG_VERSION,
+            fullscreen_mode: "sentinel".into(),
             output_folder: None,
             allow_list: vec![],
             deny_list: vec![],
             finish_peek_secs: default_finish_peek(),
-            hide_from_capture: false,
+            hide_from_capture: true,
             check_updates: true,
         }
     }
@@ -401,27 +397,6 @@ pub fn config_path() -> PathBuf {
     base.join("Hytte").join("config.toml")
 }
 
-/// Bumped whenever `migrate` learns a new step.
-const CONFIG_VERSION: u32 = 1;
-
-/// One-time, in-place upgrade of an existing config (comments and layout kept). Step 1 (1.2):
-/// `fullscreen_mode` becomes "hide" for everyone, whatever they had. Returns `None` when the
-/// file is already current or isn't valid TOML.
-fn migrate(text: &str) -> Option<String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
-    let general = doc
-        .entry("general")
-        .or_insert_with(toml_edit::table)
-        .as_table_like_mut()?;
-    let have = general.get("config_version").and_then(|v| v.as_integer());
-    if have.is_some_and(|v| v >= CONFIG_VERSION as i64) {
-        return None;
-    }
-    general.insert("fullscreen_mode", toml_edit::value("hide"));
-    general.insert("config_version", toml_edit::value(CONFIG_VERSION as i64));
-    Some(doc.to_string())
-}
-
 pub fn load() -> Config {
     let path = config_path();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -430,14 +405,6 @@ pub fn load() -> Config {
         let _ = save(&cfg);
         return cfg;
     }
-    // Applied in memory even if the file is read-only; it is then retried next launch.
-    let text = match migrate(&text) {
-        Some(next) => {
-            let _ = write_atomic(&path, &next);
-            next
-        }
-        None => text,
-    };
     parse(&text).unwrap_or_default()
 }
 
@@ -651,30 +618,6 @@ pub fn ensure_start_menu() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn migration_runs_once_and_keeps_the_rest() {
-        let old = "# mine
-[general]
-fullscreen_mode = \"sentinel\" # thin
-acrylic = true
-";
-        let next = migrate(old).unwrap();
-        let cfg = parse(&next).unwrap();
-        assert_eq!(cfg.general.fullscreen_mode, "hide");
-        assert_eq!(cfg.general.config_version, CONFIG_VERSION);
-        assert!(cfg.general.acrylic && next.contains("# mine"));
-        // After the user picks sentinel again, it sticks.
-        let chosen = next.replace("\"hide\"", "\"sentinel\"");
-        assert_eq!(migrate(&chosen), None);
-        assert_eq!(migrate("not [valid"), None);
-        assert!(migrate(
-            "[shell]
-threshold_ms = 1
-"
-        )
-        .is_some());
-    }
 
     #[test]
     fn autostart_edit_keeps_comments_and_other_keys() {
