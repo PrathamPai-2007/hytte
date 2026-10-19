@@ -167,13 +167,21 @@ Neither re-asserts topmost on the spot: the new foreground may be a game enterin
 
 When `T_FS` fires, `Ui::evaluate_fullscreen` calls `fullscreen::evaluate`, which decides:
 
-1. The foreground exe is on `deny_list` → **game**.
-2. `suppress_fullscreen = false`, the exe is on `allow_list`, or the foreground is a shell window → **show**. Shell windows are the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, and "no foreground window". The desktop covers the whole monitor and Windows can report "busy" while it is focused, so without this exemption the pill stayed a thin line on the desktop.
-3. The shell reports D3D fullscreen, presentation mode or "busy" (`SHQueryUserNotificationState`), **or** the window covers the whole monitor without a title bar (`WS_CAPTION`; borderless fullscreen) → **game**.
-4. The window covers the whole monitor but has a title bar → **hide**. This is a maximised window with an auto-hiding taskbar, where drag and drop must keep working.
-5. Otherwise → **show**.
+The foreground window is first taken up to its root (`GetAncestor(GA_ROOT)`), so a game's own popup still counts as the game, and measured against **its own** monitor (`MonitorFromWindow`), with 2 px of slack for DPI rounding. Then:
 
-The inputs live in `fullscreen::Fg` and the decision is the pure `fullscreen::decide`, which is unit-tested.
+1. The foreground exe is on `deny_list` → **game**.
+2. `suppress_fullscreen = false`, the exe is on `allow_list`, or the foreground is the shell → **show**. The shell is the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, "no foreground window", and any window of `explorer.exe` (except File Explorer, `CabinetWClass`), `ShellExperienceHost`, `StartMenuExperienceHost`, `SearchHost`, `LockApp` or `ShellHost`. Task View, Alt-Tab and the Snap overlay are explorer windows that cover the monitor without a title bar; without this they counted as games.
+3. The foreground is a tool window, click-through (`WS_EX_TRANSPARENT`) or cloaked → **no change**. These are the Xbox Game Bar, GPU and OEM overlays: they say nothing about what is underneath, and flipping on them showed the pill over a game.
+4. The shell reports exclusive D3D fullscreen or presentation mode → **game**.
+5. The window covers its monitor, isn't maximised (`IsZoomed`), and either has no frame (no `WS_CAPTION`, no `WS_THICKFRAME`) or the shell reports some fullscreen app (`QUNS_BUSY`, `QUNS_APP`) → **hide** for browsers and media players (`fullscreen::MEDIA`: a video gets the thin line), **game** for everything else.
+6. The window covers its monitor otherwise → **hide**. This is a maximised window with an auto-hiding taskbar, frameless ones (Electron, VS Code) included, where drag and drop must keep working.
+7. Otherwise → **show**.
+
+"Hide" only applies when that monitor is the pill's (`Ui::hmon`); a game hides Hytte on any monitor. The inputs live in `fullscreen::Fg` and the decision is the pure `fullscreen::decide`, which is unit-tested.
+
+The check also re-runs after resume from sleep and after explorer restarts (`TaskbarCreated`), when no foreground event arrives.
+
+The window region is the pill plus its glow. Scenes without a glow (the sentinel, idle) get a 4 px margin instead of 28, so the thin line over a fullscreen browser doesn't swallow clicks on the tabs around it (a cross-process `HTTRANSPARENT` would not pass them on).
 
 "Hide" sets `fs_hidden`. With `fullscreen_mode = "sentinel"`, the scene becomes the 3 px `Sentinel` bar (hovering it still opens the pill). With `"hide"`, `Ui::hidden()` becomes true and the window fades out, unless a drag is armed or the model is forcing visibility.
 
@@ -187,7 +195,7 @@ The inputs live in `fullscreen::Fg` and the decision is the pure `fullscreen::de
 
 Leaving reverses each step, and asks for a fresh port scan.
 
-Every change of decision is logged once to `hytte.log` (`fullscreen: Game foreground=… Fg { busy, covers, caption, shell }`, via `logging::note_fullscreen`), as are `game mode on` / `game mode off`. A pill that backs off unexpectedly, or a game that isn't detected, can be explained from the log.
+Every change of decision is logged once to `hytte.log` (`fullscreen: Some(Game) foreground=… Fg { busy, fs, covers, caption, frame, zoomed, shell, ignore, same_monitor }`, via `logging::note_fullscreen`), as are `game mode on` / `game mode off`. A pill that backs off unexpectedly, or a game that isn't detected, can be explained from the log.
 
 `Ui::hidden()` combines everything that hides the window: the tray **Pause**, game mode, or fullscreen in hide mode. When hidden, the `vis` spring fades to 0, and the window is then actually hidden with `ShowWindow(SW_HIDE)`. It is shown again before fading back in.
 

@@ -235,7 +235,7 @@ monitor = "primary"            # "primary", "active" (the focused window's) or "
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
-fullscreen_mode = "sentinel"   # over maximised windows: "sentinel" = thin line, "hide" = disappear (games always hide)
+fullscreen_mode = "sentinel"   # over maximised windows and fullscreen video: "sentinel" = thin line, "hide" = disappear (games always hide)
 finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
 hide_from_capture = false      # true = keep the pill out of screenshots and screen share
 check_updates = true           # look for a new version once a day (needs a restart)
@@ -303,7 +303,8 @@ Logs are written to `%APPDATA%\Hytte\hytte.log`.
 ## Good to know
 
 - Dropping files onto the pill works on the monitor the pill is on.
-- **Games.** When a game (or a video, slideshow or anything else) is truly fullscreen, Hytte goes into *game mode*. It hides with no fade, removes its system-wide mouse hooks, releases its hotkey, drops itself to background CPU, disk and memory priority, and pauses its port and resource checks. Alt-Tab out or quit the game and it comes straight back. Notifications that arrive meanwhile wait for you. If a game isn't detected, add its exe to `deny_list`; `hytte.log` shows what Hytte decided (`fullscreen: Game …`).
+- **Fullscreen video.** A browser or media player in fullscreen (YouTube, Netflix, VLC, mpv…) gets the thin line, which only takes the space of the line itself, so the tabs and controls around it stay clickable.
+- **Games.** When a game (or a slideshow or any other app) is truly fullscreen, on any monitor, Hytte goes into *game mode*. It hides with no fade, removes its system-wide mouse hooks, releases its hotkey, drops itself to background CPU, disk and memory priority, and pauses its port and resource checks. Alt-Tab out or quit the game and it comes straight back. Notifications that arrive meanwhile wait for you. Task View, Alt-Tab, Start, the Xbox Game Bar and GPU or OEM overlays don't count as fullscreen and don't knock Hytte out of game mode. If a game isn't detected, add its exe to `deny_list` (or a misdetected app to `allow_list`); `hytte.log` shows what Hytte decided (`fullscreen: Game …`).
 - Images dragged straight from a **browser** aren't supported yet. Save the image first.
 - `hytte.exe` isn't code-signed yet, so Windows SmartScreen may warn you the first time you run it.
 

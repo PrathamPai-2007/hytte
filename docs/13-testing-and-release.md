@@ -29,7 +29,7 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 | `hytte/src/timer.rs` | Surviving a sleep gap, pause and resume, extending and formatting, long-break spacing, wheel steps, persistence, the chime WAV. |
 | `hytte/src/media.rs` | Album art decoding and premultiplication. |
 | `hytte/src/privacy.rs` | Registry key → app name. |
-| `hytte/src/fullscreen.rs` | Allow / deny list precedence; the desktop and other shell windows are never treated as fullscreen; a maximised window only hides, while borderless or shell-reported fullscreen is a game. |
+| `hytte/src/fullscreen.rs` | Allow / deny list precedence; the desktop and other shell windows are never treated as fullscreen; a maximised window (frameless included) only hides, while borderless or shell-reported fullscreen is a game; a fullscreen browser or media player gets the thin line; overlays keep the current state; another monitor only matters for games. |
 | `hytte/src/power.rs` | Reading is safe on any machine; status text. |
 | `hytte/src/proc.rs` | App ids → exe stems; own process alive and named. |
 | `hytte/src/perf.rs` | Percentile maths. |
