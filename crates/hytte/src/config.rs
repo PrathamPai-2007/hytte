@@ -430,9 +430,13 @@ pub fn load() -> Config {
         let _ = save(&cfg);
         return cfg;
     }
+    // Applied in memory even if the file is read-only; it is then retried next launch.
     let text = match migrate(&text) {
-        Some(next) if write_atomic(&path, &next).is_ok() => next,
-        _ => text,
+        Some(next) => {
+            let _ = write_atomic(&path, &next);
+            next
+        }
+        None => text,
     };
     parse(&text).unwrap_or_default()
 }
