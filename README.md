@@ -8,7 +8,7 @@
 
 Hytte puts a small pill at the top-centre of your screen. It stays quiet until something worth knowing happens: a build finishes, an AI agent needs your answer, a dev server starts, music plays, or you drag a file toward the top of the screen. Then it opens, shows you what matters, and tucks itself away again.
 
-It never steals focus from what you're typing, and it uses almost no CPU while idle. It's one small program, `hytte.exe`, which is both the pill and the command you type in your terminal.
+It never steals focus from what you're typing, and it uses almost no CPU while idle and under 20 MB of RAM (about 10 MB committed, measured). It's one small program, `hytte.exe`, which is both the pill and the command you type in your terminal.
 
 <p align="center">
   <img src="docs/img/task.png" alt="The pill showing two running tasks" width="420"><br>
