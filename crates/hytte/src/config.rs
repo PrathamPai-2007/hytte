@@ -37,6 +37,9 @@ pub struct General {
     pub suppress_fullscreen: bool,
     #[serde(default = "default_fullscreen_mode")]
     pub fullscreen_mode: String, // "hide" | "sentinel"
+    /// Which one-time config migrations have run (see `migrate`). Don't edit.
+    #[serde(default)]
+    pub config_version: u32,
     #[serde(default)]
     pub output_folder: Option<String>,
     #[serde(default)]
@@ -131,6 +134,7 @@ impl Default for General {
             renderer: default_renderer(),
             suppress_fullscreen: true,
             fullscreen_mode: "hide".into(),
+            config_version: CONFIG_VERSION,
             output_folder: None,
             allow_list: vec![],
             deny_list: vec![],
@@ -397,6 +401,27 @@ pub fn config_path() -> PathBuf {
     base.join("Hytte").join("config.toml")
 }
 
+/// Bumped whenever `migrate` learns a new step.
+const CONFIG_VERSION: u32 = 1;
+
+/// One-time, in-place upgrade of an existing config (comments and layout kept). Step 1 (1.2):
+/// `fullscreen_mode` becomes "hide" for everyone, whatever they had. Returns `None` when the
+/// file is already current or isn't valid TOML.
+fn migrate(text: &str) -> Option<String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
+    let general = doc
+        .entry("general")
+        .or_insert_with(toml_edit::table)
+        .as_table_like_mut()?;
+    let have = general.get("config_version").and_then(|v| v.as_integer());
+    if have.is_some_and(|v| v >= CONFIG_VERSION as i64) {
+        return None;
+    }
+    general.insert("fullscreen_mode", toml_edit::value("hide"));
+    general.insert("config_version", toml_edit::value(CONFIG_VERSION as i64));
+    Some(doc.to_string())
+}
+
 pub fn load() -> Config {
     let path = config_path();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -405,6 +430,10 @@ pub fn load() -> Config {
         let _ = save(&cfg);
         return cfg;
     }
+    let text = match migrate(&text) {
+        Some(next) if write_atomic(&path, &next).is_ok() => next,
+        _ => text,
+    };
     parse(&text).unwrap_or_default()
 }
 
@@ -618,6 +647,30 @@ pub fn ensure_start_menu() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_runs_once_and_keeps_the_rest() {
+        let old = "# mine
+[general]
+fullscreen_mode = \"sentinel\" # thin
+acrylic = true
+";
+        let next = migrate(old).unwrap();
+        let cfg = parse(&next).unwrap();
+        assert_eq!(cfg.general.fullscreen_mode, "hide");
+        assert_eq!(cfg.general.config_version, CONFIG_VERSION);
+        assert!(cfg.general.acrylic && next.contains("# mine"));
+        // After the user picks sentinel again, it sticks.
+        let chosen = next.replace("\"hide\"", "\"sentinel\"");
+        assert_eq!(migrate(&chosen), None);
+        assert_eq!(migrate("not [valid"), None);
+        assert!(migrate(
+            "[shell]
+threshold_ms = 1
+"
+        )
+        .is_some());
+    }
 
     #[test]
     fn autostart_edit_keeps_comments_and_other_keys() {
