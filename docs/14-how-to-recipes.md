@@ -90,14 +90,14 @@ Example: a "Clipboard history" panel.
    - add `Panel::Clipboard` and `Scene::ExpClipboard`;
    - add the panel to `Model::panels()` at the right priority position, with the condition for when it has content;
    - map it in `Model::scene()` (the `hover || peeking` branch);
-   - give the scene a size in `Model::size()` (include `tab` if it shows tab dots) and a glow in `Model::glow()`.
+   - give the scene a size in `Model::size()` (include `tab` if it shows the tab strip) and a glow in `Model::glow()`.
 2. **Renderer** (`render.rs`):
    - add `Scene::ExpClipboard => self.exp_clipboard(fr, w, h)` to `Renderer::content`;
-   - add it to the list of scenes that draw tab dots, if it should;
+   - map it in `Panel::of`, if it is a panel (that is what puts it in the tab strip);
    - write `exp_clipboard`, drawing with `cc(...)` colours and registering clicks with `hit()` / `button()`.
 3. **Ambient** (`Model::ambient`): only if the panel animates continuously, and only with a stop condition.
 4. **Tests:** extend `panels_and_selection` and `scene_priority` in `ui_state.rs`.
-5. **Look at it** without running the pill: add a `shoot(...)` call for the new scene to the `snapshots` test in `render.rs` (`mod snap`), then run `HYTTE_SNAP_DIR=<dir> cargo test -p hytte snapshots -- --ignored` and open the BMP. Pass `true` for `light` to check the light theme too.
+5. **Look at it** without running the pill: add a `shoot(...)` call for the new scene to the `snapshots` test in `render.rs` (`mod snap`), then run `HYTTE_SNAP_DIR=<dir> cargo test -p hytte snapshots -- --ignored` and open `index.html` in that folder (or the scene's PNG). Pass `true` for `light` to check the light theme too.
 
 A small, related feature can share a pane instead of adding one, as the dev servers share the Tasks pane: `panels()` shows Tasks when there are visible tasks **or** listening ports, `Model::size(ExpTasks)` adds `servers_h()`, and `exp_tasks` draws `servers` under the rows.
 

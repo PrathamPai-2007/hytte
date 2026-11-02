@@ -21,6 +21,8 @@ pub struct TaskState {
     pub exit_code: Option<i32>,
     /// Latest output line (`hytte run`), for the live ticker.
     pub line: Option<String>,
+    /// Folder the command runs in (for Rerun).
+    pub cwd: Option<String>,
     pub updated: Instant,
 }
 
@@ -70,6 +72,7 @@ pub fn spawn_registry(
                         message: msg.message.clone(),
                         exit_code: msg.exit_code,
                         line: msg.line.clone(),
+                        cwd: msg.cwd.clone(),
                         updated: Instant::now(),
                     };
                     if matches!(msg.event, TaskEvent::Done | TaskEvent::Failed | TaskEvent::Lost) {

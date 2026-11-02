@@ -44,7 +44,7 @@ Newline-delimited JSON: one object per line, UTF-8. A client may send several li
 | `pid` | integer | no | | The owning process: used for click-to-focus and liveness checks. |
 | `delay_ms` | integer | no | | Don't show the task until this long after it starts. |
 | `message` | string | no | ≤ 1024 bytes | Free text, shown in amber while `NeedsInput`. |
-| `cwd` | string | no | ≤ 1024 bytes | The working directory (carried; not displayed today). |
+| `cwd` | string | no | ≤ 1024 bytes | The working directory: where **Rerun** starts the command again. `hytte run` and every shell hook send it. |
 | `line` | string | no | ≤ 512 bytes | The command's latest output line (`hytte run` sends it), shown in mono under a running task in the expanded list. Additive: older daemons ignore it. |
 
 `event` is one of:

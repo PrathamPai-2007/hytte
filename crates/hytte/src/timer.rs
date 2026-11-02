@@ -103,6 +103,20 @@ pub fn round_dots(done: u32, rounds: u32, running: bool) -> (u32, u32) {
 }
 
 /// Wheel notches -> minutes: 1-minute steps under 10, 5-minute steps above.
+/// Typing the minutes on the setup card: a digit soon after the last one (`fresh` false)
+/// extends the number ("2", "5" is 25), otherwise it starts a new one. 1 to 180.
+pub fn typed(m: u32, digit: u32, fresh: bool) -> u32 {
+    let n = if fresh { digit } else { m * 10 + digit };
+    match n {
+        // Too long: start over from this digit. A 0 can't start a number.
+        n if n > 180 || n == 0 => match digit {
+            0 => m,
+            d => d,
+        },
+        n => n,
+    }
+}
+
 pub fn nudge(m: u32, steps: i32) -> u32 {
     let mut m = m as i32;
     for _ in 0..steps.abs() {
@@ -274,6 +288,16 @@ mod tests {
 
     #[test]
     fn wheel_steps_by_one_then_five() {
+        assert_eq!(typed(25, 4, true), 4);
+        assert_eq!(typed(4, 5, false), 45);
+        assert_eq!(typed(12, 0, false), 120);
+        assert_eq!(
+            typed(45, 0, false),
+            45,
+            "450 is too long and 0 can't start over"
+        );
+        assert_eq!(typed(18, 5, false), 5, "185 is too long: starts over");
+        assert_eq!(typed(25, 0, true), 25, "a leading 0 is ignored");
         assert_eq!(nudge(25, 2), 35);
         assert_eq!(nudge(25, -3), 10);
         assert_eq!(nudge(10, -1), 9);

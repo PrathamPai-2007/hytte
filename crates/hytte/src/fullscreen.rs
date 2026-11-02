@@ -84,7 +84,7 @@ pub fn decide(cfg: &General, fg_exe: Option<&str>, fg: Fg) -> Option<Suppress> {
     if listed(&cfg.deny_list) {
         return Some(Suppress::Game);
     }
-    if !cfg.suppress_fullscreen || listed(&cfg.allow_list) || fg.shell {
+    if cfg.fullscreen == "off" || listed(&cfg.allow_list) || fg.shell {
         return Some(Suppress::Show);
     }
     if fg.ignore {
@@ -283,7 +283,7 @@ mod tests {
         g.deny_list = vec!["game.exe".into()];
         assert_eq!(decide(&g, Some("game.exe"), Fg::default()), GAME);
         g.deny_list.clear();
-        g.suppress_fullscreen = false;
+        g.fullscreen = "off".into();
         g.allow_list.clear();
         assert_eq!(decide(&g, None, fg(true, true, false, false)), SHOW);
     }

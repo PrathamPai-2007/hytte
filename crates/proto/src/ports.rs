@@ -119,6 +119,11 @@ mod win {
     }
 
     pub fn exe_name(pid: u32) -> Option<String> {
+        exe_path(pid)?.rsplit('\\').next().map(str::to_owned)
+    }
+
+    /// Full path of the executable behind a pid.
+    pub fn exe_path(pid: u32) -> Option<String> {
         unsafe {
             let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             let mut buf = [0u16; 520];
@@ -131,10 +136,7 @@ mod win {
             );
             let _ = CloseHandle(h);
             ok.ok()?;
-            String::from_utf16_lossy(&buf[..len as usize])
-                .rsplit('\\')
-                .next()
-                .map(str::to_owned)
+            Some(String::from_utf16_lossy(&buf[..len as usize]))
         }
     }
 

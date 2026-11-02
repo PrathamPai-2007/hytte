@@ -4,31 +4,17 @@ This section follows one frame from start to finish, then explains the spring ph
 
 Code: `Ui::frame` in `crates/hytte/src/window.rs`, `crates/hytte/src/render.rs`, `crates/hytte/src/animation.rs`, and `Anim` in `crates/hytte/src/ui_state.rs`.
 
-## Two ways to reach the screen
+## Reaching the screen
 
-Hytte draws with **Direct2D** and **DirectWrite**: anti-aliased shapes, gradients and text, with real per-pixel alpha so the soft glow fades into whatever is behind it. There are two renderers, chosen once at startup by `[general] renderer` (the window's style depends on it, so it can't change while running):
-
-| | `gpu` (default) | `classic` |
-|---|---|---|
-| Draws with | A Direct2D **device context** on a D3D11 device (`gpu.rs`) | An `ID2D1DCRenderTarget` bound to a 32-bit premultiplied **DIB section** |
-| Shown with | A composition swap chain through **DirectComposition** | `UpdateLayeredWindow` |
-| Window style | `WS_EX_NOREDIRECTIONBITMAP` | `WS_EX_LAYERED` |
-| Click-through | A **window region** (see below) | Fully transparent pixels |
-| Cost | No readback, no per-frame copy | One CPU copy to the compositor per frame |
-
-The `gpu` renderer falls back to `classic` by itself if the D3D11 / DirectComposition pipeline can't be created (the reason is written to `hytte.log`). `Renderer` hides the difference: every drawing function uses the same `ID2D1RenderTarget`, and only `new`, `plan`, `draw` and `present` branch.
+Hytte draws with **Direct2D** and **DirectWrite**: anti-aliased shapes, gradients and text, with real per-pixel alpha so the soft glow fades into whatever is behind it. A Direct2D **device context** on a D3D11 device (`gpu.rs`) draws into a composition swap chain shown through **DirectComposition**, in a `WS_EX_NOREDIRECTIONBITMAP` window: no readback and no per-frame copy. Clicks pass through everywhere outside a **window region** (below). If the pipeline can't be created, the reason is written to `hytte.log` and Hytte exits.
 
 ### The GPU renderer
 
 - `Gpu::new` creates a WARP D3D11 device (BGRA support; see [section 12](12-performance.md#why-the-gpu-renderer-uses-warp)), a Direct2D device and device context, a **flip-model composition swap chain** with premultiplied alpha, and a DirectComposition device, target and visual. The swap chain is always the whole canvas (460 × 310 logical px, scaled by DPI).
 - Each frame, `Gpu::begin` wraps the current back buffer as the device context's target, `draw` clears it and paints, and `Gpu::end` releases it. `Gpu::present` calls `Present(0, 0)` (pacing is the frame clock's job, not the swap chain's). The whole-window fade (`vis`) is a DirectComposition effect group's opacity, so it costs nothing to draw.
-- The window never moves or resizes after the monitor is known: it is the canvas, centred on the top edge. What is visible and clickable is a **window region** covering the pill and its glow (the same box the classic path presents). Setting a region is a window-manager round trip, so `present` jumps it straight to where the pill is *heading*, leaves it alone while the pill moves, and trims it to the exact box once it settles.
+- The window never moves or resizes after the monitor is known: it is the canvas, centred on the top edge. What is visible and clickable is a **window region** covering the pill and its glow. Setting a region is a window-manager round trip, so `present` jumps it straight to where the pill is *heading*, leaves it alone while the pill moves, and trims it to the exact box once it settles.
 - If Direct2D or DXGI reports a lost device (`D2DERR_RECREATE_TARGET`, `DXGI_ERROR_DEVICE_REMOVED` / `RESET`), `Renderer::rebuild_gpu` drops the old pipeline, builds a new one for the same window, and clears everything the old device made (brushes, album art and thumbnails, which are then fetched again). If the rebuild fails (a driver mid-update, the adapter gone), it is retried on a timer with backoff from 1 s to 30 s rather than every frame.
 - WARP draws on the CPU and avoids loading the GPU driver (≈ 45 MB less memory). If WARP can't be created, `Gpu::new` falls back to the hardware device.
-
-### The classic renderer
-
-Direct2D draws into a DIB, then `UpdateLayeredWindow` hands the bitmap to Windows at the crop's size and position. The target is a **software** (CPU) one: the pill is a few hundred pixels, and a GPU-backed DC target spends more on reading the result back than it saves drawing (measured p50 6.5 ms → 3.6 ms per frame). `HYTTE_HARDWARE=1` selects the GPU-backed DC target for comparison.
 
 ### Measured
 
@@ -36,8 +22,8 @@ On the development machine (60 Hz display, `HYTTE_PERF=1`, a task starting and f
 
 | Renderer | draw + present |
 |---|---|
-| classic, GPU-backed DC target (the old default) | 6.5 ms |
-| classic, software target | 3.6 ms |
+| layered window, GPU-backed DC target (the first version) | 6.5 ms |
+| layered window, software target (removed in 1.2.2) | 3.6 ms |
 | gpu (hardware device, before) | 0.9 ms |
 | gpu (WARP device, now) | 0.45 ms |
 
@@ -59,14 +45,14 @@ Right after each `DwmFlush`, the ticker samples DWM's composition timing (`DwmGe
 2. **Layout.** `layout()` refreshes every spring's target from the model ([section 6](06-ui-model.md)).
 3. **Step.** `anim.step(dt)` advances all springs and reports whether anything is still moving.
 4. **Visibility.** Show the window if it should become visible. Hide it once the `vis` fade-out has reached ~0.
-5. **Crop.** `Renderer::plan(w, h, armed, room, glow)` sizes the region to draw: the pill plus 28 px of margin for the glow on the sides and bottom (4 px when the scene has no glow, so the thin line over a fullscreen video takes almost no clicks), plus `room` for a bubble, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels. A `Crop` also carries `clip`, the box that holds the pill and glow: the classic renderer's crop *is* that box, while the gpu renderer's crop is the whole canvas and `clip` becomes the window region.
+5. **Crop.** `Renderer::plan(w, h, armed, room, glow)` sizes the visible region: the pill plus 28 px of margin for the glow on the sides and bottom (4 px when the scene has no glow, so the thin line over a fullscreen video takes almost no clicks), plus `room` for a bubble, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels. The crop is the whole canvas; its `clip`, the box that holds the pill and glow, becomes the window region.
 6. **Position.** The crop is centred horizontally on the monitor at its top edge (`origin_for`).
 7. **Draw.** `Renderer::draw(frame, crop, &mut hits)` paints the scene and fills the hit list.
-8. **Present.** `Renderer::present` shows the frame with the whole-window opacity (from the `vis` spring): `UpdateLayeredWindow` (classic), or a window-region update plus `Present` (gpu). The caller also passes the box the pill is heading towards, which the gpu renderer uses to avoid chasing every frame with the region.
+8. **Present.** `Renderer::present` shows the frame with the whole-window opacity (from the `vis` spring): a window-region update plus `Present`. The caller also passes the box the pill is heading towards, so the region doesn't chase every frame.
 9. **Telemetry.** With `HYTTE_PERF=1`, record the draw time, the draw+present cost and the frame gap.
 10. **Keep going?** `animating = moving || ambient`, where `ambient = !reduce && shown && model.ambient(scene, now)`. `fast = moving`. If both are false, the ticker parks after this frame.
 
-Because the canvas is fixed and only the crop (classic) or the region (gpu) changes, the pill can grow and shrink every frame **without resizing the window**. Window resizes are slow and flicker.
+Because the canvas is fixed and only the region changes, the pill can grow and shrink every frame **without resizing the window**. Window resizes are slow and flicker.
 
 ## Inside `Renderer::draw`
 
@@ -78,13 +64,15 @@ Order of painting (`Renderer::scene`):
    - The pill **silhouette** (`pill_geometry`): a path whose top edge flares out into small concave "ears" that blend into the screen edge (only when the pill is taller than 18 px), with rounded bottom corners.
    - The **glow**: the same path stroked 5 times with widening, fading strokes in the glow colour (each stroke stands in for a pair of the nine it used to take: stroking is the costliest thing a frame does). An agent waiting for input makes it pulse.
    - The silhouette is kept between frames while its size is unchanged (`geom`), so ambient frames don't rebuild it.
-   - The **body**: a near-black vertical gradient (slightly translucent with `acrylic = true`).
-   - A hairline rim, and a faint brightening while hovered.
+   - The **body**: a near-black vertical gradient.
+   - The **tint**: the glow's colour pooling up from the bottom of the body (a cached gradient brush whose opacity is the glow strength, so it follows the glow spring and its pulse and never needs frames of its own).
+   - A **rim** that is barely there at the screen edge and brighter round the bottom curve (another cached gradient), and a faint brightening while hovered.
    - The `Sentinel` scene is just a thin rounded bar and stops here.
 2. **Timer fuse.** While a timer runs, a glowing line burns down along the pill edge (`timer_filament`).
 3. **Outgoing content.** If the scene just changed, the **previous** scene's content is drawn with opacity `out`, drifting up a few pixels and clipped to the current pill rectangle. Its hit regions are thrown away and it gets no hover state, so you can't click something that is fading out.
-4. **Current content.** The current scene, with opacity `content` × a height factor (content fades away as the pill gets very short), sliding down from 6 px above into place. `Renderer::content` dispatches to one function per scene: `idle`, `compact_task`, `compact_media`, `exp_tasks` (which draws the `servers` section under the task rows), `exp_media`, `exp_shelf`, `exp_home`, `exp_power`, `exp_drop`, `exp_chip`, `exp_timer`, `exp_timer_done`, `exp_charge`, plus the tab dots.
-5. **Overlays.** The privacy dots and the red mic lock, where the scene doesn't already show that information.
+4. **Current content.** The current scene, with opacity `content` × a height factor (content fades away as the pill gets very short), sliding down from 6 px above into place. `Renderer::content` dispatches to one function per scene: `idle`, `compact_task`, `compact_media`, `exp_tasks` (which draws the `servers` section under the task rows), `exp_media`, `exp_shelf`, `exp_home`, `exp_power`, `exp_drop`, `exp_chip`, `exp_timer`, `exp_timer_done`, `exp_charge`.
+5. **Tab strip** (`tab_strip`). Drawn once, after both scenes, so it stays put while pages slide: one Fluent icon per panel, the panel on screen a pill with its name. While paging, the old tab shrinks as the new one grows, both driven by the `content` spring, so the highlight travels with no state of its own. A hovered tab shows its name in a small label above it. When the pill collapses it fades with `out` and takes no clicks.
+6. **Overlays.** The privacy dots and the red mic lock, where the scene doesn't already show that information.
 
 ### Drawing helpers
 
@@ -93,15 +81,18 @@ Order of painting (`Renderer::scene`):
 | `fill_rr`, `stroke_rr` | Rounded rectangles (solid or dashed stroke). |
 | `circle`, `ring`, `line`, `poly` | Basic shapes; `poly` builds a path for small icons. |
 | `text` | DirectWrite text into a box, clipped, with an ellipsis when it doesn't fit. |
+| `label` | `text`, except that while hovered, text that doesn't fit scrolls (a marquee: pause, glide, pause) instead of showing an ellipsis. Only a hovered label is measured, and only a scrolling one asks for frames (`wants_frames`). |
 | `button` | A pill-shaped button that registers a hit region and brightens on hover. |
 | `hit(x, y, w, h, action)` | Registers a clickable region and returns whether the pointer is over it, so callers can draw a hover state. |
 | `cc(color, alpha)` | A colour with the current content opacity applied. Use it for all content colours so fades work. |
 
-One `ID2D1SolidColorBrush` is reused for every solid colour (`solid` just changes its colour). The two gradient brushes (pill body and progress shimmer) are built once and only have their end points and opacity updated per frame. Text formats (`Fmts`) are created once at startup. Text goes through one reused UTF-16 buffer.
+One `ID2D1SolidColorBrush` is reused for every solid colour (`solid` just changes its colour). The gradient brushes (body, tint, rim, progress shimmer) live in one slot each (`Renderer::grad`), rebuilt only when their colour or theme changes; per frame only their end points and opacity are set. In light theme, `cc` draws saturated accents 22 % darker so coloured text keeps its contrast on the pale pill.
+
+`Frame::accent` is the Windows accent colour (`window::windows_accent`, read from the registry's `AccentPalette` and re-read on `WM_SETTINGCHANGE`): its light-2 shade on the dark pill, dark-1 on the light one, as Windows does. It colours selection and primary actions only (the current tab, the chosen timer preset, **Start timer**, **Rerun**, the keyboard focus ring); status colours (running blue, failed red, and so on) stay fixed. Text formats (`Fmts`) are created once at startup. Text goes through one reused UTF-16 buffer.
 
 ### Theme, icons and the shared element slide
 
-- **Theme.** `Frame::light` (from `[general] theme`: `dark`, `light`, or `auto`, which reads the Windows app mode and is re-read on `WM_SETTINGCHANGE`) switches the palette. Text and lines use `Renderer::fg()` (white, or near-black on the light pill) and `ink()` (the opposite, for things drawn on a `fg` shape), and `body_colors()` gives the pill gradient. The body brush is cached per (acrylic, light).
+- **Theme.** `Frame::light` (from `[general] theme`: `dark`, `light`, or `auto`, which reads the Windows app mode and is re-read on `WM_SETTINGCHANGE`) switches the palette. Text and lines use `Renderer::fg()` (white, or near-black on the light pill) and `ink()` (the opposite, for things drawn on a `fg` shape), and `body_colors()` gives the pill gradient. The body brush is cached per theme.
 - **Icons.** The quick-control tiles (mic, volume, keep awake, timer), the volume bar, the bell and the album-art placeholder are glyphs from Segoe Fluent Icons (`Renderer::glyph` / `glyph_l`), so they are sharp at every DPI. The media transport (`play_icon`, `pause_icon`, `skip_icon`), the spinner, lock, tick, cross and battery are drawn as shapes. The finished-timer bell is rotated (`rotate`) so it can swing.
 - **Shared elements.** Between a compact scene and its expanded twin (`CompactMedia` ↔ `ExpMedia`, `CompactTask` ↔ `ExpTasks`), the album art and the primary task's icon and label slide from one place to the other instead of cross-fading in two. `Renderer::morph_for` takes the progress from the pill's own height spring, so the elements move exactly as fast as the pill grows, overshoot included. `hero(compact, exp, natural)` returns where an element goes: while morphing it is the interpolated rect, drawn fully opaque and without the scenes' own slide offsets (otherwise the outgoing and incoming copies would sit a few pixels apart and the fades would dim it); otherwise `natural`. Both scenes must use identical end points, which is why `label_ends` and `exp_label_w` are shared.
 - **Press, page and bubble.** A button under the pointer shrinks 6 % and brightens while the left button is down (`Frame::pressed`). A paged change slides content in from the side (see [section 6](06-ui-model.md#paging-squash-and-other-motion-state)). The bubble ([section 6](06-ui-model.md#bubbles)) is drawn first, from behind the pill, with its own body, rim and content.
@@ -161,6 +152,7 @@ Ambient animation is the only thing that keeps frames running when no spring is 
 | The plug-in or unplug card is showing (3 s) | The battery fills up (or drains, amber, red at 20 % or less); it expires on its own. |
 | The timer-finished card is showing (at most 2 min) | The bell swings and sends out ripples while the alarm rings. |
 | Media is playing **and** a media scene is shown | The equaliser and timeline. |
+| The pointer rests on a label that is cut off (`Renderer::wants_frames`) | It scrolls to show the rest; it stops when the pointer moves off. |
 
 The bubble spring moves for a fraction of a second when it opens or closes, like any other spring, and then rests: the timer bubble's clock is redrawn by the existing 1 Hz timer redraw, not by an animation.
 

@@ -4,53 +4,33 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct General {
-    #[serde(default)]
     pub autostart: bool,
     /// Put the folder holding `hytte.exe` on the user's PATH at startup.
-    #[serde(default = "default_true")]
     pub add_to_path: bool,
     /// Which monitor the pill hangs from: "primary", "active" (the foreground window's) or
     /// "cursor" (under the pointer; re-checked when the foreground window changes).
-    #[serde(default = "default_monitor")]
     pub monitor: String,
-    #[serde(default = "default_true")]
-    pub solid_pill: bool,
-    #[serde(default)]
-    pub acrylic: bool,
     /// Tint the media glow with the album art's dominant colour.
-    #[serde(default = "default_true")]
     pub adaptive_glow: bool,
     /// How strong the border glow is: 1.0 is the original look, 0 turns it off.
-    #[serde(default = "default_glow")]
     pub glow_strength: f32,
     /// Global hotkey that opens the pill for keyboard use, e.g. "Win+Alt+N". Empty = off.
-    #[serde(default)]
     pub hotkey: String,
     /// "dark" (default), "light", or "auto" (follow the Windows app theme).
-    #[serde(default = "default_theme")]
     pub theme: String,
-    /// "gpu" (DirectComposition swap chain) or "classic" (layered window). Read at startup.
-    #[serde(default = "default_renderer")]
-    pub renderer: String,
-    #[serde(default = "default_true")]
-    pub suppress_fullscreen: bool,
-    #[serde(default = "default_sentinel")]
-    pub fullscreen_mode: String, // "hide" | "sentinel"
-    #[serde(default)]
+    /// Over a maximised window or a fullscreen video: "line" (shrink to a hairline), "hide",
+    /// or "off" (stay as usual). Games always hide it completely.
+    pub fullscreen: String,
     pub output_folder: Option<String>,
-    #[serde(default)]
     pub allow_list: Vec<String>,
-    #[serde(default)]
     pub deny_list: Vec<String>,
     /// Seconds the pill opens to show a finished or failed task (0 = don't open).
-    #[serde(default = "default_finish_peek")]
     pub finish_peek_secs: u64,
     /// Keep the pill out of screenshots, recordings and screen share.
-    #[serde(default = "default_true")]
     pub hide_from_capture: bool,
     /// Look for a newer release on GitHub once a day and offer to install it. Read at startup.
-    #[serde(default = "default_true")]
     pub check_updates: bool,
 }
 
@@ -93,48 +73,21 @@ pub fn parse_hotkey(s: &str) -> Option<(u32, u32)> {
     Some((mods, key?))
 }
 
-fn default_monitor() -> String {
-    "primary".into()
-}
-fn default_true() -> bool {
-    true
-}
-fn default_finish_peek() -> u64 {
-    5
-}
-fn default_sentinel() -> String {
-    "sentinel".into()
-}
-fn default_glow() -> f32 {
-    1.2
-}
-
-fn default_theme() -> String {
-    "dark".into()
-}
-fn default_renderer() -> String {
-    "gpu".into()
-}
-
 impl Default for General {
     fn default() -> Self {
         Self {
             autostart: false,
             add_to_path: true,
             monitor: "primary".into(),
-            solid_pill: true,
-            acrylic: false,
             adaptive_glow: true,
-            glow_strength: default_glow(),
+            glow_strength: 1.2,
             hotkey: String::new(),
-            theme: default_theme(),
-            renderer: default_renderer(),
-            suppress_fullscreen: true,
-            fullscreen_mode: "sentinel".into(),
+            theme: "dark".into(),
+            fullscreen: "line".into(),
             output_folder: None,
             allow_list: vec![],
             deny_list: vec![],
-            finish_peek_secs: default_finish_peek(),
+            finish_peek_secs: 5,
             hide_from_capture: true,
             check_updates: true,
         }
@@ -142,68 +95,52 @@ impl Default for General {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Shell {
     /// Commands shorter than this never show (the daemon enforces it).
-    #[serde(default = "d_threshold")]
     pub threshold_ms: u32,
-    #[serde(default = "d_ignore")]
     pub ignore: Vec<String>,
-}
-fn d_threshold() -> u32 {
-    3000
-}
-fn d_ignore() -> Vec<String> {
-    [
-        "vim",
-        "nvim",
-        "vi",
-        "nano",
-        "less",
-        "more",
-        "man",
-        "ssh",
-        "top",
-        "htop",
-        "tmux",
-        "fzf",
-        "git-credential-manager",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
 }
 impl Default for Shell {
     fn default() -> Self {
         Self {
-            threshold_ms: d_threshold(),
-            ignore: d_ignore(),
+            threshold_ms: 3000,
+            ignore: [
+                "vim",
+                "nvim",
+                "vi",
+                "nano",
+                "less",
+                "more",
+                "man",
+                "ssh",
+                "top",
+                "htop",
+                "tmux",
+                "fzf",
+                "git-credential-manager",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Shelf {
     /// "reference" keeps the original path; "copy" stashes a copy in %APPDATA%\Hytte\shelf.
-    #[serde(default = "d_ref")]
     pub mode: String,
-    #[serde(default = "d_max")]
     pub max_items: usize,
-    #[serde(default = "default_true")]
     pub persist: bool,
-    #[serde(default = "default_true")]
     pub remove_after_drag: bool,
-}
-fn d_ref() -> String {
-    "reference".into()
-}
-fn d_max() -> usize {
-    12
 }
 impl Default for Shelf {
     fn default() -> Self {
         Self {
-            mode: d_ref(),
-            max_items: d_max(),
+            mode: "reference".into(),
+            max_items: 12,
             persist: true,
             remove_after_drag: true,
         }
@@ -211,59 +148,46 @@ impl Default for Shelf {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Ports {
-    #[serde(default = "d_watch")]
     pub watch: Vec<u16>,
-    #[serde(default)]
     pub show_all: bool,
-    #[serde(default = "d_poll")]
     pub poll_secs: u64,
-}
-fn d_watch() -> Vec<u16> {
-    hytte_proto::ports::DEFAULT_WATCH.to_vec()
-}
-fn d_poll() -> u64 {
-    5
 }
 impl Default for Ports {
     fn default() -> Self {
         Self {
-            watch: d_watch(),
+            watch: hytte_proto::ports::DEFAULT_WATCH.to_vec(),
             show_all: false,
-            poll_secs: d_poll(),
+            poll_secs: 5,
         }
     }
 }
 
 /// A heads-up before the next calendar event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Calendar {
     /// Off by default: event titles are private and the pill is on screen. Read at startup.
-    #[serde(default)]
     pub enabled: bool,
     /// Minutes before the start to show the heads-up.
-    #[serde(default = "d_cal_lead")]
     pub lead_min: u32,
-}
-fn d_cal_lead() -> u32 {
-    10
 }
 impl Default for Calendar {
     fn default() -> Self {
         Self {
             enabled: false,
-            lead_min: d_cal_lead(),
+            lead_min: 10,
         }
     }
 }
 
 /// Show browser downloads as tasks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Downloads {
-    #[serde(default = "default_true")]
     pub enabled: bool,
     /// Folder to watch; empty = the user's Downloads folder. Read at startup.
-    #[serde(default)]
     pub folder: Option<String>,
 }
 impl Default for Downloads {
@@ -277,109 +201,73 @@ impl Default for Downloads {
 
 /// Alert when one process keeps using a lot of CPU or memory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Hog {
-    #[serde(default = "default_true")]
     pub enabled: bool,
     /// Percent of the whole machine, all cores together.
-    #[serde(default = "d_hog_cpu")]
     pub cpu_pct: u32,
     /// Working set in MB.
-    #[serde(default = "d_hog_mem")]
     pub mem_mb: u64,
     /// How long the CPU has to stay over the limit.
-    #[serde(default = "d_hog_secs")]
     pub secs: u64,
-}
-fn d_hog_cpu() -> u32 {
-    80
-}
-fn d_hog_mem() -> u64 {
-    4096
-}
-fn d_hog_secs() -> u64 {
-    30
 }
 impl Default for Hog {
     fn default() -> Self {
         Self {
             enabled: true,
-            cpu_pct: d_hog_cpu(),
-            mem_mb: d_hog_mem(),
-            secs: d_hog_secs(),
+            cpu_pct: 80,
+            mem_mb: 4096,
+            secs: 30,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Agent {
-    #[serde(default = "d_peek")]
     pub peek_secs: u64,
-    #[serde(default)]
     pub sound: bool,
-}
-fn d_peek() -> u64 {
-    6
 }
 impl Default for Agent {
     fn default() -> Self {
         Self {
-            peek_secs: d_peek(),
+            peek_secs: 6,
             sound: false,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Timer {
-    #[serde(default = "default_true")]
     pub sound: bool,
-    #[serde(default = "d_break")]
     pub break_min: u32,
-    #[serde(default = "d_long")]
     pub long_break_min: u32,
     /// Focus sessions before a long break.
-    #[serde(default = "d_rounds")]
     pub rounds: u32,
-}
-fn d_break() -> u32 {
-    5
-}
-fn d_long() -> u32 {
-    15
-}
-fn d_rounds() -> u32 {
-    4
 }
 impl Default for Timer {
     fn default() -> Self {
         Self {
             sound: true,
-            break_min: d_break(),
-            long_break_min: d_long(),
-            rounds: d_rounds(),
+            break_min: 5,
+            long_break_min: 15,
+            rounds: 4,
         }
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
-    #[serde(default)]
     pub timer: Timer,
-    #[serde(default)]
     pub general: General,
-    #[serde(default)]
     pub shell: Shell,
-    #[serde(default)]
     pub shelf: Shelf,
-    #[serde(default)]
     pub ports: Ports,
-    #[serde(default)]
     pub hog: Hog,
-    #[serde(default)]
     pub downloads: Downloads,
-    #[serde(default)]
     pub calendar: Calendar,
-    #[serde(default)]
     pub agent: Agent,
 }
 
@@ -410,7 +298,28 @@ pub fn load() -> Config {
 
 /// `None` for invalid TOML, so a half-typed edit never replaces working settings.
 pub fn parse(text: &str) -> Option<Config> {
-    toml::from_str(text).ok()
+    let mut cfg: Config = toml::from_str(text).ok()?;
+    migrate(&mut cfg, text);
+    Some(cfg)
+}
+
+/// Settings from before 1.2.2: `suppress_fullscreen = false` / `fullscreen_mode = "hide"` are
+/// now `fullscreen = "off"` / `"hide"`. Only when the new key isn't set yet.
+fn migrate(cfg: &mut Config, text: &str) {
+    let Ok(v) = text.parse::<toml::Table>() else {
+        return;
+    };
+    let Some(g) = v.get("general").and_then(|g| g.as_table()) else {
+        return;
+    };
+    if g.contains_key("fullscreen") {
+        return;
+    }
+    if g.get("suppress_fullscreen").and_then(|x| x.as_bool()) == Some(false) {
+        cfg.general.fullscreen = "off".into();
+    } else if g.get("fullscreen_mode").and_then(|x| x.as_str()) == Some("hide") {
+        cfg.general.fullscreen = "hide".into();
+    }
 }
 
 pub fn save(cfg: &Config) -> std::io::Result<()> {
@@ -621,11 +530,11 @@ mod tests {
 
     #[test]
     fn autostart_edit_keeps_comments_and_other_keys() {
-        let text = "# my settings\n[general]\nautostart = false # login\nacrylic = true\n\n[shell]\n# keep me\nthreshold_ms = 5000\n";
+        let text = "# my settings\n[general]\nautostart = false # login\nadaptive_glow = false\n\n[shell]\n# keep me\nthreshold_ms = 5000\n";
         let next = with_autostart(text, true).unwrap();
         assert_eq!(next, text.replace("autostart = false", "autostart = true"));
         let cfg = parse(&next).unwrap();
-        assert!(cfg.general.autostart && cfg.general.acrylic);
+        assert!(cfg.general.autostart && !cfg.general.adaptive_glow);
         assert_eq!(cfg.shell.threshold_ms, 5000);
     }
 
@@ -633,7 +542,7 @@ mod tests {
     fn autostart_edit_adds_missing_key_or_section() {
         let next = with_autostart("[shell]\nthreshold_ms = 1\n", true).unwrap();
         assert!(parse(&next).unwrap().general.autostart);
-        let next = with_autostart("[general]\nacrylic = true\n", true).unwrap();
+        let next = with_autostart("[general]\nadaptive_glow = false\n", true).unwrap();
         assert!(parse(&next).unwrap().general.autostart);
     }
 
@@ -662,5 +571,31 @@ mod tests {
         assert_eq!(parse_hotkey("Alt+F25"), None);
         assert_eq!(parse_hotkey("Alt+Enter"), None);
         assert_eq!(parse_hotkey(""), None);
+    }
+
+    #[test]
+    fn old_fullscreen_keys_carry_over() {
+        let f = |t: &str| parse(t).unwrap().general.fullscreen;
+        assert_eq!(f(""), "line");
+        assert_eq!(f("[general]\nsuppress_fullscreen = false\n"), "off");
+        assert_eq!(f("[general]\nfullscreen_mode = \"hide\"\n"), "hide");
+        assert_eq!(f("[general]\nfullscreen_mode = \"sentinel\"\n"), "line");
+        // The new key wins over leftovers.
+        let both = "[general]\nfullscreen = \"line\"\nfullscreen_mode = \"hide\"\n";
+        assert_eq!(f(both), "line");
+    }
+
+    #[test]
+    fn missing_keys_take_their_defaults() {
+        let cfg = parse("[general]\ntheme = \"light\"\n[timer]\nrounds = 6\n").unwrap();
+        assert_eq!(cfg.general.theme, "light");
+        assert_eq!(cfg.timer.rounds, 6);
+        let d = Config::default();
+        assert_eq!(cfg.general.glow_strength, d.general.glow_strength);
+        assert_eq!(cfg.timer.break_min, d.timer.break_min);
+        assert_eq!(cfg.shell, d.shell);
+        // A key that no longer exists is ignored, not an error.
+        let gone = "[general]\nrenderer = \"classic\"\nsolid_pill = true\nacrylic = true\n";
+        assert!(parse(gone).is_some());
     }
 }

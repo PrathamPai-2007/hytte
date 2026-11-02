@@ -41,7 +41,7 @@ The important fields, grouped:
 | Media | `media`, `media_stamp` (when the info arrived, used to extrapolate the timeline), `art`, `art_gen` |
 | System | `cam`, `mic`, `privacy_app`, `mic_muted`, `speaker` (volume, muted), `awake` (`Awake::Off`, `Until(instant)` or `On`), `power`, `charge_since` |
 | Servers | `ports`, `port_parents` (pid → ancestor pids), `kill_armed: Option<(port, until)>` |
-| Shelf | `shelf: Vec<ShelfItem>`, `shelf_sel` (the selected tile) |
+| Shelf | `shelf: Vec<ShelfItem>`, `shelf_sel` (the selected tile), `shelf_off` (the first tile in view; `shelf_page()` returns the `SHELF_VISIBLE` (5) in view, clamped so removing items never leaves a gap) |
 | Navigation | `selected: Option<Panel>`, `peek_until`, `force_until`, `drop_over` |
 | Results | `chip: Option<Chip>`, `chip_armed` (a Kill button was clicked once), `hog_ignore` (exes muted for the session) |
 | Calendar | `calendar` (the next event and when its heads-up is due), `calendar_seen` |
@@ -49,7 +49,7 @@ The important fields, grouped:
 | Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`) |
 | Clock | `now`: the last time the model was advanced; visibility rules compare against it |
 
-`TaskView` is the display form of a task: the label, event, progress, stderr lines, pid, `attention` message, and three instants (`started`, `changed`, `visible_after`).
+`TaskView` is the display form of a task: the label, event, progress, stderr lines, pid, `attention` message, `source` and `cwd` (a `run` or `shell` task with a folder is `rerunnable()`), and three instants (`started`, `changed`, `visible_after`).
 
 ## Panels
 
@@ -65,8 +65,8 @@ When expanded, the pill shows one **panel**. `Model::panels()` lists the panels 
 Home sits in the middle: music to its left; dev work, a timer and the battery to its right.
 
 - `Model::panel()` is the selected panel if it still exists. Otherwise it is what the collapsed pill shows (**Tasks** when a task is visible, **Media** when music plays), else **Home**. Attention still wins: a task that needs input or finishes `peek`s its own pane, which selects it.
-- `Model::tabs()` is true when there is more than one panel; the tab dots are drawn only then.
-- `Model::step_panel(dir)` moves the selection with wrap-around. It is used by the mouse wheel.
+- `Model::tabs()` is true when there is more than one panel; the tab strip is drawn only then.
+- `Model::step_panel(dir)` moves the selection with wrap-around. It is used by a sideways scroll and the arrow keys.
 
 ## Choosing the scene
 
@@ -87,7 +87,7 @@ Home sits in the middle: music to its left; dev work, a timer and the battery to
 
 **Forced visibility.** `Model::forced()` is true while something is dragged over the pill, while the timer-finished card is up (`timer_done`), while an agent's Allow / Deny chip is up, or until `force_until`. Hytte sets `force_until` for 5 s after a drop lands and for `[agent] peek_secs` after an agent reports `NeedsInput`, so these stay visible over a fullscreen app (the thin line, or hide mode). Game mode still hides everything ([section 7](07-window-and-input.md#fullscreen-suppression)).
 
-**Peeking.** `Model::peek(panel, until)` selects a panel and opens the pill until the given instant. It is used when an agent needs input (`[agent] peek_secs`, 6 s), when items land on the shelf (5 s), when a tracked task finishes or fails (`[general] finish_peek_secs`, 5 s, `0` turns it off; the Tasks panel opens unless a shell command was too short to be shown), and when the wheel scrolls a collapsed pill (3 s).
+**Peeking.** `Model::peek(panel, until)` selects a panel and opens the pill until the given instant. It is used when an agent needs input (`[agent] peek_secs`, 6 s), when items land on the shelf (5 s), when a tracked task finishes or fails (`[general] finish_peek_secs`, 5 s, `0` turns it off; the Tasks panel opens unless a shell command was too short to be shown), and when a sideways scroll pages a collapsed pill (3 s).
 
 ## Size and glow
 
@@ -106,7 +106,7 @@ Home sits in the middle: music to its left; dev work, a timer and the battery to
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a short one-line card) / 114 |
 | `ExpCharge` | 300 × 52 |
 
-Expanded panels that show tab dots get 14 px more height.
+Expanded panels that show the tab strip get `TAB_H` (24 px) more height.
 
 `Model::glow(scene)` returns a colour and strength for the soft halo:
 
@@ -208,7 +208,7 @@ Expanded scenes show the same things as panels, so they get no bubble. The layou
 
 ## Paging, squash and other motion state
 
-- `Anim::nav` is the direction the user is paging (+1 next, -1 previous); the wheel, the tab dots and the keyboard set it just before a layout. `set_scene` moves it to `slide` when the scene changes, and the renderer slides the new content in from that side (and the old content out the other way) instead of the plain vertical drift. A change nobody paged for, such as a peek, keeps the drift. `after_model_change` clears `nav` so it only ever applies to the layout it was set for.
+- `Anim::nav` is the direction the user is paging (+1 next, -1 previous); a sideways scroll, the tab strip and the keyboard set it just before a layout. `set_scene` moves it to `slide` when the scene changes, and the renderer slides the new content in from that side (and the old content out the other way) instead of the plain vertical drift. A change nobody paged for, such as a peek, keeps the drift. `after_model_change` clears `nav` so it only ever applies to the layout it was set for.
 - `Anim::squash` gives the size springs a small impulse (width +160, height −110 px/s), so the pill squashes and settles. It is called when items land on the shelf and when a Drop Vault result arrives; it does nothing under reduced motion.
 - `Model::set_power` starts the plug-in or unplug card (above); `glow_gain` is `[general] glow_strength`, applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry the output ticker of a running task, and `LINE_H` (14 px) is the extra row height it needs in `Model::size(ExpTasks)`.
 

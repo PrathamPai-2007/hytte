@@ -156,10 +156,19 @@ fn cmd_run(args: &[String]) {
     }
     let id = task_id();
     let label = cmd_args.join(" ");
-    let truncated: String = label.chars().take(128).collect();
+    // The whole command (Rerun runs it again), within the protocol's 1024-byte label.
+    let mut cut = label.len().min(1000);
+    while !label.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let truncated = label[..cut].to_string();
+    let cwd = std::env::current_dir()
+        .ok()
+        .map(|d| d.to_string_lossy().into_owned());
 
     let tag = |mut m: HytteMessage| {
         m.pid = Some(std::process::id());
+        m.cwd = cwd.clone();
         m
     };
     let start = tag(HytteMessage::start(id.clone(), truncated.clone()));

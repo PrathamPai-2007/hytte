@@ -38,7 +38,7 @@ These words are used consistently in the code and in these docs.
 | **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window itself never resizes. |
 | **Scene** | What the pill is currently showing, for example `Idle`, `CompactTask` or `ExpShelf`. Exactly one scene is active at a time. See `ui_state::Scene`. |
 | **Compact / expanded** | Compact scenes are the small, collapsed states (`Idle`, `CompactTask`, `CompactMedia`). Expanded scenes (`Exp*`) are shown on hover or when the pill "peeks". |
-| **Panel** | A page of the expanded pill, left to right: Shelf, Media, Home (the quick controls, the default), Tasks (with the listening dev servers under them), Timer, Power. Panels are reached with the tab dots or the mouse wheel. Each panel maps to one expanded scene. |
+| **Panel** | A page of the expanded pill, left to right: Shelf, Media, Home (the quick controls, the default), Tasks (with the listening dev servers under them), Timer, Power. Panels are reached with the tab strip, a sideways scroll, or the keyboard. Each panel maps to one expanded scene. |
 | **Peek** | The pill opening on its own for a few seconds (an agent needs input, a file landed on the shelf). |
 | **Sentinel** | The 3 px grey bar shown instead of the pill while a fullscreen app is in front. |
 | **Task** | Something being tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` progress report. |
@@ -74,6 +74,7 @@ crates/
     src/pipe_server.rs     named-pipe listener
     src/tasks.rs           task registry (staleness, dead owner detection)
     src/proc.rs            process / window helpers (exe names, liveness, focusing)
+    src/rerun.rs           Rerun: how to start a failed command again, per shell
     src/ports.rs           port-watcher worker
     src/media.rs           media session watcher + album art
     src/privacy.rs         camera / microphone in-use watcher
@@ -120,7 +121,7 @@ manifests/winget/          winget package manifest template
 | `toml` | `config.toml`. |
 | `toml_edit` | Changing one key in `config.toml` (the tray's autostart toggle) without losing the user's comments. |
 | `crossbeam-channel` | Channels between threads, including `select!`. |
-| `image` | Decoding and encoding images for the Drop Vault and album art. Only PNG, JPEG, WebP and BMP are enabled. |
+| `image` | Decoding and encoding images for the Drop Vault and album art. Only PNG, JPEG, WebP and BMP are enabled. The snapshot test writes its pictures as PNG. |
 | `miniz_oxide` | zlib compression for PDF image streams. |
 | `embed-resource` (build only) | Compiling `hytte.rc` (icons, manifest, version info) into the exe. |
 

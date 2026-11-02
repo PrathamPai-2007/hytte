@@ -1,10 +1,9 @@
 //! GPU presentation: a D3D11 device, a Direct2D device context that draws into a
 //! premultiplied-alpha composition swap chain, and DirectComposition to show it.
 //!
-//! Compared with the DIB + `UpdateLayeredWindow` path in `render.rs` this skips the
-//! GPU -> CPU readback and the per-frame copy into the compositor. The window must be
-//! created with `WS_EX_NOREDIRECTIONBITMAP` (not layered). The swap chain is the whole
-//! canvas; the caller trims what is visible and clickable with a window region.
+//! No GPU -> CPU readback and no per-frame copy into the compositor. The window must be
+//! created with `WS_EX_NOREDIRECTIONBITMAP`. The swap chain is the whole canvas; the
+//! caller trims what is visible and clickable with a window region.
 
 use std::cell::Cell;
 use windows::core::Interface;
@@ -35,6 +34,17 @@ fn device(kind: D3D_DRIVER_TYPE) -> windows::core::Result<ID3D11Device> {
         )?;
     }
     d3d.ok_or_else(|| windows::core::Error::from(E_FAIL))
+}
+
+/// A WARP device context with no window behind it: the snapshot tests draw through it.
+#[cfg(test)]
+pub fn offscreen(factory: &ID2D1Factory1) -> windows::core::Result<ID2D1DeviceContext> {
+    let dxgi: IDXGIDevice = device(D3D_DRIVER_TYPE_WARP)?.cast()?;
+    unsafe {
+        factory
+            .CreateDevice(&dxgi)?
+            .CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)
+    }
 }
 
 pub struct Gpu {

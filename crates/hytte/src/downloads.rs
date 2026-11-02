@@ -299,6 +299,7 @@ mod win {
             message: None,
             exit_code: None,
             line: None,
+            cwd: None,
             updated: Instant::now(),
         }
     }

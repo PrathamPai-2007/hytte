@@ -27,6 +27,10 @@ pub const FAIL_PULSE: Duration = Duration::from_secs(8);
 pub const SERVER_ROW: f32 = 36.0;
 /// Height of the output ticker line under a running task in the expanded list.
 pub const LINE_H: f32 = 14.0;
+/// Height of the tab strip under a pane that has neighbours.
+pub const TAB_H: f32 = 24.0;
+/// Shelf tiles in view at once; the row scrolls past that.
+pub const SHELF_VISIBLE: usize = 5;
 /// How long the plug-in card stays after the charger is connected.
 pub const CHARGE_HOLD: Duration = Duration::from_secs(3);
 
@@ -138,6 +142,9 @@ pub struct TaskView {
     pub attention: Option<String>,
     /// The command's latest output line, shown under a running task while it changes.
     pub line: Option<String>,
+    /// Who reported it ("run", "shell", "agent") and the folder it ran in: what Rerun needs.
+    pub source: String,
+    pub cwd: Option<String>,
     pub started: Instant,
     pub changed: Instant,
     /// Hidden until this instant (shell hooks: fast commands never show).
@@ -151,6 +158,11 @@ impl TaskView {
             TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed
         )
     }
+    /// A terminal command that can be run again in a new window (not an agent or download).
+    pub fn rerunnable(&self) -> bool {
+        matches!(self.source.as_str(), "run" | "shell") && self.cwd.is_some()
+    }
+
     pub fn failed(&self) -> bool {
         self.event == TaskEvent::Failed
     }
@@ -177,6 +189,32 @@ pub enum Panel {
     Timer,
     Power,
     Home,
+}
+
+impl Panel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Panel::Tasks => "Tasks",
+            Panel::Shelf => "Shelf",
+            Panel::Media => "Media",
+            Panel::Timer => "Timer",
+            Panel::Power => "Power",
+            Panel::Home => "Home",
+        }
+    }
+
+    /// The panel an expanded scene shows; None for scenes that aren't panels.
+    pub fn of(scene: Scene) -> Option<Panel> {
+        Some(match scene {
+            Scene::ExpTasks => Panel::Tasks,
+            Scene::ExpShelf => Panel::Shelf,
+            Scene::ExpMedia => Panel::Media,
+            Scene::ExpTimer => Panel::Timer,
+            Scene::ExpPower => Panel::Power,
+            Scene::ExpHome => Panel::Home,
+            _ => return None,
+        })
+    }
 }
 
 /// Keep the PC (and its screen) awake.
@@ -342,6 +380,8 @@ pub struct Model {
     pub kill_armed: Option<(u16, Instant)>,
     pub shelf: Vec<ShelfItem>,
     pub shelf_sel: Option<u64>,
+    /// First shelf tile in view when there are more than `SHELF_VISIBLE`.
+    pub shelf_off: usize,
     pub selected: Option<Panel>,
     pub peek_until: Option<Instant>,
     /// Last time the model was advanced; visibility rules compare against it.
@@ -351,8 +391,10 @@ pub struct Model {
     pub timer: Option<crate::timer::Timer>,
     /// Right-click panel (set or inspect the timer).
     pub timer_panel: bool,
-    /// Minutes the panel will start with (wheel / presets).
+    /// Minutes the panel will start with (wheel / presets / typed digits).
     pub timer_min: u32,
+    /// When the last minutes digit was typed: the next one within a moment extends it.
+    pub timer_typed: Option<Instant>,
     pub timer_done: Option<(crate::timer::TimerKind, Instant)>,
     /// The timer that just finished (its length and when it ended), for the finished card.
     pub timer_last: Option<crate::timer::Timer>,
@@ -447,6 +489,7 @@ impl Model {
             // A message without a line (progress, a retry) keeps the last one shown.
             t.line = s.line.or(t.line.take());
             t.pid = s.pid.or(t.pid);
+            t.cwd = s.cwd.or(t.cwd.take());
             t.changed = now;
         } else {
             self.tasks.push(TaskView {
@@ -460,6 +503,8 @@ impl Model {
                 pid: s.pid,
                 attention,
                 line: s.line,
+                source: s.source,
+                cwd: s.cwd,
                 started: now,
                 changed: now,
                 visible_after: now + Duration::from_millis(s.delay_ms as u64),
@@ -728,6 +773,23 @@ impl Model {
     /// Panels that currently have something to show, in priority order.
     /// Left to right: shelf, music, the quick controls (home), then what comes and goes (dev
     /// work, a running timer), and the battery at the right end.
+    /// The shelf tiles in view, and where they start (clamped, so removing items never
+    /// leaves the row scrolled past its end).
+    pub fn shelf_page(&self) -> (usize, &[ShelfItem]) {
+        let off = self
+            .shelf_off
+            .min(self.shelf.len().saturating_sub(SHELF_VISIBLE));
+        let end = (off + SHELF_VISIBLE).min(self.shelf.len());
+        (off, &self.shelf[off..end])
+    }
+
+    /// Scroll the shelf row by `by` tiles, staying within it.
+    pub fn scroll_shelf(&mut self, by: i32) {
+        let (off, _) = self.shelf_page();
+        let max = self.shelf.len().saturating_sub(SHELF_VISIBLE) as i32;
+        self.shelf_off = (off as i32 + by).clamp(0, max) as usize;
+    }
+
     pub fn panels(&self) -> Vec<Panel> {
         let mut v = vec![];
         if !self.shelf.is_empty() {
@@ -835,7 +897,7 @@ impl Model {
 
     /// Target pill size in logical px.
     pub fn size(&self, scene: Scene) -> (f64, f64) {
-        let tab = if self.tabs() { 14.0 } else { 0.0 };
+        let tab = if self.tabs() { TAB_H as f64 } else { 0.0 };
         match scene {
             Scene::Sentinel => (96.0, 2.5),
             Scene::Idle => {
@@ -1069,9 +1131,109 @@ impl Anim {
     }
 }
 
+/// Turns sideways scroll (touchpad swipe, tilt wheel) into pane pages: one per gesture, as
+/// soon as it has moved a little. A touchpad keeps sending decaying deltas after the fingers
+/// lift (inertia), so a new gesture starts after a pause, or when the deltas suddenly grow
+/// again: a fresh swipe pushes harder than the tail of the last one.
+#[derive(Debug, Default)]
+pub struct Swipe {
+    acc: i32,
+    last: Option<(Instant, i32)>,
+    paged: bool,
+}
+
+/// Movement before a gesture pages (a tilt-wheel notch is 120).
+const SWIPE_STEP: i32 = 80;
+/// A pause this long between deltas ends a gesture.
+const SWIPE_GAP: Duration = Duration::from_millis(100);
+
+impl Swipe {
+    /// Feed one delta; `Some(+1 / -1)` when it pages (right = next).
+    pub fn feed(&mut self, delta: i32, now: Instant) -> Option<i32> {
+        let fresh = match self.last {
+            None => true,
+            Some((t, prev)) => {
+                now.saturating_duration_since(t) > SWIPE_GAP
+                    || delta.signum() != prev.signum()
+                    || (self.paged && delta.abs() >= 24 && delta.abs() >= 2 * prev.abs())
+            }
+        };
+        self.last = Some((now, delta));
+        if fresh {
+            self.acc = 0;
+            self.paged = false;
+        }
+        self.acc += delta;
+        if self.paged || self.acc.abs() < SWIPE_STEP {
+            return None;
+        }
+        self.paged = true;
+        Some(self.acc.signum())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shelf_row_scrolls_within_its_items() {
+        let item = |id| ShelfItem {
+            id,
+            path: "x".into(),
+            name: "x".into(),
+            is_dir: false,
+            owned: false,
+        };
+        let mut m = Model {
+            shelf: (1..=8).map(item).collect(),
+            ..Default::default()
+        };
+        assert_eq!(m.shelf_page().1.len(), SHELF_VISIBLE);
+        m.scroll_shelf(10);
+        assert_eq!(m.shelf_page().0, 3, "stops with the last tile in view");
+        m.scroll_shelf(-1);
+        assert_eq!(m.shelf_page().1[0].id, 3);
+        // Items removed from the end: the row slides back instead of showing a gap.
+        m.shelf.truncate(6);
+        assert_eq!(m.shelf_page(), (1, &m.shelf[1..6]));
+        m.shelf.truncate(3);
+        assert_eq!(m.shelf_page().0, 0);
+        m.scroll_shelf(-5);
+        assert_eq!(m.shelf_off, 0);
+    }
+
+    #[test]
+    fn swipe_pages_once_per_gesture() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut s = Swipe::default();
+        // A swipe: rising then decaying deltas every 8 ms, with a long inertia tail.
+        let swipe = [10, 25, 30, 22, 14, 9, 6, 4, 3, 2, 2, 1, 1, 1];
+        let mut pages = vec![];
+        for (i, d) in swipe.iter().enumerate() {
+            pages.extend(s.feed(*d, ms(i as u64 * 8)));
+        }
+        assert_eq!(pages, vec![1], "one page, early in the swipe");
+        // A second swipe during that swipe's inertia still pages: its deltas jump up.
+        let mut t = swipe.len() as u64 * 8;
+        let mut second = vec![];
+        for d in [1, 1, 12, 28, 34, 30, 15, 6] {
+            second.extend(s.feed(d, ms(t)));
+            t += 8;
+        }
+        assert_eq!(second, vec![1]);
+        // After a pause, going left pages back, once it has moved far enough.
+        assert_eq!(s.feed(-30, ms(t + 300)), None);
+        assert_eq!(s.feed(-30, ms(t + 308)), None);
+        assert_eq!(s.feed(-30, ms(t + 316)), Some(-1));
+        // Tilt-wheel notches 300 ms apart: one page each.
+        let mut s = Swipe::default();
+        assert_eq!(s.feed(120, ms(0)), Some(1));
+        assert_eq!(s.feed(120, ms(300)), Some(1));
+        // Reversing mid-gesture is a new gesture.
+        assert_eq!(s.feed(-120, ms(320)), Some(-1));
+    }
 
     fn st(id: &str, ev: TaskEvent, now: Instant) -> TaskUpdate {
         TaskUpdate::Upsert(TaskState {
@@ -1091,6 +1253,7 @@ bang"
             message: None,
             exit_code: None,
             line: None,
+            cwd: None,
             updated: now,
         })
     }
@@ -1109,6 +1272,7 @@ bang"
             message: None,
             exit_code: None,
             line: None,
+            cwd: None,
             updated: now,
         })
     }

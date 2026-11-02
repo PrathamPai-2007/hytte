@@ -17,15 +17,15 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 
 ## What it can do
 
-- **Watch long commands.** See when a build, test run or download finishes, and whether it failed, without staring at the terminal. A running command's latest output line shows under it.
+- **Watch long commands.** See when a build, test run or download finishes, and whether it failed, without staring at the terminal. A running command's latest output line shows under it. A failed one has **Rerun**, which runs it again in a new terminal, in the same folder and shell.
 - **Follow your AI agents.** Claude Code, Codex, OpenCode, Gemini CLI, Antigravity and Cursor show up by name with what they're doing right now ("Editing render.rs"). When one is waiting for you the pill turns amber, even over a maximised terminal, and one click takes you to the right terminal. One click in the tray connects them all.
 - **Answer permission prompts from the pill.** When Claude Code, Codex or OpenCode asks to run something, the pill shows the command with **Allow** and **Deny**, so you don't have to switch windows.
 - **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up under your tasks, with **Open** and **Stop** buttons. A server you started from a terminal is labelled with that command, and clicking it takes you to the terminal.
-- **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them.
+- **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them. Past five items the row scrolls (arrows, or the mouse wheel over it).
 - **Quick file actions.** Shrink an image under 5 MB, turn it into a PDF, strip its location data, copy the text out of it, or tidy up JSON. One click each.
-- **Control music.** See what's playing and skip or pause.
+- **Control music.** See what's playing, skip or pause, and click or drag the timeline to jump around in the track.
 - **Quick controls.** One pane of tiles: mute every microphone at once (with a red lock on the pill so you always know), mute the speakers, keep the PC awake (an hour, or until you turn it off), and the timer. Under them a volume bar you can drag, click or scroll.
-- **Timer and focus sessions.** Start a countdown or a Pomodoro from the **Timer** tile (or right-click the pill). The running timer is a ring you click to pause, with its end time, the focus rounds as dots, **+5** and **Stop**; collapsed, it burns down as a thin fuse along the pill, and splits off as a small clock beside a task or music. When it ends, an alarm rings until you stop it (two minutes at most).
+- **Timer and focus sessions.** Start a countdown or a Pomodoro from the **Timer** tile (or right-click the pill). Pick the minutes with the presets, − / +, the wheel, or by typing them in keyboard mode. The running timer is a ring you click to pause, with its end time, the focus rounds as dots, **+5** and **Stop**; collapsed, it burns down as a thin fuse along the pill, and splits off as a small clock beside a task or music. When it ends, an alarm rings until you stop it (two minutes at most).
 - **Browser downloads.** A download in progress is a task with its growing size; when it finishes you get **Open** and **Shelve**.
 - **Runaway processes.** If one program keeps a lot of CPU or memory for a while, the pill says so, with **Kill** (asks twice) and **Ignore**.
 - **Your next meeting** (optional). A heads-up a few minutes before it starts, with **Join** for Teams, Meet and Zoom links.
@@ -77,7 +77,7 @@ Typing `hytte` in a terminal hands you your prompt straight back; the pill keeps
 
 ## A five-minute tour
 
-**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. It opens on the quick controls, unless it is showing a task or music, which open their own pane. Scroll over it to flip between panes, or click the dots along the bottom. Left to right: Shelf, Media, the quick controls, Tasks (and dev servers), Timer, and Power on laptops.
+**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. It opens on the quick controls, unless it is showing a task or music, which open their own pane. Swipe sideways on the touchpad (or tilt the wheel) to flip between panes, or click the icons along the bottom: the current pane is the one with its name showing. Left to right: Shelf, Media, Home (the quick controls), Tasks (and dev servers), Timer, and Power on laptops. Hover a name that's cut off and it scrolls to show the rest.
 
 **2. Track a slow command.** Put `hytte run --` in front of anything:
 
@@ -241,7 +241,7 @@ monitor = "primary"            # "primary", "active" (the focused window's) or "
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
-fullscreen_mode = "sentinel"   # over maximised windows and fullscreen video: "sentinel" = thin line, "hide" = disappear (games always hide)
+fullscreen = "line"           # over maximised windows and fullscreen video: "line" = thin line, "hide" = disappear, "off" = stay (games always hide)
 finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
 hide_from_capture = true       # keep the pill out of screenshots and screen share (false = capturable)
 check_updates = true           # look for a new version once a day (needs a restart)

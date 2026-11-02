@@ -11,6 +11,8 @@ pub enum Cmd {
     Prev,
     Toggle,
     Next,
+    /// Jump to this position (ms) in the current track.
+    Seek(u64),
 }
 
 pub fn spawn_watcher(ui_tx: Sender<UiEvent>) {
@@ -262,6 +264,12 @@ mod imp {
             }
             Cmd::Next => {
                 if let Ok(op) = s.TrySkipNextAsync() {
+                    let _ = block_on(op, T);
+                }
+            }
+            // The position is in 100 ns ticks.
+            Cmd::Seek(ms) => {
+                if let Ok(op) = s.TryChangePlaybackPositionAsync(ms as i64 * 10_000) {
                     let _ = block_on(op, T);
                 }
             }

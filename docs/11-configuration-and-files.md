@@ -50,7 +50,7 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 | `[general]` fullscreen keys | `evaluate_fullscreen` runs again. |
 | Everything else | Already read at the point of use (`self.cfg`, or `config::load()` for `output_folder`). |
 
-Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path`, `check_updates` and `renderer` only matter at the next startup.
+Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path` and `check_updates` only matter at the next startup. Keys Hytte no longer knows (`renderer`, `solid_pill`, `acrylic`) are ignored.
 
 ### Writing the file
 
@@ -65,15 +65,11 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `autostart` | `false` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
 | `add_to_path` | `true` | At startup, add the folder holding `hytte.exe` to the user's `PATH` if `hytte` isn't found already. Set to `false` to manage `PATH` yourself. |
 | `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) or `"cursor"` (the monitor under the pointer). `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
-| `solid_pill` | `true` | Reserved. |
-| `acrylic` | `false` | Draw the pill body at 84 % opacity instead of solid. There is no blur behind it. |
 | `theme` | `"dark"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
 | `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. |
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
-| `renderer` | `"gpu"` | `"gpu"`: Direct2D into a DirectComposition swap chain. `"classic"`: Direct2D into a layered window. Read at startup only (the window's style depends on it), so changing it needs a restart. If the GPU pipeline can't start, Hytte uses `classic` anyway. |
-| `suppress_fullscreen` | `true` | Back off while a fullscreen app is in front: game mode for real fullscreen apps ([section 7](07-window-and-input.md#fullscreen-suppression)), `fullscreen_mode` for maximised windows. |
-| `fullscreen_mode` | `"sentinel"` | Over a maximised window (whether or not the taskbar auto-hides), or a fullscreen browser / media player: `"sentinel"` shrinks to a 3 px bar, `"hide"` fades out completely. Games always hide fully. |
+| `fullscreen` | `"line"` | Over a maximised window (whether or not the taskbar auto-hides), or a fullscreen browser / media player: `"line"` shrinks to a 3 px bar, `"hide"` fades out completely, `"off"` stays as usual. Real fullscreen apps (games) always hide fully ([section 7](07-window-and-input.md#fullscreen-suppression)), except with `"off"`. Settings from before 1.2.2 (`suppress_fullscreen = false`, `fullscreen_mode = "hide"`) are read as `"off"` / `"hide"`. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
 | `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Read at startup. |
 | `hide_from_capture` | `true` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
@@ -153,7 +149,6 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | Variable | Effect |
 |---|---|
 | `HYTTE_PERF=1` | Log frame-time statistics to `hytte.log` ([section 12](12-performance.md)). |
-| `HYTTE_HARDWARE=1` | `classic` renderer only: draw with the GPU-backed Direct2D DC target instead of the (faster) software one ([section 8](08-rendering-and-animation.md)). For comparison only. |
 | `HYTTE_WT_PID` | Used only by the ignored manual test in `tabs.rs`. |
 | `HYTTE_UPDATE_API` | Replaces the GitHub "latest release" URL the updater asks, for testing ([section 15](15-updates.md#testing-an-update)). `file://` URLs work. |
 

@@ -1,36 +1,30 @@
 //! Direct2D / DirectWrite renderer.
 //!
-//! Two ways to put pixels on screen, chosen once at startup (`[general] renderer`):
-//!
-//! * **gpu** (default): a Direct2D device context draws into a composition swap
-//!   chain shown through DirectComposition (`gpu.rs`). No readback, no per-frame copy.
-//! * **classic**: draws onto a 32-bpp premultiplied DIB through an
-//!   `ID2D1DCRenderTarget` and pushes it with `UpdateLayeredWindow`. Per-pixel alpha
-//!   makes transparent pixels click-through. Used when the GPU path can't start.
+//! A Direct2D device context draws into a composition swap chain shown through
+//! DirectComposition (`gpu.rs`): no readback, no per-frame copy.
 //!
 //! All drawing is in logical px; one scale transform maps to device px. The
 //! pill hangs from the top-centre of a fixed transparent canvas, and only the
-//! pill (plus its soft glow) has non-zero alpha.
+//! pill (plus its soft glow) is visible: a window region trims the rest.
 
 use crate::gpu::Gpu;
 use crate::power::Mode;
-use crate::ui_state::{Anim, Bubble, ChipAction, Model, Panel, Scene, TaskView, Tone, LOCK_W};
+use crate::ui_state::{
+    Anim, Bubble, ChipAction, Model, Panel, Scene, TaskView, Tone, LOCK_W, TAB_H,
+};
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 use windows::core::{w, Interface, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, POINT, RECT, SIZE};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
 use windows::Win32::Graphics::DirectWrite::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::UI::WindowsAndMessaging::{
-    SetWindowPos, UpdateLayeredWindow, SWP_NOACTIVATE, SWP_NOZORDER, ULW_ALPHA,
-};
-const AC_SRC_ALPHA: u32 = 1;
+use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
 use windows_numerics::{Matrix3x2, Vector2};
 
 /// Logical canvas size (the window), pill hangs from the top centre.
@@ -49,6 +43,8 @@ pub enum Action {
     MediaPrev,
     MediaToggle,
     MediaNext,
+    /// The media timeline: a press seeks (and drags) to where the pointer is.
+    Seek,
     /// Click on a task row: bring its terminal to the front.
     /// (owner pid, task id): focus the terminal window, then its tab when known.
     FocusTerminal(u32, String),
@@ -57,6 +53,8 @@ pub enum Action {
     /// First click arms ("Kill?"), second confirms.
     KillPort(u16, u32),
     ShelfTile(u64),
+    /// Scroll the shelf row by this many tiles.
+    ShelfScroll(i32),
     RemoveShelf(u64),
     /// Run a Drop Vault transform on a shelf item.
     ShelfOp(u64, crate::transforms::Conv),
@@ -79,7 +77,11 @@ pub enum Action {
     TimerStop,
     TimerPause,
     TimerDismiss,
+    /// Close the timer setup card.
+    TimerClose,
     SetPowerMode(Mode),
+    /// Run a failed command again in a new terminal window (task id).
+    Rerun(String),
     /// Bring the media app (AppUserModelId) to the front.
     FocusMedia(String),
 }
@@ -108,11 +110,13 @@ pub struct Frame<'a> {
     pub now: Instant,
     pub dt: f32,
     pub mouse: Option<(f32, f32)>,
-    pub acrylic: bool,
     /// The left button is held down (buttons under the pointer press in).
     pub pressed: bool,
     /// Light theme: a pale pill with dark text.
     pub light: bool,
+    /// The Windows accent colour, in the shade that suits this theme (selection, primary
+    /// buttons, the keyboard focus ring). Status colours don't follow it.
+    pub accent: [f32; 3],
     /// Keyboard focus: the index of the clickable region that has it (Tab / Shift+Tab).
     pub focus: Option<usize>,
     /// A drag is in flight near the top edge: widen the (invisible) hit zone.
@@ -138,6 +142,8 @@ struct Fmts {
     icon: IDWriteTextFormat,
     /// The same, larger (tiles, placeholders).
     icon_l: IDWriteTextFormat,
+    /// The same, smaller (tab strip).
+    icon_s: IDWriteTextFormat,
     /// Big display numbers (timer, battery percent).
     hero: IDWriteTextFormat,
 }
@@ -145,23 +151,24 @@ struct Fmts {
 pub struct Renderer {
     factory: ID2D1Factory,
     factory1: ID2D1Factory1,
-    /// What every draw call uses: the DC target (classic) or the device context (gpu).
+    /// What every draw call uses: the device context.
     rt: ID2D1RenderTarget,
-    /// Classic only: the target that is bound to the DIB each frame.
-    dc_rt: Option<ID2D1DCRenderTarget>,
+    /// The swap chain and composition; None only for the offscreen snapshot renderer.
     gpu: Option<Gpu>,
-    /// GPU only: window rect and region last applied, so they are only set on change.
+    /// Window rect and region last applied, so they are only set on change.
     placed: Cell<(i32, i32, i32, i32)>,
     region: Cell<(i32, i32, i32, i32)>,
-    /// GPU only: the device was lost; the window layer calls `rebuild_gpu`.
+    /// The device was lost; the window layer calls `rebuild_gpu`.
     lost: Cell<bool>,
     br: ID2D1SolidColorBrush,
     round: ID2D1StrokeStyle,
     dashed: ID2D1StrokeStyle,
     f: Fmts,
-    mem: HDC,
-    bmp: HBITMAP,
-    old: HGDIOBJ,
+    dw: IDWriteFactory,
+    /// The label scrolling under the pointer: (its text's hash, animation time it started).
+    marquee: Cell<Option<(u64, f32)>>,
+    /// A marquee ran this frame: the frame loop keeps ticking (see `wants_frames`).
+    scrolling: Cell<bool>,
     px: (i32, i32),
     scale: f32,
     // per-frame scratch
@@ -175,8 +182,8 @@ pub struct Renderer {
     thumbs: RefCell<HashMap<u64, ID2D1Bitmap>>,
     art_gen: Cell<u32>,
     /// Cached gradient brushes (see `body_brush` / `shimmer_brush`).
-    body: RefCell<Option<(u8, ID2D1LinearGradientBrush)>>,
-    shimmer: RefCell<Option<([f32; 3], ID2D1LinearGradientBrush)>>,
+    /// One slot per `Grad`, rebuilt only when its key (colour, theme) changes.
+    grads: RefCell<[Option<CachedGrad>; GRADS]>,
     /// UTF-16 scratch for `text`, reused across calls.
     wide: RefCell<Vec<u16>>,
     /// While the pill morphs between a compact scene and its expanded twin: how far along
@@ -184,6 +191,7 @@ pub struct Renderer {
     morph: Cell<Option<f32>>,
     pressed: Cell<bool>,
     light: Cell<bool>,
+    accent: Cell<[f32; 3]>,
     focus: Cell<Option<usize>>,
     /// True while the live scene (not the one fading out) is drawing: only it shows focus.
     focus_live: Cell<bool>,
@@ -193,6 +201,20 @@ pub struct Renderer {
     /// Last pill silhouette, keyed by its size: ambient frames (spinner, pulses) repeat it.
     geom: RefCell<Option<([u32; 2], ID2D1PathGeometry)>>,
 }
+
+/// Cached gradient brushes (see `Renderer::grad`).
+#[derive(Clone, Copy)]
+enum Grad {
+    Body,
+    Shimmer,
+    /// The context colour pooling up from the bottom of the body.
+    Tint,
+    /// The rim: faint at the top edge, brighter round the bottom curve.
+    Rim,
+}
+const GRADS: usize = 4;
+/// A cached brush and the key it was built for.
+type CachedGrad = ([f32; 4], ID2D1LinearGradientBrush);
 
 const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 const BLUE: [f32; 3] = [0.35, 0.63, 1.0];
@@ -272,6 +294,18 @@ fn volume_glyph(v: f32) -> char {
     }
 }
 
+/// Fluent glyph for a pane's tab.
+fn panel_glyph(p: Panel) -> char {
+    match p {
+        Panel::Shelf => '\u{E7B8}',
+        Panel::Media => '\u{EC4F}',
+        Panel::Home => '\u{E80F}',
+        Panel::Tasks => '\u{E756}',
+        Panel::Timer => '\u{E916}',
+        Panel::Power => '\u{E83F}',
+    }
+}
+
 fn capitalise(s: &str) -> String {
     let mut c = s.chars();
     c.next()
@@ -289,49 +323,22 @@ fn fmt_clock(ms: u64) -> String {
 }
 
 impl Renderer {
-    /// Classic renderer: DIB + `UpdateLayeredWindow`.
-    pub fn new() -> windows::core::Result<Self> {
-        Self::build(None)
+    /// Renderer presenting through DirectComposition into `hwnd`, which must have been
+    /// created with `WS_EX_NOREDIRECTIONBITMAP`.
+    pub fn new(hwnd: HWND) -> windows::core::Result<Self> {
+        let factory1: ID2D1Factory1 =
+            unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
+        let g = Gpu::new(&factory1, hwnd, CANVAS_W as u32, CANVAS_H as u32)?;
+        Self::build(factory1, g.dc.cast()?, Some(g))
     }
 
-    /// GPU renderer presenting through DirectComposition into `hwnd`, which must have
-    /// been created with `WS_EX_NOREDIRECTIONBITMAP`.
-    pub fn new_gpu(hwnd: HWND) -> windows::core::Result<Self> {
-        Self::build(Some(hwnd))
-    }
-
-    fn build(hwnd: Option<HWND>) -> windows::core::Result<Self> {
+    fn build(
+        factory1: ID2D1Factory1,
+        rt: ID2D1RenderTarget,
+        gpu: Option<Gpu>,
+    ) -> windows::core::Result<Self> {
         unsafe {
-            let factory1: ID2D1Factory1 =
-                D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
             let factory: ID2D1Factory = factory1.cast()?;
-            let (rt, dc_rt, gpu): (ID2D1RenderTarget, _, _) = match hwnd {
-                Some(h) => {
-                    let g = Gpu::new(&factory1, h, CANVAS_W as u32, CANVAS_H as u32)?;
-                    (g.dc.cast()?, None, Some(g))
-                }
-                None => {
-                    let props = D2D1_RENDER_TARGET_PROPERTIES {
-                        // The pill is a few hundred px: drawing on the CPU beats a GPU round trip
-                        // (measured p50 6.5 ms -> 3.6 ms). HYTTE_HARDWARE=1 restores the GPU target.
-                        r#type: if std::env::var_os("HYTTE_HARDWARE").is_some_and(|v| v != "0") {
-                            D2D1_RENDER_TARGET_TYPE_DEFAULT
-                        } else {
-                            D2D1_RENDER_TARGET_TYPE_SOFTWARE
-                        },
-                        pixelFormat: D2D1_PIXEL_FORMAT {
-                            format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                            alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
-                        },
-                        dpiX: 96.0,
-                        dpiY: 96.0,
-                        usage: D2D1_RENDER_TARGET_USAGE_NONE,
-                        minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
-                    };
-                    let dc = factory.CreateDCRenderTarget(&props)?;
-                    (dc.cast()?, Some(dc), None)
-                }
-            };
             rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
             let br = rt.CreateSolidColorBrush(&color(WHITE, 1.0), None)?;
             let sp = D2D1_STROKE_STYLE_PROPERTIES {
@@ -352,16 +359,10 @@ impl Renderer {
 
             let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
             let f = Fmts::new(&dw)?;
-            let mem = if gpu.is_some() {
-                HDC::default()
-            } else {
-                CreateCompatibleDC(None)
-            };
             Ok(Self {
                 factory,
                 factory1,
                 rt,
-                dc_rt,
                 gpu,
                 placed: Cell::new((0, 0, 0, 0)),
                 region: Cell::new((0, 0, 0, 0)),
@@ -370,9 +371,9 @@ impl Renderer {
                 round,
                 dashed,
                 f,
-                mem,
-                bmp: HBITMAP::default(),
-                old: HGDIOBJ::default(),
+                dw,
+                marquee: Cell::new(None),
+                scrolling: Cell::new(false),
                 px: (0, 0),
                 scale: 1.0,
                 ca: Cell::new(1.0),
@@ -384,18 +385,23 @@ impl Renderer {
                 art: RefCell::new(None),
                 thumbs: RefCell::new(HashMap::new()),
                 art_gen: Cell::new(u32::MAX),
-                body: RefCell::new(None),
-                shimmer: RefCell::new(None),
+                grads: RefCell::new(Default::default()),
                 wide: RefCell::new(Vec::new()),
                 geom: RefCell::new(None),
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
                 light: Cell::new(false),
+                accent: Cell::new(BLUE),
                 focus: Cell::new(None),
                 focus_live: Cell::new(false),
                 hero_right: Cell::new(0.0),
             })
         }
+    }
+
+    /// A hovered label is scrolling: keep frames coming until the pointer leaves it.
+    pub fn wants_frames(&self) -> bool {
+        self.scrolling.get()
     }
 
     /// True once the GPU device was lost (driver reset, adapter removed).
@@ -416,8 +422,7 @@ impl Renderer {
         }
         self.rt = rt;
         self.gpu = Some(g);
-        *self.body.borrow_mut() = None;
-        *self.shimmer.borrow_mut() = None;
+        *self.grads.borrow_mut() = Default::default();
         *self.art.borrow_mut() = None;
         self.art_gen.set(u32::MAX);
         self.thumbs.borrow_mut().clear();
@@ -430,40 +435,12 @@ impl Renderer {
         Ok(())
     }
 
-    /// (Re)allocate the DIB for a new device scale.
+    /// Size the swap chain for a new device scale.
     pub fn set_scale(&mut self, scale: f32) {
         let w = (CANVAS_W * scale).ceil() as i32;
         let h = (CANVAS_H * scale).ceil() as i32;
         if let Some(g) = &self.gpu {
             g.resize(w as u32, h as u32);
-            self.px = (w, h);
-            self.scale = scale;
-            return;
-        }
-        if self.px == (w, h) && !self.bmp.is_invalid() {
-            return;
-        }
-        unsafe {
-            if !self.bmp.is_invalid() {
-                SelectObject(self.mem, self.old);
-                let _ = DeleteObject(self.bmp.into());
-            }
-            let bi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: w,
-                    biHeight: -h,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut bits = std::ptr::null_mut();
-            self.bmp = CreateDIBSection(Some(self.mem), &bi, DIB_RGB_COLORS, &mut bits, None, 0)
-                .unwrap_or_default();
-            self.old = SelectObject(self.mem, self.bmp.into());
         }
         self.px = (w, h);
         self.scale = scale;
@@ -482,21 +459,13 @@ impl Renderer {
         }
         let w_px = ((w * self.scale).ceil() as i32).min(self.px.0);
         let h_px = ((h * self.scale).ceil() as i32).min(self.px.1);
-        if self.gpu.is_some() {
-            // The whole canvas is the surface; only the pill's box is visible and clickable.
-            let x0 = (self.px.0 - w_px) / 2;
-            return Crop {
-                w_px: self.px.0,
-                h_px: self.px.1,
-                w_log: self.px.0 as f32 / self.scale,
-                clip: (x0, 0, x0 + w_px, h_px),
-            };
-        }
+        // The whole canvas is the surface; only the pill's box is visible and clickable.
+        let x0 = (self.px.0 - w_px) / 2;
         Crop {
-            w_px,
-            h_px,
-            w_log: w_px as f32 / self.scale,
-            clip: (0, 0, w_px, h_px),
+            w_px: self.px.0,
+            h_px: self.px.1,
+            w_log: self.px.0 as f32 / self.scale,
+            clip: (x0, 0, x0 + w_px, h_px),
         }
     }
 
@@ -508,25 +477,17 @@ impl Renderer {
         self.t.set(fr.anim.t as f32);
         self.pressed.set(fr.pressed);
         self.light.set(fr.light);
+        self.accent.set(fr.accent);
         self.focus.set(fr.focus);
         self.focus_live.set(false);
+        self.scrolling.set(false);
         self.sync_art(fr.model);
         let (pw, ph) = (fr.anim.rect.w.pos as f32, fr.anim.rect.h.pos as f32);
         let ox = (crop.w_log - pw) / 2.0;
         self.ox.set(ox);
         unsafe {
-            let rc = RECT {
-                left: 0,
-                top: 0,
-                right: crop.w_px,
-                bottom: crop.h_px,
-            };
-            let ready = match (&self.gpu, &self.dc_rt) {
-                (Some(g), _) => g.begin(),
-                (None, Some(dc)) => dc.BindDC(self.mem, &rc).is_ok(),
-                _ => false,
-            };
-            if !ready {
+            // Offscreen (snapshots), the target is already bound.
+            if !self.gpu.as_ref().is_none_or(|g| g.begin()) {
                 hits.clear();
                 return;
             }
@@ -559,7 +520,7 @@ impl Renderer {
         std::mem::swap(hits, &mut *self.hits.borrow_mut());
     }
 
-    /// Push the DIB to the layered window at screen position (x, y).
+    /// Show the frame with the window at screen position (x, y).
     /// `heading` is the clip the pill is animating towards (equal to `crop.clip` once settled).
     pub fn present(
         &self,
@@ -570,105 +531,86 @@ impl Renderer {
         alpha: u8,
         heading: (i32, i32, i32, i32),
     ) {
-        if let Some(g) = &self.gpu {
-            unsafe {
-                let want = (x, y, crop.w_px, crop.h_px);
-                if self.placed.get() != want {
-                    let _ = SetWindowPos(
-                        hwnd,
-                        None,
-                        x,
-                        y,
-                        crop.w_px,
-                        crop.h_px,
-                        SWP_NOZORDER | SWP_NOACTIVATE,
-                    );
-                    self.placed.set(want);
-                }
-                // A region change is a window-manager round trip, so don't chase every frame
-                // of a resize: grow straight to where the pill is heading, keep that while it
-                // moves, and trim to the exact box once it settles.
-                let cur = self.region.get();
-                let want = if heading == crop.clip {
-                    crop.clip
-                } else {
-                    let need = union_rect(crop.clip, heading);
-                    if cur.2 > cur.0 && contains_rect(cur, need) {
-                        cur
-                    } else if cur.2 > cur.0 {
-                        union_rect(cur, need)
-                    } else {
-                        need
-                    }
-                };
-                if cur != want {
-                    // The system owns the region once it is set.
-                    SetWindowRgn(
-                        hwnd,
-                        Some(CreateRectRgn(want.0, want.1, want.2, want.3)),
-                        false,
-                    );
-                    self.region.set(want);
-                }
-            }
-            if !g.present(alpha as f32 / 255.0) {
-                self.lost.set(true);
-            }
-            return;
-        }
+        let Some(g) = &self.gpu else { return };
         unsafe {
-            let dst = POINT { x, y };
-            let size = SIZE {
-                cx: crop.w_px,
-                cy: crop.h_px,
+            let want = (x, y, crop.w_px, crop.h_px);
+            if self.placed.get() != want {
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    x,
+                    y,
+                    crop.w_px,
+                    crop.h_px,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                self.placed.set(want);
+            }
+            // A region change is a window-manager round trip, so don't chase every frame
+            // of a resize: grow straight to where the pill is heading, keep that while it
+            // moves, and trim to the exact box once it settles.
+            let cur = self.region.get();
+            let want = if heading == crop.clip {
+                crop.clip
+            } else {
+                let need = union_rect(crop.clip, heading);
+                if cur.2 > cur.0 && contains_rect(cur, need) {
+                    cur
+                } else if cur.2 > cur.0 {
+                    union_rect(cur, need)
+                } else {
+                    need
+                }
             };
-            let src = POINT { x: 0, y: 0 };
-            let blend = BLENDFUNCTION {
-                BlendOp: AC_SRC_OVER as u8,
-                BlendFlags: 0,
-                SourceConstantAlpha: alpha,
-                AlphaFormat: AC_SRC_ALPHA as u8,
-            };
-            let _ = UpdateLayeredWindow(
-                hwnd,
-                None,
-                Some(&dst),
-                Some(&size),
-                Some(self.mem),
-                Some(&src),
-                COLORREF(0),
-                Some(&blend),
-                ULW_ALPHA,
-            );
+            if cur != want {
+                // The system owns the region once it is set.
+                SetWindowRgn(
+                    hwnd,
+                    Some(CreateRectRgn(want.0, want.1, want.2, want.3)),
+                    false,
+                );
+                self.region.set(want);
+            }
+        }
+        if !g.present(alpha as f32 / 255.0) {
+            self.lost.set(true);
         }
     }
 
     // ---------------------------------------------------------------- helpers
 
-    /// Pill body gradient, built once per acrylic setting; only its end point changes per frame.
-    fn body_brush(&self, acrylic: bool) -> Option<ID2D1LinearGradientBrush> {
-        let key = acrylic as u8 | (self.light.get() as u8) << 1;
-        let mut slot = self.body.borrow_mut();
-        if let Some((k, b)) = slot.as_ref() {
+    /// A vertical gradient brush from cache `slot`, rebuilt only when `key` changes. Its end
+    /// points and opacity are the caller's to set per frame.
+    fn grad(
+        &self,
+        slot: Grad,
+        key: [f32; 4],
+        stops: &[(f32, [f32; 3], f32)],
+    ) -> Option<ID2D1LinearGradientBrush> {
+        let mut g = self.grads.borrow_mut();
+        let cell = &mut g[slot as usize];
+        if let Some((k, b)) = cell.as_ref() {
             if *k == key {
                 return Some(b.clone());
             }
         }
-        let alpha = if acrylic { 0.84 } else { 1.0 };
-        let (top, bottom) = self.body_colors();
-        let stops = [
-            D2D1_GRADIENT_STOP {
-                position: 0.0,
-                color: color(top, alpha),
-            },
-            D2D1_GRADIENT_STOP {
-                position: 1.0,
-                color: color(bottom, alpha),
-            },
-        ];
+        let stops: Vec<_> = stops
+            .iter()
+            .map(|&(position, c, a)| D2D1_GRADIENT_STOP {
+                position,
+                color: color(c, a),
+            })
+            .collect();
         let b = self.linear_brush(&stops)?;
-        *slot = Some((key, b.clone()));
+        *cell = Some((key, b.clone()));
         Some(b)
+    }
+
+    /// Pill body gradient.
+    fn body_brush(&self) -> Option<ID2D1LinearGradientBrush> {
+        let (top, bottom) = self.body_colors();
+        let key = [self.light.get() as u8 as f32, 0.0, 0.0, 0.0];
+        self.grad(Grad::Body, key, &[(0.0, top, 1.0), (1.0, bottom, 1.0)])
     }
 
     /// Text and line colour: white on the dark pill, near-black on the light one.
@@ -698,32 +640,15 @@ impl Renderer {
         }
     }
 
-    /// Shimmer for indeterminate progress, built once per colour; the content fade is
-    /// applied through the brush opacity and the position through its end points.
+    /// Shimmer for indeterminate progress; the content fade is applied through the brush
+    /// opacity and the position through its end points.
     fn shimmer_brush(&self, col: [f32; 3]) -> Option<ID2D1LinearGradientBrush> {
-        let mut slot = self.shimmer.borrow_mut();
-        if let Some((c, b)) = slot.as_ref() {
-            if *c == col {
-                return Some(b.clone());
-            }
-        }
-        let stops = [
-            D2D1_GRADIENT_STOP {
-                position: 0.0,
-                color: color(col, 0.0),
-            },
-            D2D1_GRADIENT_STOP {
-                position: 0.5,
-                color: color(col, 1.0),
-            },
-            D2D1_GRADIENT_STOP {
-                position: 1.0,
-                color: color(col, 0.0),
-            },
-        ];
-        let b = self.linear_brush(&stops)?;
-        *slot = Some((col, b.clone()));
-        Some(b)
+        let key = [col[0], col[1], col[2], 0.0];
+        self.grad(
+            Grad::Shimmer,
+            key,
+            &[(0.0, col, 0.0), (0.5, col, 1.0), (1.0, col, 0.0)],
+        )
     }
 
     fn linear_brush(&self, stops: &[D2D1_GRADIENT_STOP]) -> Option<ID2D1LinearGradientBrush> {
@@ -751,7 +676,16 @@ impl Renderer {
     }
 
     /// Colour with the content fade applied.
+    /// On the light pill, saturated accents are drawn darker so their text stays readable;
+    /// greys and the fg / ink colours are left alone.
     fn cc(&self, c: [f32; 3], a: f32) -> D2D1_COLOR_F {
+        let hi = c.iter().fold(0.0f32, |m, &x| m.max(x));
+        let lo = c.iter().fold(1.0f32, |m, &x| m.min(x));
+        let c = if self.light.get() && hi - lo > 0.25 {
+            c.map(|x| x * 0.78)
+        } else {
+            c
+        };
         color(c, a * self.ca.get())
     }
 
@@ -873,6 +807,70 @@ impl Renderer {
         };
     }
 
+    /// Text that doesn't fit is cut with an ellipsis; while `hov`, it instead scrolls to show
+    /// the rest: a pause, a glide to the end, a pause, then back to the start.
+    #[allow(clippy::too_many_arguments)]
+    fn label(
+        &self,
+        s: &str,
+        f: &IDWriteTextFormat,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        c: D2D1_COLOR_F,
+        hov: bool,
+    ) {
+        let layout = hov
+            .then(|| {
+                let wide: Vec<u16> = s.encode_utf16().collect();
+                let l = unsafe { self.dw.CreateTextLayout(&wide, f, 4096.0, h).ok()? };
+                let mut m = DWRITE_TEXT_METRICS::default();
+                unsafe { l.GetMetrics(&mut m).ok()? };
+                (m.widthIncludingTrailingWhitespace > w)
+                    .then_some((l, m.widthIncludingTrailingWhitespace))
+            })
+            .flatten();
+        let Some((l, tw)) = layout else {
+            return self.text(s, f, x, y, w, h, c);
+        };
+        // Restart from the beginning whenever a different label is hovered.
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut hs = std::collections::hash_map::DefaultHasher::new();
+            s.hash(&mut hs);
+            hs.finish()
+        };
+        let t = self.t.get();
+        let t0 = match self.marquee.get() {
+            Some((k, t0)) if k == key => t0,
+            _ => {
+                self.marquee.set(Some((key, t)));
+                t
+            }
+        };
+        let travel = tw - w + 8.0;
+        let glide = travel / 38.0;
+        let (rest, cycle) = (1.1, 2.2 + glide);
+        let ph = (t - t0) % (cycle + 0.9);
+        let k = ((ph - rest) / glide).clamp(0.0, 1.0);
+        let ease = k * k * (3.0 - 2.0 * k);
+        self.scrolling.set(true);
+        unsafe {
+            let _ = l.SetMaxWidth(tw + 1.0);
+            let _ = l.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            self.rt
+                .PushAxisAlignedClip(&rect(x, y, w, h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            self.rt.DrawTextLayout(
+                v(x - travel * ease, y),
+                &l,
+                self.solid(c),
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+            );
+            self.rt.PopAxisAlignedClip();
+        }
+    }
+
     /// Register a clickable region (pill-relative); true when hovered.
     fn hit(&self, x: f32, y: f32, w: f32, h: f32, action: Action) -> bool {
         let ox = self.ox.get();
@@ -888,14 +886,37 @@ impl Renderer {
                 w + 4.0,
                 h + 4.0,
                 (h / 2.0).min(10.0) + 2.0,
-                color([0.45, 0.72, 1.0], 0.95),
+                color(self.accent.get(), 0.95),
                 1.6,
                 false,
             );
         }
+        self.over(x, y, w, h)
+    }
+
+    /// The pointer is over this pill-relative box (nothing is registered).
+    fn over(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
+        let ox = self.ox.get();
         self.mouse
             .get()
             .is_some_and(|(mx, my)| mx >= x + ox && mx <= x + ox + w && my >= y && my <= y + h)
+    }
+
+    /// Register a pressable region: (hovered, held down, the box shrunk 6 % while held).
+    fn press(&self, x: f32, y: f32, w: f32, h: f32, action: Action) -> (bool, bool, [f32; 4]) {
+        let hov = self.hit(x, y, w, h, action);
+        let down = hov && self.pressed.get();
+        let k = if down { 0.03 } else { 0.0 };
+        (
+            hov,
+            down,
+            [
+                x + w * k,
+                y + h * k,
+                w * (1.0 - 2.0 * k),
+                h * (1.0 - 2.0 * k),
+            ],
+        )
     }
 
     fn button(
@@ -908,14 +929,8 @@ impl Renderer {
         accent: [f32; 3],
         action: Action,
     ) {
-        let hov = self.hit(x, y, w, h, action);
         // Pressed in: a touch smaller and brighter while the button is held.
-        let down = hov && self.pressed.get();
-        let (x, y, w, h) = if down {
-            (x + w * 0.03, y + h * 0.03, w * 0.94, h * 0.94)
-        } else {
-            (x, y, w, h)
-        };
+        let (hov, down, [x, y, w, h]) = self.press(x, y, w, h, action);
         let a = if down {
             0.36
         } else if hov {
@@ -946,13 +961,7 @@ impl Renderer {
         accent: [f32; 3],
         action: Action,
     ) {
-        let hov = self.hit(x, y, w, h, action);
-        let down = hov && self.pressed.get();
-        let (x, y, w, h) = if down {
-            (x + w * 0.02, y + h * 0.03, w * 0.96, h * 0.94)
-        } else {
-            (x, y, w, h)
-        };
+        let (hov, _, [x, y, w, h]) = self.press(x, y, w, h, action);
         self.fill_rr(
             x,
             y,
@@ -994,6 +1003,13 @@ impl Renderer {
         };
         self.circle(cx, cy, rr, self.cc(accent, a));
         draw(cx, cy, self.cc(self.fg(), if hov { 1.0 } else { 0.88 }));
+    }
+
+    /// A small Segoe Fluent Icons glyph (tab strip) centred on (cx, cy).
+    fn glyph_s(&self, cp: char, cx: f32, cy: f32, c: D2D1_COLOR_F) {
+        let mut b = [0u8; 4];
+        let f = &self.f.icon_s;
+        self.text(cp.encode_utf8(&mut b), f, cx - 9.0, cy - 9.0, 18.0, 18.0, c);
     }
 
     /// A larger Segoe Fluent Icons glyph centred on (cx, cy).
@@ -1077,6 +1093,26 @@ impl Renderer {
         self.fill_rr(bx, cy - h, 2.5, h * 2.0, 1.2, c);
     }
 
+    /// A lightning bolt, 16 px tall at `k` = 1.
+    fn bolt(&self, cx: f32, cy: f32, k: f32, c: D2D1_COLOR_F) {
+        let pts = [
+            (1.5, -8.0),
+            (-4.5, 1.0),
+            (-0.5, 1.0),
+            (-1.5, 8.0),
+            (4.5, -1.0),
+            (0.5, -1.0),
+        ]
+        .map(|(x, y)| (cx + x * k, cy + y * k));
+        self.poly(&pts, c);
+    }
+
+    /// An x of half-size `d` centred on (cx, cy).
+    fn cross(&self, cx: f32, cy: f32, d: f32, c: D2D1_COLOR_F, width: f32) {
+        self.line((cx - d, cy - d), (cx + d, cy + d), c, width);
+        self.line((cx - d, cy + d), (cx + d, cy - d), c, width);
+    }
+
     /// Rotate what is drawn next by `deg` around (cx, cy); returns the transform to restore.
     fn rotate(&self, deg: f32, cx: f32, cy: f32) -> Matrix3x2 {
         let mut cur = Matrix3x2::default();
@@ -1115,13 +1151,7 @@ impl Renderer {
         on: Option<[f32; 3]>,
         action: Action,
     ) {
-        let hov = self.hit(x, y, w, h, action);
-        let down = hov && self.pressed.get();
-        let (x, y, w, h) = if down {
-            (x + w * 0.03, y + h * 0.03, w * 0.94, h * 0.94)
-        } else {
-            (x, y, w, h)
-        };
+        let (hov, _, [x, y, w, h]) = self.press(x, y, w, h, action);
         match on {
             Some(c) => {
                 self.fill_rr(x, y, w, h, 14.0, self.cc(c, if hov { 0.30 } else { 0.22 }));
@@ -1254,21 +1284,49 @@ impl Renderer {
                 }
             }
             // Body: near-black with a faint vertical gradient.
-            let alpha = if fr.acrylic { 0.84 } else { 1.0 };
-            match self.body_brush(fr.acrylic) {
+            match self.body_brush() {
                 Some(b) => {
                     b.SetEndPoint(v(0.0, h.max(1.0)));
                     self.rt.FillGeometry(&g, &b, None::<&ID2D1Brush>)
                 }
                 None => self.rt.FillGeometry(
                     &g,
-                    self.solid(color(self.body_colors().0, alpha)),
+                    self.solid(color(self.body_colors().0, 1.0)),
                     None::<&ID2D1Brush>,
                 ),
             }
-            // Hairline rim + hover brighten.
-            self.rt
-                .DrawGeometry(&g, self.solid(color(self.fg(), 0.07)), 1.0, &self.round);
+            // Tinted glass: the glow's colour pools up from the bottom of the body. It
+            // follows the glow spring (and its pulse), so it never needs frames of its own.
+            if gl > 0.01 {
+                let c = an.glow_rgb;
+                let k = if self.light.get() { 0.09 } else { 0.14 };
+                if let Some(b) = self.grad(
+                    Grad::Tint,
+                    [c[0], c[1], c[2], k],
+                    &[(0.0, c, 0.0), (1.0, c, k)],
+                ) {
+                    b.SetStartPoint(v(0.0, h * 0.2));
+                    b.SetEndPoint(v(0.0, h));
+                    b.SetOpacity(gl.min(1.0));
+                    self.rt.FillGeometry(&g, &b, None::<&ID2D1Brush>);
+                }
+            }
+            // Rim: barely there at the screen edge, catching the light round the bottom.
+            let fg = self.fg();
+            let rim = self.grad(
+                Grad::Rim,
+                [fg[0], 0.0, 0.0, 0.0],
+                &[(0.0, fg, 0.03), (1.0, fg, 0.14)],
+            );
+            match rim {
+                Some(b) => {
+                    b.SetEndPoint(v(0.0, h.max(1.0)));
+                    self.rt.DrawGeometry(&g, &b, 1.0, &self.round);
+                }
+                None => self
+                    .rt
+                    .DrawGeometry(&g, self.solid(color(fg, 0.07)), 1.0, &self.round),
+            }
             let hv = an.hover.pos as f32;
             if hv > 0.01 {
                 self.rt.FillGeometry(
@@ -1337,7 +1395,7 @@ impl Renderer {
             }
             Bubble::Media => {
                 self.ca.set(a);
-                self.art_tile(fr.model, x + (bw - 20.0) / 2.0, cy - 10.0, 20.0, 10.0);
+                self.art_tile(x + (bw - 20.0) / 2.0, cy - 10.0, 20.0, 10.0);
             }
         }
         self.ca.set(1.0);
@@ -1418,6 +1476,7 @@ impl Renderer {
         self.focus_live.set(true);
         self.content(fr, an.scene, w, h, pad_r);
         self.focus_live.set(false);
+        self.tab_strip(fr, w, h, fit);
         self.morph.set(None);
         // The quick controls spell out the mic state (its tile), not the camera's: keep the dots.
         let home = an.scene == Scene::ExpHome;
@@ -1457,24 +1516,11 @@ impl Renderer {
             Scene::ExpShelf => self.exp_shelf(fr, w, h),
             Scene::ExpHome => self.exp_home(fr, w, h),
             Scene::ExpPower => self.exp_power(fr, w, h),
-            Scene::ExpDrop => self.exp_drop(fr, w, h),
+            Scene::ExpDrop => self.exp_drop(w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
             Scene::ExpTimer => self.exp_timer(fr, w, h),
             Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
             Scene::ExpCharge => self.exp_charge(fr, w, h),
-        }
-        if fr.model.tabs()
-            && matches!(
-                scene,
-                Scene::ExpTasks
-                    | Scene::ExpMedia
-                    | Scene::ExpShelf
-                    | Scene::ExpHome
-                    | Scene::ExpPower
-                    | Scene::ExpTimer
-            )
-        {
-            self.tabs(fr.model, w, h);
         }
     }
 
@@ -1693,9 +1739,7 @@ impl Renderer {
             TaskEvent::Failed => {
                 let pulse = 0.5 + (tm * 3.2).sin() * 0.5 * t.fail_pulse(now);
                 self.circle(cx, cy, 8.0 + pulse, self.cc(col, 0.12 + 0.12 * pulse));
-                let d = 3.1;
-                self.line((cx - d, cy - d), (cx + d, cy + d), self.cc(col, 1.0), 2.0);
-                self.line((cx - d, cy + d), (cx + d, cy - d), self.cc(col, 1.0), 2.0);
+                self.cross(cx, cy, 3.1, self.cc(col, 1.0), 2.0);
             }
             TaskEvent::NeedsInput => {
                 // Pulsing halo + bell that rings in short bursts.
@@ -1884,32 +1928,39 @@ impl Renderer {
         }
     }
 
-    fn art_tile(&self, m: &Model, x: f32, y: f32, s: f32, r: f32) {
+    /// A 64 x 64 bitmap scaled into a rounded square of side `s`; false if it can't be drawn.
+    fn paint_bitmap(&self, bmp: &ID2D1Bitmap, x: f32, y: f32, s: f32, r: f32) -> bool {
+        let props = D2D1_BRUSH_PROPERTIES {
+            opacity: self.ca.get(),
+            transform: Matrix3x2 {
+                M11: s / 64.0,
+                M12: 0.0,
+                M21: 0.0,
+                M22: s / 64.0,
+                M31: x,
+                M32: y,
+            },
+        };
+        let rr = D2D1_ROUNDED_RECT {
+            rect: rect(x, y, s, s),
+            radiusX: r,
+            radiusY: r,
+        };
+        unsafe {
+            let Ok(b) = self.rt.CreateBitmapBrush(bmp, None, Some(&props)) else {
+                return false;
+            };
+            self.rt.FillRoundedRectangle(&rr, &b);
+        }
+        true
+    }
+
+    fn art_tile(&self, x: f32, y: f32, s: f32, r: f32) {
         if let Some(bmp) = self.art.borrow().as_ref() {
-            unsafe {
-                let props = D2D1_BRUSH_PROPERTIES {
-                    opacity: self.ca.get(),
-                    transform: Matrix3x2 {
-                        M11: s / 64.0,
-                        M12: 0.0,
-                        M21: 0.0,
-                        M22: s / 64.0,
-                        M31: x,
-                        M32: y,
-                    },
-                };
-                if let Ok(b) = self.rt.CreateBitmapBrush(bmp, None, Some(&props)) {
-                    let rr = D2D1_ROUNDED_RECT {
-                        rect: rect(x, y, s, s),
-                        radiusX: r,
-                        radiusY: r,
-                    };
-                    self.rt.FillRoundedRectangle(&rr, &b);
-                    return;
-                }
+            if self.paint_bitmap(bmp, x, y, s, r) {
+                return;
             }
         }
-        let _ = m;
         self.fill_rr(x, y, s, s, r, self.cc(PURPLE, 0.20));
         self.stroke_rr(
             x + 0.5,
@@ -1943,7 +1994,7 @@ impl Renderer {
             [16.0, 16.0, 72.0, 12.0],
             [8.0, h / 2.0 - 10.0, 20.0, 5.0],
         );
-        self.art_tile(fr.model, a[0], a[1], a[2], a[3]);
+        self.art_tile(a[0], a[1], a[2], a[3]);
         self.hero_end(saved);
         let right = w - 14.0 - pad_r;
         self.eq_bars(right - 16.0, h / 2.0 - 7.0, 14.0, md.playing, GREEN);
@@ -1971,7 +2022,6 @@ impl Renderer {
             let finished = !t.running();
             let right_w = 74.0;
             let close_w = if finished { 24.0 } else { 0.0 };
-            let label_w = w - 42.0 - right_w - close_w - 22.0;
             // Whole row focuses the owning terminal (buttons below win the hit test).
             let row_hov = match t.pid {
                 Some(pid) => self.hit(
@@ -1983,8 +2033,13 @@ impl Renderer {
                 ),
                 None => false,
             };
+            // Hovered, a row that leads somewhere says so: an "open" arrow after its label.
+            let go = if row_hov { 18.0 } else { 0.0 };
+            let label_w = w - 42.0 - right_w - close_w - 22.0 - go;
             if row_hov {
                 self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(self.fg(), 0.05));
+                let gx = 42.0 + label_w + 10.0;
+                self.glyph_s('\u{E8A7}', gx, y + 17.0, self.cc(self.fg(), 0.6));
             }
             // The first row is the compact task's twin: its icon and label slide in from there.
             let first = row == 0;
@@ -2005,7 +2060,8 @@ impl Renderer {
             } else {
                 ([42.0, y + 7.0, label_w, 20.0], None)
             };
-            self.text(
+            let hov = saved.is_none() && self.over(8.0, y + 2.0, w - 16.0, 32.0);
+            self.label(
                 &t.label,
                 &self.f.title,
                 lb[0],
@@ -2013,6 +2069,7 @@ impl Renderer {
                 lb[2],
                 lb[3],
                 self.cc(self.fg(), 0.95),
+                hov,
             );
             self.hero_end(saved);
             self.text(
@@ -2033,22 +2090,10 @@ impl Renderer {
                     Action::DismissTask(t.id.clone()),
                 );
                 let a = if hov { 1.0 } else { 0.5 };
-                let (cx, cyy) = (w - 26.0, cy);
-                self.line(
-                    (cx - 3.0, cyy - 3.0),
-                    (cx + 3.0, cyy + 3.0),
-                    self.cc(self.fg(), a),
-                    1.5,
-                );
-                self.line(
-                    (cx - 3.0, cyy + 3.0),
-                    (cx + 3.0, cyy - 3.0),
-                    self.cc(self.fg(), a),
-                    1.5,
-                );
+                self.cross(w - 26.0, cy, 3.0, self.cc(self.fg(), a), 1.5);
             }
             if let Some(msg) = &t.attention {
-                self.text(
+                self.label(
                     msg,
                     &self.f.small,
                     42.0,
@@ -2056,11 +2101,12 @@ impl Renderer {
                     w - 42.0 - 22.0,
                     16.0,
                     self.cc(AMBER, 0.95),
+                    self.over(42.0, y + 24.0, w - 64.0, 20.0),
                 );
                 y += 20.0;
             }
             if let (true, Some(line)) = (t.shows_line() && t.attention.is_none(), t.line.as_ref()) {
-                self.text(
+                self.label(
                     line,
                     &self.f.mono,
                     42.0,
@@ -2068,6 +2114,7 @@ impl Renderer {
                     w - 42.0 - 22.0,
                     crate::ui_state::LINE_H,
                     self.cc(GRAY, 0.85),
+                    self.over(42.0, y + 24.0, w - 64.0, crate::ui_state::LINE_H + 4.0),
                 );
                 y += crate::ui_state::LINE_H;
             }
@@ -2093,24 +2140,16 @@ impl Renderer {
                     }
                     y += bh + 6.0;
                 }
-                self.button(
-                    "Copy error",
-                    14.0,
-                    y,
-                    78.0,
-                    24.0,
-                    RED,
-                    Action::CopyText(t.stderr.join("\n")),
-                );
-                self.button(
-                    "Dismiss",
-                    100.0,
-                    y,
-                    66.0,
-                    24.0,
-                    self.fg(),
-                    Action::DismissTask(t.id.clone()),
-                );
+                let mut bx = 14.0;
+                if t.rerunnable() {
+                    let acc = self.accent.get();
+                    self.button("Rerun", bx, y, 62.0, 24.0, acc, Action::Rerun(t.id.clone()));
+                    bx += 70.0;
+                }
+                let err = Action::CopyText(t.stderr.join("\n"));
+                self.button("Copy error", bx, y, 78.0, 24.0, RED, err);
+                let dismiss = Action::DismissTask(t.id.clone());
+                self.button("Dismiss", bx + 86.0, y, 66.0, 24.0, self.fg(), dismiss);
                 y += 28.0;
             }
         }
@@ -2179,7 +2218,7 @@ impl Renderer {
                 Some(t) => format!("{exe}  ·  {}", t.label),
                 None => exe.to_string(),
             };
-            self.text(
+            self.label(
                 &sub,
                 &self.f.small,
                 41.0,
@@ -2187,6 +2226,7 @@ impl Renderer {
                 w - 41.0 - 130.0,
                 14.0,
                 self.cc(GRAY, 1.0),
+                self.over(8.0, y + 1.0, w - 146.0, row - 2.0),
             );
             let armed = m.kill_armed.is_some_and(|(port, _)| port == p.port);
             self.button(
@@ -2220,7 +2260,7 @@ impl Renderer {
             [16.0, 16.0, 72.0, 12.0],
             [16.0, 16.0, 72.0, 12.0],
         );
-        self.art_tile(fr.model, a[0], a[1], a[2], a[3]);
+        self.art_tile(a[0], a[1], a[2], a[3]);
         self.hero_end(saved);
         let tx = 102.0;
         let right = w - 16.0;
@@ -2238,7 +2278,8 @@ impl Renderer {
                 self.fill_rr(16.0, 16.0, 72.0, 72.0, 12.0, self.cc(self.fg(), 0.10));
             }
         }
-        self.text(
+        let hov = self.over(tx, 12.0, right - tx - 34.0, 48.0);
+        self.label(
             &md.title,
             &self.f.big,
             tx,
@@ -2246,8 +2287,9 @@ impl Renderer {
             right - tx - 34.0,
             22.0,
             self.cc(self.fg(), 0.97),
+            hov,
         );
-        self.text(
+        self.label(
             &md.artist,
             &self.f.body,
             tx,
@@ -2255,6 +2297,7 @@ impl Renderer {
             right - tx - 34.0,
             18.0,
             self.cc(GRAY, 1.0),
+            hov,
         );
         self.eq_bars(right - 18.0, 18.0, 14.0, md.playing, GREEN);
         // Timeline with live extrapolation while playing.
@@ -2280,12 +2323,21 @@ impl Renderer {
             .art_accent
             .filter(|_| fr.model.adaptive_glow && !self.light.get())
             .unwrap_or(self.fg());
-        self.fill_rr(bx, 65.0, bw, 5.0, 2.5, self.cc(self.fg(), 0.12));
+        // Seekable: a press anywhere on it (a little taller than the bar) jumps there.
+        let hov = md.dur_ms > 0 && self.hit(bx - 4.0, 58.0, bw + 8.0, 19.0, Action::Seek);
+        let (bh, by) = if hov { (7.0, 64.0) } else { (5.0, 65.0) };
+        self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(self.fg(), 0.12));
         if md.dur_ms > 0 {
-            let fw = (bw * frac).max(5.0);
-            self.fill_rr(bx, 65.0, fw, 5.0, 2.5, self.cc(acc, 0.92));
-            if md.playing {
-                self.circle(bx + fw - 2.5, 67.5, 5.0, self.cc(self.fg(), 1.0));
+            let fw = (bw * frac).max(bh);
+            self.fill_rr(bx, by, fw, bh, bh / 2.0, self.cc(acc, 0.92));
+            if md.playing || hov {
+                let r = if hov { 6.5 } else { 5.0 };
+                self.circle(
+                    bx + fw - bh / 2.0,
+                    by + bh / 2.0,
+                    r,
+                    self.cc(self.fg(), 1.0),
+                );
             }
         }
         self.text(
@@ -2308,7 +2360,8 @@ impl Renderer {
         );
         // Transport controls, clear of the tab dots.
         let cx = tx + bw / 2.0;
-        let cy = h - if fr.model.tabs() { 14.0 } else { 0.0 } - 26.0;
+        let tab = if fr.model.tabs() { TAB_H } else { 0.0 };
+        let cy = h - tab - 26.0;
         for (dir, action) in [(-1.0, Action::MediaPrev), (1.0, Action::MediaNext)] {
             let x = cx + dir * 46.0;
             let hov = self.hit(x - 16.0, cy - 16.0, 32.0, 32.0, action);
@@ -2337,33 +2390,100 @@ impl Renderer {
 
     // ------------------------------------------------------- tabs / ports / shelf
 
-    fn tabs(&self, m: &Model, w: f32, h: f32) {
+    /// The pane switcher under a pane with neighbours: one icon per pane, the current one a
+    /// pill with its name. Drawn once, as chrome that stays put while the pages slide. While
+    /// paging, the old tab shrinks as the new one grows (the content spring drives both), so
+    /// the highlight travels without any state of its own.
+    fn tab_strip(&self, fr: &Frame, w: f32, h: f32, fit: f32) {
+        let (m, an) = (fr.model, fr.anim);
+        if !m.tabs() {
+            return;
+        }
+        let live = Panel::of(an.scene).is_some();
+        let gone = an.prev != an.scene && Panel::of(an.prev).is_some();
+        let (c, o) = (
+            an.content.pos.clamp(0.0, 1.0) as f32,
+            an.out.pos.clamp(0.0, 1.0) as f32,
+        );
+        // Fade with the pane when the strip arrives or leaves; stay solid between two panes.
+        let a = match (live, gone) {
+            (true, true) => 1.0,
+            (true, false) => c,
+            (false, true) => o,
+            (false, false) => return,
+        };
+        // Leaving (collapsing to a compact scene): visible, but not clickable.
+        let (mouse, n) = (self.mouse.get(), self.hits.borrow().len());
+        if !live {
+            self.mouse.set(None);
+        }
+        unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), 0.0)) };
+        self.ca.set(a * fit);
         let ps = m.panels();
-        let cur = m.panel();
-        let step = 16.0;
-        let total = step * ps.len() as f32;
+        // The pane on screen, not the selection: the timer setup card is no pane at all.
+        let on = |s: Scene| Panel::of(s).filter(|p| ps.contains(p));
+        let cur = on(an.scene);
+        let prev = on(an.prev).filter(|_| live && gone);
+        let weight = |p: Panel| match prev {
+            Some(q) if Some(p) == cur && Some(q) != cur => c,
+            Some(q) if p == q && Some(q) != cur => 1.0 - c,
+            _ => (Some(p) == cur) as u8 as f32,
+        };
+        let icon = 26.0;
+        let label = |p: Panel| text_w(p.name()) + 10.0;
+        let total: f32 = ps.iter().map(|&p| icon + label(p) * weight(p)).sum();
         let mut x = (w - total) / 2.0;
-        let cy = h - 8.0;
-        for p in ps {
-            let hov = self.hit(x, cy - 7.0, step, 14.0, Action::SelectPanel(p));
-            let on = p == cur;
-            let bw = if on { 12.0 } else { 5.0 };
-            let a = if on {
-                0.9
+        let (cy, th) = (h - TAB_H / 2.0 - 2.0, 20.0);
+        let fg = self.fg();
+        let mut tip = None;
+        for &p in &ps {
+            let k = weight(p);
+            let tw = icon + label(p) * k;
+            let hov = self.hit(x, cy - th / 2.0, tw, th, Action::SelectPanel(p));
+            if k > 0.01 {
+                let acc = self.accent.get();
+                self.fill_rr(x, cy - th / 2.0, tw, th, th / 2.0, self.cc(acc, 0.24 * k));
             } else if hov {
-                0.6
-            } else {
-                0.28
-            };
-            self.fill_rr(
-                x + (step - bw) / 2.0,
-                cy - 2.0,
-                bw,
-                4.0,
-                2.0,
-                self.cc(self.fg(), a),
+                self.fill_rr(x, cy - th / 2.0, tw, th, th / 2.0, self.cc(fg, 0.06));
+                tip = Some((p, x + tw / 2.0));
+            }
+            let ia = 0.42 + 0.53 * k.max(hov as u8 as f32 * 0.6);
+            self.glyph_s(panel_glyph(p), x + icon / 2.0, cy, self.cc(fg, ia));
+            if k > 0.01 {
+                unsafe {
+                    self.rt.PushAxisAlignedClip(
+                        &rect(x, cy - th / 2.0, tw - 6.0, th),
+                        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    );
+                }
+                self.text(
+                    p.name(),
+                    &self.f.small_l,
+                    x + icon - 3.0,
+                    cy - 8.0,
+                    label(p) + 4.0,
+                    16.0,
+                    self.cc(fg, 0.95 * k),
+                );
+                unsafe { self.rt.PopAxisAlignedClip() };
+            }
+            x += tw;
+        }
+        // The hovered tab's name, in a small label just above it.
+        if let Some((p, tx)) = tip {
+            let lw = text_w(p.name()) + 16.0;
+            let (lx, ly) = (
+                (tx - lw / 2.0).clamp(6.0, w - lw - 6.0),
+                cy - th / 2.0 - 24.0,
             );
-            x += step;
+            let (_, bottom) = self.body_colors();
+            self.fill_rr(lx, ly, lw, 20.0, 10.0, self.cc(bottom, 0.96));
+            self.stroke_rr(lx, ly, lw, 20.0, 10.0, self.cc(fg, 0.14), 1.0, false);
+            self.text(p.name(), &self.f.btn, lx, ly, lw, 20.0, self.cc(fg, 0.95));
+        }
+        if !live {
+            self.hits.borrow_mut().truncate(n);
+            self.mouse.set(mouse);
         }
     }
 
@@ -2371,8 +2491,23 @@ impl Renderer {
         let m = fr.model;
         let thumbs = self.thumbs.borrow();
         // The row of tiles is centred (70 px a tile, 60 of it the tile itself).
-        let x0 = (w - (m.shelf.len().min(5) as f32 * 70.0 - 10.0)) / 2.0;
-        for (i, it) in m.shelf.iter().take(5).enumerate() {
+        let (off, page) = m.shelf_page();
+        let x0 = (w - (page.len() as f32 * 70.0 - 10.0)) / 2.0;
+        // More than fit: chevrons in the margins scroll the row (so does the wheel).
+        if m.shelf.len() > page.len() {
+            let more = [
+                (off > 0, -1, '\u{E76B}', 2.0),
+                (off + page.len() < m.shelf.len(), 1, '\u{E76C}', w - 18.0),
+            ];
+            for (on, by, icon, x) in more {
+                if on {
+                    let hov = self.hit(x, 14.0, 16.0, 60.0, Action::ShelfScroll(by));
+                    let a = if hov { 0.95 } else { 0.5 };
+                    self.glyph_s(icon, x + 8.0, 44.0, self.cc(self.fg(), a));
+                }
+            }
+        }
+        for (i, it) in page.iter().enumerate() {
             let (x, y, s) = (x0 + i as f32 * 70.0, 14.0, 60.0);
             let sel = m.shelf_sel == Some(it.id);
             let hov = self.hit(x, y, s, s, Action::ShelfTile(it.id));
@@ -2406,27 +2541,7 @@ impl Renderer {
                 );
             }
             if let Some(b) = thumbs.get(&it.id) {
-                unsafe {
-                    let props = D2D1_BRUSH_PROPERTIES {
-                        opacity: self.ca.get(),
-                        transform: Matrix3x2 {
-                            M11: 48.0 / 64.0,
-                            M12: 0.0,
-                            M21: 0.0,
-                            M22: 48.0 / 64.0,
-                            M31: x + 6.0,
-                            M32: y + 6.0,
-                        },
-                    };
-                    if let Ok(br) = self.rt.CreateBitmapBrush(b, None, Some(&props)) {
-                        let rr = D2D1_ROUNDED_RECT {
-                            rect: rect(x + 6.0, y + 6.0, 48.0, 48.0),
-                            radiusX: 7.0,
-                            radiusY: 7.0,
-                        };
-                        self.rt.FillRoundedRectangle(&rr, &br);
-                    }
-                }
+                self.paint_bitmap(b, x + 6.0, y + 6.0, 48.0, 7.0);
             } else if it.is_dir {
                 self.fill_rr(x + 14.0, y + 20.0, 32.0, 22.0, 4.0, self.cc(AMBER, 0.85));
                 self.fill_rr(x + 14.0, y + 16.0, 14.0, 8.0, 3.0, self.cc(AMBER, 0.85));
@@ -2450,14 +2565,15 @@ impl Renderer {
                     );
                 }
             }
-            self.text(
+            self.label(
                 &it.name,
                 &self.f.small_c,
                 x - 2.0,
                 y + s + 3.0,
                 s + 4.0,
                 14.0,
-                self.cc(self.fg(), if sel { 0.95 } else { 0.7 }),
+                self.cc(self.fg(), if sel || hov { 0.95 } else { 0.7 }),
+                hov,
             );
             if hov || sel {
                 let h2 = self.hit(
@@ -2467,32 +2583,16 @@ impl Renderer {
                     18.0,
                     Action::RemoveShelf(it.id),
                 );
-                self.circle(x + s - 5.0, y + 4.0, 7.5, self.cc([0.12; 3], 1.0));
+                self.circle(
+                    x + s - 5.0,
+                    y + 4.0,
+                    7.5,
+                    self.cc(self.body_colors().1, 1.0),
+                );
+                self.ring(x + s - 5.0, y + 4.0, 7.5, self.cc(self.fg(), 0.12), 1.0);
                 let a = if h2 { 1.0 } else { 0.7 };
-                self.line(
-                    (x + s - 8.0, y + 1.0),
-                    (x + s - 2.0, y + 7.0),
-                    self.cc(self.fg(), a),
-                    1.4,
-                );
-                self.line(
-                    (x + s - 8.0, y + 7.0),
-                    (x + s - 2.0, y + 1.0),
-                    self.cc(self.fg(), a),
-                    1.4,
-                );
+                self.cross(x + s - 5.0, y + 4.0, 3.0, self.cc(self.fg(), a), 1.4);
             }
-        }
-        if m.shelf.len() > 5 {
-            self.text(
-                &format!("+{}", m.shelf.len() - 5),
-                &self.f.small_r,
-                w - 44.0,
-                4.0,
-                34.0,
-                14.0,
-                self.cc(PURPLE, 1.0),
-            );
         }
         if let Some(it) = m
             .shelf_sel
@@ -2633,6 +2733,18 @@ impl Renderer {
                 let icon = if muted { '\u{E74F}' } else { volume_glyph(vol) };
                 let on_fill = if muted { self.fg() } else { self.ink() };
                 self.glyph(icon, bx + 17.0, by + bh / 2.0, 20.0, self.cc(on_fill, 0.9));
+                // Hovered: the exact level at the end of the bar (inside the fill when it
+                // reaches that far, so it takes the fill's ink).
+                if hov {
+                    let tx = bx + bw - 54.0;
+                    let ink = if fw > bw - 14.0 && !muted {
+                        self.ink()
+                    } else {
+                        self.fg()
+                    };
+                    let pct = format!("{}%", (vol * 100.0).round());
+                    self.text(&pct, &self.f.small_r, tx, by, 42.0, bh, self.cc(ink, 0.8));
+                }
             }
             None => {
                 self.text(
@@ -2674,15 +2786,7 @@ impl Renderer {
         self.fill_rr(ix + 3.0, iy + 3.0, fw, ih - 6.0, 3.5, self.cc(col, 0.95));
         if b.plugged {
             let (cx, cy) = (ix + iw / 2.0, iy + ih / 2.0);
-            let bolt = [
-                (cx + 1.5, cy - 8.0),
-                (cx - 4.5, cy + 1.0),
-                (cx - 0.5, cy + 1.0),
-                (cx - 1.5, cy + 8.0),
-                (cx + 4.5, cy - 1.0),
-                (cx + 0.5, cy - 1.0),
-            ];
-            self.poly(&bolt, self.cc(self.ink(), 0.9));
+            self.bolt(cx, cy, 1.0, self.cc(self.ink(), 0.9));
         }
         let pct = format!("{}%", b.pct);
         self.text(
@@ -2757,7 +2861,7 @@ impl Renderer {
         }
     }
 
-    fn exp_drop(&self, fr: &Frame, w: f32, h: f32) {
+    fn exp_drop(&self, w: f32, h: f32) {
         let t = self.t.get();
         let pulse = (t * 3.0).sin() * 0.5 + 0.5;
         self.fill_rr(
@@ -2801,7 +2905,6 @@ impl Renderer {
             16.0,
             self.cc(GRAY, 1.0),
         );
-        let _ = fr;
     }
 
     fn exp_chip(&self, fr: &Frame, w: f32, _h: f32) {
@@ -2925,18 +3028,9 @@ impl Renderer {
                 self.cc(tone, 0.9),
             );
         }
-        let (bolt_x, bolt_a) = (bx + bw / 2.0, 0.55 + 0.45 * ease);
-        let bolt = [
-            (1.6, -5.5),
-            (-3.6, 0.6),
-            (-0.3, 0.6),
-            (-1.6, 5.5),
-            (3.6, -0.8),
-            (0.3, -0.8),
-        ];
-        let pts: Vec<(f32, f32)> = bolt.iter().map(|(x, y)| (bolt_x + x, cy + y)).collect();
         if plugged {
-            self.poly(&pts, self.cc([1.0; 3], bolt_a));
+            let a = 0.55 + 0.45 * ease;
+            self.bolt(bx + bw / 2.0, cy, 0.7, self.cc([1.0; 3], a));
         }
         self.text(
             if plugged { "Plugged in" } else { "Unplugged" },
@@ -3081,7 +3175,7 @@ impl Renderer {
             self.cc(self.fg(), 0.97),
         );
         self.text(
-            "Right-click the pill to close",
+            "Scroll or type the minutes",
             &self.f.small,
             21.0,
             44.0,
@@ -3090,7 +3184,16 @@ impl Renderer {
             self.cc(GRAY, 0.9),
         );
         let fg = self.fg();
-        let bx = w - 16.0 - 18.0;
+        // Close, small and quiet in the corner; − / + to its left.
+        self.round_btn(
+            w - 16.0 - 11.0,
+            22.0,
+            11.0,
+            fg,
+            Action::TimerClose,
+            |x, y, c| self.cross(x, y, 3.5, c, 1.5),
+        );
+        let bx = w - 16.0 - 22.0 - 10.0 - 18.0;
         self.round_btn(bx, 30.0, 18.0, fg, Action::TimerNudge(1), |x, y, c| {
             self.line((x - 6.0, y), (x + 6.0, y), c, 2.0);
             self.line((x, y - 6.0), (x, y + 6.0), c, 2.0);
@@ -3125,7 +3228,7 @@ impl Renderer {
                 pw,
                 ph,
                 ph / 2.0,
-                self.cc(if on { BLUE } else { fg }, a),
+                self.cc(if on { self.accent.get() } else { fg }, a),
             );
             let tc = self.cc(fg, if on { 1.0 } else { 0.75 });
             self.text(&format!("{p} min"), &self.f.btn, x, py, pw, ph, tc);
@@ -3138,7 +3241,7 @@ impl Renderer {
             106.0,
             bw,
             32.0,
-            BLUE,
+            self.accent.get(),
             start(TimerKind::Plain),
         );
         self.primary(
@@ -3264,35 +3367,17 @@ impl Renderer {
     pub fn missing_thumbs(&self, m: &Model) -> Vec<u64> {
         let mut t = self.thumbs.borrow_mut();
         t.retain(|id, _| m.shelf.iter().any(|i| i.id == *id));
-        m.shelf
+        m.shelf_page()
+            .1
             .iter()
-            .take(5)
             .filter(|i| !t.contains_key(&i.id))
             .map(|i| i.id)
             .collect()
     }
 
     pub fn set_thumb(&self, id: u64, a: &crate::ui_state::ArtBitmap) {
-        let props = D2D1_BITMAP_PROPERTIES {
-            pixelFormat: D2D1_PIXEL_FORMAT {
-                format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
-            },
-            dpiX: 96.0,
-            dpiY: 96.0,
-        };
-        unsafe {
-            if let Ok(b) = self.rt.CreateBitmap(
-                D2D_SIZE_U {
-                    width: a.w,
-                    height: a.h,
-                },
-                Some(a.bgra.as_ptr() as *const _),
-                a.w * 4,
-                &props,
-            ) {
-                self.thumbs.borrow_mut().insert(id, b);
-            }
+        if let Some(b) = self.upload(a) {
+            self.thumbs.borrow_mut().insert(id, b);
         }
     }
 
@@ -3301,9 +3386,10 @@ impl Renderer {
             return;
         }
         self.art_gen.set(m.art_gen);
-        let mut slot = self.art.borrow_mut();
-        *slot = None;
-        let Some(a) = &m.art else { return };
+        *self.art.borrow_mut() = m.art.as_ref().and_then(|a| self.upload(a));
+    }
+
+    fn upload(&self, a: &crate::ui_state::ArtBitmap) -> Option<ID2D1Bitmap> {
         let props = D2D1_BITMAP_PROPERTIES {
             pixelFormat: D2D1_PIXEL_FORMAT {
                 format: DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -3312,30 +3398,14 @@ impl Renderer {
             dpiX: 96.0,
             dpiY: 96.0,
         };
+        let size = D2D_SIZE_U {
+            width: a.w,
+            height: a.h,
+        };
         unsafe {
-            if let Ok(b) = self.rt.CreateBitmap(
-                D2D_SIZE_U {
-                    width: a.w,
-                    height: a.h,
-                },
-                Some(a.bgra.as_ptr() as *const _),
-                a.w * 4,
-                &props,
-            ) {
-                *slot = Some(b);
-            }
-        }
-    }
-}
-
-impl Drop for Renderer {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.bmp.is_invalid() {
-                SelectObject(self.mem, self.old);
-                let _ = DeleteObject(self.bmp.into());
-            }
-            let _ = DeleteDC(self.mem);
+            self.rt
+                .CreateBitmap(size, Some(a.bgra.as_ptr() as *const _), a.w * 4, &props)
+                .ok()
         }
     }
 }
@@ -3394,6 +3464,8 @@ impl Fmts {
             icon.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             let icon_l = mk(w!("Segoe Fluent Icons"), 20.0, DWRITE_FONT_WEIGHT_NORMAL)?;
             icon_l.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            let icon_s = mk(w!("Segoe Fluent Icons"), 12.5, DWRITE_FONT_WEIGHT_NORMAL)?;
+            icon_s.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             let hero = mk(
                 w!("Segoe UI Variable Display"),
                 27.0,
@@ -3414,6 +3486,7 @@ impl Fmts {
                 small_c,
                 icon,
                 icon_l,
+                icon_s,
                 hero,
             })
         }
@@ -3429,6 +3502,71 @@ mod snap {
     use crate::ui_state::MediaInfo;
     use hytte_proto::ports::PortInfo;
 
+    fn bitmap_props(opts: D2D1_BITMAP_OPTIONS) -> D2D1_BITMAP_PROPERTIES1 {
+        D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
+            dpiX: 96.0,
+            dpiY: 96.0,
+            bitmapOptions: opts,
+            ..Default::default()
+        }
+    }
+
+    impl Renderer {
+        /// A renderer drawing into an offscreen canvas-sized bitmap (no window).
+        fn offscreen(scale: f32) -> windows::core::Result<Self> {
+            let factory1: ID2D1Factory1 =
+                unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
+            let dc = crate::gpu::offscreen(&factory1)?;
+            let mut r = Self::build(factory1, dc.cast()?, None)?;
+            r.set_scale(scale);
+            let size = D2D_SIZE_U {
+                width: r.px.0 as u32,
+                height: r.px.1 as u32,
+            };
+            unsafe {
+                let target =
+                    dc.CreateBitmap(size, None, 0, &bitmap_props(D2D1_BITMAP_OPTIONS_TARGET))?;
+                dc.SetTarget(&target);
+            }
+            Ok(r)
+        }
+
+        /// The canvas as premultiplied BGRA rows.
+        fn read_back(&self) -> Vec<u8> {
+            let dc: ID2D1DeviceContext = self.rt.cast().unwrap();
+            let (w, h) = (self.px.0 as u32, self.px.1 as u32);
+            unsafe {
+                let target: ID2D1Bitmap = dc.GetTarget().unwrap().cast().unwrap();
+                let cpu = dc
+                    .CreateBitmap(
+                        D2D_SIZE_U {
+                            width: w,
+                            height: h,
+                        },
+                        None,
+                        0,
+                        &bitmap_props(
+                            D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                        ),
+                    )
+                    .unwrap();
+                cpu.CopyFromBitmap(None, &target, None).unwrap();
+                let map = cpu.Map(D2D1_MAP_OPTIONS_READ).unwrap();
+                let mut out = Vec::with_capacity((w * h * 4) as usize);
+                for y in 0..h {
+                    let row = map.bits.add((y * map.pitch) as usize);
+                    out.extend_from_slice(std::slice::from_raw_parts(row, (w * 4) as usize));
+                }
+                cpu.Unmap().unwrap();
+                out
+            }
+        }
+    }
+
     fn shoot(
         r: &mut Renderer,
         dir: &std::path::Path,
@@ -3436,6 +3574,19 @@ mod snap {
         m: &Model,
         scene: Scene,
         light: bool,
+    ) {
+        shoot_at(r, dir, name, m, scene, light, None);
+    }
+
+    /// `shoot` with the pointer at a pill-relative point.
+    fn shoot_at(
+        r: &mut Renderer,
+        dir: &std::path::Path,
+        name: &str,
+        m: &Model,
+        scene: Scene,
+        light: bool,
+        at: Option<(f32, f32)>,
     ) {
         let mut an = Anim::new(120.0, 24.0);
         an.set_scene(scene, m.size(scene), m.glow(scene));
@@ -3447,10 +3598,10 @@ mod snap {
             anim: &an,
             now: Instant::now(),
             dt: 1.0 / 60.0,
-            mouse: None,
-            acrylic: false,
+            mouse: at.map(|(x, y)| (x + (CANVAS_W - an.rect.w.pos as f32) / 2.0, y)),
             pressed: false,
             light,
+            accent: BLUE,
             focus: None,
             armed: false,
             ringing: true,
@@ -3458,63 +3609,57 @@ mod snap {
         let crop = r.plan(an.rect.w.pos as f32, an.rect.h.pos as f32, false, 0.0, true);
         let mut hits = vec![];
         r.draw(&fr, crop, &mut hits);
-        let (w, h) = (crop.w_px, crop.h_px);
-        let cw = w;
-        // The renderer's DIB is selected into its DC, which GetDIBits can't read: copy it out.
-        let px: Vec<u8> = unsafe {
-            let bi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: w,
-                    biHeight: -h,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let dc = CreateCompatibleDC(Some(r.mem));
-            let mut bits = std::ptr::null_mut();
-            let bmp = CreateDIBSection(Some(dc), &bi, DIB_RGB_COLORS, &mut bits, None, 0).unwrap();
-            let old = SelectObject(dc, bmp.into());
-            BitBlt(dc, 0, 0, w, h, Some(r.mem), 0, 0, SRCCOPY).unwrap();
-            let _ = GdiFlush();
-            let v = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize).to_vec();
-            SelectObject(dc, old);
-            let _ = DeleteObject(bmp.into());
-            let _ = DeleteDC(dc);
-            v
-        };
-        // Premultiplied BGRA over the wallpaper, written as a bottom-up 24-bit BMP.
+        // Only the pill's box, read back from the canvas-sized target.
+        let (x0, w, h) = (crop.clip.0, crop.clip.2 - crop.clip.0, crop.clip.3);
+        let px = r.read_back();
+        let cw = crop.w_px;
+        // Premultiplied BGRA over the wallpaper, as an RGB PNG.
         let bg = if light {
-            [236.0, 230.0, 226.0]
+            [226.0, 230.0, 236.0]
         } else {
-            [58.0, 52.0, 46.0]
+            [46.0, 52.0, 58.0]
         };
-        let row = (w * 3 + 3) / 4 * 4;
-        let mut out = Vec::new();
-        out.extend(b"BM");
-        out.extend((54 + row * h).to_le_bytes());
-        out.extend([0u8; 4]);
-        out.extend(54u32.to_le_bytes());
-        out.extend(40u32.to_le_bytes());
-        out.extend(w.to_le_bytes());
-        out.extend(h.to_le_bytes());
-        out.extend(1u16.to_le_bytes());
-        out.extend(24u16.to_le_bytes());
-        out.extend([0u8; 24]);
-        for y in (0..h).rev() {
-            for x in 0..w {
-                let i = ((y * cw + x) * 4) as usize;
-                let a = px[i + 3] as f32 / 255.0;
-                for c in 0..3 {
-                    out.push((px[i + c] as f32 + bg[c] * (1.0 - a)).min(255.0) as u8);
-                }
-            }
-            out.extend(std::iter::repeat_n(0u8, (row - w * 3) as usize));
+        let img = image::RgbImage::from_fn(w as u32, h as u32, |x, y| {
+            let i = ((y as i32 * cw + x0 + x as i32) * 4) as usize;
+            let a = px[i + 3] as f32 / 255.0;
+            // BGRA -> RGB
+            let ch = |c: usize, b: f32| (px[i + c] as f32 + b * (1.0 - a)).min(255.0) as u8;
+            image::Rgb([ch(2, bg[0]), ch(1, bg[1]), ch(0, bg[2])])
+        });
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        SHOT.with(|v| v.borrow_mut().push(name.to_string()));
+    }
+
+    thread_local! {
+        /// Every picture taken this run, in order, for the contact sheet.
+        static SHOT: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// `index.html` beside the pictures: all of them on one page, named, for review.
+    fn contact_sheet(dir: &std::path::Path) {
+        let cells: String = SHOT.with(|v| {
+            v.borrow()
+                .iter()
+                .map(|n| {
+                    format!("<figure><img src=\"{n}.png\"><figcaption>{n}</figcaption></figure>\n")
+                })
+                .collect()
+        });
+        let page = format!(
+            "<!doctype html><meta charset=utf-8><title>Hytte snapshots</title>\n\
+             <style>body{{background:#1d2026;color:#cfd5de;font:13px system-ui;margin:24px}}\
+             main{{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:20px}}\
+             figure{{margin:0}}img{{width:100%;border-radius:6px}}</style>\n<main>\n{cells}</main>\n"
+        );
+        std::fs::write(dir.join("index.html"), page).unwrap();
+    }
+
+    /// A model with the shipped glow strength (`Model::default` has none).
+    fn model() -> Model {
+        Model {
+            glow_gain: 1.2,
+            ..Default::default()
         }
-        std::fs::write(dir.join(format!("{name}.bmp")), out).unwrap();
     }
 
     #[test]
@@ -3522,12 +3667,11 @@ mod snap {
     fn snapshots() {
         let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
         std::fs::create_dir_all(&dir).unwrap();
-        let mut r = Renderer::new().unwrap();
-        r.set_scale(2.0);
+        let mut r = Renderer::offscreen(2.0).unwrap();
         let now = Instant::now();
         let wall = crate::timer::now_ms();
 
-        let mut m = Model::default();
+        let mut m = model();
         m.now = Some(now);
         m.timer_min = 25;
         m.rounds = 4;
@@ -3601,6 +3745,16 @@ mod snap {
             Scene::CompactMedia,
             false,
         );
+        // The pointer on the timeline: it thickens and shows its knob (seekable).
+        shoot_at(
+            &mut r,
+            &dir,
+            "media-seek-hover",
+            &m,
+            Scene::ExpMedia,
+            false,
+            Some((240.0, 67.0)),
+        );
         m.media = None;
 
         m.power = Some(crate::power::Battery {
@@ -3631,7 +3785,7 @@ mod snap {
         m.timer = None;
         shoot(&mut r, &dir, "sentinel", &m, Scene::Sentinel, false);
 
-        let mut m = Model::default();
+        let mut m = model();
         m.now = Some(now);
         shoot(&mut r, &dir, "idle", &m, Scene::Idle, false);
         let task = |id: &str, label: &str, ev, progress, line: Option<&str>, err: Option<&str>| {
@@ -3648,6 +3802,7 @@ mod snap {
                 message: None,
                 exit_code: None,
                 line: line.map(Into::into),
+                cwd: Some(r"C:\src\app".into()),
                 updated: now,
             })
         };
@@ -3688,8 +3843,49 @@ mod snap {
         );
         m.now = Some(now);
         shoot(&mut r, &dir, "tasks", &m, Scene::ExpTasks, false);
+        shoot(&mut r, &dir, "tasks-light", &m, Scene::ExpTasks, true);
+        // Every pane at once, the pointer resting on a tab (its name shows above it).
+        let all = &mut m;
+        all.media = Some(MediaInfo {
+            title: "A very long song title that will never fit in the pill".into(),
+            artist: "Someone".into(),
+            playing: true,
+            app: String::new(),
+            pos_ms: 1_000,
+            dur_ms: 200_000,
+        });
+        all.shelf = vec![crate::shelf::ShelfItem {
+            id: 9,
+            path: "a.txt".into(),
+            name: "a.txt".into(),
+            is_dir: false,
+            owned: false,
+        }];
+        all.timer = Some(crate::timer::Timer::start(
+            crate::timer::TimerKind::Plain,
+            10,
+            wall,
+        ));
+        all.power = Some(crate::power::Battery {
+            pct: 80,
+            plugged: true,
+            watts: None,
+            mode: Mode::Balanced,
+            mins_left: None,
+        });
+        all.selected = Some(Panel::Media);
+        let h = all.size(Scene::ExpMedia).1 as f32;
+        shoot_at(
+            &mut r,
+            &dir,
+            "tabs-hover",
+            all,
+            Scene::ExpMedia,
+            false,
+            Some((236.0, h - 14.0)),
+        );
         // One pane: a dev server started from a terminal task sits under it, linked.
-        let mut m = Model::default();
+        let mut m = model();
         m.now = Some(now);
         let mut dev = task(
             "d",
@@ -3742,7 +3938,20 @@ mod snap {
         shoot(&mut r, &dir, "shelf", &m, Scene::ExpShelf, false);
         m.shelf_sel = Some(2);
         shoot(&mut r, &dir, "shelf-selected", &m, Scene::ExpShelf, false);
-        let mut m = Model::default();
+        // More than fit: scrolled two along, chevrons on both sides.
+        let more = m.shelf.len() as u64;
+        m.shelf.extend((0..4).map(|i| crate::shelf::ShelfItem {
+            id: more + i + 1,
+            path: format!("extra-{i}.txt").into(),
+            name: format!("extra-{i}.txt"),
+            is_dir: false,
+            owned: false,
+        }));
+        m.shelf_sel = None;
+        m.shelf_off = 2;
+        shoot(&mut r, &dir, "shelf-scrolled", &m, Scene::ExpShelf, false);
+        m.shelf_off = 0;
+        let mut m = model();
         m.now = Some(now);
         let mut c = crate::ui_state::Chip::new("Saved invoice.pdf to Downloads", now);
         c.open = Some("C:\\x".into());
@@ -3761,5 +3970,6 @@ mod snap {
         });
         m.charge_in = true;
         shoot(&mut r, &dir, "charge", &m, Scene::ExpCharge, false);
+        contact_sheet(&dir);
     }
 }

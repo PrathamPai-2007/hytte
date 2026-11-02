@@ -34,6 +34,7 @@ mod privacy;
 mod proc;
 #[cfg(windows)]
 mod render;
+mod rerun;
 mod setup;
 mod shelf;
 mod single_instance;

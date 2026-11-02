@@ -148,6 +148,8 @@ mod win {
     static HWND_ADDR: AtomicIsize = AtomicIsize::new(0);
     /// False while a window that failed to get a renderer is torn down at startup, so its
     /// WM_DESTROY doesn't end the message loop before it exists.
+    /// A minutes digit typed within this of the last one extends the number.
+    const TYPE_GAP: Duration = Duration::from_millis(1500);
     static LIVE: AtomicBool = AtomicBool::new(false);
     /// Registered `TaskbarCreated` message: Explorer restarted and our tray icon is gone.
     static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
@@ -273,6 +275,8 @@ mod win {
         pressed: bool,
         /// Resolved `[general] theme`.
         light: bool,
+        /// The Windows accent palette: (light-2, dark-1) shades; see `accent_for`.
+        accent: Option<([f32; 3], [f32; 3])>,
         /// Keyboard mode (opened by the hotkey): the pill is held open, has focus, and the
         /// window that had focus before is remembered to give it back.
         kb: Option<HWND>,
@@ -280,6 +284,8 @@ mod win {
         kb_focus: Option<usize>,
         /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
         wheel: i32,
+        /// Sideways scroll (touchpad swipe, tilt wheel), turned into one page per gesture.
+        swipe: crate::ui_state::Swipe,
         /// The agent ask on the chip: its id and where the answer goes. Dropping the sender
         /// sends the agent back to its own terminal prompt.
         // ponytail: one pending ask at a time; queue them if parallel agents collide often
@@ -290,9 +296,10 @@ mod win {
         ringing: bool,
         /// Keep-awake is held (SetThreadExecutionState).
         awake_on: bool,
-        /// Dragging on the volume bar: its left and right edge (logical px). The bar follows
-        /// the pointer, and Windows' own volume notifications wait until the drag ends.
-        scrub: Option<(f32, f32)>,
+        /// Dragging on the volume bar or the media timeline: which, and its left and right
+        /// edge (logical px). The bar follows the pointer; Windows' own volume notifications
+        /// wait until the drag ends, and the player is told where to seek on release.
+        scrub: Option<(Action, f32, f32)>,
     }
 
     thread_local! {
@@ -315,7 +322,7 @@ mod win {
         }
 
         fn sentinel(&self) -> bool {
-            self.fs_hidden && self.cfg.general.fullscreen_mode != "hide"
+            self.fs_hidden && self.cfg.general.fullscreen != "hide"
         }
 
         fn hidden(&self) -> bool {
@@ -323,7 +330,7 @@ mod win {
             self.paused
                 || self.gaming
                 || (self.fs_hidden
-                    && self.cfg.general.fullscreen_mode == "hide"
+                    && self.cfg.general.fullscreen == "hide"
                     && !self.armed
                     && !self.model.forced())
         }
@@ -581,11 +588,17 @@ mod win {
                             self.rend.set_thumb(id, &b);
                         }
                     }
-                    UiEvent::Media(m) => self.model.apply_media(m, now),
+                    // Mid-seek, a late position update would yank the knob back.
+                    UiEvent::Media(m) if !self.scrubbing(&Action::Seek) => {
+                        self.model.apply_media(m, now)
+                    }
+                    UiEvent::Media(_) => {}
                     UiEvent::MediaArt(a) => self.model.set_art(a),
                     UiEvent::MicMute(m) => self.model.mic_muted = m,
                     // Mid-drag, a late notification for an earlier level would pull the bar back.
-                    UiEvent::Speaker(s) if self.scrub.is_none() => self.model.speaker = s,
+                    UiEvent::Speaker(s) if !self.scrubbing(&Action::Volume) => {
+                        self.model.speaker = s
+                    }
                     UiEvent::Speaker(_) => {}
                     UiEvent::Power(p) => self.model.set_power(p, now),
                     UiEvent::Privacy(c, m, app) => {
@@ -719,6 +732,33 @@ mod win {
                     self.kb_focus = None;
                     self.after_model_change(hwnd);
                 }
+                // On the timer setup card, digits type the minutes and Backspace erases one.
+                VIRTUAL_KEY(k @ (0x30..=0x39 | 0x60..=0x69)) if self.setting_timer() => {
+                    let now = Instant::now();
+                    let fresh = self
+                        .model
+                        .timer_typed
+                        .is_none_or(|t| now.saturating_duration_since(t) > TYPE_GAP);
+                    let d = (k % 0x30) as u32;
+                    self.model.timer_min = crate::timer::typed(self.model.timer_min, d, fresh);
+                    self.model.timer_typed = Some(now);
+                    self.after_model_change(hwnd);
+                }
+                VK_BACK if self.setting_timer() => {
+                    self.model.timer_min = (self.model.timer_min / 10).max(1);
+                    self.model.timer_typed = Some(Instant::now());
+                    self.after_model_change(hwnd);
+                }
+                // 1-9: jump straight to that pane (left to right, as the tab strip shows them).
+                VIRTUAL_KEY(k @ 0x31..=0x39) => {
+                    let ps = self.model.panels();
+                    let Some(&p) = ps.get((k - 0x31) as usize) else {
+                        return;
+                    };
+                    self.select_panel(p);
+                    self.kb_focus = None;
+                    self.after_model_change(hwnd);
+                }
                 VK_TAB => {
                     let n = self.hits.len();
                     if n > 0 {
@@ -742,6 +782,42 @@ mod win {
                 }
                 _ => {}
             }
+        }
+
+        /// Run a failed command again in a new terminal, and clear its row: the new run
+        /// reports itself (a `hytte run` one, or a shell command once it passes the threshold).
+        fn rerun(&mut self, id: &str) {
+            let Some(t) = self
+                .model
+                .tasks
+                .iter()
+                .find(|t| t.id == id && t.rerunnable())
+            else {
+                return;
+            };
+            let shell = t.pid.and_then(hytte_proto::ports::exe_path);
+            let hytte = std::env::current_exe().unwrap_or_default();
+            let plan = crate::rerun::plan(
+                &t.source,
+                &t.label,
+                shell.as_deref(),
+                &hytte.to_string_lossy(),
+            );
+            let cwd = t.cwd.clone().unwrap_or_default();
+            match crate::rerun::start(&plan, &cwd) {
+                Ok(()) => self.model.remove_task(id),
+                Err(e) => {
+                    crate::logging::line(&format!("rerun failed: {e}"));
+                    let mut c = Chip::new(format!("Couldn't rerun it: {e}"), Instant::now());
+                    c.tone = crate::ui_state::Tone::Warn;
+                    self.model.chip = Some(c);
+                }
+            }
+        }
+
+        /// The timer setup card is open (no timer running): digits type its minutes.
+        fn setting_timer(&self) -> bool {
+            self.model.timer_panel && self.model.timer.is_none()
         }
 
         /// (Re)register the global hotkey from the config.
@@ -940,9 +1016,9 @@ mod win {
                     now,
                     dt,
                     mouse: self.mouse_logical(),
-                    acrylic: self.cfg.general.acrylic,
                     pressed: self.pressed,
                     light: self.light,
+                    accent: accent_for(self.accent, self.light),
                     focus: self.kb.and(self.kb_focus),
                     armed: self.armed,
                     ringing: self.ringing,
@@ -976,8 +1052,10 @@ mod win {
                     );
                 }
             }
-            let ambient =
-                !self.anim.reduce && self.shown && self.model.ambient(self.anim.scene, now);
+            // A hovered label scrolling (`Renderer::label`) runs only while it is hovered.
+            let ambient = !self.anim.reduce
+                && self.shown
+                && (self.model.ambient(self.anim.scene, now) || self.rend.wants_frames());
             let sh = &self.shared;
             sh.fast.store(moving, Ordering::Relaxed);
             sh.animating.store(moving || ambient, Ordering::SeqCst);
@@ -1053,6 +1131,8 @@ mod win {
                         self.model.speaker = Some(s);
                     }
                 }
+                // Mouse presses seek by dragging (`scrub_to`); from the keyboard: play / pause.
+                Action::Seek => crate::media::control(crate::media::Cmd::Toggle),
                 Action::CycleAwake => self.model.awake = self.model.awake.next(Instant::now()),
                 Action::OpenTimer => {
                     if self.model.timer.is_some() {
@@ -1086,6 +1166,9 @@ mod win {
                     crate::timer::save(None);
                 }
                 Action::TimerDismiss => self.model.timer_done = None,
+                Action::TimerClose => self.model.timer_panel = false,
+                Action::Rerun(id) => self.rerun(&id),
+                Action::ShelfScroll(by) => self.model.scroll_shelf(by),
                 Action::SetPowerMode(m) => {
                     crate::power::set_mode(m);
                     self.model.power = crate::power::read();
@@ -1223,10 +1306,25 @@ mod win {
         }
 
         /// Set the volume from where the pointer is on the bar being dragged.
+        fn scrubbing(&self, what: &Action) -> bool {
+            self.scrub.as_ref().is_some_and(|(a, _, _)| a == what)
+        }
+
         fn scrub_to(&mut self) {
-            let (Some((l, r)), Some((mx, _))) = (self.scrub, self.mouse_logical()) else {
+            let (Some((what, l, r)), Some((mx, _))) = (self.scrub.clone(), self.mouse_logical())
+            else {
                 return;
             };
+            if what == Action::Seek {
+                // The bar sits 4 px inside its hit box. Shown at once; sought on release.
+                let f = ((mx - l - 4.0) / (r - l - 8.0)).clamp(0.0, 1.0) as f64;
+                if let Some(md) = self.model.media.as_mut() {
+                    md.pos_ms = (md.dur_ms as f64 * f) as u64;
+                    self.model.media_stamp = Some(Instant::now());
+                }
+                self.kick();
+                return;
+            }
             let f = ((mx - l - 6.0) / (r - l - 12.0)).clamp(0.0, 1.0);
             let f = (f * 100.0).round() / 100.0;
             // Shown at once; Windows is only told when the level actually changed.
@@ -1254,6 +1352,14 @@ mod win {
             self.wheel -= steps * 120;
             // Over the volume bar or the sound tile, the wheel is the volume (2% a notch, as
             // in the Windows flyout).
+            // Over the shelf row, the wheel scrolls it (down = further along).
+            let over_shelf = self
+                .hit_at()
+                .is_some_and(|h| matches!(h.action, Action::ShelfTile(_) | Action::ShelfScroll(_)));
+            if over_shelf {
+                self.model.scroll_shelf(-steps);
+                return;
+            }
             let over_volume = self
                 .hit_at()
                 .is_some_and(|h| matches!(h.action, Action::Volume | Action::ToggleSpeaker));
@@ -1267,15 +1373,23 @@ mod win {
             }
             if self.model.timer_panel && self.model.timer.is_none() {
                 self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
-                return;
             }
-            // Wheel down = next pane. Collapsed pills peek open so the change is visible.
-            let p = self.model.step_panel(-steps.signum());
+            // Panes page sideways (`hwheel`), or through the tab strip and keys.
+        }
+
+        /// Sideways scroll pages the panes: right = next, one pane per swipe (`Swipe`).
+        fn hwheel(&mut self, delta: i32) {
+            let now = Instant::now();
+            let Some(dir) = self.swipe.feed(delta, now) else {
+                return;
+            };
+            // Collapsed pills peek open so the change is visible.
+            let p = self.model.step_panel(dir);
             self.select_panel(p);
             // `step_panel` already moved the selection, so give the slide its direction here.
-            self.anim.nav = -steps.signum() as f32;
+            self.anim.nav = dir as f32;
             if !self.hover {
-                self.model.peek(p, Instant::now() + Duration::from_secs(3));
+                self.model.peek(p, now + Duration::from_secs(3));
             }
         }
 
@@ -1404,50 +1518,30 @@ mod win {
             };
             RegisterClassW(&wc);
 
-            let make = |ex: WINDOW_EX_STYLE| {
-                CreateWindowExW(
-                    ex | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                    cls,
-                    windows::core::w!("Hytte"),
-                    WS_POPUP,
-                    0,
-                    0,
-                    16,
-                    16,
-                    None,
-                    None,
-                    Some(hinstance),
-                    None,
-                )
+            // No redirection bitmap: DirectComposition supplies the pixels (`gpu.rs`).
+            let Ok(hwnd) = CreateWindowExW(
+                WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                cls,
+                windows::core::w!("Hytte"),
+                WS_POPUP,
+                0,
+                0,
+                16,
+                16,
+                None,
+                None,
+                Some(hinstance),
+                None,
+            ) else {
+                crate::logging::line("CreateWindowExW failed; exiting");
+                return;
             };
-            // The window's style decides how it can be drawn, so pick the renderer first:
-            // GPU needs a window without a redirection bitmap, classic needs a layered one.
-            let mut made = None;
-            if cfg.general.renderer != "classic" {
-                if let Ok(h) = make(WS_EX_NOREDIRECTIONBITMAP) {
-                    match Renderer::new_gpu(h) {
-                        Ok(r) => made = Some((h, r)),
-                        Err(e) => {
-                            crate::logging::line(&format!("gpu renderer unavailable: {e}"));
-                            let _ = DestroyWindow(h);
-                        }
-                    }
-                }
-            }
-            let (hwnd, rend) = match made {
-                Some(m) => m,
-                None => {
-                    let Ok(h) = make(WS_EX_LAYERED) else {
-                        crate::logging::line("CreateWindowExW failed; exiting");
-                        return;
-                    };
-                    match Renderer::new() {
-                        Ok(r) => (h, r),
-                        Err(e) => {
-                            crate::logging::line(&format!("renderer init failed: {e}; exiting"));
-                            return;
-                        }
-                    }
+            let rend = match Renderer::new(hwnd) {
+                Ok(r) => r,
+                Err(e) => {
+                    crate::logging::line(&format!("renderer init failed: {e}; exiting"));
+                    let _ = DestroyWindow(hwnd);
+                    return;
                 }
             };
             LIVE.store(true, Ordering::Relaxed);
@@ -1499,8 +1593,10 @@ mod win {
                 thumb_req: Default::default(),
                 tabs: crate::tabs::spawn(),
                 wheel: 0,
+                swipe: Default::default(),
                 pressed: false,
                 light: false,
+                accent: None,
                 kb: None,
                 kb_focus: None,
                 ask: None,
@@ -1511,6 +1607,7 @@ mod win {
             };
             ui.model.ignore = ignore_list(&ui.cfg);
             ui.light = theme_is_light(&ui.cfg.general.theme);
+            ui.accent = windows_accent();
             ui.model.adaptive_glow = ui.cfg.general.adaptive_glow;
             ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
             ui.model.rounds = ui.cfg.timer.rounds;
@@ -1643,6 +1740,48 @@ mod win {
                     && v == 1
             },
             _ => false,
+        }
+    }
+
+    /// The Windows accent palette from the registry (`AccentPalette`: eight RGBA shades,
+    /// lightest first, the accent itself fourth). Read there rather than through WinRT
+    /// `UISettings`, which would load the XAML colour stack into the pill for one value.
+    fn windows_accent() -> Option<([f32; 3], [f32; 3])> {
+        use windows::Win32::System::Registry::{
+            RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_BINARY,
+        };
+        let mut b = [0u8; 32];
+        let mut n = b.len() as u32;
+        unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                windows::core::w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"),
+                windows::core::w!("AccentPalette"),
+                RRF_RT_REG_BINARY,
+                None,
+                Some(b.as_mut_ptr() as *mut _),
+                Some(&mut n),
+            )
+            .ok()
+            .ok()?;
+        }
+        (n >= 32).then(|| {
+            let shade = |i: usize| [b[i * 4], b[i * 4 + 1], b[i * 4 + 2]].map(|c| c as f32 / 255.0);
+            (shade(1), shade(4))
+        })
+    }
+
+    /// The shade for this pill: Windows uses light-2 on dark surfaces, dark-1 on light ones.
+    fn accent_for(a: Option<([f32; 3], [f32; 3])>, light: bool) -> [f32; 3] {
+        match a {
+            Some((l2, d1)) => {
+                if light {
+                    d1
+                } else {
+                    l2
+                }
+            }
+            None => [0.35, 0.63, 1.0],
         }
     }
 
@@ -2073,10 +2212,14 @@ mod win {
                 });
                 return LRESULT(0);
             }
-            WM_MOUSEWHEEL => {
+            WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
                 let delta = (wparam.0 >> 16) as i16 as i32;
                 with_ui(|ui| {
-                    ui.wheel(delta);
+                    if msg == WM_MOUSEHWHEEL {
+                        ui.hwheel(delta);
+                    } else {
+                        ui.wheel(delta);
+                    }
                     ui.after_model_change(hwnd);
                 });
                 return LRESULT(0);
@@ -2119,8 +2262,8 @@ mod win {
                     };
                     ui.scrub = ui
                         .hit_at()
-                        .filter(|h| h.action == Action::Volume)
-                        .map(|h| (h.rect.0, h.rect.2));
+                        .filter(|h| matches!(h.action, Action::Volume | Action::Seek))
+                        .map(|h| (h.action.clone(), h.rect.0, h.rect.2));
                     if ui.scrub.is_some() {
                         ui.scrub_to();
                     }
@@ -2148,10 +2291,17 @@ mod win {
                         let _ = ReleaseCapture();
                     }
                     if ui.scrub.is_some() {
-                        // The level was applied while dragging; settle on the final one.
+                        // The level was applied while dragging; settle on the final one. A
+                        // seek is sent now, once, to where the knob was let go.
                         ui.scrub_to();
+                        if ui.scrubbing(&Action::Seek) {
+                            if let Some(md) = &ui.model.media {
+                                crate::media::control(crate::media::Cmd::Seek(md.pos_ms));
+                            }
+                        } else {
+                            ui.model.speaker = crate::mic::speaker().or(ui.model.speaker);
+                        }
                         ui.scrub = None;
-                        ui.model.speaker = crate::mic::speaker().or(ui.model.speaker);
                         ui.after_model_change(hwnd);
                         return;
                     }
@@ -2264,6 +2414,8 @@ mod win {
                 with_ui(|ui| {
                     ui.anim.reduce = reduce_motion();
                     ui.light = theme_is_light(&ui.cfg.general.theme);
+                    // The accent colour changing also arrives here (ImmersiveColorSet).
+                    ui.accent = windows_accent();
                     ui.layout();
                     ui.kick();
                 });

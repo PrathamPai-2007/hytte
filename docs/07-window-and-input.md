@@ -10,15 +10,14 @@ Created once in `run_windows`:
 |---|---|
 | `WS_POPUP` | No frame or title bar. |
 | `WS_EX_NOREDIRECTIONBITMAP` (renderer `gpu`) | The window has no GDI surface; DirectComposition supplies its pixels. Clicks pass through everywhere outside a **window region** that tracks the pill and its glow. |
-| `WS_EX_LAYERED` (renderer `classic`) | Per-pixel alpha via `UpdateLayeredWindow`. Fully transparent pixels are **click-through**, so the window only "exists" where the pill is drawn. |
 | `WS_EX_TOPMOST` | Above normal windows. Re-asserted whenever the foreground window changes. |
 | `WS_EX_TOOLWINDOW` | No taskbar button and no Alt-Tab entry. |
 | `WS_EX_NOACTIVATE` | Never becomes the active window. Together with `WM_MOUSEACTIVATE → MA_NOACTIVATE`, clicking the pill never steals keyboard focus. |
 | Class `HyttePill`, `CS_DBLCLKS` | The class name is also how fullscreen detection recognises Hytte's own window. |
 
-The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the top edge of the monitor chosen by `[general] monitor` (below). With the `gpu` renderer the window *is* that canvas and a region limits what is visible and clickable; with `classic`, only the part that holds the pill (plus margins for the glow) is drawn and presented each frame. See [section 8](08-rendering-and-animation.md).
+The pill is drawn into a fixed **canvas** of 460 × 310 logical px, centred on the top edge of the monitor chosen by `[general] monitor` (below). The window *is* that canvas, and a region limits what is visible and clickable. See [section 8](08-rendering-and-animation.md).
 
-The renderer is picked before the window exists, because the style depends on it: `run_windows` creates a `WS_EX_NOREDIRECTIONBITMAP` window and tries `Renderer::new_gpu`; if that fails (or `[general] renderer = "classic"`) it destroys that window and creates a layered one for `Renderer::new`. A static `LIVE` flag keeps the destroyed window's `WM_DESTROY` from ending the message loop before it starts.
+`run_windows` creates a `WS_EX_NOREDIRECTIONBITMAP` window and `Renderer::new` for it; if the renderer can't start, the window is destroyed and Hytte exits (the reason is in `hytte.log`). A static `LIVE` flag keeps that window's `WM_DESTROY` from ending a message loop that never started.
 
 ### Monitor and DPI
 
@@ -48,11 +47,12 @@ Thread-local UI state (accessed through `with_ui`; see [section 3](03-architectu
 | `fs_hidden`, `gaming`, `paused`, `armed`, `shown` | Fullscreen suppression, game mode, the tray Pause state, a drag in progress near the top edge, and whether the window is shown. |
 | `drag` | A shelf tile was pressed: it becomes an OLE drag once the pointer moves more than 4 px. |
 | `wheel` | Accumulated wheel delta (precision touchpads send fractions of a notch). |
+| `swipe` | `ui_state::Swipe`: turns sideways scroll into one page per gesture. It pages once a gesture has moved 80 (two thirds of a tilt-wheel notch); a gesture ends after a 100 ms pause, a change of direction, or deltas that suddenly double (a new swipe over the old one's inertia). |
 | `pressed`, `light` | The left button is down over a clickable region; the resolved `[general] theme`. |
 | `kb`, `kb_focus` | Keyboard mode (the window that had focus before, to give it back) and the region that has the focus ring. |
 | `thumb_req`, `tabs`, `vdm` | Thumbnails already requested, the terminal-tabs worker, and the virtual desktop manager. |
 | `hmon` | The `HMONITOR` the pill hangs from; fullscreen checks compare against it. |
-| `scrub` | The volume bar is being dragged: its left and right edge. |
+| `scrub` | The volume bar or the media timeline is being dragged: which one (`Action::Volume` / `Action::Seek`), and its left and right edge. |
 | `ringing`, `awake_on` | The timer alarm is playing; keep-awake is held. |
 | `gpu_retry` | GPU rebuild backoff in ms (0 while the renderer is healthy). |
 
@@ -71,16 +71,17 @@ Three methods do most of the work:
 | `WM_UI` (custom) | `Ui::handle_events`: drains all queued `UiEvent`s. |
 | `WM_FG` (custom) | The foreground window changed or moved; see [Fullscreen](#fullscreen-suppression). |
 | `WM_DRAG_ARM` / `WM_DRAG_END` (custom) | A drag entered the top-edge zone / the button was released. |
-| `WM_MOUSEMOVE` | While the volume bar is dragged, sets the volume (`scrub_to`) and nothing else. Otherwise updates the pointer, starts leave-tracking, starts or cancels the hover timers, starts a tile drag past 4 px, and redraws so hover effects follow the pointer. |
+| `WM_MOUSEMOVE` | While the volume bar or timeline is dragged, sets the volume or moves the timeline knob (`scrub_to`) and nothing else. Otherwise updates the pointer, starts leave-tracking, starts or cancels the hover timers, starts a tile drag past 4 px, and redraws so hover effects follow the pointer. |
 | `WM_MOUSELEAVE` | The pointer left the window: clears it and arms the collapse timer. |
 | `WM_HOTKEY` | The `[general] hotkey` was pressed: enters or leaves [keyboard mode](#keyboard). |
 | `WM_KEYDOWN` | In keyboard mode: Esc, Left/Right, Tab / Shift+Tab, Enter / Space. |
 | `WM_KILLFOCUS` | Ends keyboard mode without taking focus back. |
-| `WM_MOUSEWHEEL` | Over the volume bar or the **Sound** tile: the volume, 2 % per notch. On the timer setup card: the minutes. Otherwise switches panels, one per notch. |
+| `WM_MOUSEWHEEL` | Over the volume bar or the **Sound** tile: the volume, 2 % per notch. Over the shelf row: scrolls it a tile per notch (`Model::scroll_shelf`). On the timer setup card: the minutes. Otherwise nothing. |
+| `WM_MOUSEHWHEEL` | A touchpad swipe or tilt wheel: the next pane to the right, the previous to the left, one per swipe. A collapsed pill peeks open for 3 s. |
 | `WM_SETCURSOR` | A hand cursor over clickable regions. |
-| `WM_LBUTTONDOWN` | On a shelf tile: remembers it and captures the mouse, ready for a drag. On the volume bar: sets the volume where it was pressed and captures the mouse for the drag (`scrub`). |
-| `WM_CAPTURECHANGED` | Capture taken away mid-drag (Alt+Tab, a dialog): the volume drag ends. |
-| `WM_LBUTTONUP` | Ends a volume drag (and re-reads the real level), otherwise a click: runs the `Action` under the pointer. |
+| `WM_LBUTTONDOWN` | On a shelf tile: remembers it and captures the mouse, ready for a drag. On the volume bar or the media timeline: sets the volume (or moves the knob) where it was pressed and captures the mouse for the drag (`scrub`). |
+| `WM_CAPTURECHANGED` | Capture taken away mid-drag (Alt+Tab, a dialog): the volume or timeline drag ends. |
+| `WM_LBUTTONUP` | Ends a volume drag (and re-reads the real level) or a timeline drag (and asks the player to seek there, once, through `media::Cmd::Seek`: GSMTC `TryChangePlaybackPositionAsync`). While the timeline is dragged, `Media` updates are ignored so the knob isn't pulled back. Otherwise a click: runs the `Action` under the pointer. |
 | `WM_RBUTTONUP` | Over the pill: opens or closes the timer setup card (`timer_panel`). |
 | `WM_TIMER` | See the timers below. |
 | `WM_DISPLAYCHANGE`, `WM_DPICHANGED` | `refresh_monitor`, then re-evaluate fullscreen. |
@@ -140,7 +141,9 @@ Pressing it enters **keyboard mode** (`Ui::toggle_keyboard`): the pill remembers
 | Key | Does |
 |---|---|
 | Left / Right | Previous / next panel, with the paging slide. |
-| Tab / Shift+Tab | Moves a blue **focus ring** over the clickable regions in the order they are drawn. |
+| 1 to 9 | Straight to that panel, counting along the tab strip. |
+| Digits, Backspace (timer setup card) | Type the minutes instead (`timer::typed`): a digit within 1.5 s of the last extends the number ("2", "5" is 25), otherwise starts a new one; 1 to 180. |
+| Tab / Shift+Tab | Moves an accent-coloured **focus ring** over the clickable regions in the order they are drawn. |
 | Enter / Space | Runs the action of the focused region. |
 | Esc, or the hotkey again | Closes the pill and gives focus back to the remembered window. |
 
@@ -180,7 +183,7 @@ When `T_FS` fires, `Ui::evaluate_fullscreen` calls `fullscreen::evaluate`, which
 The foreground window is first taken up to its root (`GetAncestor(GA_ROOT)`), so a game's own popup still counts as the game, and measured against **its own** monitor (`MonitorFromWindow`), with 2 px of slack for DPI rounding. Then:
 
 1. The foreground exe is on `deny_list` → **game**.
-2. `suppress_fullscreen = false`, the exe is on `allow_list`, or the foreground is the shell → **show**. The shell is the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, "no foreground window", and any window of `explorer.exe` (except File Explorer, `CabinetWClass`), `ShellExperienceHost`, `StartMenuExperienceHost`, `SearchHost`, `LockApp` or `ShellHost`. Task View, Alt-Tab and the Snap overlay are explorer windows that cover the monitor without a title bar; without this they counted as games.
+2. `fullscreen = "off"`, the exe is on `allow_list`, or the foreground is the shell → **show**. The shell is the desktop (`Progman`, `WorkerW`, `SHELLDLL_DefView`), the taskbars (`Shell_TrayWnd`, `Shell_SecondaryTrayWnd`), Hytte itself, "no foreground window", and any window of `explorer.exe` (except File Explorer, `CabinetWClass`), `ShellExperienceHost`, `StartMenuExperienceHost`, `SearchHost`, `LockApp` or `ShellHost`. Task View, Alt-Tab and the Snap overlay are explorer windows that cover the monitor without a title bar; without this they counted as games.
 3. The foreground is a tool window, click-through (`WS_EX_TRANSPARENT`) or cloaked → **no change**. These are the Xbox Game Bar, GPU and OEM overlays: they say nothing about what is underneath, and flipping on them showed the pill over a game.
 4. The shell reports exclusive D3D fullscreen or presentation mode, and the window covers its monitor without being maximised → **game**. The shell's state is system-wide: a game left running behind a maximised window still reports it, so it only counts when the foreground looks fullscreen itself.
 5. The window covers its monitor and either the shell reports some fullscreen app (`QUNS_BUSY`, `QUNS_APP`) and the window isn't a captioned maximised one, or it isn't maximised (`IsZoomed`) and has no frame (no `WS_CAPTION`, no `WS_THICKFRAME`) → **hide** for browsers and media players (`fullscreen::MEDIA`: a video gets the thin line), **game** for everything else. A window that goes fullscreen from maximised (Edge, many games) stays zoomed but drops its title bar, so `fs` decides there.
@@ -193,11 +196,11 @@ The check also re-runs after resume from sleep and after explorer restarts (`Tas
 
 The window region is the pill plus its glow. Scenes without a glow (the sentinel, idle) get a 4 px margin instead of 28, so the thin line over a fullscreen browser doesn't swallow clicks on the tabs around it (a cross-process `HTTRANSPARENT` would not pass them on).
 
-"Hide" sets `fs_hidden`. With `fullscreen_mode = "sentinel"`, the scene becomes the 3 px `Sentinel` bar (hovering it still opens the pill). With `"hide"`, `Ui::hidden()` becomes true and the window fades out, unless a drag is armed or the model is forcing visibility.
+"Hide" sets `fs_hidden`. With `fullscreen = "line"`, the scene becomes the 3 px `Sentinel` bar (hovering it still opens the pill). With `"hide"`, `Ui::hidden()` becomes true and the window fades out, unless a drag is armed or the model is forcing visibility.
 
 "Game" also sets `fs_hidden`, and `Ui::set_gaming` makes Hytte step aside completely, so it costs a game no frames and no input latency:
 
-- `hidden()` is true whatever `fullscreen_mode` says, even over a drop or forced visibility, and `vis` is snapped to 0 so no fade frames are drawn over the game. A visible overlay would force DWM to compose the game instead of letting it flip independently.
+- `hidden()` is true whatever `fullscreen` says, even over a drop or forced visibility, and `vis` is snapped to 0 so no fade frames are drawn over the game. A visible overlay would force DWM to compose the game instead of letting it flip independently.
 - `input_hooks(false)` removes the low-level mouse hook and the LOCATIONCHANGE hook, which every mouse move in the system otherwise passes through. The foreground hook stays, because it is how leaving the game is noticed. Limit: a game that switches itself to windowed mode without a focus change keeps Hytte hidden until the next Alt-Tab.
 - The global hotkey is unregistered (`register_hotkey` skips while gaming), so the game can use the chord.
 - `SetPriorityClass` with `PROCESS_MODE_BACKGROUND_BEGIN` (background I/O and memory priority) and `IDLE_PRIORITY_CLASS` (CPU: thread priorities drop from 8 to 4). Background mode alone left the thread priorities unchanged, hence both.
