@@ -65,7 +65,8 @@ With `[shelf] persist = true`, the list is saved as JSON to `%APPDATA%\Hytte\she
 | `png`, `jpg`, `jpeg` | **Compress** · **To PDF** · **Remove metadata** · **Read text** |
 | `webp`, `bmp` | **Compress** · **To PDF** · **Read text** |
 | `json`, `yaml`, `yml` | **Format** |
-| `txt`, `md` | **Copy text** |
+| `txt` | A decode action when the snippet is one (see below) · **Copy text** |
+| `md` | **Copy text** |
 | anything else | **Copy path** |
 
 Each button carries a `Conv` value: `Under(5)`, `Pdf`, `Clean`, `Ocr` or `Auto` (the per-type default).
@@ -90,6 +91,7 @@ Each button carries a `Conv` value: `Under(5)`, `Pdf`, `Clean`, `Ocr` or `Auto` 
 | **Read text** (`Conv::Ocr`) | `transforms::ocr_image` | Text copied to the clipboard. |
 | **Format** (JSON) | `toggle_json` | `name.pretty.json` if it was one line, `name.min.json` if it was already formatted; text also copied. |
 | **Format** (YAML) | `normalize_yaml` | `name.pretty.yaml` with trailing spaces trimmed, tabs expanded and blank-line runs collapsed. There is no YAML parser, so this is whitespace-only. |
+| **Decode JWT** · **To date** · **URL decode** · **Base64 decode** · **To RGB** (`Conv::Decode`) | `transforms::decode` | Offered for a `.txt` snippet (64 KB at most) that is a JWT, a 10- or 13-digit Unix time (2001-2100), text with `%XX` escapes, base64 that decodes to readable UTF-8, or a `#rgb` / `#rrggbb` / `#rrggbbaa` colour. The result (JWT header and payload as pretty JSON, local date-time, `rgb(...)`) is copied; a JWT's card says when it expires or expired. |
 | **Copy text** | `transform_text` | The file's contents copied, formatting JSON on the way. |
 | **Copy path** | `transform_file` | The path copied, and Explorer opens with the file selected. |
 

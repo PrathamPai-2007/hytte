@@ -14,6 +14,9 @@ pub enum Conv {
     /// Re-encode to drop EXIF/GPS.
     Clean,
     Ocr,
+    /// Decode a text snippet that is a JWT, a Unix time, URL- or base64-encoded, or a hex
+    /// colour (see [`decode`]).
+    Decode,
     /// The per-type default (prettify JSON, copy text, reveal path...).
     Auto,
 }
@@ -41,7 +44,11 @@ pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
             ("Read text", Conv::Ocr),
         ],
         "json" | "yaml" | "yml" => vec![("Format", Conv::Auto)],
-        "txt" | "md" => vec![("Copy text", Conv::Auto)],
+        "txt" => match decode_label(path) {
+            Some(l) => vec![(l, Conv::Decode), ("Copy text", Conv::Auto)],
+            None => vec![("Copy text", Conv::Auto)],
+        },
+        "md" => vec![("Copy text", Conv::Auto)],
         _ => vec![("Copy path", Conv::Auto)],
     }
 }
@@ -75,6 +82,18 @@ pub fn run(op: Conv, src: &Path) -> Outcome {
             },
             Ok(_) => Outcome::msg("No text found"),
             Err(e) => Outcome::msg(format!("Can't read text ({e})")),
+        },
+        Conv::Decode => match std::fs::read_to_string(src)
+            .ok()
+            .as_deref()
+            .and_then(decode)
+        {
+            Some((_, out, summary)) => Outcome {
+                summary,
+                open: None,
+                copy: Some(out),
+            },
+            None => Outcome::msg("Nothing to decode"),
         },
         Conv::Auto => transform_file(src),
     }
@@ -417,6 +436,194 @@ fn reveal_in_explorer(path: &Path) {
         .spawn();
 }
 
+/// The Decode chip's label for a text snippet, or None. Render asks every frame while the
+/// item is selected, so the last answer is kept.
+// ponytail: one-entry cache; only the selected shelf item is ever asked
+fn decode_label(path: &Path) -> Option<&'static str> {
+    use std::cell::RefCell;
+    thread_local! {
+        static LAST: RefCell<Option<(PathBuf, Option<&'static str>)>> = const { RefCell::new(None) };
+    }
+    LAST.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some((_, l)) = c.as_ref().filter(|(p, _)| p == path) {
+            return *l;
+        }
+        let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= 64 * 1024);
+        let l = small
+            .then(|| std::fs::read_to_string(path).ok())
+            .flatten()
+            .and_then(|t| decode(&t).map(|d| d.0));
+        *c = Some((path.to_path_buf(), l));
+        l
+    })
+}
+
+/// What a text snippet decodes to, if it is one of the things developers paste around:
+/// (chip label, text to copy, card summary).
+pub fn decode(text: &str) -> Option<(&'static str, String, String)> {
+    let t = text.trim();
+    if t.is_empty() || t.contains(char::is_whitespace) {
+        return None;
+    }
+    if let Some(rgb) = hex_colour(t) {
+        return Some(("To RGB", rgb.clone(), format!("{rgb} · copied")));
+    }
+    if let Some(ms) = unix_ms(t) {
+        let d = local_datetime(ms)?;
+        return Some(("To date", d.clone(), format!("{d} · copied")));
+    }
+    if let Some((json, exp)) = jwt(t) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let summary = match exp.and_then(|e| local_datetime(e * 1000).map(|d| (e, d))) {
+            Some((e, d)) if e < now => format!("JWT · expired {d} · copied"),
+            Some((_, d)) => format!("JWT · expires {d} · copied"),
+            None => "JWT decoded · copied".into(),
+        };
+        return Some(("Decode JWT", json, summary));
+    }
+    if let Some(u) = url_decode(t) {
+        return Some(("URL decode", u, "URL decoded · copied".into()));
+    }
+    if t.len() >= 8 {
+        if let Some(b) = b64(t).and_then(|b| String::from_utf8(b).ok()) {
+            if !b.is_empty() && b.chars().all(|c| !c.is_control() || "\n\r\t".contains(c)) {
+                return Some(("Base64 decode", b, "Base64 decoded · copied".into()));
+            }
+        }
+    }
+    None
+}
+
+/// `#rgb`, `#rrggbb` or `#rrggbbaa` → `rgb(r, g, b)` (`rgba` with alpha).
+fn hex_colour(t: &str) -> Option<String> {
+    let h = t.strip_prefix('#')?;
+    if !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let full: String = match h.len() {
+        3 => h.chars().flat_map(|c| [c, c]).collect(),
+        6 | 8 => h.into(),
+        _ => return None,
+    };
+    let v: Vec<u8> = (0..full.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&full[i..i + 2], 16).unwrap_or(0))
+        .collect();
+    Some(match v[..] {
+        [r, g, b, a] => format!("rgba({r}, {g}, {b}, {:.2})", a as f32 / 255.0),
+        _ => format!("rgb({}, {}, {})", v[0], v[1], v[2]),
+    })
+}
+
+/// 10 digits (seconds) or 13 (milliseconds) between 2001 and 2100, as Unix ms.
+fn unix_ms(t: &str) -> Option<u64> {
+    if !t.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u64 = t.parse().ok()?;
+    let ms = match t.len() {
+        10 => n * 1000,
+        13 => n,
+        _ => return None,
+    };
+    (978_307_200_000..4_102_444_800_000)
+        .contains(&ms)
+        .then_some(ms)
+}
+
+/// A JWT's header and payload as pretty JSON, and its `exp` (Unix seconds).
+fn jwt(t: &str) -> Option<(String, Option<u64>)> {
+    let mut parts = t.split('.');
+    let (h, p, _sig) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    let json = |s: &str| serde_json::from_slice::<serde_json::Value>(&b64(s)?).ok();
+    let (header, payload) = (json(h)?, json(p)?);
+    header.get("alg")?;
+    let exp = payload.get("exp").and_then(|e| e.as_u64());
+    let out = serde_json::json!({ "header": header, "payload": payload });
+    Some((serde_json::to_string_pretty(&out).ok()?, exp))
+}
+
+/// Text with at least one `%XX` escape, decoded (must be UTF-8).
+fn url_decode(t: &str) -> Option<String> {
+    let b = t.as_bytes();
+    let hex = |i: usize| u8::from_str_radix(t.get(i..i + 2)?, 16).ok();
+    let (mut out, mut i, mut any) = (Vec::with_capacity(b.len()), 0, false);
+    while i < b.len() {
+        match (b[i], hex(i + 1)) {
+            (b'%', Some(v)) => {
+                out.push(v);
+                i += 3;
+                any = true;
+            }
+            (c, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    any.then(|| String::from_utf8(out).ok()).flatten()
+}
+
+/// Standard or URL-safe base64, padding optional.
+fn b64(t: &str) -> Option<Vec<u8>> {
+    let t = t.trim_end_matches('=');
+    if t.len() % 4 == 1 {
+        return None;
+    }
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    };
+    let (mut out, mut acc, mut bits) = (Vec::with_capacity(t.len() * 3 / 4), 0u32, 0);
+    for c in t.bytes() {
+        acc = (acc << 6) | val(c)? as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
+/// Unix ms as the user's local "YYYY-MM-DD HH:MM:SS".
+fn local_datetime(unix_ms: u64) -> Option<String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+        use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
+        let ft = unix_ms * 10_000 + 116_444_736_000_000_000; // 100 ns ticks since 1601
+        let ft = FILETIME {
+            dwLowDateTime: ft as u32,
+            dwHighDateTime: (ft >> 32) as u32,
+        };
+        let (mut utc, mut l) = (SYSTEMTIME::default(), SYSTEMTIME::default());
+        unsafe {
+            FileTimeToSystemTime(&ft, &mut utc).ok()?;
+            SystemTimeToTzSpecificLocalTime(None, &utc, &mut l).ok()?;
+        }
+        Some(format!(
+            "{}-{:02}-{:02} {:02}:{:02}:{:02}",
+            l.wYear, l.wMonth, l.wDay, l.wHour, l.wMinute, l.wSecond
+        ))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = unix_ms;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +638,52 @@ mod tests {
         std::fs::write(&first, "x").unwrap();
         let second = unique_next_to(&src, ".pretty", "json");
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn snippets_decode_by_what_they_are() {
+        let d = |t: &str| decode(t).map(|d| (d.0, d.1));
+        assert_eq!(d("#f80"), Some(("To RGB", "rgb(255, 136, 0)".into())));
+        assert_eq!(
+            d(" #11223380 "),
+            Some(("To RGB", "rgba(17, 34, 51, 0.50)".into()))
+        );
+        let (l, date) = d("1700000000").unwrap();
+        assert_eq!((l, date.len()), ("To date", 19));
+        assert!(date.starts_with("2023-11-1"), "{date}");
+        assert_eq!(d("1700000000000").unwrap().1, date);
+        // {"alg":"HS256"}.{"sub":"1","exp":1700000000}.sig
+        let tok = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzAwMDAwMDAwfQ.c2ln";
+        let (l, json, summary) = decode(tok).unwrap();
+        assert_eq!(l, "Decode JWT");
+        assert!(json.contains("\"sub\": \"1\""), "{json}");
+        assert!(summary.starts_with("JWT · expired 2023-11-1"), "{summary}");
+        assert_eq!(d("a%20b%2Fc"), Some(("URL decode", "a b/c".into())));
+        assert_eq!(
+            d("aGVsbG8gd29ybGQ="),
+            Some(("Base64 decode", "hello world".into()))
+        );
+        // Plain words, sentences, other numbers and a stray % stay plain text.
+        for t in [
+            "password",
+            "hello there",
+            "12345",
+            "#zzz",
+            "100%",
+            "999999999999",
+        ] {
+            assert_eq!(d(t), None, "{t}");
+        }
+        assert_eq!(labels_of("snippet.txt", "#fff"), ["To RGB", "Copy text"]);
+        assert_eq!(labels_of("note.txt", "just words"), ["Copy text"]);
+    }
+
+    fn labels_of(name: &str, text: &str) -> Vec<&'static str> {
+        let dir = std::env::temp_dir().join("hytte-decode");
+        let _ = std::fs::create_dir_all(&dir);
+        let f = dir.join(name);
+        std::fs::write(&f, text).unwrap();
+        chips_for(&f).iter().map(|c| c.0).collect()
     }
 
     #[test]
