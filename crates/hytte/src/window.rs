@@ -286,10 +286,10 @@ mod win {
         wheel: i32,
         /// Sideways scroll (touchpad swipe, tilt wheel), turned into one page per gesture.
         swipe: crate::ui_state::Swipe,
-        /// The agent ask on the chip: its id and where the answer goes. Dropping the sender
-        /// sends the agent back to its own terminal prompt.
-        // ponytail: one pending ask at a time; queue them if parallel agents collide often
-        ask: Option<(u64, Sender<bool>)>,
+        /// Agent asks waiting for an answer, oldest first; the front one is on the chip.
+        /// Each: id, summary, arrival, and where the answer goes. Dropping the sender sends
+        /// that agent back to its own terminal prompt.
+        asks: std::collections::VecDeque<(u64, String, Instant, Sender<bool>)>,
         /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
         gpu_retry: u32,
         /// The timer alarm is playing.
@@ -625,17 +625,9 @@ mod win {
                     // Nowhere to show it: dropping `reply` sends the agent to its terminal prompt now.
                     UiEvent::Ask { .. } if self.paused || self.gaming => {}
                     UiEvent::Ask { id, summary, reply } => {
-                        // Urgent: it takes the chip over. A replaced ask's sender drops here.
-                        let mut c = Chip::new(summary, now);
-                        c.tone = crate::ui_state::Tone::Warn;
-                        c.hold = Duration::from_secs(hytte_proto::ASK_WAIT_SECS);
-                        c.extra = vec![
-                            ("Allow".into(), ChipAction::Answer(id, true)),
-                            ("Deny".into(), ChipAction::Answer(id, false)),
-                        ];
-                        self.model.chip = Some(c);
-                        self.model.chip_armed = None;
-                        self.ask = Some((id, reply));
+                        // Urgent: it takes the chip over; a second agent's ask queues behind.
+                        self.asks.push_back((id, summary, now, reply));
+                        self.show_ask(now);
                         if self.cfg.agent.sound {
                             unsafe {
                                 let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
@@ -937,7 +929,13 @@ mod win {
                     let _ = KillTimer(Some(hwnd), T_TIMER);
                 },
             }
-            match self.model.expire(now) {
+            let mut next = self.model.expire(now);
+            if self.model.chip.is_none() && !self.asks.is_empty() {
+                // The front ask timed out (its agent asked in the terminal): show the next one.
+                self.show_ask(now);
+                next = self.model.expire(now);
+            }
+            match next {
                 Some(next) => unsafe {
                     let ms = next.saturating_duration_since(now).as_millis() as u32 + 20;
                     SetTimer(Some(hwnd), T_EXPIRE, ms.max(20), None);
@@ -1117,8 +1115,16 @@ mod win {
             match a {
                 Action::DismissTask(id) => self.model.dismiss_task(&id),
                 Action::DismissChip => {
-                    self.ask = None;
+                    let was_ask = self.model.chip.as_ref().is_some_and(|c| {
+                        c.extra
+                            .iter()
+                            .any(|(_, a)| matches!(a, ChipAction::Answer(..)))
+                    });
                     self.model.dismiss_chip();
+                    if was_ask {
+                        self.asks.pop_front();
+                        self.show_ask(Instant::now());
+                    }
                 }
                 Action::Chip(a) => self.chip_action(a),
                 Action::CopyText(s) => set_clipboard(hwnd, &s),
@@ -1309,12 +1315,39 @@ mod win {
                     self.model.dismiss_chip();
                 }
                 ChipAction::Answer(id, allow) => {
-                    if let Some((_, reply)) = self.ask.take().filter(|(a, _)| *a == id) {
-                        let _ = reply.send(allow);
+                    if let Some(i) = self.asks.iter().position(|a| a.0 == id) {
+                        if let Some((.., reply)) = self.asks.remove(i) {
+                            let _ = reply.send(allow);
+                        }
                     }
                     self.model.dismiss_chip();
+                    self.show_ask(Instant::now());
                 }
             }
+        }
+
+        /// Put the oldest live agent ask on the chip, "(1/N)" when more wait behind it. Asks
+        /// past `ASK_WAIT_SECS` are dropped: their pipe already gave up and the agent asked in
+        /// its terminal.
+        fn show_ask(&mut self, now: Instant) {
+            let wait = Duration::from_secs(hytte_proto::ASK_WAIT_SECS);
+            self.asks.retain(|a| now.duration_since(a.2) < wait);
+            let Some((id, summary, at, _)) = self.asks.front() else {
+                return;
+            };
+            let summary = match self.asks.len() {
+                1 => summary.clone(),
+                n => format!("(1/{n}) {summary}"),
+            };
+            let mut c = Chip::new(summary, *at);
+            c.tone = crate::ui_state::Tone::Warn;
+            c.hold = wait;
+            c.extra = vec![
+                ("Allow".into(), ChipAction::Answer(*id, true)),
+                ("Deny".into(), ChipAction::Answer(*id, false)),
+            ];
+            self.model.chip = Some(c);
+            self.model.chip_armed = None;
         }
 
         fn start_timer(&mut self, kind: crate::timer::TimerKind, minutes: u32) {
@@ -1481,8 +1514,8 @@ mod win {
             };
             self.gaming = on;
             if on {
-                // A pending agent ask goes back to its terminal rather than wait unseen.
-                self.ask = None;
+                // Pending agent asks go back to their terminals rather than wait unseen.
+                self.asks.clear();
             }
             crate::fullscreen::GAMING.store(on, Ordering::Relaxed);
             input_hooks(!on);
@@ -1638,7 +1671,7 @@ mod win {
                 accent: None,
                 kb: None,
                 kb_focus: None,
-                ask: None,
+                asks: Default::default(),
                 gpu_retry: 0,
                 ringing: false,
                 awake_on: false,

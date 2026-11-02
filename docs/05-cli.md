@@ -70,7 +70,7 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 
    A deny adds `"message": "Denied from Hytte"`, which the agent reads as the reason (it is only read with a deny).
 
-With no answer it prints nothing and exits 0, and the agent shows its normal prompt in the terminal. That prompt appears only after the hook returns, so the daemon hangs up as soon as it knows there will be no answer: the chip was dismissed, a newer ask replaced it, Hytte is paused or in game mode (the ask is dropped on arrival, and a pending one when a game starts), or `ASK_WAIT_SECS` ran out. The hooks are installed with a `timeout` above that wait, so the agent never kills the hook first.
+With no answer it prints nothing and exits 0, and the agent shows its normal prompt in the terminal. That prompt appears only after the hook returns, so the daemon hangs up as soon as it knows there will be no answer: the chip was dismissed, Hytte is paused or in game mode (the ask is dropped on arrival, and a pending one when a game starts), or `ASK_WAIT_SECS` ran out. The hooks are installed with a `timeout` above that wait, so the agent never kills the hook first.
 
 ### `hytte setup agents [--undo]` (`agents.rs`)
 

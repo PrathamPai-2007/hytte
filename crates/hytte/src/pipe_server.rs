@@ -158,7 +158,7 @@ fn serve_connection(
 }
 
 /// Put an [`hytte_proto::Ask`] on the pill and block this connection until the human answers.
-/// No answer (timeout, dismissed, replaced by a newer ask) writes nothing: the asker falls back.
+/// No answer (timeout, dismissed) writes nothing: the asker falls back.
 #[cfg(windows)]
 fn answer(
     h: windows::Win32::Foundation::HANDLE,
