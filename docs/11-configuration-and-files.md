@@ -92,6 +92,7 @@ Hytte only writes `config.toml` in three cases: creating it on first run (`confi
 | `max_items` | `12` | Maximum tiles on the shelf. |
 | `persist` | `true` | Save the shelf to `shelf.json` and restore it at startup. |
 | `remove_after_drag` | `true` | Remove a tile after it has been dragged out successfully. |
+| `screenshots` | `true` | A screenshot the Snipping Tool copies (Win+Shift+S) goes on the shelf as a PNG in `%APPDATA%\Hytte\shelf\` (`WM_CLIPBOARDUPDATE`, clipboard owner `SnippingTool.exe` or `ScreenClippingHost.exe`). Images other apps copy are left alone; nothing is shelved in game mode or while paused. Applies live. |
 
 ### `[ports]`
 

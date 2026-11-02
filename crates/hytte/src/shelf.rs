@@ -173,6 +173,53 @@ pub fn stage(
     out
 }
 
+/// A clipboard `CF_DIB` (a BITMAPINFO header, masks / palette, then pixels) as a whole
+/// `.bmp` file: the 14-byte file header in front, pointing at where the pixels start.
+pub fn dib_to_bmp(dib: &[u8]) -> Option<Vec<u8>> {
+    let u32_at = |i: usize| Some(u32::from_le_bytes(dib.get(i..i + 4)?.try_into().ok()?));
+    let hdr = u32_at(0)? as usize;
+    let bpp = u16::from_le_bytes(dib.get(14..16)?.try_into().ok()?) as u32;
+    let (compression, used) = (u32_at(16)?, u32_at(32)?);
+    // BI_BITFIELDS with the plain 40-byte header keeps its three masks after it.
+    let masks = if compression == 3 && hdr == 40 { 12 } else { 0 };
+    let colours = match (used, bpp) {
+        (0, 1..=8) => 1 << bpp,
+        (n, _) => n,
+    } as usize;
+    let off = 14 + hdr + masks + colours * 4;
+    if hdr < 40 || off > dib.len() + 14 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(dib.len() + 14);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&((dib.len() + 14) as u32).to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&(off as u32).to_le_bytes());
+    out.extend_from_slice(dib);
+    Some(out)
+}
+
+/// Save a screenshot from the clipboard (`CF_DIB`) as a PNG the shelf owns.
+pub fn stage_dib(dib: &[u8]) -> Option<ShelfItem> {
+    let bmp = dib_to_bmp(dib)?;
+    let img = image::load_from_memory_with_format(&bmp, image::ImageFormat::Bmp).ok()?;
+    // Screenshots are opaque; a 32-bit DIB's fourth byte is often 0, so drop it.
+    let img = img.to_rgb8();
+    static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _store = STORE.lock().unwrap_or_else(|e| e.into_inner());
+    let _ = std::fs::create_dir_all(store_dir());
+    let path = unique_in(&store_dir(), "Screenshot.png");
+    img.save(&path).ok()?;
+    let name = path.file_name()?.to_str()?.to_string();
+    Some(ShelfItem {
+        id: 0,
+        path,
+        name,
+        is_dir: false,
+        owned: true,
+    })
+}
+
 /// Add staged items, assigning ids. The shelf may have changed while they were
 /// staged, so limits and duplicates are checked again; a copy that no longer
 /// fits is deleted. Returns how many were added.
@@ -317,6 +364,21 @@ pub fn remove_keep_file(items: &mut Vec<ShelfItem>, id: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clipboard_dib_becomes_a_bmp() {
+        let img =
+            image::RgbImage::from_fn(3, 2, |x, y| image::Rgb([x as u8 * 80, y as u8 * 90, 7]));
+        let mut bmp = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut bmp, image::ImageFormat::Bmp).unwrap();
+        // The clipboard holds the bitmap without its 14-byte file header.
+        let back = dib_to_bmp(&bmp.get_ref()[14..]).unwrap();
+        let dec = image::load_from_memory_with_format(&back, image::ImageFormat::Bmp)
+            .unwrap()
+            .to_rgb8();
+        assert_eq!(dec, img);
+        assert!(dib_to_bmp(&[1, 2, 3]).is_none());
+    }
 
     #[test]
     fn add_dedup_copy_and_remove() {

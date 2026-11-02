@@ -294,6 +294,9 @@ mod win {
         gpu_retry: u32,
         /// The timer alarm is playing.
         ringing: bool,
+        /// Hash of the last screenshot shelved from the clipboard: the Snipping Tool can
+        /// announce one image more than once.
+        last_snip: u64,
         /// Keep-awake is held (SetThreadExecutionState).
         awake_on: bool,
         /// Dragging on the volume bar or the media timeline: which, and its left and right
@@ -1365,6 +1368,48 @@ mod win {
             self.model.chip_armed = None;
         }
 
+        /// The clipboard changed: a screenshot from the Snipping Tool (Win+Shift+S) goes on
+        /// the shelf as a PNG. Other apps' images are left alone, and nothing is shelved over
+        /// a game or while paused (the shelf would pop open).
+        fn on_clipboard(&mut self, hwnd: HWND) {
+            const CF_DIB: u32 = 8;
+            if !self.cfg.shelf.screenshots || self.gaming || self.paused {
+                return;
+            }
+            let mut pid = 0u32;
+            unsafe {
+                let Ok(owner) = GetClipboardOwner() else {
+                    return;
+                };
+                GetWindowThreadProcessId(owner, Some(&mut pid));
+            }
+            let snip = crate::proc::exe_name(pid).is_some_and(|e| {
+                let e = e.to_ascii_lowercase();
+                e == "snippingtool.exe" || e == "screenclippinghost.exe"
+            });
+            if !snip || unsafe { IsClipboardFormatAvailable(CF_DIB) }.is_err() {
+                return;
+            }
+            let Some(dib) = (unsafe { clipboard_bytes(hwnd, CF_DIB) }) else {
+                return;
+            };
+            let hash = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                dib.hash(&mut h);
+                h.finish()
+            };
+            if std::mem::replace(&mut self.last_snip, hash) == hash {
+                return;
+            }
+            let sh = self.shared.clone();
+            std::thread::spawn(move || {
+                if let Some(it) = crate::shelf::stage_dib(&dib) {
+                    push_event(&sh, UiEvent::ShelfStaged(vec![it]));
+                }
+            });
+        }
+
         fn start_timer(&mut self, kind: crate::timer::TimerKind, minutes: u32) {
             let t = crate::timer::Timer::start(kind, minutes, crate::timer::now_ms());
             crate::timer::save(Some(&t));
@@ -1646,6 +1691,8 @@ mod win {
             LIVE.store(true, Ordering::Relaxed);
             HWND_ADDR.store(hwnd.0 as isize, Ordering::Relaxed);
             shared.hwnd.store(hwnd.0 as isize, Ordering::Relaxed);
+            // WM_CLIPBOARDUPDATE: Snipping Tool screenshots go on the shelf.
+            let _ = AddClipboardFormatListener(hwnd);
             // Power changes arrive as WM_POWERBROADCAST and wake the power worker.
             for g in [&GUID_ACDC_POWER_SOURCE, &GUID_BATTERY_PERCENTAGE_REMAINING] {
                 let _ = RegisterPowerSettingNotification(
@@ -1701,6 +1748,7 @@ mod win {
                 asks: Default::default(),
                 gpu_retry: 0,
                 ringing: false,
+                last_snip: 0,
                 awake_on: false,
                 scrub: None,
             };
@@ -1922,6 +1970,23 @@ mod win {
                 SW_SHOWNORMAL,
             );
         }
+    }
+
+    /// A copy of one clipboard format's data, or None.
+    unsafe fn clipboard_bytes(hwnd: HWND, format: u32) -> Option<Vec<u8>> {
+        OpenClipboard(Some(hwnd)).ok()?;
+        let out = GetClipboardData(format).ok().and_then(|h| {
+            let h = HGLOBAL(h.0);
+            let p = GlobalLock(h) as *const u8;
+            if p.is_null() {
+                return None;
+            }
+            let v = std::slice::from_raw_parts(p, GlobalSize(h)).to_vec();
+            let _ = GlobalUnlock(h);
+            Some(v)
+        });
+        let _ = CloseClipboard();
+        out
     }
 
     fn set_clipboard(hwnd: HWND, s: &str) {
@@ -2321,6 +2386,10 @@ mod win {
                     }
                     ui.after_model_change(hwnd);
                 });
+                return LRESULT(0);
+            }
+            WM_CLIPBOARDUPDATE => {
+                with_ui(|ui| ui.on_clipboard(hwnd));
                 return LRESULT(0);
             }
             WM_MOUSELEAVE => {

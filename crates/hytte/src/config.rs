@@ -135,6 +135,8 @@ pub struct Shelf {
     pub max_items: usize,
     pub persist: bool,
     pub remove_after_drag: bool,
+    /// Put Snipping Tool screenshots (Win+Shift+S) on the shelf as they are copied.
+    pub screenshots: bool,
 }
 impl Default for Shelf {
     fn default() -> Self {
@@ -143,6 +145,7 @@ impl Default for Shelf {
             max_items: 12,
             persist: true,
             remove_after_drag: true,
+            screenshots: true,
         }
     }
 }

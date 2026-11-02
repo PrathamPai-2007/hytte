@@ -3009,6 +3009,11 @@ impl Renderer {
             ],
             _ => vec![
                 Row::Switch("Downloads", "downloads.enabled", c.downloads.enabled),
+                Row::Switch(
+                    "Shelve screenshots",
+                    "shelf.screenshots",
+                    c.shelf.screenshots,
+                ),
                 Row::Switch("Calendar heads-up", "calendar.enabled", c.calendar.enabled),
                 Row::Switch("Resource alerts", "hog.enabled", c.hog.enabled),
                 Row::Switch("Update checks", "general.check_updates", g.check_updates),
