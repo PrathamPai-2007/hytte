@@ -54,7 +54,7 @@ Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limit
 
 ### Writing the file
 
-Hytte only writes `config.toml` in two cases: creating it on first run (`config::save`), and the tray's **Launch at startup** toggle (`config::set_autostart`). The toggle edits only the `autostart` key with `toml_edit`, so the user's comments, ordering and other keys are kept. If the file doesn't parse, it isn't touched. Both writes go through a temp file and a rename, so the watcher never sees a half-written file.
+Hytte only writes `config.toml` in three cases: creating it on first run (`config::save`), the tray's **Launch at startup** toggle, and the settings pane in the pill. The last two go through `config::set`, which edits only the one key with `toml_edit`, so the user's comments, ordering and other keys are kept. If the file doesn't parse, it isn't touched (the pane says so). Both writes go through a temp file and a rename, so the watcher never sees a half-written file.
 
 ## Every setting
 
@@ -71,7 +71,7 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `fullscreen` | `"line"` | Over a maximised window (whether or not the taskbar auto-hides), or a fullscreen browser / media player: `"line"` shrinks to a 3 px bar, `"hide"` fades out completely, `"off"` stays as usual. Real fullscreen apps (games) always hide fully ([section 7](07-window-and-input.md#fullscreen-suppression)), except with `"off"`. Settings from before 1.2.2 (`suppress_fullscreen = false`, `fullscreen_mode = "hide"`) are read as `"off"` / `"hide"`. |
 | `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
-| `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Read at startup. |
+| `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Live: while off, the daily check is skipped. |
 | `hide_from_capture` | `true` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
 | `output_folder` | none | Folder for Drop Vault results; if unset or missing, results go next to the source file. |
 | `allow_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"`. |
@@ -121,14 +121,14 @@ Hytte only writes `config.toml` in two cases: creating it on first run (`config:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | Show browser downloads as tasks. Read at startup. |
+| `enabled` | `true` | Show browser downloads as tasks. Switching it on starts the watcher; off, its tasks are hidden (the watcher stays until restart). |
 | `folder` | none | Folder to watch (default: your Downloads folder). Read at startup. |
 
 ### `[calendar]`
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` | Show a heads-up before the next calendar event. Off by default: titles are private and the pill is on screen. Read at startup. |
+| `enabled` | `false` | Show a heads-up before the next calendar event. Off by default: titles are private and the pill is on screen. Switching it on starts reading the calendar; off, heads-ups are dropped (the reader stays until restart). |
 | `lead_min` | `10` | Minutes before the start to show it. |
 
 ### `[timer]`

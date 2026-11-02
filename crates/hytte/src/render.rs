@@ -7,6 +7,7 @@
 //! pill hangs from the top-centre of a fixed transparent canvas, and only the
 //! pill (plus its soft glow) is visible: a window region trims the rest.
 
+use crate::config::{Config, Val};
 use crate::gpu::Gpu;
 use crate::power::Mode;
 use crate::ui_state::{
@@ -84,6 +85,12 @@ pub enum Action {
     Rerun(String),
     /// Bring the media app (AppUserModelId) to the front.
     FocusMedia(String),
+    /// Open the settings pane on this group, or close it (None).
+    Settings(Option<u8>),
+    /// Write one `section.key` to `config.toml`; it applies straight away.
+    Set(&'static str, Val),
+    /// Open `config.toml` for the settings the pane doesn't have.
+    OpenConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +113,8 @@ pub struct Crop {
 
 pub struct Frame<'a> {
     pub model: &'a Model,
+    /// The settings in force (the settings pane shows them).
+    pub cfg: &'a Config,
     pub anim: &'a Anim,
     pub now: Instant,
     pub dt: f32,
@@ -1496,7 +1505,11 @@ impl Renderer {
             && !home
             && !matches!(
                 an.scene,
-                Scene::ExpDrop | Scene::ExpChip | Scene::ExpTimer | Scene::ExpTimerDone
+                Scene::ExpDrop
+                    | Scene::ExpChip
+                    | Scene::ExpTimer
+                    | Scene::ExpTimerDone
+                    | Scene::ExpSettings
             )
         {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
@@ -1521,6 +1534,7 @@ impl Renderer {
             Scene::ExpTimer => self.exp_timer(fr, w, h),
             Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
             Scene::ExpCharge => self.exp_charge(fr, w, h),
+            Scene::ExpSettings => self.exp_settings(fr, w, h),
         }
     }
 
@@ -2710,8 +2724,16 @@ impl Renderer {
             Action::OpenTimer,
         );
 
-        // Volume bar: click to set, scroll to nudge.
-        let (bx, by, bw, bh) = (16.0, y + th + 12.0, w - 32.0, 32.0);
+        // Volume bar: click to set, scroll to nudge. The settings gear sits at its end.
+        let (bx, by, bw, bh) = (16.0, y + th + 12.0, w - 32.0 - 40.0, 32.0);
+        self.round_btn(
+            w - 32.0,
+            by + bh / 2.0,
+            16.0,
+            self.fg(),
+            Action::Settings(Some(0)),
+            |cx, cy, c| self.glyph('\u{E713}', cx, cy, 16.0, c),
+        );
         let hov = self.hit(bx, by, bw, bh, Action::Volume);
         self.fill_rr(
             bx,
@@ -2858,6 +2880,197 @@ impl Renderer {
                 sh,
                 self.cc(self.fg(), if on { 1.0 } else { 0.7 }),
             );
+        }
+    }
+
+    /// Settings: a header (back, the group switch, open the config file) over up to five
+    /// rows. Each row is a switch or a short choice that writes `config.toml` on click.
+    fn exp_settings(&self, fr: &Frame, w: f32, _h: f32) {
+        use crate::ui_state::SETTINGS_GROUPS;
+        let (g, c) = (fr.cfg.general.clone(), fr.cfg);
+        let group = fr.model.settings.unwrap_or(0);
+        let (fg, acc) = (self.fg(), self.accent.get());
+        let back = Action::Settings(None);
+        self.round_btn(28.0, 23.0, 13.0, fg, back, |cx, cy, col| {
+            self.glyph_s('\u{E72B}', cx, cy, col)
+        });
+        self.round_btn(
+            w - 28.0,
+            23.0,
+            13.0,
+            fg,
+            Action::OpenConfig,
+            |cx, cy, col| self.glyph_s('\u{E8A7}', cx, cy, col),
+        );
+        let (sx, sw) = (50.0, w - 100.0);
+        self.fill_rr(sx, 10.0, sw, 26.0, 13.0, self.cc(fg, 0.06));
+        let seg = sw / SETTINGS_GROUPS.len() as f32;
+        for (i, name) in SETTINGS_GROUPS.iter().enumerate() {
+            let x = sx + i as f32 * seg;
+            let on = i as u8 == group;
+            let hov = self.hit(x, 10.0, seg, 26.0, Action::Settings(Some(i as u8)));
+            if on {
+                self.fill_rr(x + 2.0, 12.0, seg - 4.0, 22.0, 11.0, self.cc(acc, 0.26));
+            } else if hov {
+                self.fill_rr(x + 2.0, 12.0, seg - 4.0, 22.0, 11.0, self.cc(fg, 0.07));
+            }
+            let a = if on || hov { 1.0 } else { 0.66 };
+            self.text(name, &self.f.btn, x, 10.0, seg, 26.0, self.cc(fg, a));
+        }
+
+        type Choice = (&'static str, Val);
+        enum Row {
+            Switch(&'static str, &'static str, bool),
+            Pick(&'static str, &'static str, Vec<Choice>, usize),
+        }
+        let pick = |label, key, opts: Vec<Choice>, cur: &dyn Fn(&Val) -> bool| {
+            let i = opts.iter().position(|(_, v)| cur(v)).unwrap_or(0);
+            Row::Pick(label, key, opts, i)
+        };
+        fn is(s: &str) -> impl Fn(&Val) -> bool + '_ {
+            move |v| matches!(v, Val::S(x) if *x == s)
+        }
+        let rows = match group {
+            0 => vec![
+                pick(
+                    "Theme",
+                    "general.theme",
+                    vec![
+                        ("Dark", Val::S("dark")),
+                        ("Light", Val::S("light")),
+                        ("Auto", Val::S("auto")),
+                    ],
+                    &is(&g.theme),
+                ),
+                // The nearest step to whatever the file says.
+                pick(
+                    "Glow",
+                    "general.glow_strength",
+                    vec![
+                        ("Off", Val::F(0.0)),
+                        ("Soft", Val::F(0.5)),
+                        ("Normal", Val::F(1.0)),
+                        ("Strong", Val::F(1.6)),
+                    ],
+                    &|v| {
+                        let s = g.glow_strength as f64;
+                        let d = |x: f64| (x - s).abs();
+                        let Val::F(x) = v else { return false };
+                        [0.0, 0.5, 1.0, 1.6].iter().all(|o| d(*x) <= d(*o))
+                    },
+                ),
+                Row::Switch("Album-art glow", "general.adaptive_glow", g.adaptive_glow),
+                pick(
+                    "Over fullscreen",
+                    "general.fullscreen",
+                    vec![
+                        ("Line", Val::S("line")),
+                        ("Hide", Val::S("hide")),
+                        ("Off", Val::S("off")),
+                    ],
+                    &is(&g.fullscreen),
+                ),
+                pick(
+                    "Screen",
+                    "general.monitor",
+                    vec![
+                        ("Primary", Val::S("primary")),
+                        ("Active", Val::S("active")),
+                        ("Cursor", Val::S("cursor")),
+                    ],
+                    &is(&g.monitor),
+                ),
+            ],
+            1 => vec![
+                Row::Switch("Start with Windows", "general.autostart", g.autostart),
+                Row::Switch(
+                    "Hide from screen capture",
+                    "general.hide_from_capture",
+                    g.hide_from_capture,
+                ),
+                pick(
+                    "Open on finish",
+                    "general.finish_peek_secs",
+                    vec![
+                        ("Off", Val::I(0)),
+                        ("3 s", Val::I(3)),
+                        ("5 s", Val::I(5)),
+                        ("10 s", Val::I(10)),
+                    ],
+                    &|v| matches!(v, Val::I(x) if *x == g.finish_peek_secs as i64),
+                ),
+                Row::Switch("Timer sound", "timer.sound", c.timer.sound),
+            ],
+            _ => vec![
+                Row::Switch("Downloads", "downloads.enabled", c.downloads.enabled),
+                Row::Switch("Calendar heads-up", "calendar.enabled", c.calendar.enabled),
+                Row::Switch("Resource alerts", "hog.enabled", c.hog.enabled),
+                Row::Switch("Update checks", "general.check_updates", g.check_updates),
+            ],
+        };
+        let n = rows.len();
+        for (i, row) in rows.into_iter().enumerate() {
+            let y = 46.0 + i as f32 * 32.0;
+            match row {
+                Row::Switch(label, key, on) => {
+                    let hov = self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
+                    if hov {
+                        self.fill_rr(10.0, y, w - 20.0, 30.0, 12.0, self.cc(fg, 0.05));
+                    }
+                    self.text(
+                        label,
+                        &self.f.body,
+                        22.0,
+                        y,
+                        w - 90.0,
+                        30.0,
+                        self.cc(fg, 0.9),
+                    );
+                    let (kx, ky) = (w - 22.0 - 34.0, y + 6.0);
+                    if on {
+                        self.fill_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(acc, 0.95));
+                        self.circle(kx + 25.0, ky + 9.0, 6.0, self.cc(self.ink(), 0.95));
+                    } else {
+                        self.stroke_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(fg, 0.4), 1.2, false);
+                        self.circle(kx + 9.0, ky + 9.0, 5.0, self.cc(fg, 0.7));
+                    }
+                }
+                Row::Pick(label, key, opts, cur) => {
+                    self.text(label, &self.f.body, 22.0, y, 130.0, 30.0, self.cc(fg, 0.9));
+                    let (px, pw) = (w - 22.0 - 206.0, 206.0);
+                    self.fill_rr(px, y + 3.0, pw, 24.0, 12.0, self.cc(fg, 0.06));
+                    let sw = pw / opts.len() as f32;
+                    for (j, (name, v)) in opts.into_iter().enumerate() {
+                        let x = px + j as f32 * sw;
+                        let hov = self.hit(x, y + 3.0, sw, 24.0, Action::Set(key, v));
+                        let on = j == cur;
+                        if on {
+                            self.fill_rr(
+                                x + 2.0,
+                                y + 5.0,
+                                sw - 4.0,
+                                20.0,
+                                10.0,
+                                self.cc(acc, 0.26),
+                            );
+                        } else if hov {
+                            self.fill_rr(x + 2.0, y + 5.0, sw - 4.0, 20.0, 10.0, self.cc(fg, 0.07));
+                        }
+                        let a = if on || hov { 1.0 } else { 0.62 };
+                        self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
+                    }
+                }
+            }
+        }
+        // Spare room at the bottom: where the rest of the settings live.
+        if n < 5 {
+            let note = concat!(
+                "Hytte ",
+                env!("CARGO_PKG_VERSION"),
+                "  ·  more in config.toml"
+            );
+            let y = 46.0 + 4.0 * 32.0;
+            self.text(note, &self.f.small_c, 0.0, y, w, 30.0, self.cc(GRAY, 0.75));
         }
     }
 
@@ -3595,6 +3808,7 @@ mod snap {
         }
         let fr = Frame {
             model: m,
+            cfg: &Config::default(),
             anim: &an,
             now: Instant::now(),
             dt: 1.0 / 60.0,
@@ -3783,6 +3997,23 @@ mod snap {
         ));
         shoot(&mut r, &dir, "home-active", &m, Scene::ExpHome, false);
         m.timer = None;
+        for (g, name) in [
+            (0, "settings-look"),
+            (1, "settings-behaviour"),
+            (2, "settings-features"),
+        ] {
+            m.settings = Some(g);
+            shoot(&mut r, &dir, name, &m, Scene::ExpSettings, false);
+        }
+        shoot(
+            &mut r,
+            &dir,
+            "settings-features-light",
+            &m,
+            Scene::ExpSettings,
+            true,
+        );
+        m.settings = None;
         shoot(&mut r, &dir, "sentinel", &m, Scene::Sentinel, false);
 
         let mut m = model();

@@ -92,6 +92,8 @@ Three methods do most of the work:
 | `WM_POWERBROADCAST` | Power source, charge level or resume changed: wakes the power worker (`power::poke`). On resume (`PBT_APMRESUMEAUTOMATIC`) it also posts `WM_FG`. |
 | `WM_DESTROY` | Ends the message loop (unless the window was torn down during startup). |
 
+**Settings pane.** The gear on Home (`Action::Settings`) opens it. Each switch or choice is an `Action::Set(key, Val)`: `config::set` writes that one key to `config.toml` (comments kept) and returns the parsed file, which goes straight through `apply_config`, so the change shows on the next frame. The config watcher sees the write a moment later and applies the same settings again, which changes nothing. If the file doesn't parse, nothing is written and a card says so. Downloads and the calendar start their watcher the first time they are switched on; switched off, the UI ignores what they report.
+
 ## Timers
 
 All are one-shot Win32 timers: the handler kills the timer first, so each fires once until re-armed.

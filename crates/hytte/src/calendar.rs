@@ -113,7 +113,25 @@ pub fn spawn_watcher(
     cfg: crate::config::Calendar,
     ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>,
 ) {
-    if !cfg.enabled {
+    let _ = TX.set(ui_tx);
+    if cfg.enabled {
+        start();
+    }
+}
+
+#[cfg(windows)]
+static TX: std::sync::OnceLock<crossbeam_channel::Sender<crate::ui_state::UiEvent>> =
+    std::sync::OnceLock::new();
+
+/// Start reading the calendar (once; the settings pane can switch it on later). Switched
+/// off again, the UI just stops showing heads-ups; the thread stays.
+#[cfg(windows)]
+pub fn start() {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Some(ui_tx) = TX.get().cloned() else {
+        return;
+    };
+    if STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
         return;
     }
     std::thread::spawn(move || {
@@ -121,6 +139,9 @@ pub fn spawn_watcher(
         win::watch(ui_tx);
     });
 }
+
+#[cfg(not(windows))]
+pub fn start() {}
 
 #[cfg(not(windows))]
 pub fn spawn_watcher(

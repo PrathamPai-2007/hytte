@@ -46,6 +46,7 @@ The important fields, grouped:
 | Results | `chip: Option<Chip>`, `chip_armed` (a Kill button was clicked once), `hog_ignore` (exes muted for the session) |
 | Calendar | `calendar` (the next event and when its heads-up is due), `calendar_seen` |
 | Timer | `timer`, `timer_panel` (the setup card is open), `timer_min`, `timer_done`, `timer_last` (the timer that just finished), `timer_break`, `focus_done`, `rounds` |
+| Settings | `settings` (the pane is open, on this group of `SETTINGS_GROUPS`: Look, Behaviour, Features). Hovering away, picking a pane, or the back button closes it. |
 | Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`) |
 | Clock | `now`: the last time the model was advanced; visibility rules compare against it |
 
@@ -79,11 +80,12 @@ Home sits in the middle: music to its left; dev work, a timer and the battery to
 | 3 | A card (chip) exists | `ExpChip` |
 | 4 | A timer just finished (`timer_done`) | `ExpTimerDone` |
 | 5 | The timer setup card is open (`timer_panel`: right-click, or the **Timer** tile with no timer running) | `ExpTimer` |
-| 6 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()`: `ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower` or `ExpHome` |
-| 7 | The charger was plugged in or out less than 3 s ago (`charge_since`; `charge_in` says which way) | `ExpCharge` |
-| 8 | At least one visible task | `CompactTask` |
-| 9 | Media is **playing** | `CompactMedia` |
-| 10 | otherwise | `Idle` |
+| 6 | The settings pane is open (`settings`: the gear on Home) | `ExpSettings` |
+| 7 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()`: `ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower` or `ExpHome` |
+| 8 | The charger was plugged in or out less than 3 s ago (`charge_since`; `charge_in` says which way) | `ExpCharge` |
+| 9 | At least one visible task | `CompactTask` |
+| 10 | Media is **playing** | `CompactMedia` |
+| 11 | otherwise | `Idle` |
 
 **Forced visibility.** `Model::forced()` is true while something is dragged over the pill, while the timer-finished card is up (`timer_done`), while an agent's Allow / Deny chip is up, or until `force_until`. Hytte sets `force_until` for 5 s after a drop lands and for `[agent] peek_secs` after an agent reports `NeedsInput`, so these stay visible over a fullscreen app (the thin line, or hide mode). Game mode still hides everything ([section 7](07-window-and-input.md#fullscreen-suppression)).
 
@@ -105,6 +107,7 @@ Home sits in the middle: music to its left; dev work, a timer and the battery to
 | `ExpTimer` | 380 × 96 while a timer runs, 152 for the setup card |
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a short one-line card) / 114 |
 | `ExpCharge` | 300 × 52 |
+| `ExpSettings` | 380 × 216 (no tab strip) |
 
 Expanded panels that show the tab strip get `TAB_H` (24 px) more height.
 

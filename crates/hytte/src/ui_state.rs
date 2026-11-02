@@ -320,6 +320,8 @@ pub enum Scene {
     ExpTimerDone,
     /// The charger was just plugged in.
     ExpCharge,
+    /// Settings (from the gear on Home). Not a pane: no tab, not in the swipe rotation.
+    ExpSettings,
 }
 
 /// A second, smaller pill that splits off beside a compact one when two live activities
@@ -404,7 +406,12 @@ pub struct Model {
     pub focus_done: u32,
     /// `[timer] rounds`: how many dots a focus cycle has.
     pub rounds: u32,
+    /// The settings pane is open, on this group (see `SETTINGS_GROUPS`).
+    pub settings: Option<u8>,
 }
+
+/// The settings pane's groups, as its segmented header shows them.
+pub const SETTINGS_GROUPS: [&str; 3] = ["Look", "Behaviour", "Features"];
 
 /// First word of a command line, lower-cased, without path or `.exe`.
 /// AI coding agents started from a shell. They report themselves through their hooks
@@ -868,6 +875,9 @@ impl Model {
         if self.timer_panel {
             return Scene::ExpTimer;
         }
+        if self.settings.is_some() {
+            return Scene::ExpSettings;
+        }
         let peeking = self.now.zip(self.peek_until).is_some_and(|(n, p)| n < p);
         if hover || peeking {
             return match self.panel() {
@@ -919,6 +929,7 @@ impl Model {
             Scene::ExpChip => (380.0, 96.0),
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
+            Scene::ExpSettings => (380.0, 216.0),
             // Running: ring + controls. Not running: the setup card.
             Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
             Scene::ExpTimer => (380.0, 152.0 + tab),
@@ -976,7 +987,9 @@ impl Model {
                 _ => ([1.0; 3], 0.10),
             },
             Scene::ExpTasks if self.visible_count() == 0 => ([1.0; 3], 0.10),
-            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome => ([1.0; 3], 0.10),
+            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpSettings => {
+                ([1.0; 3], 0.10)
+            }
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
                 Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),

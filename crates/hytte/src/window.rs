@@ -469,6 +469,10 @@ mod win {
                 match e {
                     UiEvent::Task(mut u) => {
                         if let crate::tasks::TaskUpdate::Upsert(s) = &mut u {
+                            // Downloads switched off in settings: its watcher may still run.
+                            if s.source == "download" && !self.cfg.downloads.enabled {
+                                continue;
+                            }
                             if s.source == "shell"
                                 && s.delay_ms == 0
                                 && s.event == hytte_proto::TaskEvent::Start
@@ -532,7 +536,7 @@ mod win {
                         now,
                     ),
                     UiEvent::DownloadDone { name, path } => {
-                        if self.model.chip.is_none() {
+                        if self.model.chip.is_none() && self.cfg.downloads.enabled {
                             let mut c = Chip::new(format!("{name} finished downloading"), now);
                             c.open = Some(path.clone());
                             c.extra = vec![("Shelve".into(), ChipAction::Shelve(path))];
@@ -665,6 +669,15 @@ mod win {
             if new.hog != self.cfg.hog {
                 crate::ports::reconfigure_hog(new.hog.clone());
             }
+            if new.downloads.enabled {
+                crate::downloads::start(new.downloads.clone());
+            } else {
+                self.model.tasks.retain(|t| t.source != "download");
+            }
+            if new.calendar.enabled {
+                crate::calendar::start();
+            }
+            crate::update::ENABLED.store(new.general.check_updates, Ordering::Relaxed);
             self.model.ignore = ignore_list(&new);
             self.light = theme_is_light(&new.general.theme);
             self.model.adaptive_glow = new.general.adaptive_glow;
@@ -949,8 +962,10 @@ mod win {
                 unsafe { SetThreadExecutionState(flags) };
             }
             // A calendar heads-up that has come due becomes a card (never over another one).
-            if self.model.chip.is_none() {
-                if let Some(ev) = self.model.calendar_due(now) {
+            // Switched off in settings: a due heads-up is dropped, not saved for later.
+            let calendar = self.cfg.calendar.enabled;
+            if self.model.chip.is_none() || !calendar {
+                if let Some(ev) = self.model.calendar_due(now).filter(|_| calendar) {
                     let text = crate::calendar::summary(
                         &ev.subject,
                         ev.start_ms,
@@ -1012,6 +1027,7 @@ mod win {
                 self.crop_w = crop.w_log;
                 let fr = Frame {
                     model: &self.model,
+                    cfg: &self.cfg,
                     anim: &self.anim,
                     now,
                     dt,
@@ -1167,6 +1183,28 @@ mod win {
                 }
                 Action::TimerDismiss => self.model.timer_done = None,
                 Action::TimerClose => self.model.timer_panel = false,
+                Action::Settings(g) => self.model.settings = g,
+                Action::Set(key, v) => match crate::config::set(key, v) {
+                    Ok(Some(cfg)) => self.apply_config(cfg),
+                    Ok(None) => {
+                        let mut c = Chip::new(
+                            "config.toml has a mistake in it: fix it first",
+                            Instant::now(),
+                        );
+                        c.tone = crate::ui_state::Tone::Warn;
+                        c.open = Some(crate::config::config_path());
+                        self.model.chip = Some(c);
+                    }
+                    Err(e) => crate::logging::line(&format!("settings: {e}")),
+                },
+                Action::OpenConfig => {
+                    self.model.settings = None;
+                    let path = crate::config::config_path();
+                    if !path.exists() {
+                        let _ = crate::config::save(&self.cfg);
+                    }
+                    let _ = std::process::Command::new("explorer").arg(&path).spawn();
+                }
                 Action::Rerun(id) => self.rerun(&id),
                 Action::ShelfScroll(by) => self.model.scroll_shelf(by),
                 Action::SetPowerMode(m) => {
@@ -1297,6 +1335,7 @@ mod win {
                 _ => 0.0,
             };
             self.model.timer_panel = false;
+            self.model.settings = None;
             self.model.selected = Some(p);
             match p {
                 Panel::Tasks => crate::ports::request_refresh(),
@@ -2349,6 +2388,7 @@ mod win {
                         if !ui.inside && ui.kb.is_none() {
                             ui.hover = false;
                             ui.model.timer_panel = false;
+                            ui.model.settings = None;
                             ui.layout();
                             ui.kick();
                         }
@@ -2462,7 +2502,7 @@ mod win {
                             let g = &mut ui.cfg.general;
                             g.autostart = !g.autostart;
                             crate::config::ensure_autostart(g.autostart);
-                            let _ = crate::config::set_autostart(g.autostart);
+                            let _ = crate::config::set("general.autostart", crate::config::Val::B(g.autostart));
                         });
                     }
                     _ => {}

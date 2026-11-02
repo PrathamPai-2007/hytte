@@ -44,7 +44,7 @@ Two rules hold everywhere:
 3. `config::load()` reads `config.toml`, creating it with defaults if it is missing. Then `ensure_autostart` writes or removes the `Run` registry value, and `ensure_start_menu` (on its own thread) refreshes the Start Menu shortcut.
 4. Two channels for the task pipeline are created: `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI).
 5. A `UiEvent` channel is created. Then `pipe_server::spawn_listener` and `tasks::spawn_registry` start. The listener gets the task channel and a `UiEvent` sender, which it needs for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer).
-6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. `update::spawn_checker` starts the daily update check (unless `check_updates = false`). A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), then `setup::migrate_profiles`, which rewrites shell hooks that still call the old `notch` command, then `agents::repair`, which re-points agent hooks whose exe has moved.
+6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. `update::spawn_checker` starts the daily update check (each check skipped while `check_updates = false`). A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), then `setup::migrate_profiles`, which rewrites shell hooks that still call the old `notch` command, then `agents::repair`, which re-points agent hooks whose exe has moved.
 7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
 8. `window::run` takes over the main thread and never returns until Quit.
 

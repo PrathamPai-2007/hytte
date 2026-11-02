@@ -219,14 +219,17 @@ fn run_check(manual: bool) {
 }
 
 /// The daily background check.
+/// `[general] check_updates`, live: the daily check skips while it's off.
+pub static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn spawn_checker(enabled: bool) {
-    if !enabled {
-        return;
-    }
+    ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(60));
         loop {
-            check(false);
+            if ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+                check(false);
+            }
             std::thread::sleep(Duration::from_secs(24 * 60 * 60));
         }
     });

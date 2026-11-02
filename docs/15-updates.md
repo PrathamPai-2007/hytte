@@ -8,7 +8,7 @@ Hytte can update itself. It asks GitHub for the latest release, offers it, downl
 
 | Trigger | Code | Behaviour |
 |---|---|---|
-| Daily background check | `update::spawn_checker` | Starts 60 s after the daemon (so it never slows startup), then repeats every 24 h. Only if `[general] check_updates = true` (the default). Quiet: says nothing when up to date or offline, and skips a version the user already declined. |
+| Daily background check | `update::spawn_checker` | Starts 60 s after the daemon (so it never slows startup), then repeats every 24 h. The thread always runs; each daily check is skipped while `[general] check_updates` is false (`update::ENABLED`, set live from the config). Quiet: says nothing when up to date or offline, and skips a version the user already declined. |
 | Tray → **Check for updates…** | `update::check_now` (menu id 15) | Always runs. Reports "You're up to date" and errors too, and asks again even about a declined version. |
 
 Only one check runs at a time (`BUSY`). A manual check while the daily one's prompt is open does nothing.

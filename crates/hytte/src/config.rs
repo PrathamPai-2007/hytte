@@ -386,36 +386,60 @@ pub fn spawn_watcher(ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>)
     let _ = ui_tx;
 }
 
-/// Sets `[general] autostart` in place, keeping the user's comments and layout. An unparsable
-/// file is left alone (the setting still applies for this session).
-pub fn set_autostart(enable: bool) -> std::io::Result<()> {
-    let path = config_path();
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        let mut cfg = Config::default();
-        cfg.general.autostart = enable;
-        return save(&cfg);
-    };
-    match with_autostart(&text, enable) {
-        Some(next) if next != text => write_atomic(&path, &next),
-        _ => Ok(()),
+/// A value the settings pane writes (see [`set`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Val {
+    B(bool),
+    S(&'static str),
+    I(i64),
+    F(f64),
+}
+
+impl From<Val> for toml_edit::Value {
+    fn from(v: Val) -> Self {
+        match v {
+            Val::B(b) => b.into(),
+            Val::S(s) => s.into(),
+            Val::I(i) => i.into(),
+            Val::F(f) => f.into(),
+        }
     }
 }
 
-fn with_autostart(text: &str, enable: bool) -> Option<String> {
+/// Sets one `section.key` in `config.toml` in place, keeping the user's comments and layout,
+/// and returns the settings it now holds. `Ok(None)`: the file doesn't parse, so it is left
+/// alone (the user is mid-edit; their file wins).
+pub fn set(key: &str, v: Val) -> std::io::Result<Option<Config>> {
+    let path = config_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => toml::to_string_pretty(&Config::default()).unwrap_or_default(),
+    };
+    let Some(next) = with_value(&text, key, v) else {
+        return Ok(None);
+    };
+    if next != text {
+        write_atomic(&path, &next)?;
+    }
+    Ok(parse(&next))
+}
+
+fn with_value(text: &str, key: &str, v: Val) -> Option<String> {
+    let (section, name) = key.split_once('.')?;
     let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
-    let general = doc
-        .entry("general")
+    let table = doc
+        .entry(section)
         .or_insert_with(toml_edit::table)
         .as_table_like_mut()?;
-    match general.get_mut("autostart").and_then(|i| i.as_value_mut()) {
+    match table.get_mut(name).and_then(|i| i.as_value_mut()) {
         // Keep the spacing and any trailing comment on the line.
-        Some(v) => {
-            let decor = v.decor().clone();
-            *v = enable.into();
-            *v.decor_mut() = decor;
+        Some(old) => {
+            let decor = old.decor().clone();
+            *old = v.into();
+            *old.decor_mut() = decor;
         }
         None => {
-            general.insert("autostart", toml_edit::value(enable));
+            table.insert(name, toml_edit::value(toml_edit::Value::from(v)));
         }
     }
     Some(doc.to_string())
@@ -531,7 +555,7 @@ mod tests {
     #[test]
     fn autostart_edit_keeps_comments_and_other_keys() {
         let text = "# my settings\n[general]\nautostart = false # login\nadaptive_glow = false\n\n[shell]\n# keep me\nthreshold_ms = 5000\n";
-        let next = with_autostart(text, true).unwrap();
+        let next = with_value(text, "general.autostart", Val::B(true)).unwrap();
         assert_eq!(next, text.replace("autostart = false", "autostart = true"));
         let cfg = parse(&next).unwrap();
         assert!(cfg.general.autostart && !cfg.general.adaptive_glow);
@@ -540,16 +564,32 @@ mod tests {
 
     #[test]
     fn autostart_edit_adds_missing_key_or_section() {
-        let next = with_autostart("[shell]\nthreshold_ms = 1\n", true).unwrap();
+        let next = with_value(
+            "[shell]\nthreshold_ms = 1\n",
+            "general.autostart",
+            Val::B(true),
+        )
+        .unwrap();
         assert!(parse(&next).unwrap().general.autostart);
-        let next = with_autostart("[general]\nadaptive_glow = false\n", true).unwrap();
+        let next = with_value(
+            "[general]\nadaptive_glow = false\n",
+            "general.autostart",
+            Val::B(true),
+        )
+        .unwrap();
         assert!(parse(&next).unwrap().general.autostart);
+        let next = with_value("[general]\n", "general.theme", Val::S("light")).unwrap();
+        assert_eq!(parse(&next).unwrap().general.theme, "light");
+        let next = with_value("", "general.finish_peek_secs", Val::I(5)).unwrap();
+        assert_eq!(parse(&next).unwrap().general.finish_peek_secs, 5);
+        let next = with_value("", "general.glow_strength", Val::F(0.5)).unwrap();
+        assert_eq!(parse(&next).unwrap().general.glow_strength, 0.5);
     }
 
     #[test]
     fn invalid_toml_is_rejected_not_defaulted() {
         assert!(parse("[general\nautostart = ").is_none());
-        assert!(with_autostart("[general\n", true).is_none());
+        assert!(with_value("[general\n", "general.autostart", Val::B(true)).is_none());
         assert!(parse("").is_some(), "an empty file is all defaults");
     }
 

@@ -211,7 +211,7 @@ Hytte checks for a new version about a minute after it starts and then once a da
 Choose **Yes** and Hytte downloads the new `hytte.exe`, checks it's the version it expected, swaps it into the same folder and restarts. Your settings, shelf, autostart and terminal setup all stay as they are. Choose **No** and it won't ask about that version again, only about a newer one.
 
 - To check right now, use **Check for updates…** in the tray menu.
-- To turn the automatic check off, set `check_updates = false` in the settings. The tray item still works.
+- To turn the automatic check off, switch off **Update checks** in the settings pane (or set `check_updates = false`). The tray item still works.
 - The check only talks to GitHub (`api.github.com` and `github.com`), using Windows' own `curl.exe`. Nothing about you or your machine is sent.
 - If Hytte lives in a folder you can't write to, it tells you and changes nothing. Download the new version from the [releases page](https://github.com/PrathamPai-2007/hytte/releases) and replace `hytte.exe` yourself.
 
@@ -229,7 +229,9 @@ Release numbers were reset at the same time: the old releases are now `v0.1.0` t
 
 ## Settings
 
-Settings live in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
+The everyday settings are in the pill: the **gear** next to the volume bar on Home opens them (theme, glow, what happens over fullscreen, which screen, start with Windows, hiding from screen capture, the finished-task peek, the timer sound, and switching downloads, calendar, resource alerts and update checks on or off). A change applies straight away.
+
+Everything is stored in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**, or the open button at the top right of the settings pane). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
 
 The ones people change most:
 

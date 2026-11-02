@@ -133,7 +133,25 @@ pub fn spawn_watcher(
     cfg: crate::config::Downloads,
     ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>,
 ) {
-    if !cfg.enabled {
+    let _ = TX.set(ui_tx);
+    if cfg.enabled {
+        start(cfg);
+    }
+}
+
+#[cfg(windows)]
+static TX: std::sync::OnceLock<crossbeam_channel::Sender<crate::ui_state::UiEvent>> =
+    std::sync::OnceLock::new();
+
+/// Start watching (once; the settings pane can switch it on later). Switching it off
+/// again only hides what it reports (the UI drops `download` tasks); the thread stays.
+#[cfg(windows)]
+pub fn start(cfg: crate::config::Downloads) {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Some(ui_tx) = TX.get().cloned() else {
+        return;
+    };
+    if STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
         return;
     }
     std::thread::spawn(move || {
@@ -141,6 +159,9 @@ pub fn spawn_watcher(
         win::watch(cfg, ui_tx);
     });
 }
+
+#[cfg(not(windows))]
+pub fn start(_cfg: crate::config::Downloads) {}
 
 #[cfg(not(windows))]
 pub fn spawn_watcher(
