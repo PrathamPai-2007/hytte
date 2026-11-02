@@ -77,7 +77,7 @@ Typing `hytte` in a terminal hands you your prompt straight back; the pill keeps
 
 ## A five-minute tour
 
-**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. It opens on the quick controls, unless it is showing a task or music, which open their own pane. Swipe sideways on the touchpad (or tilt the wheel) to flip between panes, or click the icons along the bottom: the current pane is the one with its name showing. Left to right: Shelf, Media, Home (the quick controls), Tasks (and dev servers), Timer, and Power on laptops. Hover a name that's cut off and it scrolls to show the rest.
+**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. It opens on the quick controls, unless it is showing a task or music, which open their own pane. Swipe sideways on the touchpad (or scroll or tilt the mouse wheel) to flip between panes, or click the icons along the bottom: the current pane is the one with its name showing. Left to right: Shelf, Media, Home (the quick controls), Tasks (and dev servers), Timer, and Power on laptops. Hover a name that's cut off and it scrolls to show the rest.
 
 **2. Track a slow command.** Put `hytte run --` in front of anything:
 

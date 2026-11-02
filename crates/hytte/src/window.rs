@@ -1429,8 +1429,13 @@ mod win {
             }
         }
 
-        /// Wheel over the pill flips panes; one step per notch.
+        /// Vertical wheel: the volume, the shelf row or the timer minutes under the pointer;
+        /// anywhere else a notched mouse wheel pages the panes, one per notch (down = next).
+        /// A precision touchpad's vertical scroll (deltas that aren't whole notches) doesn't
+        /// page: it swipes sideways for that (`hwheel`).
         fn wheel(&mut self, delta: i32) {
+            // ponytail: notch size tells mouse from touchpad; free-spin mice count as touchpads
+            let notched = delta != 0 && delta % 120 == 0;
             self.wheel += delta;
             let steps = self.wheel / 120;
             if steps == 0 {
@@ -1460,16 +1465,23 @@ mod win {
             }
             if self.model.timer_panel && self.model.timer.is_none() {
                 self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
+                return;
             }
-            // Panes page sideways (`hwheel`), or through the tab strip and keys.
+            if notched && self.model.settings.is_none() {
+                self.page(-steps.signum());
+            }
         }
 
         /// Sideways scroll pages the panes: right = next, one pane per swipe (`Swipe`).
         fn hwheel(&mut self, delta: i32) {
+            if let Some(dir) = self.swipe.feed(delta, Instant::now()) {
+                self.page(dir);
+            }
+        }
+
+        /// One pane along: 1 = next, -1 = previous.
+        fn page(&mut self, dir: i32) {
             let now = Instant::now();
-            let Some(dir) = self.swipe.feed(delta, now) else {
-                return;
-            };
             // Collapsed pills peek open so the change is visible.
             let p = self.model.step_panel(dir);
             self.select_panel(p);
