@@ -464,6 +464,27 @@ impl Model {
         if shell && (self.ignore.contains(&name) || AGENT_CLIS.contains(&name.as_str())) {
             return;
         }
+        // An agent's turn ended with a reply: its first line on a card, Copy takes all of it.
+        // A pending ask or warning (amber) keeps the card.
+        if s.source == "agent" && s.event == TaskEvent::Done {
+            let msg = s.message.as_deref().map(str::trim).unwrap_or("");
+            let first = msg
+                .lines()
+                .map(|l| {
+                    l.trim()
+                        .trim_start_matches(['#', '*', '-', ' '])
+                        .trim_end_matches('*')
+                })
+                .find(|l| !l.is_empty());
+            if let (Some(first), false) = (
+                first,
+                self.chip.as_ref().is_some_and(|c| c.tone == Tone::Warn),
+            ) {
+                let mut c = Chip::new(format!("{}: {first}", s.label), now);
+                c.copy = Some(msg.to_string());
+                self.chip = Some(c);
+            }
+        }
         let existing = self.tasks.iter().position(|t| t.id == s.task_id);
         // Shell command that ended before the threshold, or was Ctrl-C'd: never shown.
         if shell && terminal {
@@ -1435,6 +1456,36 @@ bang"
         assert_eq!(m.tasks[0].changed, t0);
         m.apply_task(st("a", TaskEvent::Resumed, t1), t1);
         assert_eq!(m.tasks[0].changed, t1);
+    }
+
+    #[test]
+    fn an_agent_reply_comes_as_a_card_with_copy() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let done = |msg: Option<&str>| {
+            let mut u = st("agent:Claude Code:1", TaskEvent::Done, t0);
+            if let TaskUpdate::Upsert(s) = &mut u {
+                s.source = "agent".into();
+                s.label = "Claude Code".into();
+                s.message = msg.map(Into::into);
+            }
+            u
+        };
+        m.apply_task(done(None), t0);
+        assert!(m.chip.is_none());
+        m.apply_task(done(Some("\n## **Fixed the bug.**\nDetails follow.")), t0);
+        let c = m.chip.as_ref().unwrap();
+        assert_eq!(c.summary, "Claude Code: Fixed the bug.");
+        assert_eq!(
+            c.copy.as_deref(),
+            Some("## **Fixed the bug.**\nDetails follow.")
+        );
+        // A pending ask is not pushed aside.
+        let mut ask = Chip::new("Allow?", t0);
+        ask.tone = Tone::Warn;
+        m.chip = Some(ask);
+        m.apply_task(done(Some("Other reply")), t0);
+        assert_eq!(m.chip.as_ref().unwrap().summary, "Allow?");
     }
 
     #[test]

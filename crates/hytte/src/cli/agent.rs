@@ -154,6 +154,50 @@ pub fn describe_tool(payload: &serde_json::Value) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
+/// The agent's last reply, from a turn-end hook payload: Codex / Claude Code
+/// `last_assistant_message`, Gemini `prompt_response`, else the tail of the Claude Code
+/// transcript. At most 4000 characters (the pill shows its first line; Copy takes it all).
+pub fn final_answer(payload: &serde_json::Value) -> Option<String> {
+    let text = ["last_assistant_message", "prompt_response"]
+        .iter()
+        .find_map(|k| payload.get(k)?.as_str().map(str::to_owned))
+        .or_else(|| {
+            let p = payload.get("transcript_path")?.as_str()?;
+            last_reply_in_transcript(std::path::Path::new(p))
+        })?;
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.chars().take(4000).collect())
+}
+
+/// The text of the last assistant entry in a Claude Code JSONL transcript (its last 512 KB).
+fn last_reply_in_transcript(path: &std::path::Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(512 * 1024)))
+        .ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    String::from_utf8_lossy(&buf)
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find_map(|v| {
+            if v.get("type")?.as_str()? != "assistant" {
+                return None;
+            }
+            let text: Vec<&str> = v
+                .get("message")?
+                .get("content")?
+                .as_array()?
+                .iter()
+                .filter(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
+                .filter_map(|c| c.get("text")?.as_str())
+                .collect();
+            (!text.is_empty()).then(|| text.join("\n"))
+        })
+}
+
 pub fn build(event: TaskEvent, o: &Opts) -> HytteMessage {
     let mut m = HytteMessage::start(format!("agent:{}:{}", o.name, o.pid), o.name.clone());
     m.event = event;
@@ -234,7 +278,12 @@ fn report(
             }
             TaskEvent::Progress
         }
-        "done" => TaskEvent::Done,
+        "done" => {
+            if o.message.is_none() {
+                o.message = payload_from_stdin().as_ref().and_then(final_answer);
+            }
+            TaskEvent::Done
+        }
         "fail" => TaskEvent::Failed,
         _ => usage(),
     };
@@ -246,6 +295,43 @@ fn report(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn final_answer_from_payload_or_transcript() {
+        let v = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        assert_eq!(
+            final_answer(&v(
+                r#"{"last_assistant_message":"  All done.\nTests pass. "}"#
+            )),
+            Some("All done.\nTests pass.".into())
+        );
+        assert_eq!(
+            final_answer(&v(r#"{"prompt_response":"Fixed it"}"#)),
+            Some("Fixed it".into())
+        );
+        let f = std::env::temp_dir().join("hytte-transcript.jsonl");
+        std::fs::write(
+            &f,
+            concat!(
+                r#"{"type":"user","message":{"content":"hi"}}"#,
+                "\n",
+                r#"{"type":"assistant","message":{"content":[{"type":"text","text":"old"}]}}"#,
+                "\n",
+                r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"},{"type":"text","text":"Build is green."}]}}"#,
+                "\n",
+                r#"{"type":"system","subtype":"stop"}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        let p = serde_json::json!({ "transcript_path": f });
+        assert_eq!(final_answer(&p), Some("Build is green.".into()));
+        assert_eq!(final_answer(&v(r#"{"stop_hook_active":false}"#)), None);
+        assert_eq!(
+            final_answer(&v(r#"{"last_assistant_message":"   "}"#)),
+            None
+        );
+    }
 
     #[test]
     fn builds_agent_message() {
