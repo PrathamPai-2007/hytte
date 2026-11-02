@@ -47,7 +47,7 @@ Thread-local UI state (accessed through `with_ui`; see [section 3](03-architectu
 | `fs_hidden`, `gaming`, `paused`, `armed`, `shown` | Fullscreen suppression, game mode, the tray Pause state, a drag in progress near the top edge, and whether the window is shown. |
 | `drag` | A shelf tile was pressed: it becomes an OLE drag once the pointer moves more than 4 px. |
 | `wheel` | Accumulated wheel delta (precision touchpads send fractions of a notch). |
-| `swipe` | `ui_state::Swipe`: turns sideways scroll into one page per gesture. It pages once a gesture has moved 80 (two thirds of a tilt-wheel notch); a gesture ends after a 100 ms pause, a change of direction, or deltas that suddenly double (a new swipe over the old one's inertia). |
+| `swipe` | `ui_state::Swipe`: turns sideways scroll into one page per gesture. It pages once a gesture has moved 80 (two thirds of a tilt-wheel notch); a gesture ends after a 100 ms pause, or two deltas in a row the other way (a single one is touchpad noise and is ignored). The deltas are smoothed (a fast swipe's alternate high and low), and after a page the same stream pages again only after 160 ms and once it has slowed below 45 % of its peak and then sped up 1.8× (a new swipe in the old one's inertia). |
 | `pressed`, `light` | The left button is down over a clickable region; the resolved `[general] theme`. |
 | `kb`, `kb_focus` | Keyboard mode (the window that had focus before, to give it back) and the region that has the focus ring. |
 | `thumb_req`, `tabs`, `vdm` | Thumbnails already requested, the terminal-tabs worker, and the virtual desktop manager. |

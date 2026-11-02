@@ -1144,44 +1144,96 @@ impl Anim {
     }
 }
 
-/// Turns sideways scroll (touchpad swipe, tilt wheel) into pane pages: one per gesture, as
-/// soon as it has moved a little. A touchpad keeps sending decaying deltas after the fingers
-/// lift (inertia), so a new gesture starts after a pause, or when the deltas suddenly grow
-/// again: a fresh swipe pushes harder than the tail of the last one.
+/// Turns sideways scroll (touchpad swipe, tilt wheel) into pane pages: one per swipe, as
+/// soon as it has moved a little.
+///
+/// A fast touchpad swipe is noisy: its deltas alternate high and low while the finger moves,
+/// a lone event can point the wrong way, and after the finger lifts it keeps sending decaying
+/// deltas (inertia) for half a second. So the deltas are smoothed, a single opposite event
+/// inside a stream is ignored, and after a page the stream only pages again once it has
+/// clearly slowed down and then sped up (a new swipe in the old one's tail), or after a pause.
 #[derive(Debug, Default)]
 pub struct Swipe {
+    /// Movement since the gesture started (or re-armed).
     acc: i32,
-    last: Option<(Instant, i32)>,
-    paged: bool,
+    /// When the last delta came, and which way the gesture goes (+1 / -1).
+    last: Option<Instant>,
+    dir: i32,
+    /// Opposite deltas in a row.
+    flip: u8,
+    /// Smoothed |delta|.
+    ema: f32,
+    /// After a page: when, the fastest it has gone since, whether it has slowed down, and
+    /// the slowest since then.
+    paged: Option<Instant>,
+    peak: f32,
+    slowed: bool,
+    trough: f32,
 }
 
 /// Movement before a gesture pages (a tilt-wheel notch is 120).
 const SWIPE_STEP: i32 = 80;
 /// A pause this long between deltas ends a gesture.
 const SWIPE_GAP: Duration = Duration::from_millis(100);
+/// No second page sooner than this after one, however the stream behaves.
+const SWIPE_LOCK: Duration = Duration::from_millis(160);
 
 impl Swipe {
     /// Feed one delta; `Some(+1 / -1)` when it pages (right = next).
     pub fn feed(&mut self, delta: i32, now: Instant) -> Option<i32> {
-        let fresh = match self.last {
-            None => true,
-            Some((t, prev)) => {
-                now.saturating_duration_since(t) > SWIPE_GAP
-                    || delta.signum() != prev.signum()
-                    || (self.paged && delta.abs() >= 24 && delta.abs() >= 2 * prev.abs())
-            }
-        };
-        self.last = Some((now, delta));
-        if fresh {
-            self.acc = 0;
-            self.paged = false;
-        }
-        self.acc += delta;
-        if self.paged || self.acc.abs() < SWIPE_STEP {
+        if delta == 0 {
             return None;
         }
-        self.paged = true;
-        Some(self.acc.signum())
+        let gap = self
+            .last
+            .is_none_or(|t| now.saturating_duration_since(t) > SWIPE_GAP);
+        self.last = Some(now);
+        let sign = delta.signum();
+        let mag = delta.unsigned_abs() as f32;
+        if !gap && sign != self.dir {
+            // One stray event the other way is noise; two in a row turn the gesture round.
+            self.flip += 1;
+            if self.flip < 2 {
+                return None;
+            }
+        }
+        if gap || sign != self.dir {
+            *self = Swipe {
+                last: self.last,
+                dir: sign,
+                ema: mag,
+                ..Default::default()
+            };
+        }
+        self.flip = 0;
+        self.ema += 0.3 * (mag - self.ema);
+        if let Some(at) = self.paged {
+            self.peak = self.peak.max(self.ema);
+            if self.ema < 0.45 * self.peak {
+                self.slowed = true;
+            }
+            if self.slowed {
+                self.trough = self.trough.min(self.ema);
+            }
+            let again = now.saturating_duration_since(at) >= SWIPE_LOCK
+                && self.slowed
+                && self.ema >= 1.8 * self.trough
+                && mag >= 24.0;
+            if !again {
+                return None;
+            }
+            self.paged = None;
+            self.acc = 0;
+        }
+        self.acc += delta;
+        if self.acc.abs() < SWIPE_STEP {
+            return None;
+        }
+        self.paged = Some(now);
+        self.peak = self.ema;
+        self.slowed = false;
+        self.trough = f32::MAX;
+        Some(self.dir)
     }
 }
 
@@ -1231,7 +1283,7 @@ mod tests {
         // A second swipe during that swipe's inertia still pages: its deltas jump up.
         let mut t = swipe.len() as u64 * 8;
         let mut second = vec![];
-        for d in [1, 1, 12, 28, 34, 30, 15, 6] {
+        for d in [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 12, 28, 34, 30, 15, 6] {
             second.extend(s.feed(d, ms(t)));
             t += 8;
         }
@@ -1244,8 +1296,29 @@ mod tests {
         let mut s = Swipe::default();
         assert_eq!(s.feed(120, ms(0)), Some(1));
         assert_eq!(s.feed(120, ms(300)), Some(1));
-        // Reversing mid-gesture is a new gesture.
-        assert_eq!(s.feed(-120, ms(320)), Some(-1));
+        // Reversing mid-stream: one stray event is ignored, a second turns it round.
+        assert_eq!(s.feed(-120, ms(320)), None);
+        assert_eq!(s.feed(-120, ms(330)), Some(-1));
+    }
+
+    /// Recorded from a real touchpad: one fast swipe left (alternating deltas while the finger
+    /// moves, a lone spike the wrong way, then the inertia tail) pages exactly once.
+    #[test]
+    fn noisy_fast_swipe_pages_once() {
+        let t0 = Instant::now();
+        let mut s = Swipe::default();
+        let swipe = [
+            -220, -251, -97, -227, -128, -146, -463, -174, -172, -571, -196, -205, -408, -199,
+            -198, -115, 467, -943, -745, -686, -670, -697, -639, -664, -611, -811, -820, -452,
+            -541, -524, -512, -525, -511, -549, -390, -435, -417, -648, -403, -563, -339, -344,
+            -478, -285, -278, -247, -286, -278,
+        ];
+        let pages: Vec<i32> = swipe
+            .iter()
+            .enumerate()
+            .filter_map(|(i, d)| s.feed(*d, t0 + Duration::from_millis(i as u64 * 4)))
+            .collect();
+        assert_eq!(pages, vec![-1]);
     }
 
     fn st(id: &str, ev: TaskEvent, now: Instant) -> TaskUpdate {
