@@ -302,6 +302,20 @@ mod win {
         scrub: Option<(Action, f32, f32)>,
     }
 
+    /// Time since the last keyboard or mouse input anywhere in the session.
+    fn input_idle() -> Duration {
+        use windows::Win32::System::SystemInformation::GetTickCount;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut li = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+        if !unsafe { GetLastInputInfo(&mut li) }.as_bool() {
+            return Duration::ZERO;
+        }
+        Duration::from_millis(unsafe { GetTickCount() }.wrapping_sub(li.dwTime) as u64)
+    }
+
     thread_local! {
         static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
     }
@@ -929,6 +943,7 @@ mod win {
                     let _ = KillTimer(Some(hwnd), T_TIMER);
                 },
             }
+            self.model.set_idle(input_idle(), now);
             let mut next = self.model.expire(now);
             if self.model.chip.is_none() && !self.asks.is_empty() {
                 // The front ask timed out (its agent asked in the terminal): show the next one.

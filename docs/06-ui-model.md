@@ -137,6 +137,7 @@ Many things disappear on their own: finished tasks, chips, peeks, an armed **Kil
    |---|---|
    | `Done` task | 3 s (`SUCCESS_HOLD`) |
    | `Lost` task | 5 s (`LOST_HOLD`) |
+   | Either, while the user is away | until they are back, then the hold above from their first input |
    | Card (chip) | its own `hold`: 10 s (`CHIP_HOLD`) by default, 20 s for a resource-hog warning, 60 s for a calendar heads-up |
    | Armed chip **Kill?** | 3 s (`KILL_CONFIRM`) |
    | Armed **Kill?** | 3 s (`KILL_CONFIRM`) |
@@ -144,6 +145,8 @@ Many things disappear on their own: finished tasks, chips, peeks, an armed **Kil
    | Keep-awake for an hour | `Awake::Until` its end (`AWAKE_FOR`, 1 h) |
    | Plug-in / unplug card | 3 s (`CHARGE_HOLD`) |
    | Peek, forced visibility | their own deadline |
+
+   "Away" is no keyboard or mouse input anywhere for 60 s (`AWAY_AFTER`); the window layer feeds `GetLastInputInfo` through `Model::set_idle` before each `expire`. While away with a finished row held, the deadline is a 5 s poll (`AWAY_POLL`), the only way to notice the user is back without a hook.
 
 2. returns the **earliest future deadline**, which also includes tasks that are still hidden (`visible_after`).
 

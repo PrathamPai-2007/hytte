@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 
 pub const SUCCESS_HOLD: Duration = Duration::from_secs(3);
 pub const LOST_HOLD: Duration = Duration::from_secs(5);
+/// No keyboard or mouse input for this long: the user is away, finished rows wait for them.
+pub const AWAY_AFTER: Duration = Duration::from_secs(60);
+/// While away with a finished row held, check this often whether the user is back.
+pub const AWAY_POLL: Duration = Duration::from_secs(5);
 pub const CHIP_HOLD: Duration = Duration::from_secs(10);
 /// Width the red mute lock takes from the pill's right edge.
 pub const LOCK_W: f32 = 26.0;
@@ -408,6 +412,10 @@ pub struct Model {
     pub rounds: u32,
     /// The settings pane is open, on this group (see `SETTINGS_GROUPS`).
     pub settings: Option<u8>,
+    /// No input for [`AWAY_AFTER`]: finished rows are held until the user is back.
+    pub away: bool,
+    /// The last input after an away spell; held rows count their hold time from here.
+    pub back: Option<Instant>,
 }
 
 /// The settings pane's groups, as its segmented header shows them.
@@ -568,13 +576,25 @@ impl Model {
         self.now.is_none_or(|n| n >= t.visible_after)
     }
 
+    /// Feed the time since the last keyboard / mouse input (anywhere on the PC).
+    pub fn set_idle(&mut self, idle: Duration, now: Instant) {
+        let away = idle >= AWAY_AFTER;
+        if self.away && !away {
+            self.back = now.checked_sub(idle);
+        }
+        self.away = away;
+    }
+
     /// Drop finished tasks / chips past their hold time. Returns the next
     /// instant something changes, so the caller can arm a single timer.
     pub fn expire(&mut self, now: Instant) -> Option<Instant> {
         self.now = Some(now);
+        // A row that finished while the user was away starts its hold when they come back.
+        let (away, back) = (self.away, self.back);
+        let from = move |c: Instant| back.map_or(c, |b| b.max(c));
         self.tasks.retain(|t| match t.event {
-            TaskEvent::Done => now.duration_since(t.changed) < SUCCESS_HOLD,
-            TaskEvent::Lost => now.duration_since(t.changed) < LOST_HOLD,
+            TaskEvent::Done => away || now.duration_since(from(t.changed)) < SUCCESS_HOLD,
+            TaskEvent::Lost => away || now.duration_since(from(t.changed)) < LOST_HOLD,
             _ => true, // running, waiting and failed persist
         });
         if self
@@ -612,8 +632,9 @@ impl Model {
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
         for t in &self.tasks {
             match t.event {
-                TaskEvent::Done => keep(t.changed + SUCCESS_HOLD),
-                TaskEvent::Lost => keep(t.changed + LOST_HOLD),
+                TaskEvent::Done | TaskEvent::Lost if away => keep(now + AWAY_POLL),
+                TaskEvent::Done => keep(from(t.changed) + SUCCESS_HOLD),
+                TaskEvent::Lost => keep(from(t.changed) + LOST_HOLD),
                 _ => {}
             }
             if t.visible_after > now {
@@ -1375,6 +1396,27 @@ bang"
         assert!(m.tasks[0].failed());
         assert_eq!(m.tasks[0].stderr, vec!["boom", "bang"]);
         m.dismiss_task("b");
+        assert!(m.tasks.is_empty());
+    }
+
+    #[test]
+    fn finished_rows_wait_for_an_away_user() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.set_idle(Duration::from_secs(90), t0);
+        m.apply_task(st("a", TaskEvent::Start, t0), t0);
+        m.apply_task(st("a", TaskEvent::Done, t0), t0);
+        // Away: held well past SUCCESS_HOLD, and the deadline is a short poll.
+        let t1 = t0 + Duration::from_secs(600);
+        m.set_idle(Duration::from_secs(690), t1);
+        assert_eq!(m.expire(t1), Some(t1 + AWAY_POLL));
+        assert_eq!(m.tasks.len(), 1);
+        // Back (input 1 s ago): the full hold runs from that input, then the row goes.
+        let t2 = t1 + Duration::from_secs(5);
+        m.set_idle(Duration::from_secs(1), t2);
+        assert!(m.expire(t2).is_some());
+        assert_eq!(m.tasks.len(), 1);
+        m.expire(t2 + SUCCESS_HOLD);
         assert!(m.tasks.is_empty());
     }
 

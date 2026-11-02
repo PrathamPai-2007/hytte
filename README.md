@@ -101,7 +101,7 @@ Some tools only print progress in a real terminal, so ask for it: `hytte run -- 
 |---|---|
 | A small dark capsule | Nothing is happening. |
 | A spinner and a timer | A task is running. |
-| A green tick | A task finished fine. It disappears after a few seconds. |
+| A green tick | A task finished fine. It disappears after a few seconds, or a few seconds after you're back if you were away from the PC. |
 | A red cross | A task failed. It stays until you dismiss it. |
 | An amber glow and a bell | Something (usually an AI agent) is waiting for you. Click it. |
 | `● :3000` | A dev server is running on that port. |
