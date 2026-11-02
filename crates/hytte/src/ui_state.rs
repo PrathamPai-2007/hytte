@@ -492,6 +492,8 @@ impl Model {
         };
         if let Some(i) = existing {
             let t = &mut self.tasks[i];
+            // A repeated "still waiting" keeps the wait's start, so its age shows.
+            let same_wait = t.event == TaskEvent::NeedsInput && s.event == TaskEvent::NeedsInput;
             if !s.label.is_empty() {
                 t.label = s.label;
             }
@@ -505,7 +507,9 @@ impl Model {
             t.line = s.line.or(t.line.take());
             t.pid = s.pid.or(t.pid);
             t.cwd = s.cwd.or(t.cwd.take());
-            t.changed = now;
+            if !same_wait {
+                t.changed = now;
+            }
         } else {
             self.tasks.push(TaskView {
                 id: s.task_id,
@@ -1418,6 +1422,19 @@ bang"
         assert_eq!(m.tasks.len(), 1);
         m.expire(t2 + SUCCESS_HOLD);
         assert!(m.tasks.is_empty());
+    }
+
+    #[test]
+    fn a_repeated_wait_keeps_its_start() {
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(90);
+        let mut m = Model::default();
+        m.apply_task(st("a", TaskEvent::Start, t0), t0);
+        m.apply_task(st("a", TaskEvent::NeedsInput, t0), t0);
+        m.apply_task(st("a", TaskEvent::NeedsInput, t1), t1);
+        assert_eq!(m.tasks[0].changed, t0);
+        m.apply_task(st("a", TaskEvent::Resumed, t1), t1);
+        assert_eq!(m.tasks[0].changed, t1);
     }
 
     #[test]

@@ -1793,7 +1793,13 @@ impl Renderer {
 
     fn task_right_text(&self, t: &TaskView, now: Instant) -> String {
         match t.event {
-            TaskEvent::NeedsInput => "waiting".into(),
+            // After a minute, how long it has waited: the oldest wait is the one to answer.
+            TaskEvent::NeedsInput => {
+                match now.saturating_duration_since(t.changed).as_secs() / 60 {
+                    0 => "waiting".into(),
+                    m => format!("waiting · {m}m"),
+                }
+            }
             TaskEvent::Start | TaskEvent::Progress | TaskEvent::Resumed => match t.progress {
                 Some(p) => format!("{p}%"),
                 None => fmt_dur(now.saturating_duration_since(t.started).as_millis() as u64),
