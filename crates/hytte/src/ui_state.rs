@@ -354,6 +354,8 @@ pub struct Model {
     pub art_accent: Option<[f32; 3]>,
     /// `[general] adaptive_glow`: let the glow follow the album art.
     pub adaptive_glow: bool,
+    /// `[general] finish_peek_secs`: how long an agent's reply card stays; zero = no card.
+    pub finish_peek: Duration,
     /// `[general] glow_strength`: multiplies the border glow.
     pub glow_gain: f32,
     pub cam: bool,
@@ -469,9 +471,9 @@ impl Model {
         if shell && (self.ignore.contains(&name) || AGENT_CLIS.contains(&name.as_str())) {
             return;
         }
-        // An agent's turn ended with a reply: its first line on a card, Copy takes all of it.
-        // A pending ask or warning (amber) keeps the card.
-        if s.source == "agent" && s.event == TaskEvent::Done {
+        // An agent's turn ended with a reply: its first line on a card for the "Open on
+        // finish" time, Copy takes all of it. A pending ask or warning (amber) keeps the card.
+        if s.source == "agent" && s.event == TaskEvent::Done && !self.finish_peek.is_zero() {
             let msg = s.message.as_deref().map(str::trim).unwrap_or("");
             let first = msg
                 .lines()
@@ -487,6 +489,7 @@ impl Model {
             ) {
                 let mut c = Chip::new(format!("{}: {first}", s.label), now);
                 c.copy = Some(msg.to_string());
+                c.hold = self.finish_peek;
                 self.chip = Some(c);
             }
         }
@@ -1475,7 +1478,10 @@ bang"
     #[test]
     fn an_agent_reply_comes_as_a_card_with_copy() {
         let t0 = Instant::now();
-        let mut m = Model::default();
+        let mut m = Model {
+            finish_peek: Duration::from_secs(5),
+            ..Default::default()
+        };
         let done = |msg: Option<&str>| {
             let mut u = st("agent:Claude Code:1", TaskEvent::Done, t0);
             if let TaskUpdate::Upsert(s) = &mut u {
@@ -1490,6 +1496,7 @@ bang"
         m.apply_task(done(Some("\n## **Fixed the bug.**\nDetails follow.")), t0);
         let c = m.chip.as_ref().unwrap();
         assert_eq!(c.summary, "Claude Code: Fixed the bug.");
+        assert_eq!(c.hold, Duration::from_secs(5));
         assert_eq!(
             c.copy.as_deref(),
             Some("## **Fixed the bug.**\nDetails follow.")
@@ -1500,6 +1507,11 @@ bang"
         m.chip = Some(ask);
         m.apply_task(done(Some("Other reply")), t0);
         assert_eq!(m.chip.as_ref().unwrap().summary, "Allow?");
+        // "Open on finish" off: no card at all.
+        m.chip = None;
+        m.finish_peek = Duration::ZERO;
+        m.apply_task(done(Some("Quiet reply")), t0);
+        assert!(m.chip.is_none());
     }
 
     #[test]

@@ -690,6 +690,7 @@ mod win {
             self.model.ignore = ignore_list(&new);
             self.light = theme_is_light(&new.general.theme);
             self.model.adaptive_glow = new.general.adaptive_glow;
+            self.model.finish_peek = Duration::from_secs(new.general.finish_peek_secs);
             self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
             self.model.rounds = new.timer.rounds;
             let monitor_changed = new.general.monitor != self.cfg.general.monitor;
@@ -1796,6 +1797,7 @@ mod win {
             ui.light = theme_is_light(&ui.cfg.general.theme);
             ui.accent = windows_accent();
             ui.model.adaptive_glow = ui.cfg.general.adaptive_glow;
+            ui.model.finish_peek = Duration::from_secs(ui.cfg.general.finish_peek_secs);
             ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
             ui.model.rounds = ui.cfg.timer.rounds;
             if ui.cfg.shelf.persist {

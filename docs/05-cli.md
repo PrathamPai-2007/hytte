@@ -42,7 +42,7 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 | `start` | `Start` |
 | `needs-input` | `NeedsInput` |
 | `resume` | `Resumed` |
-| `done` | `Done`; the agent's reply (`--message`, else `last_assistant_message` / `prompt_response` from the hook's stdin JSON, else the last assistant text in its `transcript_path`, at most 4000 chars) becomes a card with its first line and **Copy** for all of it |
+| `done` | `Done`; the agent's reply (`--message`, else `last_assistant_message` / `prompt_response` from the hook's stdin JSON, else the last assistant text in its `transcript_path`, at most 4000 chars) becomes a card with its first line and **Copy** for all of it, held for `[general] finish_peek_secs` (0: no card) |
 | `fail` | `Failed` |
 
 - `--name` defaults to `Agent` and becomes the label.
