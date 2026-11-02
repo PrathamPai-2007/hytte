@@ -24,7 +24,7 @@ Installers:
   - Architecture: x64
     InstallerType: zip
     InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.2.4/hytte-1.2.4-x64.zip
-    # InstallerSha256: fill in from the published release asset.
+    InstallerSha256: B45F162F8B75C5F4837D06271AD1F98836D98783AC249995868F2E600F73368B
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: hytte.exe
