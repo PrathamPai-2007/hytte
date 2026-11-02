@@ -33,6 +33,8 @@ pub const SERVER_ROW: f32 = 36.0;
 pub const LINE_H: f32 = 14.0;
 /// Height of the tab strip under a pane that has neighbours.
 pub const TAB_H: f32 = 24.0;
+/// One app's row in the per-app volume list.
+pub const APP_ROW_H: f32 = 28.0;
 /// Shelf tiles in view at once; the row scrolls past that.
 pub const SHELF_VISIBLE: usize = 5;
 /// How long the plug-in card stays after the charger is connected.
@@ -412,6 +414,9 @@ pub struct Model {
     pub rounds: u32,
     /// The settings pane is open, on this group (see `SETTINGS_GROUPS`).
     pub settings: Option<u8>,
+    /// The per-app volume list under the volume bar is open, and what it shows.
+    pub apps_open: bool,
+    pub apps: Vec<crate::mic::AppVol>,
     /// No input for [`AWAY_AFTER`]: finished rows are held until the user is back.
     pub away: bool,
     /// The last input after an away spell; held rows count their hold time from here.
@@ -599,6 +604,15 @@ impl Model {
 
     fn visible(&self, t: &TaskView) -> bool {
         self.now.is_none_or(|n| n >= t.visible_after)
+    }
+
+    /// Height the open per-app volume list adds to the Home pane (one row says "no apps").
+    pub fn apps_h(&self) -> f64 {
+        if self.apps_open {
+            4.0 + APP_ROW_H as f64 * self.apps.len().max(1) as f64
+        } else {
+            0.0
+        }
     }
 
     /// Feed the time since the last keyboard / mouse input (anywhere on the PC).
@@ -968,7 +982,7 @@ impl Model {
             Scene::CompactTask => (292.0, 32.0),
             Scene::CompactMedia => (240.0, 32.0),
             Scene::ExpMedia => (380.0, 132.0 + tab),
-            Scene::ExpHome => (380.0, 136.0 + tab),
+            Scene::ExpHome => (380.0, 136.0 + tab + self.apps_h()),
             Scene::ExpPower => (380.0, 112.0 + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),

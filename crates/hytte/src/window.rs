@@ -1171,6 +1171,19 @@ mod win {
                         self.model.speaker = Some(s);
                     }
                 }
+                Action::ToggleApps => {
+                    self.model.apps_open = !self.model.apps_open;
+                    if self.model.apps_open {
+                        self.model.apps = crate::mic::apps();
+                    }
+                }
+                // Dragged with the mouse (`scrub_to`); from the keyboard: mute / unmute it.
+                Action::AppVolume(exe) => {
+                    if let Some(a) = self.model.apps.iter().find(|a| a.exe == exe) {
+                        let v = if a.muted || a.vol == 0.0 { 1.0 } else { 0.0 };
+                        self.set_app_volume(&exe, v);
+                    }
+                }
                 // Mouse presses seek by dragging (`scrub_to`); from the keyboard: play / pause.
                 Action::Seek => crate::media::control(crate::media::Cmd::Toggle),
                 Action::CycleAwake => self.model.awake = self.model.awake.next(Instant::now()),
@@ -1433,6 +1446,7 @@ mod win {
             match p {
                 Panel::Tasks => crate::ports::request_refresh(),
                 Panel::Power => self.model.power = crate::power::read().or(self.model.power),
+                Panel::Home if self.model.apps_open => self.model.apps = crate::mic::apps(),
                 _ => {}
             }
         }
@@ -1459,6 +1473,11 @@ mod win {
             }
             let f = ((mx - l - 6.0) / (r - l - 12.0)).clamp(0.0, 1.0);
             let f = (f * 100.0).round() / 100.0;
+            if let Action::AppVolume(exe) = &what {
+                self.set_app_volume(exe, f);
+                self.kick();
+                return;
+            }
             // Shown at once; Windows is only told when the level actually changed.
             let muted = self.model.speaker.is_some_and(|(_, m)| m) && f == 0.0;
             if self.model.speaker.map(|(v, _)| v) != Some(f) {
@@ -1466,6 +1485,16 @@ mod win {
                 let _ = crate::mic::set_volume(f);
             }
             self.kick();
+        }
+
+        /// Set one app's volume and show it at once (the list isn't re-read while dragging).
+        fn set_app_volume(&mut self, exe: &str, v: f32) {
+            let v = (v.clamp(0.0, 1.0) * 100.0).round() / 100.0;
+            crate::mic::set_app_volume(exe, v);
+            if let Some(a) = self.model.apps.iter_mut().find(|a| a.exe == exe) {
+                a.vol = v;
+                a.muted &= v == 0.0;
+            }
         }
 
         fn toggle_mic(&mut self) {
@@ -1495,6 +1524,17 @@ mod win {
                 .is_some_and(|h| matches!(h.action, Action::ShelfTile(_) | Action::ShelfScroll(_)));
             if over_shelf {
                 self.model.scroll_shelf(-steps);
+                return;
+            }
+            let over_app = self.hit_at().and_then(|h| match &h.action {
+                Action::AppVolume(exe) => Some(exe.clone()),
+                _ => None,
+            });
+            if let Some(exe) = over_app {
+                if let Some(a) = self.model.apps.iter().find(|a| a.exe == exe) {
+                    let v = a.vol + steps as f32 * 0.02;
+                    self.set_app_volume(&exe, v);
+                }
                 return;
             }
             let over_volume = self
@@ -2430,7 +2470,9 @@ mod win {
                     };
                     ui.scrub = ui
                         .hit_at()
-                        .filter(|h| matches!(h.action, Action::Volume | Action::Seek))
+                        .filter(|h| {
+                            matches!(h.action, Action::Volume | Action::Seek | Action::AppVolume(_))
+                        })
                         .map(|h| (h.action.clone(), h.rect.0, h.rect.2));
                     if ui.scrub.is_some() {
                         ui.scrub_to();

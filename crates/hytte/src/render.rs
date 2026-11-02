@@ -63,6 +63,10 @@ pub enum Action {
     ToggleSpeaker,
     /// Click on the volume bar: the level comes from where it was clicked.
     Volume,
+    /// One app's bar in the per-app volume list (by exe name): drag, click or scroll.
+    AppVolume(String),
+    /// The chevron at the end of the volume bar: open / close the per-app list.
+    ToggleApps,
     /// Keep-awake tile: off -> an hour -> on -> off.
     CycleAwake,
     /// Timer tile: the running timer's pane, or the setup card.
@@ -2730,8 +2734,21 @@ impl Renderer {
             Action::OpenTimer,
         );
 
-        // Volume bar: click to set, scroll to nudge. The settings gear sits at its end.
-        let (bx, by, bw, bh) = (16.0, y + th + 12.0, w - 32.0 - 40.0, 32.0);
+        // Volume bar: click to set, scroll to nudge. The per-app chevron and the settings
+        // gear sit at its end.
+        let (bx, by, bw, bh) = (16.0, y + th + 12.0, w - 32.0 - 76.0, 32.0);
+        let chev = if m.apps_open { '\u{E70E}' } else { '\u{E70D}' };
+        self.round_btn(
+            w - 68.0,
+            by + bh / 2.0,
+            16.0,
+            self.fg(),
+            Action::ToggleApps,
+            |cx, cy, c| self.glyph(chev, cx, cy, 14.0, c),
+        );
+        if m.apps_open {
+            self.app_rows(m, by + bh + 8.0, w);
+        }
         self.round_btn(
             w - 32.0,
             by + bh / 2.0,
@@ -2783,6 +2800,77 @@ impl Renderer {
                     bw,
                     bh,
                     self.cc(GRAY, 0.9),
+                );
+            }
+        }
+    }
+
+    /// The per-app volume list: a name and a thin bar per app, or a note when none plays.
+    fn app_rows(&self, m: &crate::ui_state::Model, y: f32, w: f32) {
+        use crate::ui_state::APP_ROW_H;
+        let fg = self.fg();
+        if m.apps.is_empty() {
+            let note = "No apps are using the speaker";
+            self.text(
+                note,
+                &self.f.small_c,
+                16.0,
+                y,
+                w - 32.0,
+                APP_ROW_H,
+                self.cc(GRAY, 0.9),
+            );
+            return;
+        }
+        let (bx, bw, bh) = (120.0, w - 136.0, 18.0);
+        for (i, a) in m.apps.iter().enumerate() {
+            let ry = y + i as f32 * APP_ROW_H;
+            let label = crate::mic::app_label(&a.exe);
+            let alpha = if a.active { 0.9 } else { 0.6 };
+            self.text(
+                &label,
+                &self.f.small_l,
+                20.0,
+                ry,
+                bx - 28.0,
+                APP_ROW_H,
+                self.cc(fg, alpha),
+            );
+            let by = ry + (APP_ROW_H - bh) / 2.0;
+            // The hit box is the full row height, so a thin bar is still easy to grab.
+            let hov = self.hit(bx, ry, bw, APP_ROW_H, Action::AppVolume(a.exe.clone()));
+            self.fill_rr(
+                bx,
+                by,
+                bw,
+                bh,
+                bh / 2.0,
+                self.cc(fg, if hov { 0.10 } else { 0.06 }),
+            );
+            let (fill, fa) = if a.muted { (GRAY, 0.30) } else { (fg, 0.8) };
+            self.fill_rr(
+                bx,
+                by,
+                (bw * a.vol).max(bh),
+                bh,
+                bh / 2.0,
+                self.cc(fill, fa),
+            );
+            if hov {
+                let pct = format!("{}%", (a.vol * 100.0).round());
+                let ink = if a.vol > 0.85 && !a.muted {
+                    self.ink()
+                } else {
+                    fg
+                };
+                self.text(
+                    &pct,
+                    &self.f.small_r,
+                    bx + bw - 50.0,
+                    by,
+                    42.0,
+                    bh,
+                    self.cc(ink, 0.8),
                 );
             }
         }

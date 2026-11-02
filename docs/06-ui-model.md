@@ -223,3 +223,7 @@ Expanded scenes show the same things as panels, so they get no bubble. The layou
 `ui_state.rs` has the largest test module in the project: scene priority, expiry, shell thresholds, ignored commands, attention peeking, panels and the wheel, fullscreen break-through on drops, the timer, the mic lock, ambient rules, the cross-fade, the plug-in card, the output line, bubbles, the paging direction, the squash and the album-art colour. When you change a rule above, change or add a test next to it. These tests need no Windows APIs.
 
 Next: [7. Window, input and timers](07-window-and-input.md)
+
+## Per-app volume
+
+The ▾ at the end of the Home pane's volume bar (`Action::ToggleApps`) sets `Model::apps_open` and fills `Model::apps` from `mic::apps()`: the default speaker's audio sessions (`IAudioSessionManager2`), system sounds and expired sessions left out, one row per exe (Chrome's many sessions are one), the ones playing first, at most `APPS_MAX` (4). The pane grows by `Model::apps_h()`. The list is read again when the pane opens with it open, not while it shows, so a drag isn't fighting a refresh. An app's bar (`Action::AppVolume(exe)`) drags like the master bar (`scrub`), scrolls 2 % a notch, and from the keyboard toggles between silent and full; `mic::set_app_volume` sets every session of that exe and unmutes when turned up.

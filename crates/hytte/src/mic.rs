@@ -67,6 +67,92 @@ pub fn set_volume(v: f32) -> Option<(f32, bool)> {
     }
 }
 
+/// One app's volume on the default speaker (all its audio sessions: Chrome's tabs are one).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppVol {
+    /// Exe name, `chrome.exe`; [`app_label`] makes it readable.
+    pub exe: String,
+    pub vol: f32,
+    pub muted: bool,
+    /// Playing right now (an active session), not just open.
+    pub active: bool,
+}
+
+/// Rows the expanded volume list shows.
+pub const APPS_MAX: usize = 4;
+
+/// `chrome.exe` → `Chrome`.
+pub fn app_label(exe: &str) -> String {
+    let stem = exe
+        .len()
+        .checked_sub(4)
+        .filter(|&i| exe[i..].eq_ignore_ascii_case(".exe"))
+        .map_or(exe, |i| &exe[..i]);
+    let mut c = stem.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
+}
+
+/// One row per exe (the first session's level), playing apps first, then by name.
+fn group(raw: Vec<AppVol>) -> Vec<AppVol> {
+    let mut out: Vec<AppVol> = vec![];
+    for a in raw {
+        match out.iter_mut().find(|o| o.exe.eq_ignore_ascii_case(&a.exe)) {
+            Some(o) => o.active |= a.active,
+            None => out.push(a),
+        }
+    }
+    out.sort_by(|a, b| {
+        b.active
+            .cmp(&a.active)
+            .then_with(|| a.exe.to_lowercase().cmp(&b.exe.to_lowercase()))
+    });
+    out.truncate(APPS_MAX);
+    out
+}
+
+/// Apps with an audio session on the default speaker (system sounds left out).
+pub fn apps() -> Vec<AppVol> {
+    #[cfg(windows)]
+    {
+        group(
+            imp::sessions()
+                .into_iter()
+                .filter_map(|(exe, v, active)| unsafe {
+                    Some(AppVol {
+                        exe,
+                        vol: (v.GetMasterVolume().ok()? * 100.0).round() / 100.0,
+                        muted: v.GetMute().ok()?.as_bool(),
+                        active,
+                    })
+                })
+                .collect(),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        vec![]
+    }
+}
+
+/// Set every session of one app (by exe name) to `v` (0..1); turning it up also unmutes.
+pub fn set_app_volume(exe: &str, v: f32) {
+    #[cfg(windows)]
+    for (e, s, _) in imp::sessions() {
+        if e.eq_ignore_ascii_case(exe) {
+            unsafe {
+                let _ = s.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null());
+                if v > 0.0 {
+                    let _ = s.SetMute(false, std::ptr::null());
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (exe, v);
+}
+
 /// Mute or unmute the default speaker. Returns the new state.
 pub fn toggle_speaker() -> Option<(f32, bool)> {
     #[cfg(windows)]
@@ -96,8 +182,8 @@ mod imp {
     };
     use windows::Win32::Media::Audio::{
         eCapture, eConsole, eRender, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
-        IMMNotificationClient_Impl, AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE,
-        DEVICE_STATE_ACTIVE,
+        IMMNotificationClient_Impl, ISimpleAudioVolume, AUDIO_VOLUME_NOTIFICATION_DATA,
+        DEVICE_STATE, DEVICE_STATE_ACTIVE,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -137,6 +223,44 @@ mod imp {
                 .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
                 .ok()
         }
+    }
+
+    /// The default speaker's audio sessions: (exe name, its volume, playing now).
+    pub fn sessions() -> Vec<(String, ISimpleAudioVolume, bool)> {
+        use windows::core::Interface;
+        use windows::Win32::Media::Audio::{
+            AudioSessionStateActive, AudioSessionStateExpired, IAudioSessionControl2,
+            IAudioSessionManager2,
+        };
+        let get = || unsafe {
+            let dev = enumerator()?
+                .GetDefaultAudioEndpoint(eRender, eConsole)
+                .ok()?;
+            let list = dev
+                .Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
+                .ok()?
+                .GetSessionEnumerator()
+                .ok()?;
+            let n = list.GetCount().unwrap_or(0);
+            Some(
+                (0..n)
+                    .filter_map(|i| {
+                        let c = list.GetSession(i).ok()?;
+                        let state = c.GetState().ok()?;
+                        let c2: IAudioSessionControl2 = c.cast().ok()?;
+                        // S_OK means it is the system sounds session.
+                        if state == AudioSessionStateExpired
+                            || c2.IsSystemSoundsSession() == windows::Win32::Foundation::S_OK
+                        {
+                            return None;
+                        }
+                        let exe = crate::proc::exe_name(c2.GetProcessId().ok()?)?;
+                        Some((exe, c.cast().ok()?, state == AudioSessionStateActive))
+                    })
+                    .collect(),
+            )
+        };
+        get().unwrap_or_default()
     }
 
     pub fn speaker_endpoint() -> Option<IAudioEndpointVolume> {
@@ -367,5 +491,52 @@ mod tests {
         };
         toggle();
         assert_eq!(seen, flipped);
+    }
+}
+
+#[cfg(test)]
+mod app_tests {
+    use super::*;
+
+    #[test]
+    fn apps_group_by_exe_playing_first() {
+        let a = |exe: &str, vol, active| AppVol {
+            exe: exe.into(),
+            vol,
+            muted: false,
+            active,
+        };
+        let g = group(vec![
+            a("zoom.exe", 0.5, false),
+            a("chrome.exe", 0.3, false),
+            a("Spotify.exe", 1.0, true),
+            a("CHROME.EXE", 0.9, true),
+            a("b.exe", 1.0, false),
+            a("c.exe", 1.0, false),
+        ]);
+        let names: Vec<_> = g.iter().map(|x| x.exe.as_str()).collect();
+        assert_eq!(names, ["chrome.exe", "Spotify.exe", "b.exe", "c.exe"]);
+        assert!(g[0].active && g[0].vol == 0.3);
+        assert_eq!(app_label("msedgewebview2.EXE"), "Msedgewebview2");
+        assert_eq!(app_label("spotify.exe"), "Spotify");
+        assert_eq!(app_label("x"), "X");
+    }
+}
+
+/// Live: prints the default speaker's apps (`cargo test lists_live_apps -- --ignored --nocapture`).
+#[cfg(all(test, windows))]
+#[test]
+#[ignore]
+fn lists_live_apps() {
+    unsafe {
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_MULTITHREADED,
+        );
+    }
+    let apps = apps();
+    println!("{apps:#?}");
+    for a in &apps {
+        assert!((0.0..=1.0).contains(&a.vol) && !a.exe.is_empty());
     }
 }
