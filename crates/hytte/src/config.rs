@@ -16,6 +16,10 @@ pub struct General {
     pub adaptive_glow: bool,
     /// How strong the border glow is: 1.0 is the original look, 0 turns it off.
     pub glow_strength: f32,
+    /// How opaque the pill's body is, 0.4..1.0 (text and icons stay solid).
+    pub pill_opacity: f32,
+    /// How long the pointer must rest on the pill (or sentinel) before it opens, in ms. 0 = at once.
+    pub hover_delay_ms: u32,
     /// Global hotkey that opens the pill for keyboard use, e.g. "Win+Alt+N". Empty = off.
     pub hotkey: String,
     /// "dark" (default), "light", or "auto" (follow the Windows app theme).
@@ -81,6 +85,8 @@ impl Default for General {
             monitor: "primary".into(),
             adaptive_glow: true,
             glow_strength: 1.2,
+            pill_opacity: 1.0,
+            hover_delay_ms: 0,
             hotkey: String::new(),
             theme: "dark".into(),
             fullscreen: "line".into(),

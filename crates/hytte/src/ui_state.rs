@@ -358,6 +358,8 @@ pub struct Model {
     pub finish_peek: Duration,
     /// `[general] glow_strength`: multiplies the border glow.
     pub glow_gain: f32,
+    /// `[general] pill_opacity`: alpha of the pill body.
+    pub body_alpha: f32,
     pub cam: bool,
     pub mic: bool,
     pub privacy_app: Option<String>,

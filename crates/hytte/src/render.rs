@@ -1300,11 +1300,12 @@ impl Renderer {
             match self.body_brush() {
                 Some(b) => {
                     b.SetEndPoint(v(0.0, h.max(1.0)));
+                    b.SetOpacity(fr.model.body_alpha);
                     self.rt.FillGeometry(&g, &b, None::<&ID2D1Brush>)
                 }
                 None => self.rt.FillGeometry(
                     &g,
-                    self.solid(color(self.body_colors().0, 1.0)),
+                    self.solid(color(self.body_colors().0, fr.model.body_alpha)),
                     None::<&ID2D1Brush>,
                 ),
             }
@@ -3036,6 +3037,38 @@ impl Renderer {
                     ],
                     &is(&g.theme),
                 ),
+                pick(
+                    "Hover delay",
+                    "general.hover_delay_ms",
+                    vec![
+                        ("Instant", Val::I(0)),
+                        ("0.2s", Val::I(200)),
+                        ("0.5s", Val::I(500)),
+                        ("1s", Val::I(1000)),
+                    ],
+                    &|v| {
+                        let s = g.hover_delay_ms as i64;
+                        let d = |x: i64| (x - s).abs();
+                        let Val::I(x) = v else { return false };
+                        [0, 200, 500, 1000].iter().all(|o| d(*x) <= d(*o))
+                    },
+                ),
+                pick(
+                    "Opacity",
+                    "general.pill_opacity",
+                    vec![
+                        ("Full", Val::F(1.0)),
+                        ("High", Val::F(0.85)),
+                        ("Medium", Val::F(0.7)),
+                        ("Low", Val::F(0.55)),
+                    ],
+                    &|v| {
+                        let s = g.pill_opacity as f64;
+                        let d = |x: f64| (x - s).abs();
+                        let Val::F(x) = v else { return false };
+                        [1.0, 0.85, 0.7, 0.55].iter().all(|o| d(*x) <= d(*o))
+                    },
+                ),
                 // The nearest step to whatever the file says.
                 pick(
                     "Glow",
@@ -3971,6 +4004,7 @@ mod snap {
     fn model() -> Model {
         Model {
             glow_gain: 1.2,
+            body_alpha: 1.0,
             ..Default::default()
         }
     }

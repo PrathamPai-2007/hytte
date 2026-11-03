@@ -87,7 +87,6 @@ mod win {
     const T_GPU: usize = 7;
     /// Idle this long (no frames) before the working set is trimmed.
     const TRIM_MS: u32 = 30_000;
-    const DWELL_MS: u32 = 120;
     const COLLAPSE_MS: u32 = 300;
 
     /// Cross-thread state: queue + ticker control only.
@@ -692,6 +691,7 @@ mod win {
             self.model.adaptive_glow = new.general.adaptive_glow;
             self.model.finish_peek = Duration::from_secs(new.general.finish_peek_secs);
             self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
+            self.model.body_alpha = new.general.pill_opacity.clamp(0.4, 1.0);
             self.model.rounds = new.timer.rounds;
             let monitor_changed = new.general.monitor != self.cfg.general.monitor;
             let general = new.general != self.cfg.general;
@@ -722,6 +722,18 @@ mod win {
             }
             crate::ports::request_refresh();
             self.after_model_change(hwnd);
+        }
+
+        /// The pointer has rested on the pill long enough: open it.
+        fn open_hover(&mut self) {
+            self.hover = true;
+            // Opening the pill: make sure the port list and charge rate are not stale.
+            crate::ports::request_refresh();
+            if self.model.panel() == Panel::Power && self.model.power.is_some() {
+                self.model.power = crate::power::read().or(self.model.power);
+            }
+            self.layout();
+            self.kick();
         }
 
         /// Leave keyboard mode; `restore` hands focus back to the window that had it.
@@ -1799,6 +1811,7 @@ mod win {
             ui.model.adaptive_glow = ui.cfg.general.adaptive_glow;
             ui.model.finish_peek = Duration::from_secs(ui.cfg.general.finish_peek_secs);
             ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
+            ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
             ui.model.rounds = ui.cfg.timer.rounds;
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
@@ -2399,7 +2412,12 @@ mod win {
                         unsafe {
                             let _ = KillTimer(Some(hwnd), T_COLLAPSE);
                             if !ui.hover {
-                                SetTimer(Some(hwnd), T_DWELL, DWELL_MS, None);
+                                let ms = ui.cfg.general.hover_delay_ms.min(2000);
+                                if ms == 0 {
+                                    ui.open_hover();
+                                } else {
+                                    SetTimer(Some(hwnd), T_DWELL, ms, None);
+                                }
                             }
                         }
                     } else if !inside && ui.inside {
@@ -2547,14 +2565,7 @@ mod win {
                 with_ui(|ui| match id {
                     T_DWELL => {
                         if ui.inside {
-                            ui.hover = true;
-                            // Opening the pill: make sure the port list and charge rate are not stale.
-                            crate::ports::request_refresh();
-                            if ui.model.panel() == Panel::Power && ui.model.power.is_some() {
-                                ui.model.power = crate::power::read().or(ui.model.power);
-                            }
-                            ui.layout();
-                            ui.kick();
+                            ui.open_hover();
                         }
                     }
                     T_COLLAPSE => {
