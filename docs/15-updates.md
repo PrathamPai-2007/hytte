@@ -2,8 +2,6 @@
 
 Hytte can update itself. It asks GitHub for the latest release, offers it, downloads the new `hytte.exe` and swaps it into the same folder. Everything lives in `crates/hytte/src/update.rs`.
 
-<p align="center"><img src="img/update.png" alt="The update prompt" width="420"></p>
-
 ## When it checks
 
 | Trigger | Code | Behaviour |

@@ -206,8 +206,6 @@ hytte kill :3000       # stop whatever is on port 3000 (asks first)
 
 Hytte checks for a new version about a minute after it starts and then once a day. When one is out, it asks:
 
-<p align="center"><img src="docs/img/update.png" alt="Hytte asking to update" width="420"></p>
-
 Choose **Yes** and Hytte downloads the new `hytte.exe`, checks it's the version it expected, swaps it into the same folder and restarts. Your settings, shelf, autostart and terminal setup all stay as they are. Choose **No** and it won't ask about that version again, only about a newer one.
 
 - To check right now, use **Check for updates…** in the tray menu.
