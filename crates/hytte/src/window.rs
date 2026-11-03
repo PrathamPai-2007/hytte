@@ -405,17 +405,12 @@ mod win {
             let (sx, sy) = self.mouse?;
             Some((
                 (sx - self.origin.0) as f32 / self.scale,
-                (sy - self.origin.1) as f32 / self.scale - self.gap(),
+                (sy - self.origin.1) as f32 / self.scale,
             ))
         }
 
         fn set_mouse_client(&mut self, lparam: LPARAM) {
             self.mouse = Some((self.origin.0 + lo(lparam), self.origin.1 + hi(lparam)));
-        }
-
-        /// `[general] top_offset` in logical px: the strip above the pill.
-        fn gap(&self) -> f32 {
-            self.cfg.general.top_offset.min(48) as f32
         }
 
         fn pill_contains(&self) -> bool {
@@ -425,12 +420,10 @@ mod win {
             let pw = self.anim.rect.w.pos as f32;
             let ph = (self.anim.rect.h.pos as f32).max(6.0);
             let ox = (self.crop_w - pw) / 2.0;
-            // The strip above the pill counts, so the gap is as easy to hover as the pill.
-            mx >= ox && mx <= ox + pw && my >= -self.gap() && my <= ph
+            mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph
         }
 
         fn crop(&self) -> Crop {
-            self.rend.set_gap(self.gap());
             self.rend.plan(
                 self.anim.rect.w.pos as f32,
                 self.anim.rect.h.pos as f32,

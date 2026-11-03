@@ -30,7 +30,7 @@ use windows_numerics::{Matrix3x2, Vector2};
 
 /// Logical canvas size (the window), pill hangs from the top centre.
 pub const CANVAS_W: f32 = 460.0;
-pub const CANVAS_H: f32 = 360.0;
+pub const CANVAS_H: f32 = 310.0;
 const HOT_ZONE_H: f32 = 40.0;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -223,9 +223,6 @@ pub struct Renderer {
     ca: Cell<f32>,
     /// Settings window: the extra vertical offset hits are registered at (its scroll).
     oy: Cell<f32>,
-    /// `[general] top_offset`: logical px between the top of the window and the pill. The
-    /// strip is part of the window, so pointing at it still reaches the pill.
-    gap: Cell<f32>,
     /// Settings window: animate (`ease`), the frame's time step, and whether a value is
     /// still on its way (another frame is due).
     fx: Cell<bool>,
@@ -544,15 +541,6 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                             ("XL", 1.4),
                         ],
                         g.pill_scale as f64,
-                    ),
-                    -1,
-                ),
-                (
-                    pick_i(
-                        "Gap from top",
-                        "general.top_offset",
-                        &[("None", 0), ("4 px", 4), ("10 px", 10), ("20 px", 20)],
-                        g.top_offset as i64,
                     ),
                     -1,
                 ),
@@ -916,7 +904,6 @@ impl Renderer {
                 scale: 1.0,
                 ca: Cell::new(1.0),
                 oy: Cell::new(0.0),
-                gap: Cell::new(0.0),
                 fx: Cell::new(false),
                 fx_dt: Cell::new(0.0),
                 fx_busy: Cell::new(false),
@@ -946,11 +933,6 @@ impl Renderer {
     /// A hovered label is scrolling: keep frames coming until the pointer leaves it.
     pub fn wants_frames(&self) -> bool {
         self.scrolling.get()
-    }
-
-    /// The gap above the pill, in logical px (see `gap`).
-    pub fn set_gap(&self, g: f32) {
-        self.gap.set(g);
     }
 
     /// True once the GPU device was lost (driver reset, adapter removed).
@@ -1001,7 +983,7 @@ impl Renderer {
     /// over a fullscreen video must not block the browser tabs around it.
     pub fn plan(&self, pw: f32, ph: f32, armed: bool, room: f32, glow: bool) -> Crop {
         let margin = if glow { 28.0 } else { 4.0 };
-        let (mut w, mut h) = (pw + 2.0 * (margin + room), ph + margin + self.gap.get());
+        let (mut w, mut h) = (pw + 2.0 * (margin + room), ph + margin);
         if armed {
             w = w.max(CANVAS_W);
             h = h.max(HOT_ZONE_H);
@@ -1051,7 +1033,7 @@ impl Renderer {
                     &*self.solid(color([0.0; 3], 0.008)),
                 );
             }
-            self.rt.SetTransform(&mat(self.scale, ox, self.gap.get()));
+            self.rt.SetTransform(&mat(self.scale, ox, 0.0));
             self.scene(fr, pw, ph);
             let ended = self.rt.EndDraw(None, None);
             if let Some(g) = &self.gpu {
@@ -4936,21 +4918,6 @@ mod snap {
         .unwrap();
         SHOT.with(|v| v.borrow_mut().push("settings-custom".to_string()));
         contact_sheet(&dir);
-    }
-
-    /// The gap above the pill is part of the window: taller by that much, so pointing at the
-    /// strip still reaches the pill.
-    #[test]
-    fn the_gap_above_the_pill_is_inside_the_window() {
-        let r = Renderer::offscreen(2.0).unwrap();
-        let plain = r.plan(380.0, 100.0, false, 0.0, true);
-        r.set_gap(20.0);
-        let gapped = r.plan(380.0, 100.0, false, 0.0, true);
-        assert_eq!(gapped.clip.3 - plain.clip.3, 40);
-        assert_eq!(
-            gapped.clip.1, 0,
-            "the window region still starts at the top"
-        );
     }
 
     #[test]

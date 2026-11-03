@@ -235,7 +235,7 @@ The everyday settings are in the pill: the **gear** next to the volume bar on Ho
   <img src="docs/img/settings-pane.png" alt="The settings pane inside the pill" width="420">
 </p>
 
-The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, the gap from the top, motion speed, which panel it opens on, quiet hours for sounds (presets, or **Custom** to open `config.toml` at the setting with instructions), how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
+The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, motion speed, which panel it opens on, quiet hours for sounds (presets, or **Custom** to open `config.toml` at the setting with instructions), how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
 
 <p align="center">
   <img src="docs/img/settings-window.png" alt="The settings window, dark" width="560">
@@ -258,7 +258,6 @@ collapse_delay_ms = 300        # how long the pill stays open after the pointer 
 open_on = "hover"              # "hover" opens at once (after hover_delay_ms), "click" waits for a click
 pill_scale = 1.0               # size of the pill, 0.7 to 1.6
 idle_opacity = 1.0             # the idle pill fades to this (0.2 to 1.0) until you point at it
-top_offset = 0                 # gap between the top of the screen and the pill, in px (0 to 48)
 animation = "normal"           # "calm", "normal" or "snappy"
 start_panel = "last"           # the panel it opens on: "last", "auto" (what is happening) or "home"
 quiet_hours = ""               # no sounds in this window, e.g. "22:00-07:00" (empty = never)

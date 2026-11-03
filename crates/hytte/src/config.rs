@@ -28,8 +28,6 @@ pub struct General {
     pub pill_scale: f32,
     /// Opacity of the idle pill (nothing to show) until it is pointed at, 0.2..1.0.
     pub idle_opacity: f32,
-    /// Gap between the top of the screen and the pill, in px (0..48).
-    pub top_offset: u32,
     /// "calm", "normal" or "snappy": how fast the pill moves.
     pub animation: String,
     /// The panel the pill opens on: "last" (the one you left), "auto" (what is happening,
@@ -131,7 +129,6 @@ impl Default for General {
             open_on: "hover".into(),
             pill_scale: 1.0,
             idle_opacity: 1.0,
-            top_offset: 0,
             animation: "normal".into(),
             start_panel: "last".into(),
             quiet_hours: String::new(),
