@@ -30,6 +30,8 @@ pub struct TaskState {
 pub enum TaskUpdate {
     Upsert(TaskState),
     Lost(String),
+    /// A failed row whose terminal has closed: nothing left to show it for.
+    Gone(String),
 }
 
 const STALE_AFTER: Duration = Duration::from_secs(30);
@@ -49,11 +51,17 @@ pub fn spawn_registry(
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut map: HashMap<String, TaskState> = HashMap::new();
+        // Failed rows still on screen, with the terminal that ran them.
+        let mut ended: HashMap<String, u32> = HashMap::new();
         let ticker = tick(Duration::from_secs(5));
         // Nothing tracked = nothing can go stale: block on messages only, no idle wake-ups.
         let idle = never();
         loop {
-            let check = if map.is_empty() { &idle } else { &ticker };
+            let check = if map.is_empty() && ended.is_empty() {
+                &idle
+            } else {
+                &ticker
+            };
             crossbeam_channel::select! {
                 recv(msg_rx) -> m => {
                     let Ok(msg) = m else { break };
@@ -75,6 +83,14 @@ pub fn spawn_registry(
                         cwd: msg.cwd.clone(),
                         updated: Instant::now(),
                     };
+                    match (msg.event, msg.pid) {
+                        (TaskEvent::Failed, Some(pid)) => {
+                            ended.insert(msg.task_id.clone(), pid);
+                        }
+                        _ => {
+                            ended.remove(&msg.task_id);
+                        }
+                    }
                     if matches!(msg.event, TaskEvent::Done | TaskEvent::Failed | TaskEvent::Lost) {
                         map.remove(&msg.task_id);
                     } else {
@@ -99,6 +115,15 @@ pub fn spawn_registry(
                     for k in stale {
                         map.remove(&k);
                         let _ = task_tx.send(TaskUpdate::Lost(k));
+                    }
+                    let gone: Vec<String> = ended
+                        .iter()
+                        .filter(|(_, pid)| !owner_alive(**pid))
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    for k in gone {
+                        ended.remove(&k);
+                        let _ = task_tx.send(TaskUpdate::Gone(k));
                     }
                 }
             }

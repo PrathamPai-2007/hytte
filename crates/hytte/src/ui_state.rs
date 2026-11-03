@@ -390,6 +390,8 @@ pub struct Model {
     pub port_parents: std::collections::HashMap<u32, Vec<u32>>,
     /// Port whose Kill button is armed ("Kill?") and until when.
     pub kill_armed: Option<(u16, Instant)>,
+    /// The first task row shown: the list scrolls (mouse wheel) when more than fit.
+    pub task_first: usize,
     pub shelf: Vec<ShelfItem>,
     pub shelf_sel: Option<u64>,
     /// First shelf tile in view when there are more than `SHELF_VISIBLE`.
@@ -452,11 +454,21 @@ pub fn command_name(label: &str) -> String {
     base.strip_suffix(".exe").unwrap_or(&base).to_string()
 }
 
+/// Exit codes of a command the user stopped (Ctrl+C, closing the window), not one that broke:
+/// SIGINT and SIGTERM as a shell reports them, and Windows' STATUS_CONTROL_C_EXIT.
+fn is_interrupt(code: Option<i32>) -> bool {
+    matches!(code, Some(130 | 143 | -1_073_741_510))
+}
+
+/// Task rows that fit before the list scrolls.
+const TASK_ROWS: usize = 4;
+
 impl Model {
     pub fn apply_task(&mut self, u: TaskUpdate, now: Instant) {
         self.now = Some(now);
         match u {
             TaskUpdate::Upsert(s) => self.upsert(s, now),
+            TaskUpdate::Gone(id) => self.tasks.retain(|t| !(t.id == id && t.failed())),
             TaskUpdate::Lost(id) => {
                 if let Some(t) = self.tasks.iter_mut().find(|t| t.id == id) {
                     t.event = TaskEvent::Lost;
@@ -501,7 +513,7 @@ impl Model {
             let hidden = existing
                 .map(|i| now < self.tasks[i].visible_after)
                 .unwrap_or(true);
-            if hidden || s.exit_code == Some(130) {
+            if hidden || is_interrupt(s.exit_code) {
                 if let Some(i) = existing {
                     self.tasks.remove(i);
                 }
@@ -794,8 +806,24 @@ impl Model {
     pub fn rows(&self) -> Vec<&TaskView> {
         let mut v: Vec<&TaskView> = self.tasks.iter().filter(|t| self.visible(t)).collect();
         v.sort_by(|a, b| Self::row_order(a, b));
-        v.truncate(4);
+        let first = self.task_first.min(v.len().saturating_sub(TASK_ROWS));
+        v.drain(..first);
+        v.truncate(TASK_ROWS);
         v
+    }
+
+    /// Rows scrolled off above and below the ones shown.
+    pub fn rows_hidden(&self) -> (usize, usize) {
+        let n = self.visible_count();
+        let first = self.task_first.min(n.saturating_sub(TASK_ROWS));
+        (first, n.saturating_sub(first + TASK_ROWS))
+    }
+
+    /// Wheel over the task list: `by` rows down (negative = up).
+    pub fn scroll_tasks(&mut self, by: i32) {
+        let max = self.visible_count().saturating_sub(TASK_ROWS) as i32;
+        let first = self.task_first.min(max as usize) as i32;
+        self.task_first = (first + by).clamp(0, max) as usize;
     }
 
     /// The task whose process started this server (it, or one of its ancestors, is the task's).
@@ -1002,7 +1030,9 @@ impl Model {
             Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpTasks => {
                 let rows = self.rows();
-                let mut h = 22.0 + rows.len() as f64 * 34.0 + tab + self.servers_h();
+                let (up, down) = self.rows_hidden();
+                let more = if up + down > 0 { 16.0 } else { 0.0 };
+                let mut h = 22.0 + rows.len() as f64 * 34.0 + more + tab + self.servers_h();
                 for t in &rows {
                     if t.needs_input() {
                         h += 20.0;
@@ -2028,5 +2058,51 @@ bang"
         // Nothing upcoming clears it.
         m.set_calendar(None, wall, lead, t0);
         assert!(m.calendar.is_none());
+    }
+    #[test]
+    fn a_stopped_command_is_not_an_error() {
+        let t0 = Instant::now();
+        for code in [130, 143, -1_073_741_510] {
+            let mut m = Model::default();
+            m.apply_task(shell("a", "dev", TaskEvent::Start, 0, t0), t0);
+            let mut end = shell("a", "dev", TaskEvent::Failed, 0, t0);
+            if let TaskUpdate::Upsert(s) = &mut end {
+                s.exit_code = Some(code);
+            }
+            m.apply_task(end, t0 + Duration::from_secs(9));
+            assert!(m.tasks.is_empty(), "exit {code} left a row");
+        }
+    }
+
+    #[test]
+    fn a_failed_row_goes_when_its_terminal_closes() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_task(st("a", TaskEvent::Failed, t0), t0);
+        m.apply_task(st("b", TaskEvent::Start, t0), t0);
+        m.apply_task(TaskUpdate::Gone("a".into()), t0);
+        m.apply_task(TaskUpdate::Gone("b".into()), t0);
+        // Only a failed row is dropped; a running one is the registry's to mark Lost.
+        assert_eq!(m.tasks.len(), 1);
+        assert_eq!(m.tasks[0].id, "b");
+    }
+
+    #[test]
+    fn the_task_list_scrolls_past_four_rows() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        for i in 0..7 {
+            m.apply_task(st(&format!("t{i}"), TaskEvent::Start, t0), t0);
+        }
+        assert_eq!(m.rows().len(), 4);
+        assert_eq!(m.rows_hidden(), (0, 3));
+        m.scroll_tasks(10);
+        assert_eq!(m.rows_hidden(), (3, 0));
+        assert_eq!(m.rows().len(), 4);
+        m.scroll_tasks(-1);
+        assert_eq!(m.rows_hidden(), (2, 1));
+        // Rows leaving keeps the window valid.
+        m.task_first = 9;
+        assert_eq!(m.rows().len(), 4);
     }
 }

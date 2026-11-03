@@ -1574,6 +1574,10 @@ mod win {
                 }
                 return;
             }
+            if self.model.panel() == Panel::Tasks && self.model.rows_hidden() != (0, 0) {
+                self.model.scroll_tasks(-steps.signum());
+                return;
+            }
             if self.model.timer_panel && self.model.timer.is_none() {
                 self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
                 return;

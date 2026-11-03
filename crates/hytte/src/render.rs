@@ -2659,6 +2659,16 @@ impl Renderer {
                 y += 28.0;
             }
         }
+        let (up, down) = fr.model.rows_hidden();
+        if up + down > 0 {
+            let note = match (up, down) {
+                (0, d) => format!("{d} more below · scroll"),
+                (u, 0) => format!("{u} above · scroll"),
+                (u, d) => format!("{u} above, {d} below · scroll"),
+            };
+            self.text(&note, &self.f.small_c, 0.0, y, w, 16.0, self.cc(GRAY, 0.8));
+            y += 16.0;
+        }
         if !fr.model.ports.is_empty() {
             self.servers(fr, w, y);
         }
