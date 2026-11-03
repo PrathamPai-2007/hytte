@@ -280,6 +280,9 @@ ignore = ["vim", "nvim", "vi", "nano", "less", "more", "man", "ssh", "top", "hto
 [shelf]
 mode = "reference"             # "reference" points at your file, "copy" keeps its own copy
 max_items = 12
+persist = true                 # keep the shelf between runs
+remove_after_drag = true       # take a tile off the shelf once you have dragged it out
+screenshots = true             # Snipping Tool screenshots (Win+Shift+S) land on the shelf
 screenshot_secs = 60           # screenshots leave the shelf after this long (0 = keep them)
 delete_after_paste = false     # delete a screenshot once you paste it (Ctrl+V)
 
