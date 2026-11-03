@@ -1234,6 +1234,8 @@ mod win {
                 Action::TimerDismiss => self.model.timer_done = None,
                 Action::TimerClose => self.model.timer_panel = false,
                 Action::Settings(g) => self.model.settings = g,
+                // Dragged: handled by `scrub_to`.
+                Action::Opacity => {}
                 Action::Set(key, v) => match crate::config::set(key, v) {
                     Ok(Some(cfg)) => self.apply_config(cfg),
                     Ok(None) => {
@@ -1486,6 +1488,14 @@ mod win {
             }
             let f = ((mx - l - 6.0) / (r - l - 12.0)).clamp(0.0, 1.0);
             let f = (f * 100.0).round() / 100.0;
+            if what == Action::Opacity {
+                // Live on the pill; written to config.toml on release.
+                let v = 0.4 + 0.6 * f;
+                self.cfg.general.pill_opacity = v;
+                self.model.body_alpha = v;
+                self.kick();
+                return;
+            }
             if let Action::AppVolume(exe) = &what {
                 self.set_app_volume(exe, f);
                 self.kick();
@@ -2491,7 +2501,10 @@ mod win {
                     ui.scrub = ui
                         .hit_at()
                         .filter(|h| {
-                            matches!(h.action, Action::Volume | Action::Seek | Action::AppVolume(_))
+                            matches!(
+                                h.action,
+                                Action::Volume | Action::Seek | Action::AppVolume(_) | Action::Opacity
+                            )
                         })
                         .map(|h| (h.action.clone(), h.rect.0, h.rect.2));
                     if ui.scrub.is_some() {
@@ -2524,6 +2537,12 @@ mod win {
                         // The level was applied while dragging; settle on the final one. A
                         // seek is sent now, once, to where the knob was let go.
                         ui.scrub_to();
+                        if ui.scrubbing(&Action::Opacity) {
+                            let v = ui.cfg.general.pill_opacity as f64;
+                            ui.scrub = None;
+                            ui.run_action(hwnd, Action::Set("general.pill_opacity", crate::config::Val::F(v)));
+                            return;
+                        }
                         if ui.scrubbing(&Action::Seek) {
                             if let Some(md) = &ui.model.media {
                                 crate::media::control(crate::media::Cmd::Seek(md.pos_ms));

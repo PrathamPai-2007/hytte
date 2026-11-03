@@ -65,6 +65,8 @@ pub enum Action {
     Volume,
     /// One app's bar in the per-app volume list (by exe name): drag, click or scroll.
     AppVolume(String),
+    /// The pill-opacity slider in settings: drag or click; saved on release.
+    Opacity,
     /// The chevron at the end of the volume bar: open / close the per-app list.
     ToggleApps,
     /// Keep-awake tile: off -> an hour -> on -> off.
@@ -3017,6 +3019,8 @@ impl Renderer {
         enum Row {
             Switch(&'static str, &'static str, bool),
             Pick(&'static str, &'static str, Vec<Choice>, usize),
+            /// Pill opacity slider, current value.
+            Opacity(f32),
         }
         let pick = |label, key, opts: Vec<Choice>, cur: &dyn Fn(&Val) -> bool| {
             let i = opts.iter().position(|(_, v)| cur(v)).unwrap_or(0);
@@ -3053,22 +3057,7 @@ impl Renderer {
                         [0, 200, 500, 1000].iter().all(|o| d(*x) <= d(*o))
                     },
                 ),
-                pick(
-                    "Opacity",
-                    "general.pill_opacity",
-                    vec![
-                        ("Full", Val::F(1.0)),
-                        ("High", Val::F(0.85)),
-                        ("Medium", Val::F(0.7)),
-                        ("Low", Val::F(0.55)),
-                    ],
-                    &|v| {
-                        let s = g.pill_opacity as f64;
-                        let d = |x: f64| (x - s).abs();
-                        let Val::F(x) = v else { return false };
-                        [1.0, 0.85, 0.7, 0.55].iter().all(|o| d(*x) <= d(*o))
-                    },
-                ),
+                Row::Opacity(g.pill_opacity),
                 // The nearest step to whatever the file says.
                 pick(
                     "Glow",
@@ -3165,6 +3154,48 @@ impl Renderer {
                     } else {
                         self.stroke_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(fg, 0.4), 1.2, false);
                         self.circle(kx + 9.0, ky + 9.0, 5.0, self.cc(fg, 0.7));
+                    }
+                }
+                Row::Opacity(v) => {
+                    self.text(
+                        "Opacity",
+                        &self.f.body,
+                        22.0,
+                        y,
+                        130.0,
+                        30.0,
+                        self.cc(fg, 0.9),
+                    );
+                    let (bx, bw, bh) = (w - 22.0 - 206.0 + 6.0, 194.0, 6.0);
+                    let by = y + 12.0;
+                    let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, Action::Opacity);
+                    self.fill_rr(
+                        bx,
+                        by,
+                        bw,
+                        bh,
+                        bh / 2.0,
+                        self.cc(fg, if hov { 0.12 } else { 0.08 }),
+                    );
+                    let f = ((v - 0.4) / 0.6).clamp(0.0, 1.0);
+                    self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
+                    self.circle(
+                        bx + 3.0 + (bw - 6.0) * f,
+                        by + bh / 2.0,
+                        6.5,
+                        self.cc(fg, 0.95),
+                    );
+                    if hov {
+                        let pct = format!("{}%", (v * 100.0).round());
+                        self.text(
+                            &pct,
+                            &self.f.small_r,
+                            bx,
+                            y - 6.0,
+                            bw,
+                            14.0,
+                            self.cc(fg, 0.8),
+                        );
                     }
                 }
                 Row::Pick(label, key, opts, cur) => {
