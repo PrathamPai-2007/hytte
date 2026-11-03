@@ -42,8 +42,8 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 | `[general] autostart` | `ensure_autostart` updates the `Run` value. |
 | `[general] hotkey` | The old hotkey is unregistered and the new one registered. |
 | `[general] hide_from_capture` | `SetWindowDisplayAffinity` is called again. |
-| `[general] monitor` | `refresh_monitor` moves the pill. |
-| `[general] theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `pill_scale`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `quiet_hours`, `task_rows` | Re-read; the next frame uses them. |
+| `[general] monitor`, `pill_scale` | `refresh_monitor` moves the pill and recomputes its scale. |
+| `[general] theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `quiet_hours`, `task_rows` | Re-read; the next frame uses them. |
 | `[timer] rounds` | The running Focus cycle shows the new number of dots. |
 | `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
 | `[hog]` | `ports::reconfigure_hog` hands them to the same thread, used from the next tick. |
@@ -54,7 +54,7 @@ Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limit
 
 ### Writing the file
 
-Hytte only writes `config.toml` in three cases: creating it on first run (`config::save`), the tray's **Launch at startup** toggle, and the settings pane in the pill. The last two go through `config::set`, which edits only the one key with `toml_edit`, so the user's comments, ordering and other keys are kept. If the file doesn't parse, it isn't touched (the pane says so). Both writes go through a temp file and a rename, so the watcher never sees a half-written file.
+Hytte only writes `config.toml` in four cases: creating it on first run (`config::save`), the tray's **Launch at startup** toggle, the settings pane in the pill and the settings window. The last three go through `config::set`, which edits only the one key with `toml_edit`, so the user's comments, ordering and other keys are kept. If the file doesn't parse, it isn't touched (the pane says so). The fourth case is **Custom** on a setting only the file can hold (`quiet_hours`): `config::ensure_noted` adds the key if it is missing and puts a comment above it saying what it takes, once, before the file is opened for the user. Both writes go through a temp file and a rename, so the watcher never sees a half-written file.
 
 ## Every setting
 

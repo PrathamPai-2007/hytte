@@ -27,6 +27,14 @@ On the development machine (60 Hz display, `HYTTE_PERF=1`, a task starting and f
 | gpu (hardware device, before) | 0.9 ms |
 | gpu (WARP device, now) | 0.45 ms |
 
+### A second renderer: the settings window
+
+The settings window ([section 7](07-window-and-input.md#timers), `settings_win.rs`) has a `Renderer` of its own (`Renderer::new_for_window`): the same device, brushes, text formats and drawing helpers, but a swap chain the size of that window (`resize_window` follows it) instead of the fixed canvas, and `draw_settings_window` instead of `draw`. It paints an opaque background, the cards of `settings_table` under a transform that scrolls, and the section list unscrolled. Hit regions are stored at their on-screen position (`Renderer::oy` is the scroll offset added in `hit` and `over`), so the window tests the pointer against them directly.
+
+It animates with `Renderer::ease(key, target)`: a per-key value moved towards its target by `1 - e^(-16 dt)` each frame. The first time a key is seen it starts at its target, so nothing animates on open, and `ease` marks the frame busy while any value is still moving; the window keeps its 60 Hz timer running until none is. `ease` is only active while the settings window draws (`fx`); the pill's own settings pane draws the same rows through `setting_row` with every value snapping to its target, because the pill's frame clock stops when nothing else moves.
+
+`settings_window_snapshots` (ignored, run with the other snapshots) draws the window offscreen in dark, light and narrow layouts, and the screenshots of it in `docs/img` come from there.
+
 ## The frame clock
 
 [Section 3](03-architecture.md#the-frame-clock) introduced the ticker thread. Its two speeds:
@@ -43,12 +51,12 @@ Right after each `DwmFlush`, the ticker samples DWM's composition timing (`DwmGe
 
 1. **Time step.** Compute `dt` (above).
 2. **Layout.** `layout()` refreshes every spring's target from the model ([section 6](06-ui-model.md)).
-3. **Step.** `anim.step(dt)` advances all springs and reports whether anything is still moving.
+3. **Step.** `anim.step(dt × speed)` advances all springs and reports whether anything is still moving. `speed` is `[general] animation`: 0.7 (`calm`), 1 (`normal`) or 1.4 (`snappy`). The idle pill's dim (`Ui::dim`, towards `[general] idle_opacity` while nothing is shown and the pointer is away) is eased here too, and keeps frames coming until it settles.
 4. **Visibility.** Show the window if it should become visible. Hide it once the `vis` fade-out has reached ~0.
 5. **Crop.** `Renderer::plan(w, h, armed, room, glow)` sizes the visible region: the pill plus 28 px of margin for the glow on the sides and bottom (4 px when the scene has no glow, so the thin line over a fullscreen video takes almost no clicks), plus `room` for a bubble, or the whole canvas width and the 40 px hot strip while a drag is armed. Clipped to the canvas, converted to device pixels. The crop is the whole canvas; its `clip`, the box that holds the pill and glow, becomes the window region.
 6. **Position.** The crop is centred horizontally on the monitor at its top edge (`origin_for`).
 7. **Draw.** `Renderer::draw(frame, crop, &mut hits)` paints the scene and fills the hit list.
-8. **Present.** `Renderer::present` shows the frame with the whole-window opacity (from the `vis` spring): a window-region update plus `Present`. The caller also passes the box the pill is heading towards, so the region doesn't chase every frame.
+8. **Present.** `Renderer::present` shows the frame with the whole-window opacity (the `vis` spring times the idle dim): a window-region update plus `Present`. The caller also passes the box the pill is heading towards, so the region doesn't chase every frame.
 9. **Telemetry.** With `HYTTE_PERF=1`, record the draw time, the draw+present cost and the frame gap.
 10. **Keep going?** `animating = moving || ambient`, where `ambient = !reduce && shown && model.ambient(scene, now)`. `fast = moving`. If both are false, the ticker parks after this frame.
 
@@ -64,7 +72,7 @@ Order of painting (`Renderer::scene`):
    - The pill **silhouette** (`pill_geometry`): a path whose top edge flares out into small concave "ears" that blend into the screen edge (only when the pill is taller than 18 px), with rounded bottom corners.
    - The **glow**: the same path stroked 5 times with widening, fading strokes in the glow colour (each stroke stands in for a pair of the nine it used to take: stroking is the costliest thing a frame does). An agent waiting for input makes it pulse.
    - The silhouette is kept between frames while its size is unchanged (`geom`), so ambient frames don't rebuild it.
-   - The **body**: a near-black vertical gradient.
+   - The **body**: a near-black vertical gradient, drawn at `[general] pill_opacity` (0.4 to 1; only the body fill, so text and icons stay solid and the glow under it shows through at low values).
    - The **tint**: the glow's colour pooling up from the bottom of the body (a cached gradient brush whose opacity is the glow strength, so it follows the glow spring and its pulse and never needs frames of its own).
    - A **rim** that is barely there at the screen edge and brighter round the bottom curve (another cached gradient), and a faint brightening while hovered.
    - The `Sentinel` scene is just a thin rounded bar and stops here.

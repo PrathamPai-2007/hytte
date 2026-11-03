@@ -40,7 +40,7 @@ These words are used consistently in the code and in these docs.
 | **Compact / expanded** | Compact scenes are the small, collapsed states (`Idle`, `CompactTask`, `CompactMedia`). Expanded scenes (`Exp*`) are shown on hover or when the pill "peeks". |
 | **Panel** | A page of the expanded pill, left to right: Shelf, Media, Home (the quick controls, the default), Tasks (with the listening dev servers under them), Timer, Power. Panels are reached with the tab strip, a sideways scroll, or the keyboard. Each panel maps to one expanded scene. |
 | **Peek** | The pill opening on its own for a few seconds (an agent needs input, a file landed on the shelf). |
-| **Sentinel** | The 3 px grey bar shown instead of the pill while a fullscreen app is in front. |
+| **Sentinel** | The thin grey bar (96 × 2.5 px) shown instead of the pill while a maximised or snapped window, or a fullscreen app, is in front. |
 | **Task** | Something being tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` progress report. |
 | **Shelf** | The list of files and text snippets parked on the pill. |
 | **Drop Vault** | The one-click actions offered for shelf items (compress, PDF, remove metadata, OCR, format). |
@@ -67,6 +67,7 @@ crates/
     assets/                logo.png, the generated .ico files and make_icons.py
     src/main.rs            entry point: CLI dispatch, console handling, then the daemon
     src/window.rs          Win32 window, message loop, input, timers, drag & drop
+    src/settings_win.rs    the big settings window (the pane's popout), drawn by its own renderer
     src/render.rs          Direct2D / DirectWrite drawing of every scene
     src/gpu.rs             D3D11 + DirectComposition swap chain for the gpu renderer
     src/ui_state.rs        the pure UI model: tasks, panels, scenes, animation state
@@ -119,7 +120,7 @@ manifests/winget/          winget package manifest template
 | `windows`, `windows-core`, `windows-numerics` | Every OS call: Win32, COM, Direct2D, DirectWrite, WinRT. |
 | `serde`, `serde_json` | The pipe protocol, `shelf.json`, `timer.json`, JSON formatting in the Drop Vault. |
 | `toml` | `config.toml`. |
-| `toml_edit` | Changing one key in `config.toml` (the tray's autostart toggle) without losing the user's comments. |
+| `toml_edit` | Changing one key in `config.toml` (the settings pane and window, the tray's autostart toggle) without losing the user's comments. |
 | `crossbeam-channel` | Channels between threads, including `select!`. |
 | `image` | Decoding and encoding images for the Drop Vault and album art. Only PNG, JPEG, WebP and BMP are enabled. The snapshot test writes its pictures as PNG. |
 | `miniz_oxide` | zlib compression for PDF image streams. |

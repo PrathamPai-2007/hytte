@@ -2086,6 +2086,7 @@ mod win {
             // thread-local's destructor they are freed inside ExitProcess under the loader lock,
             // where GPU drivers deadlock: the process then never exits (and holds the single-
             // instance mutex, so neither a restart nor an update can start a new one).
+            crate::settings_win::close();
             UI.with(|c| drop(c.borrow_mut().take()));
             tray.remove();
             let _ = RevokeDragDrop(hwnd);

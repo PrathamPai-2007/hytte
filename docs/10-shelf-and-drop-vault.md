@@ -16,7 +16,7 @@ pub struct ShelfItem {
 }
 ```
 
-The shelf is `Model::shelf: Vec<ShelfItem>`, newest last, at most `[shelf] max_items` (12). The expanded panel shows the first 5, with a `+N` overflow.
+The shelf is `Model::shelf: Vec<ShelfItem>`, newest last, at most `[shelf] max_items` (12). The expanded panel shows 5 tiles at a time (`SHELF_VISIBLE`); past that, arrows at the ends or the mouse wheel over the row scroll it a tile at a time (`Model::scroll_shelf`).
 
 ### Two modes
 
@@ -49,6 +49,13 @@ OLE Drop ──► UiEvent::ShelfAdd(DropJob) ──► UI thread: snapshot cfg,
 ### Persistence
 
 With `[shelf] persist = true`, the list is saved as JSON to `%APPDATA%\Hytte\shelf.json` after every change and loaded at startup. On load, entries whose file has disappeared are dropped. After a tile is dragged out, the shelf also prunes items whose path no longer exists, since a "move" drop moves the real file.
+
+### Screenshots
+
+With `[shelf] screenshots` on, a screenshot the Snipping Tool copies (Win+Shift+S) goes on the shelf as a PNG in the shelf folder. `Ui::on_clipboard` runs on `WM_CLIPBOARDUPDATE`: it only acts when the clipboard owner is `SnippingTool.exe` or `ScreenClippingHost.exe` and a bitmap (`CF_DIB`) is there, skips an image it has already shelved (a hash of the bytes), and does nothing in game mode or while paused. A worker converts it (`shelf::stage_dib`) and sends `UiEvent::Screenshot`, which is inserted like any staged item and then tracked by `Ui::track_shot`:
+
+- **Short stay.** After `[shelf] screenshot_secs` (60; `0` keeps it) the tile is removed and its PNG deleted (`T_SHOT`, `Ui::tick_shots`). Only screenshots shelved while Hytte is running are tracked, so ones left from before a restart stay until removed.
+- **Delete after paste.** With `[shelf] delete_after_paste` on, the newest screenshot is watched for a Ctrl+V (`GetAsyncKeyState`, polled every 60 ms, for at most 10 minutes). The watch is dropped when anything else is copied (the clipboard sequence number changes). About two seconds after a paste (so the target app can read the image) the tile is removed and its PNG deleted. Only a tile still on the shelf is deleted, so a screenshot dragged out meanwhile is never touched, and only Hytte's own copy is deleted, never the Snipping Tool's own saved file.
 
 ### Removing
 

@@ -60,6 +60,7 @@ Example: `[ports] open_https = false`.
    For a non-zero default, use `#[serde(default = "fn_name")]` and a function returning it, **and** update that struct's `impl Default`.
 2. Read it where needed through `self.cfg` on the UI thread, so a live config edit takes effect at once. If you derive state from it at startup, or pass a clone to a worker, also refresh that state in `Ui::apply_config` ([section 11](11-configuration-and-files.md#live-reload)).
 3. Document it in [section 11](11-configuration-and-files.md#every-setting). If users will commonly change it, also add it to the main README's settings block.
+4. To offer it in the settings window, add a row to `render::settings_table` (`pick_i` / `pick_f` / `pick_s` for a few steps, `Row::Switch` for a switch); give the row `-1` unless it should also be in the pill's small pane, which has room for five rows per page. A test checks that every row's key is one `config.toml` accepts. A value that only the file can hold can use `pick_s_custom` and a `Custom` segment that opens the file (see `settings_win::custom`).
 
 Old config files keep working because of the default. Never rename or remove a key without keeping the old name readable (`#[serde(alias = "old")]`).
 

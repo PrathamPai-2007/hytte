@@ -54,7 +54,10 @@ When adding a feature, check it doesn't add a row here without a good reason.
 | Privacy watcher | on registry change, or 10 s safety timeout | |
 | Config watcher | on a file change in `%APPDATA%\Hytte` | Reads `config.toml` (a few KB); writes to `shelf.json` / `timer.json` also wake it. |
 | Media watcher | on WinRT event, or 30 s safety timeout | |
-| Task registry | every 5 s **only while tasks exist** | Checks owner liveness. |
+| Task registry | every 5 s **only while tasks exist** (running ones, or failed shell rows waiting for their terminal to close) | Checks owner liveness. |
+| Clipboard listener | on a clipboard change | `WM_CLIPBOARDUPDATE`; looks at the owner first, so other apps' copies cost a process-name lookup at most. |
+| Screenshot timer (`T_SHOT`) | 1 s while a screenshot is on the shelf with `screenshot_secs` set; 60 ms for up to 10 minutes while `delete_after_paste` waits for a Ctrl+V | Never runs without a screenshot. |
+| Settings window | 60 Hz **only while something eases** (hover fades, scroll, fade-in) | Stops when everything has settled; nothing runs while the window is closed. |
 | Countdown timer | 1 Hz **only while a timer runs unpaused** | Redraws the fuse. |
 | Expiry timer | once, at the next deadline | Also ends a one-hour keep-awake. |
 | GPU rebuild retry | 1 s doubling to 30 s, **only after a failed rebuild** | Stops once the renderer is back. |

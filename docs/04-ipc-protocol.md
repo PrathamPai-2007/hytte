@@ -89,16 +89,17 @@ Each client picks ids so that its own updates land on the same task:
 For each valid message it builds a `TaskState`. `source` defaults to `"run"` and `delay_ms` to 0, and `updated` is stamped with the current time. It then:
 
 - removes the id from its map if the event is `Done`, `Failed` or `Lost` (nothing left to watch), otherwise inserts or replaces it;
-- forwards the state to the UI as `TaskUpdate::Upsert`.
+- forwards the state to the UI as `TaskUpdate::Upsert`;
+- remembers a `Failed` row from a shell hook (`source = "shell"`) together with its `pid` (`ended`), so the row can go when its terminal does (below). `hytte run` is left out: its pid is the `hytte run` process, which exits right after reporting.
 
-While its map is non-empty, a 5 s ticker runs a **staleness check** on every task still in a waiting or running state (`Start`, `Progress`, `Resumed`, `NeedsInput`):
+While its map or `ended` is non-empty, a 5 s ticker runs a **staleness check** on every task still in a waiting or running state (`Start`, `Progress`, `Resumed`, `NeedsInput`):
 
 | The task has... | It is marked lost when... |
 |---|---|
 | a `pid` | that process is no longer alive (`proc::is_alive`: it can't be opened, or its exit code is no longer `STILL_ACTIVE`). |
 | no `pid` | no message has arrived for 30 s (`STALE_AFTER`). |
 
-A lost task is removed from the map and `TaskUpdate::Lost(id)` is sent to the UI. When the map is empty, the registry blocks on messages alone and never wakes up.
+A lost task is removed from the map and `TaskUpdate::Lost(id)` is sent to the UI. The same tick checks the owner of every remembered failed shell row, and when that terminal is gone sends `TaskUpdate::Gone(id)`. When both are empty, the registry blocks on messages alone and never wakes up.
 
 Practical consequences:
 
@@ -117,11 +118,13 @@ The bridge delivers `TaskUpdate`s as `UiEvent::Task` to `Ui::handle_events` (`wi
 `Model::apply_task` then applies the update:
 
 - **Ignored commands.** A shell task whose command name (first word, lower-cased, without path or `.exe`) is in `[shell] ignore` is dropped.
-- **Too fast to show.** A shell task that ends (`Done` or `Failed`) before its `visible_after` time, or that exits with code 130 (Ctrl-C), is removed silently. This is how fast commands never flash up.
+- **Too fast to show.** A shell task that ends (`Done` or `Failed`) before its `visible_after` time is removed silently. This is how fast commands never flash up.
+- **Stopped by the user.** A task of any source that ends with exit code 130 (SIGINT), 143 (SIGTERM) or -1073741510 (`0xC000013A`, Windows' Ctrl+C) was stopped, not broken, so it is removed silently instead of showing a red error. (Ctrl+C on a PowerShell cmdlet reports plain failure code 1, which can't be told apart from a real failure.)
 - **New task.** It is added with `started = changed = now` and `visible_after = now + delay_ms`.
 - **Existing task.** Its fields are updated. An empty label keeps the old label, a missing `progress` keeps the old progress, and a missing `pid` keeps the old pid.
 - `stderr_tail` is split into lines, and `message` becomes the amber attention text while `NeedsInput`.
 - **`Lost(id)`** marks the task `Lost` and restarts its clock.
+- **`Gone(id)`** removes the task if it is a failed one (the terminal that ran it has closed, so there is nothing to rerun it in or jump to).
 
 ### Lifetime of a task in the pill
 
@@ -132,7 +135,9 @@ The bridge delivers `TaskUpdate`s as `UiEvent::Task` to `Ui::handle_events` (`wi
            Done ┌───────┼────────┐ Failed                     │ owner died / silent 30 s
                 ▼       │        ▼                            ▼
         done (green)    │   failed (red) ──user dismisses──► gone
-           │ 3 s        │        (persists)
+           │ 3 s        │        (persists; a shell
+                              row goes when its
+                              terminal closes)
            ▼            │ owner died / silent 30 s
           gone          ▼
                      lost (grey ?) ── 5 s ──► gone

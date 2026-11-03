@@ -20,7 +20,7 @@ Each worker watches one part of the system and reports changes to the UI thread 
 | Terminal tabs | `tabs.rs` | Command channel (no polling) | none: it answers commands |
 | Thumbnails | `shelf.rs` (`thumbnail`) | One short-lived thread per tile | `Thumb` |
 
-Drop Vault workers and shelf staging are covered in [section 10](10-shelf-and-drop-vault.md).
+Drop Vault workers and shelf staging are covered in [section 10](10-shelf-and-drop-vault.md). Not a worker, but event-driven in the same way: the window registers for clipboard changes (`AddClipboardFormatListener` → `WM_CLIPBOARDUPDATE`) to shelve Snipping Tool screenshots, and a screenshot's short stay and delete-after-paste run on the `T_SHOT` timer ([section 7](07-window-and-input.md#timers)).
 
 ## Waiting on WinRT: `winrt::block_on`
 

@@ -174,6 +174,16 @@ pub fn open(cfg: &Config) {
     }
 }
 
+/// Close the window if it is open. Quit calls this so the window's GPU objects are released on
+/// the UI thread, not at process exit (see `window.rs`, where `Ui` is dropped for the same reason).
+pub fn close() {
+    if let Ok(h) = unsafe { FindWindowW(w!("HytteSettings"), None) } {
+        unsafe {
+            let _ = DestroyWindow(h);
+        }
+    }
+}
+
 /// The settings were changed elsewhere (the pill's pane, the file): show them.
 pub fn refresh(cfg: &Config) {
     if let Ok(h) = unsafe { FindWindowW(w!("HytteSettings"), None) } {

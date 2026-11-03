@@ -21,7 +21,7 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 - **Follow your AI agents.** Claude Code, Codex, OpenCode, Gemini CLI, Antigravity and Cursor show up by name with what they're doing right now ("Editing render.rs"). When one is waiting for you the pill turns amber, even over a maximised terminal, and one click takes you to the right terminal. When one finishes, a card shows the first line of its reply, with **Copy** for the whole thing, for as long as **Open on finish** says (off: no card). One click in the tray connects them all.
 - **Answer permission prompts from the pill.** When Claude Code, Codex or OpenCode asks to run something, the pill shows the command with **Allow** and **Deny**, so you don't have to switch windows.
 - **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up under your tasks, with **Open** and **Stop** buttons. A server you started from a terminal is labelled with that command, and clicking it takes you to the terminal.
-- **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them. Past five items the row scrolls (arrows, or the mouse wheel over it). Screenshots you take with Win+Shift+S land there too, ready to drag into a chat (switch it off in settings).
+- **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them. Past five items the row scrolls (arrows, or the mouse wheel over it). Screenshots you take with Win+Shift+S land there too, ready to drag into a chat. They leave the shelf after a minute (you can change that, or have one deleted as soon as you paste it with Ctrl+V), and you can switch it off in settings.
 - **Quick file actions.** Shrink an image under 5 MB, turn it into a PDF, strip its location data, copy the text out of it, tidy up JSON, or decode a pasted JWT, Unix timestamp, URL-encoded or base64 text, or hex colour. One click each.
 - **Control music.** See what's playing, skip or pause, and click or drag the timeline to jump around in the track.
 - **Quick controls.** One pane of tiles: mute every microphone at once (with a red lock on the pill so you always know), mute the speakers, keep the PC awake (an hour, or until you turn it off), and the timer. Under them a volume bar you can drag, click or scroll; the ▾ at its end opens a bar per app (up to four, the ones playing first), so you can turn one noisy app down.
@@ -29,10 +29,10 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 - **Browser downloads.** A download in progress is a task with its growing size; when it finishes you get **Open** and **Shelve**.
 - **Runaway processes.** If one program keeps a lot of CPU or memory for a while, the pill says so, with **Kill** (asks twice) and **Ignore**.
 - **Your next meeting** (optional). A heads-up a few minutes before it starts, with **Join** for Teams, Meet and Zoom links.
-- **Keyboard and looks.** A global hotkey opens the pill for arrow keys and Tab; light, dark or follow-Windows themes; the glow takes the album art's colour; the pill can follow you to another monitor.
+- **Keyboard and looks.** A global hotkey opens the pill for arrow keys and Tab; light, dark or follow-Windows themes; the glow takes the album art's colour; the pill can follow you to another monitor; and you can tune how it feels (opacity, size, hover or click to open, delays, idle dimming, motion speed, quiet hours) in the settings window.
 - **Battery and power mode** on laptops, on their own pane: charge, what the battery is doing, the time left, and Saver / Balanced / Performance.
 - **Camera and mic dots** that tell you when an app is using them.
-- **Gets out of the way of games and videos.** While a game or other fullscreen app is in front, Hytte vanishes completely and stops touching your input, so it costs no FPS or input lag. A maximised window, or a video playing fullscreen in a browser or player, just shrinks it to a hairline.
+- **Gets out of the way of games and videos.** While a game or other fullscreen app is in front, Hytte vanishes completely and stops touching your input, so it costs no FPS or input lag. A maximised window, a window snapped to half of a split screen, or a video playing fullscreen in a browser or player, just shrinks it to a hairline.
 - **Stays out of screen share** if you want: one setting keeps the pill out of screenshots, recordings and calls.
 - **Keeps itself up to date.** When a new version is out, Hytte asks once and updates itself in place.
 
@@ -77,7 +77,7 @@ Typing `hytte` in a terminal hands you your prompt straight back; the pill keeps
 
 ## A five-minute tour
 
-**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. It opens on the quick controls, unless it is showing a task or music, which open their own pane. Swipe sideways on the touchpad (or scroll or tilt the mouse wheel) to flip between panes, or click the icons along the bottom: the current pane is the one with its name showing. Left to right: Shelf, Media, Home (the quick controls), Tasks (and dev servers), Timer, and Power on laptops. Hover a name that's cut off and it scrolls to show the rest.
+**1. Hover the pill.** Rest your mouse on it and it opens. Move away and it closes. (Prefer a click, or a pause before it opens? Both are in the settings window.) It opens on the quick controls, unless it is showing a task or music, which open their own pane. Swipe sideways on the touchpad (or scroll or tilt the mouse wheel) to flip between panes, or click the icons along the bottom: the current pane is the one with its name showing. Left to right: Shelf, Media, Home (the quick controls), Tasks (and dev servers), Timer, and Power on laptops. Hover a name that's cut off and it scrolls to show the rest.
 
 **2. Track a slow command.** Put `hytte run --` in front of anything:
 
@@ -114,7 +114,7 @@ Some tools only print progress in a real terminal, so ask for it: `hytte run -- 
 | A blue `i` card | Your next calendar event is about to start. |
 | A green battery that fills | You just plugged in the charger. |
 | An amber battery that drains (red when low) | You just unplugged it. |
-| A thin grey line | A maximised window or a fullscreen video covers the screen; hover the line to bring the pill back. |
+| A thin grey line | A maximised or snapped window, or a fullscreen video, is under the pill; hover the line to bring the pill back. |
 | A green bell card | A timer finished. The alarm rings until you press **Stop alarm** (two minutes at most). |
 
 | Idle | Quick controls | Music | Timer |
@@ -317,7 +317,7 @@ The full list of settings, including which ones need a restart, is in [the confi
 | Problem | Try this |
 |---|---|
 | Nothing happens when I start Hytte | It may already be running: look for it in the tray. Only one copy runs at a time. |
-| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised window or fullscreen video may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
+| I can't see the pill | A game or fullscreen app may be in front (Hytte comes back when you switch away), a maximised or snapped window or fullscreen video may have shrunk it to a thin grey line, or Hytte is paused (tray menu). |
 | `hytte: daemon not running` | Run `hytte` to start the pill. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal window: terminals that were already open don't see the updated `PATH`. Or run `.\hytte.exe setup` from the Hytte folder. |
 | `notch` isn't recognised | The command is `hytte` now; see [Upgrading](#upgrading-from-an-older-version-with-notchexe). |

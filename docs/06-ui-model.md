@@ -22,6 +22,7 @@ It has three parts:
 | `Ports(Vec<PortInfo>, HashMap<pid, ancestors>)` | port watcher | `set_ports`: the listening ports, and each port's process with its ancestors (parent first), which `Model::task_for_port` uses to tie a server to the running task that started it. Also cancels an armed **Kill?** if that port is gone. |
 | `ShelfAdd(DropJob)` | OLE drop target | Starts staging on a worker ([section 10](10-shelf-and-drop-vault.md)). |
 | `ShelfStaged(Vec<ShelfItem>)` | shelf staging worker | Inserts the items, saves the shelf, and peeks the Shelf panel for 5 s. |
+| `Screenshot(ShelfItem)` | clipboard handler's worker | A Snipping Tool screenshot saved as a PNG: inserted like `ShelfStaged`, then tracked for its short stay and the optional delete-after-paste ([section 10](10-shelf-and-drop-vault.md#screenshots)). |
 | `Thumb(id, bitmap)` | thumbnail loader | Uploads a shelf thumbnail to the renderer. |
 | `DropDone(DropResult)` | Drop Vault worker | Shows the result chip. |
 | `SetClipboard(String)` | Drop Vault worker | Puts text on the clipboard (only the UI thread owns the clipboard window). |
@@ -37,7 +38,7 @@ The important fields, grouped:
 
 | Group | Fields |
 |---|---|
-| Tasks | `tasks: Vec<TaskView>`, `ignore` (lower-cased shell commands to drop) |
+| Tasks | `tasks: Vec<TaskView>`, `ignore` (lower-cased shell commands to drop), `task_first` (the first row in view) and `task_rows` (`[general] task_rows`, 0 = 4): the list shows that many rows (`rows()`), the mouse wheel scrolls the rest (`scroll_tasks`), and `rows_hidden()` says how many are above and below |
 | Media | `media`, `media_stamp` (when the info arrived, used to extrapolate the timeline), `art`, `art_gen` |
 | System | `cam`, `mic`, `privacy_app`, `mic_muted`, `speaker` (volume, muted), `awake` (`Awake::Off`, `Until(instant)` or `On`), `power`, `charge_since` |
 | Servers | `ports`, `port_parents` (pid → ancestor pids), `kill_armed: Option<(port, until)>` |
@@ -47,7 +48,7 @@ The important fields, grouped:
 | Calendar | `calendar` (the next event and when its heads-up is due), `calendar_seen` |
 | Timer | `timer`, `timer_panel` (the setup card is open), `timer_min`, `timer_done`, `timer_last` (the timer that just finished), `timer_break`, `focus_done`, `rounds` |
 | Settings | `settings` (the pane is open, on this group of `SETTINGS_GROUPS`: Look, Behaviour, Features). Hovering away, picking a pane, or the back button closes it. |
-| Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`) |
+| Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`), `glow_gain` (`glow_strength`), `body_alpha` (`pill_opacity`, 0.4 to 1: the alpha of the pill body only) |
 | Clock | `now`: the last time the model was advanced; visibility rules compare against it |
 
 `TaskView` is the display form of a task: the label, event, progress, stderr lines, pid, `attention` message, `source` and `cwd` (a `run` or `shell` task with a folder is `rerunnable()`), and three instants (`started`, `changed`, `visible_after`).
@@ -101,8 +102,8 @@ Home sits in the middle: music to its left; dev work, a timer and the battery to
 | `Idle` | 120 × 24; 150 with privacy dots; 64 + 58 per chip (+34 with privacy dots) with port / shelf chips; +26 when the mic lock shows |
 | `CompactTask` | 292 × 32 |
 | `CompactMedia` | 240 × 32 |
-| `ExpTasks` | 380 × (22 + 34 per row, +20 per waiting row, +14 per output line, + stderr box for the first failure, + the servers section: 26 + 36 per server, at most 5), capped at 290 |
-| `ExpMedia` / `ExpHome` / `ExpPower` | 380 × 132 / 136 / 112 |
+| `ExpTasks` | 380 × (22 + 34 per row shown (up to `task_rows`, 4), +16 for the "N more · scroll" line when rows are hidden, +20 per waiting row, +14 per output line, + stderr box for the first failure, + the servers section: 26 + 36 per server, at most 5), capped at 290 plus 34 per row beyond 4 |
+| `ExpMedia` / `ExpHome` / `ExpPower` | 380 × 132 / 136 / 112 (Home: +4 + 28 per app row while the per-app volume list is open, one row says "no apps") |
 | `ExpShelf` | 380 × 118 (136 with a tile selected) |
 | `ExpTimer` | 380 × 96 while a timer runs, 152 for the setup card |
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a short one-line card) / 114 |

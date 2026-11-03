@@ -48,7 +48,7 @@ Two rules hold everywhere:
 7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
 8. `window::run` takes over the main thread and never returns until Quit.
 
-On Quit (tray menu, or `window::quit()` after an update), the window is destroyed and the message loop ends. The UI thread then **drops `Ui` itself**, before removing the tray icon and returning. `Ui` owns the GPU renderer's D3D11 / DXGI / DirectComposition objects. Left to the thread-local destructor, they would be released during `ExitProcess` under the loader lock, where GPU drivers can deadlock. The process would then never exit and would keep the single-instance mutex until a reboot.
+On Quit (tray menu, or `window::quit()` after an update), the window is destroyed and the message loop ends. The UI thread then **drops `Ui` itself**, before removing the tray icon and returning. `Ui` owns the GPU renderer's D3D11 / DXGI / DirectComposition objects. The settings window, if it is open, is closed first (`settings_win::close`) for the same reason: it has a renderer of its own. Left to the thread-local destructor, they would be released during `ExitProcess` under the loader lock, where GPU drivers can deadlock. The process would then never exit and would keep the single-instance mutex until a reboot.
 
 `window::win::run_windows` then:
 
@@ -56,7 +56,7 @@ On Quit (tray menu, or `window::quit()` after an update), the window is destroye
 2. Calls `OleInitialize` (the UI thread is a COM single-threaded apartment, which OLE drag and drop requires).
 3. Registers the window class, then creates the topmost, tool, no-activate popup window together with its renderer: a `WS_EX_NOREDIRECTIONBITMAP` window drawn through Direct2D and DirectComposition. If the renderer can't start, the reason goes to `hytte.log` and Hytte exits.
 4. Builds the `Ui` struct: model, animation state, config, shelf loaded from disk, saved timer restored. It then sizes everything for the monitor's DPI and draws the first frame.
-5. Registers the OLE drop target, power-setting notifications (`WM_POWERBROADCAST`), the `TaskbarCreated` message (to re-add the tray icon and re-check fullscreen if Explorer restarts), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
+5. Registers the OLE drop target, power-setting notifications (`WM_POWERBROADCAST`), the `TaskbarCreated` message (to re-add the tray icon and re-check fullscreen if Explorer restarts), the clipboard format listener (`AddClipboardFormatListener`, for screenshots), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
 6. Adds the tray icon.
 7. Starts the **bridge** thread and the **ticker** (frame clock) thread.
 8. Runs the standard `GetMessageW` / `DispatchMessageW` loop.
