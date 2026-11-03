@@ -465,7 +465,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_s(
-                        "Open on",
+                        "Open with",
                         "general.open_on",
                         &[("Hover", "hover"), ("Click", "click")],
                         &g.open_on,
@@ -552,7 +552,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_s(
-                        "Opens on",
+                        "Start on",
                         "general.start_panel",
                         &[("Last", "last"), ("Active", "auto"), ("Home", "home")],
                         &g.start_panel,
@@ -4761,8 +4761,7 @@ mod snap {
     fn settings_window_snapshots() {
         let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
         std::fs::create_dir_all(&dir).unwrap();
-        let (w, h, sc) = (860, 700, 1.0);
-        let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
+        let (w, h, sc) = (1720, 1400, 2.0);
         let cfg = Config::default();
         type Shot = (&'static str, bool, f32, Option<(f32, f32)>);
         let shots: [Shot; 5] = [
@@ -4774,9 +4773,8 @@ mod snap {
         ];
         for (name, light, scroll, mouse) in shots {
             let narrow = name.contains("narrow");
-            if narrow {
-                r = Renderer::offscreen_sized(560, 700, sc).unwrap();
-            }
+            // A fresh renderer each: eased values must not carry over from the last shot.
+            let mut r = Renderer::offscreen_sized(if narrow { 1120 } else { w }, h, sc).unwrap();
             let view = SettingsView {
                 mouse,
                 pressed: false,

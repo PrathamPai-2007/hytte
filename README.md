@@ -117,9 +117,9 @@ Some tools only print progress in a real terminal, so ask for it: `hytte run -- 
 | A thin grey line | A maximised window or a fullscreen video covers the screen; hover the line to bring the pill back. |
 | A green bell card | A timer finished. The alarm rings until you press **Stop alarm** (two minutes at most). |
 
-| Idle | Quick controls | Muted | Muted, opened |
+| Idle | Quick controls | Music | Timer |
 |---|---|---|---|
-| <img src="docs/img/idle.png" width="200"> | <img src="docs/img/home.png" width="200"> | <img src="docs/img/muted.png" width="200"> | <img src="docs/img/muted-open.png" width="200"> |
+| <img src="docs/img/idle.png" width="200"> | <img src="docs/img/home.png" width="200"> | <img src="docs/img/media.png" width="200"> | <img src="docs/img/timer.png" width="200"> |
 
 **Clicking things:**
 - Click a task to jump to the terminal it's running in. In Windows Terminal, the right tab is selected too. A dev server started from that terminal works the same way.
@@ -231,7 +231,16 @@ Release numbers were reset at the same time: the old releases are now `v0.1.0` t
 
 The everyday settings are in the pill: the **gear** next to the volume bar on Home opens them (theme, hover delay, opacity, glow, what happens over fullscreen, which screen, start with Windows, the finished-task peek, the timer sound, and switching downloads, calendar, resource alerts and update checks on or off). A change applies straight away.
 
+<p align="center">
+  <img src="docs/img/settings-pane.png" alt="The settings pane inside the pill" width="420">
+</p>
+
 The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, the gap from the top, motion speed, which panel it opens on, quiet hours for sounds, how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
+
+<p align="center">
+  <img src="docs/img/settings-window.png" alt="The settings window, dark" width="560">
+  <img src="docs/img/settings-window-light.png" alt="The settings window, light" width="560">
+</p>
 
 Everything is stored in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**, or the **Open config.toml** button in the settings window). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
 
