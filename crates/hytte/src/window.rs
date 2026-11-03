@@ -14,6 +14,12 @@ use crossbeam_channel::{Receiver, Sender};
 
 pub const WM_TRAY: u32 = 0x8001;
 
+/// Whether the theme is light, and the accent colour that suits it.
+#[cfg(windows)]
+pub fn look(theme: &str) -> (bool, [f32; 3]) {
+    win::look(theme)
+}
+
 /// Ends the daemon the way the tray's Quit does (tray icon removed, message loop left).
 /// Safe from any thread; does nothing before the window exists.
 pub fn quit() {
@@ -695,6 +701,7 @@ mod win {
             self.model.rounds = new.timer.rounds;
             let monitor_changed = new.general.monitor != self.cfg.general.monitor;
             let general = new.general != self.cfg.general;
+            crate::settings_win::refresh(&new);
             self.cfg = new;
             if hotkey_changed {
                 self.register_hotkey(HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _));
@@ -1251,11 +1258,7 @@ mod win {
                 },
                 Action::OpenConfig => {
                     self.model.settings = None;
-                    let path = crate::config::config_path();
-                    if !path.exists() {
-                        let _ = crate::config::save(&self.cfg);
-                    }
-                    let _ = std::process::Command::new("explorer").arg(&path).spawn();
+                    crate::settings_win::open(&self.cfg);
                 }
                 Action::Rerun(id) => self.rerun(&id),
                 Action::ShelfScroll(by) => self.model.scroll_shelf(by),
@@ -1928,6 +1931,11 @@ mod win {
     }
 
     /// `[general] theme`: "light", "auto" (follow the Windows "app mode" setting), else dark.
+    pub fn look(theme: &str) -> (bool, [f32; 3]) {
+        let light = theme_is_light(theme);
+        (light, accent_for(windows_accent(), light))
+    }
+
     fn theme_is_light(theme: &str) -> bool {
         match theme {
             "light" => true,

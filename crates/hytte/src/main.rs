@@ -35,6 +35,8 @@ mod proc;
 #[cfg(windows)]
 mod render;
 mod rerun;
+#[cfg(windows)]
+mod settings_win;
 mod setup;
 mod shelf;
 mod single_instance;

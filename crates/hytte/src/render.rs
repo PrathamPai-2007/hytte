@@ -99,6 +99,16 @@ pub enum Action {
     OpenConfig,
 }
 
+/// What the big settings window tells the renderer about the pointer and the scroll.
+pub struct SettingsView {
+    /// Pointer in client logical px (unscrolled).
+    pub mouse: Option<(f32, f32)>,
+    pub pressed: bool,
+    pub light: bool,
+    pub accent: [f32; 3],
+    pub scroll: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Hit {
     /// Canvas-logical rect: left, top, right, bottom.
@@ -337,6 +347,335 @@ fn fmt_clock(ms: u64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+type Choice = (&'static str, Val);
+
+/// One line of settings: a switch, a few steps, or the opacity slider.
+pub enum Row {
+    Switch(&'static str, &'static str, bool),
+    Pick(&'static str, &'static str, Vec<Choice>, usize),
+    /// Pill opacity slider, current value.
+    Opacity(f32),
+}
+
+/// A titled run of rows. Each row also says which page of the pill's small settings pane
+/// it appears on (-1: only in the big settings window).
+pub struct Section {
+    pub name: &'static str,
+    pub rows: Vec<(Row, i8)>,
+}
+
+fn pick_s(
+    label: &'static str,
+    key: &'static str,
+    opts: &[(&'static str, &'static str)],
+    cur: &str,
+) -> Row {
+    let i = opts.iter().position(|(_, v)| *v == cur).unwrap_or(0);
+    Row::Pick(
+        label,
+        key,
+        opts.iter().map(|(n, v)| (*n, Val::S(v))).collect(),
+        i,
+    )
+}
+
+/// Whole-number steps; the one nearest to what the file says is lit.
+fn pick_i(label: &'static str, key: &'static str, opts: &[(&'static str, i64)], cur: i64) -> Row {
+    let i = (0..opts.len())
+        .min_by_key(|&i| (opts[i].1 - cur).abs())
+        .unwrap_or(0);
+    Row::Pick(
+        label,
+        key,
+        opts.iter().map(|(n, v)| (*n, Val::I(*v))).collect(),
+        i,
+    )
+}
+
+fn pick_f(label: &'static str, key: &'static str, opts: &[(&'static str, f64)], cur: f64) -> Row {
+    let d = |i: usize| (opts[i].1 - cur).abs();
+    let i = (0..opts.len())
+        .min_by(|&a, &b| d(a).total_cmp(&d(b)))
+        .unwrap_or(0);
+    Row::Pick(
+        label,
+        key,
+        opts.iter().map(|(n, v)| (*n, Val::F(*v))).collect(),
+        i,
+    )
+}
+
+/// Every setting that is a switch, a slider or a short list of steps. Lists and text
+/// (allow / deny lists, ports, hotkey, folders) stay in config.toml.
+pub fn settings_table(c: &Config) -> Vec<Section> {
+    let (g, sh) = (&c.general, &c.shelf);
+    let sw = Row::Switch;
+    vec![
+        Section {
+            name: "Look",
+            rows: vec![
+                (
+                    pick_s(
+                        "Theme",
+                        "general.theme",
+                        &[("Dark", "dark"), ("Light", "light"), ("Auto", "auto")],
+                        &g.theme,
+                    ),
+                    0,
+                ),
+                (
+                    pick_i(
+                        "Hover delay",
+                        "general.hover_delay_ms",
+                        &[("Instant", 0), ("0.2s", 200), ("0.5s", 500), ("1s", 1000)],
+                        g.hover_delay_ms as i64,
+                    ),
+                    0,
+                ),
+                (Row::Opacity(g.pill_opacity), 0),
+                (
+                    pick_f(
+                        "Glow",
+                        "general.glow_strength",
+                        &[
+                            ("Off", 0.0),
+                            ("Soft", 0.5),
+                            ("Normal", 1.0),
+                            ("Strong", 1.6),
+                        ],
+                        g.glow_strength as f64,
+                    ),
+                    0,
+                ),
+                (
+                    sw("Album-art glow", "general.adaptive_glow", g.adaptive_glow),
+                    0,
+                ),
+            ],
+        },
+        Section {
+            name: "Behaviour",
+            rows: vec![
+                (
+                    sw("Start with Windows", "general.autostart", g.autostart),
+                    1,
+                ),
+                (
+                    pick_s(
+                        "Over fullscreen",
+                        "general.fullscreen",
+                        &[("Line", "line"), ("Hide", "hide"), ("Off", "off")],
+                        &g.fullscreen,
+                    ),
+                    1,
+                ),
+                (
+                    pick_s(
+                        "Screen",
+                        "general.monitor",
+                        &[
+                            ("Primary", "primary"),
+                            ("Active", "active"),
+                            ("Cursor", "cursor"),
+                        ],
+                        &g.monitor,
+                    ),
+                    1,
+                ),
+                (
+                    pick_i(
+                        "Open on finish",
+                        "general.finish_peek_secs",
+                        &[("Off", 0), ("3 s", 3), ("5 s", 5), ("10 s", 10)],
+                        g.finish_peek_secs as i64,
+                    ),
+                    1,
+                ),
+                (
+                    sw(
+                        "Hide from screen capture",
+                        "general.hide_from_capture",
+                        g.hide_from_capture,
+                    ),
+                    -1,
+                ),
+                (
+                    sw("Hytte on PATH", "general.add_to_path", g.add_to_path),
+                    -1,
+                ),
+                (
+                    sw("Update checks", "general.check_updates", g.check_updates),
+                    2,
+                ),
+            ],
+        },
+        Section {
+            name: "Timer",
+            rows: vec![
+                (sw("Timer sound", "timer.sound", c.timer.sound), 1),
+                (
+                    pick_i(
+                        "Break",
+                        "timer.break_min",
+                        &[("3 min", 3), ("5 min", 5), ("10 min", 10)],
+                        c.timer.break_min as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Long break",
+                        "timer.long_break_min",
+                        &[
+                            ("10 min", 10),
+                            ("15 min", 15),
+                            ("20 min", 20),
+                            ("30 min", 30),
+                        ],
+                        c.timer.long_break_min as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Rounds to long break",
+                        "timer.rounds",
+                        &[("2", 2), ("3", 3), ("4", 4), ("6", 6)],
+                        c.timer.rounds as i64,
+                    ),
+                    -1,
+                ),
+            ],
+        },
+        Section {
+            name: "Agents",
+            rows: vec![(
+                sw(
+                    "Sound when an agent needs you",
+                    "agent.sound",
+                    c.agent.sound,
+                ),
+                -1,
+            )],
+        },
+        Section {
+            name: "Shelf",
+            rows: vec![
+                (
+                    pick_s(
+                        "Keep files by",
+                        "shelf.mode",
+                        &[("Reference", "reference"), ("Copy", "copy")],
+                        &sh.mode,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Max items",
+                        "shelf.max_items",
+                        &[("6", 6), ("12", 12), ("24", 24), ("48", 48)],
+                        sh.max_items as i64,
+                    ),
+                    -1,
+                ),
+                (sw("Remember between runs", "shelf.persist", sh.persist), -1),
+                (
+                    sw(
+                        "Remove after dragging out",
+                        "shelf.remove_after_drag",
+                        sh.remove_after_drag,
+                    ),
+                    -1,
+                ),
+                (
+                    sw("Shelve screenshots", "shelf.screenshots", sh.screenshots),
+                    2,
+                ),
+            ],
+        },
+        Section {
+            name: "Watchers",
+            rows: vec![
+                (sw("Downloads", "downloads.enabled", c.downloads.enabled), 2),
+                (
+                    sw("Calendar heads-up", "calendar.enabled", c.calendar.enabled),
+                    2,
+                ),
+                (
+                    pick_i(
+                        "Heads-up lead",
+                        "calendar.lead_min",
+                        &[("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15)],
+                        c.calendar.lead_min as i64,
+                    ),
+                    -1,
+                ),
+                (sw("Resource alerts", "hog.enabled", c.hog.enabled), 2),
+                (
+                    pick_i(
+                        "Alert above CPU",
+                        "hog.cpu_pct",
+                        &[("50%", 50), ("70%", 70), ("85%", 85), ("95%", 95)],
+                        c.hog.cpu_pct as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Alert above memory",
+                        "hog.mem_mb",
+                        &[
+                            ("0.5 GB", 512),
+                            ("1 GB", 1024),
+                            ("2 GB", 2048),
+                            ("4 GB", 4096),
+                        ],
+                        c.hog.mem_mb as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "For at least",
+                        "hog.secs",
+                        &[("10 s", 10), ("30 s", 30), ("60 s", 60), ("2 min", 120)],
+                        c.hog.secs as i64,
+                    ),
+                    -1,
+                ),
+            ],
+        },
+        Section {
+            name: "Ports and shell",
+            rows: vec![
+                (
+                    sw("Show every server", "ports.show_all", c.ports.show_all),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Port check every",
+                        "ports.poll_secs",
+                        &[("2 s", 2), ("5 s", 5), ("10 s", 10), ("30 s", 30)],
+                        c.ports.poll_secs as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Show commands over",
+                        "shell.threshold_ms",
+                        &[("1 s", 1000), ("3 s", 3000), ("5 s", 5000), ("10 s", 10000)],
+                        c.shell.threshold_ms as i64,
+                    ),
+                    -1,
+                ),
+            ],
+        },
+    ]
+}
+
 impl Renderer {
     /// Renderer presenting through DirectComposition into `hwnd`, which must have been
     /// created with `WS_EX_NOREDIRECTIONBITMAP`.
@@ -533,6 +872,146 @@ impl Renderer {
             .borrow_mut()
             .retain(|k, _| fr.model.tasks.iter().any(|t| &t.id == k));
         std::mem::swap(hits, &mut *self.hits.borrow_mut());
+    }
+
+    /// Renderer for an ordinary window (the settings window), `w` x `h` device px.
+    pub fn new_for_window(hwnd: HWND, w: u32, h: u32) -> windows::core::Result<Self> {
+        let factory1: ID2D1Factory1 =
+            unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
+        let g = Gpu::new(&factory1, hwnd, w, h)?;
+        let mut r = Self::build(factory1, g.dc.cast()?, Some(g))?;
+        r.px = (w as i32, h as i32);
+        Ok(r)
+    }
+
+    /// The settings window was resized or moved to a monitor with another scale.
+    pub fn resize_window(&mut self, w: i32, h: i32, scale: f32) {
+        if let Some(g) = &self.gpu {
+            g.resize(w.max(1) as u32, h.max(1) as u32);
+        }
+        self.px = (w, h);
+        self.scale = scale;
+    }
+
+    /// Draw the big settings window: every setting in `settings_table`, scrolled by
+    /// `view.scroll`. Fills `hits` (unscrolled client-logical rects) and returns the height
+    /// of the content, so the caller can limit scrolling.
+    pub fn draw_settings_window(
+        &mut self,
+        cfg: &Config,
+        view: &SettingsView,
+        hits: &mut Vec<Hit>,
+    ) -> f32 {
+        const COL: f32 = 640.0;
+        let (w, h) = (self.px.0 as f32 / self.scale, self.px.1 as f32 / self.scale);
+        let x0 = ((w - COL) / 2.0).max(0.0);
+        let cw = COL.min(w);
+        self.hits.borrow_mut().clear();
+        self.mouse
+            .set(view.mouse.map(|(x, y)| (x, y + view.scroll)));
+        self.pressed.set(view.pressed);
+        self.light.set(view.light);
+        self.accent.set(view.accent);
+        self.focus.set(None);
+        self.focus_live.set(false);
+        self.ca.set(1.0);
+        self.ox.set(x0);
+        let (fg, bg) = if view.light {
+            (self.fg(), [0.955, 0.955, 0.965])
+        } else {
+            (self.fg(), [0.085, 0.09, 0.105])
+        };
+        let mut y = 22.0;
+        unsafe {
+            if !self.gpu.as_ref().is_none_or(|g| g.begin()) {
+                hits.clear();
+                return 0.0;
+            }
+            self.rt.BeginDraw();
+            self.rt.Clear(Some(&color(bg, 1.0)));
+            self.rt.SetTransform(&mat(self.scale, x0, -view.scroll));
+            self.text(
+                "Settings",
+                &self.f.big,
+                22.0,
+                y,
+                cw - 44.0,
+                34.0,
+                self.cc(fg, 1.0),
+            );
+            let hov = self.hit(cw - 22.0 - 132.0, y + 4.0, 132.0, 26.0, Action::OpenConfig);
+            self.fill_rr(
+                cw - 22.0 - 132.0,
+                y + 4.0,
+                132.0,
+                26.0,
+                13.0,
+                self.cc(fg, if hov { 0.12 } else { 0.07 }),
+            );
+            self.text(
+                "Open config.toml",
+                &self.f.btn,
+                cw - 22.0 - 132.0,
+                y + 4.0,
+                132.0,
+                26.0,
+                self.cc(fg, 0.9),
+            );
+            y += 46.0;
+            for sec in settings_table(cfg) {
+                y += 10.0;
+                self.text(
+                    &sec.name.to_uppercase(),
+                    &self.f.small,
+                    22.0,
+                    y,
+                    cw - 44.0,
+                    18.0,
+                    self.cc(self.accent.get(), 0.95),
+                );
+                y += 24.0;
+                let top = y;
+                let n = sec.rows.len() as f32;
+                self.fill_rr(
+                    10.0,
+                    top - 2.0,
+                    cw - 20.0,
+                    n * 32.0 + 4.0,
+                    14.0,
+                    self.cc(fg, 0.04),
+                );
+                for (row, _) in sec.rows {
+                    self.setting_row(row, y, cw);
+                    y += 32.0;
+                }
+                y += 6.0;
+            }
+            y += 8.0;
+            self.text(
+                concat!(
+                    "Hytte ",
+                    env!("CARGO_PKG_VERSION"),
+                    "  ·  lists, hotkey and folders live in config.toml"
+                ),
+                &self.f.small_c,
+                0.0,
+                y,
+                cw,
+                18.0,
+                self.cc(GRAY, 0.75),
+            );
+            y += 34.0;
+            let _ = h;
+            let ended = self.rt.EndDraw(None, None);
+            if let Some(g) = &self.gpu {
+                g.end();
+                if ended.is_err() || !g.present(1.0) {
+                    self.lost.set(true);
+                }
+            }
+        }
+        std::mem::swap(hits, &mut *self.hits.borrow_mut());
+        y
     }
 
     /// Show the frame with the window at screen position (x, y).
@@ -2984,7 +3463,7 @@ impl Renderer {
     /// rows. Each row is a switch or a short choice that writes `config.toml` on click.
     fn exp_settings(&self, fr: &Frame, w: f32, _h: f32) {
         use crate::ui_state::SETTINGS_GROUPS;
-        let (g, c) = (fr.cfg.general.clone(), fr.cfg);
+        let c = fr.cfg;
         let group = fr.model.settings.unwrap_or(0);
         let (fg, acc) = (self.fg(), self.accent.get());
         let back = Action::Settings(None);
@@ -3015,215 +3494,15 @@ impl Renderer {
             self.text(name, &self.f.btn, x, 10.0, seg, 26.0, self.cc(fg, a));
         }
 
-        type Choice = (&'static str, Val);
-        enum Row {
-            Switch(&'static str, &'static str, bool),
-            Pick(&'static str, &'static str, Vec<Choice>, usize),
-            /// Pill opacity slider, current value.
-            Opacity(f32),
-        }
-        let pick = |label, key, opts: Vec<Choice>, cur: &dyn Fn(&Val) -> bool| {
-            let i = opts.iter().position(|(_, v)| cur(v)).unwrap_or(0);
-            Row::Pick(label, key, opts, i)
-        };
-        fn is(s: &str) -> impl Fn(&Val) -> bool + '_ {
-            move |v| matches!(v, Val::S(x) if *x == s)
-        }
-        let rows = match group {
-            0 => vec![
-                pick(
-                    "Theme",
-                    "general.theme",
-                    vec![
-                        ("Dark", Val::S("dark")),
-                        ("Light", Val::S("light")),
-                        ("Auto", Val::S("auto")),
-                    ],
-                    &is(&g.theme),
-                ),
-                pick(
-                    "Hover delay",
-                    "general.hover_delay_ms",
-                    vec![
-                        ("Instant", Val::I(0)),
-                        ("0.2s", Val::I(200)),
-                        ("0.5s", Val::I(500)),
-                        ("1s", Val::I(1000)),
-                    ],
-                    &|v| {
-                        let s = g.hover_delay_ms as i64;
-                        let d = |x: i64| (x - s).abs();
-                        let Val::I(x) = v else { return false };
-                        [0, 200, 500, 1000].iter().all(|o| d(*x) <= d(*o))
-                    },
-                ),
-                Row::Opacity(g.pill_opacity),
-                // The nearest step to whatever the file says.
-                pick(
-                    "Glow",
-                    "general.glow_strength",
-                    vec![
-                        ("Off", Val::F(0.0)),
-                        ("Soft", Val::F(0.5)),
-                        ("Normal", Val::F(1.0)),
-                        ("Strong", Val::F(1.6)),
-                    ],
-                    &|v| {
-                        let s = g.glow_strength as f64;
-                        let d = |x: f64| (x - s).abs();
-                        let Val::F(x) = v else { return false };
-                        [0.0, 0.5, 1.0, 1.6].iter().all(|o| d(*x) <= d(*o))
-                    },
-                ),
-                Row::Switch("Album-art glow", "general.adaptive_glow", g.adaptive_glow),
-                pick(
-                    "Over fullscreen",
-                    "general.fullscreen",
-                    vec![
-                        ("Line", Val::S("line")),
-                        ("Hide", Val::S("hide")),
-                        ("Off", Val::S("off")),
-                    ],
-                    &is(&g.fullscreen),
-                ),
-                pick(
-                    "Screen",
-                    "general.monitor",
-                    vec![
-                        ("Primary", Val::S("primary")),
-                        ("Active", Val::S("active")),
-                        ("Cursor", Val::S("cursor")),
-                    ],
-                    &is(&g.monitor),
-                ),
-            ],
-            1 => vec![
-                Row::Switch("Start with Windows", "general.autostart", g.autostart),
-                Row::Switch(
-                    "Hide from screen capture",
-                    "general.hide_from_capture",
-                    g.hide_from_capture,
-                ),
-                pick(
-                    "Open on finish",
-                    "general.finish_peek_secs",
-                    vec![
-                        ("Off", Val::I(0)),
-                        ("3 s", Val::I(3)),
-                        ("5 s", Val::I(5)),
-                        ("10 s", Val::I(10)),
-                    ],
-                    &|v| matches!(v, Val::I(x) if *x == g.finish_peek_secs as i64),
-                ),
-                Row::Switch("Timer sound", "timer.sound", c.timer.sound),
-            ],
-            _ => vec![
-                Row::Switch("Downloads", "downloads.enabled", c.downloads.enabled),
-                Row::Switch(
-                    "Shelve screenshots",
-                    "shelf.screenshots",
-                    c.shelf.screenshots,
-                ),
-                Row::Switch("Calendar heads-up", "calendar.enabled", c.calendar.enabled),
-                Row::Switch("Resource alerts", "hog.enabled", c.hog.enabled),
-                Row::Switch("Update checks", "general.check_updates", g.check_updates),
-            ],
-        };
+        let rows: Vec<Row> = settings_table(c)
+            .into_iter()
+            .flat_map(|s| s.rows)
+            .filter(|(_, q)| *q == group as i8)
+            .map(|(r, _)| r)
+            .collect();
         let n = rows.len();
         for (i, row) in rows.into_iter().enumerate() {
-            let y = 46.0 + i as f32 * 32.0;
-            match row {
-                Row::Switch(label, key, on) => {
-                    let hov = self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
-                    if hov {
-                        self.fill_rr(10.0, y, w - 20.0, 30.0, 12.0, self.cc(fg, 0.05));
-                    }
-                    self.text(
-                        label,
-                        &self.f.body,
-                        22.0,
-                        y,
-                        w - 90.0,
-                        30.0,
-                        self.cc(fg, 0.9),
-                    );
-                    let (kx, ky) = (w - 22.0 - 34.0, y + 6.0);
-                    if on {
-                        self.fill_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(acc, 0.95));
-                        self.circle(kx + 25.0, ky + 9.0, 6.0, self.cc(self.ink(), 0.95));
-                    } else {
-                        self.stroke_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(fg, 0.4), 1.2, false);
-                        self.circle(kx + 9.0, ky + 9.0, 5.0, self.cc(fg, 0.7));
-                    }
-                }
-                Row::Opacity(v) => {
-                    self.text(
-                        "Opacity",
-                        &self.f.body,
-                        22.0,
-                        y,
-                        130.0,
-                        30.0,
-                        self.cc(fg, 0.9),
-                    );
-                    let (bx, bw, bh) = (w - 22.0 - 206.0 + 6.0, 194.0, 6.0);
-                    let by = y + 12.0;
-                    let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, Action::Opacity);
-                    self.fill_rr(
-                        bx,
-                        by,
-                        bw,
-                        bh,
-                        bh / 2.0,
-                        self.cc(fg, if hov { 0.12 } else { 0.08 }),
-                    );
-                    let f = ((v - 0.4) / 0.6).clamp(0.0, 1.0);
-                    self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
-                    self.circle(
-                        bx + 3.0 + (bw - 6.0) * f,
-                        by + bh / 2.0,
-                        6.5,
-                        self.cc(fg, 0.95),
-                    );
-                    if hov {
-                        let pct = format!("{}%", (v * 100.0).round());
-                        self.text(
-                            &pct,
-                            &self.f.small_r,
-                            bx,
-                            y - 6.0,
-                            bw,
-                            14.0,
-                            self.cc(fg, 0.8),
-                        );
-                    }
-                }
-                Row::Pick(label, key, opts, cur) => {
-                    self.text(label, &self.f.body, 22.0, y, 130.0, 30.0, self.cc(fg, 0.9));
-                    let (px, pw) = (w - 22.0 - 206.0, 206.0);
-                    self.fill_rr(px, y + 3.0, pw, 24.0, 12.0, self.cc(fg, 0.06));
-                    let sw = pw / opts.len() as f32;
-                    for (j, (name, v)) in opts.into_iter().enumerate() {
-                        let x = px + j as f32 * sw;
-                        let hov = self.hit(x, y + 3.0, sw, 24.0, Action::Set(key, v));
-                        let on = j == cur;
-                        if on {
-                            self.fill_rr(
-                                x + 2.0,
-                                y + 5.0,
-                                sw - 4.0,
-                                20.0,
-                                10.0,
-                                self.cc(acc, 0.26),
-                            );
-                        } else if hov {
-                            self.fill_rr(x + 2.0, y + 5.0, sw - 4.0, 20.0, 10.0, self.cc(fg, 0.07));
-                        }
-                        let a = if on || hov { 1.0 } else { 0.62 };
-                        self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
-                    }
-                }
-            }
+            self.setting_row(row, 46.0 + i as f32 * 32.0, w);
         }
         // Spare room at the bottom: where the rest of the settings live.
         if n < 5 {
@@ -3234,6 +3513,96 @@ impl Renderer {
             );
             let y = 46.0 + 4.0 * 32.0;
             self.text(note, &self.f.small_c, 0.0, y, w, 30.0, self.cc(GRAY, 0.75));
+        }
+    }
+
+    /// One settings row at `y`, `w` wide: a switch, a few choices or the opacity slider.
+    fn setting_row(&self, row: Row, y: f32, w: f32) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        match row {
+            Row::Switch(label, key, on) => {
+                let hov = self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
+                if hov {
+                    self.fill_rr(10.0, y, w - 20.0, 30.0, 12.0, self.cc(fg, 0.05));
+                }
+                self.text(
+                    label,
+                    &self.f.body,
+                    22.0,
+                    y,
+                    w - 90.0,
+                    30.0,
+                    self.cc(fg, 0.9),
+                );
+                let (kx, ky) = (w - 22.0 - 34.0, y + 6.0);
+                if on {
+                    self.fill_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(acc, 0.95));
+                    self.circle(kx + 25.0, ky + 9.0, 6.0, self.cc(self.ink(), 0.95));
+                } else {
+                    self.stroke_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(fg, 0.4), 1.2, false);
+                    self.circle(kx + 9.0, ky + 9.0, 5.0, self.cc(fg, 0.7));
+                }
+            }
+            Row::Opacity(v) => {
+                self.text(
+                    "Opacity",
+                    &self.f.body,
+                    22.0,
+                    y,
+                    130.0,
+                    30.0,
+                    self.cc(fg, 0.9),
+                );
+                let (bx, bw, bh) = (w - 22.0 - 206.0 + 6.0, 194.0, 6.0);
+                let by = y + 12.0;
+                let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, Action::Opacity);
+                self.fill_rr(
+                    bx,
+                    by,
+                    bw,
+                    bh,
+                    bh / 2.0,
+                    self.cc(fg, if hov { 0.12 } else { 0.08 }),
+                );
+                let f = ((v - 0.4) / 0.6).clamp(0.0, 1.0);
+                self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
+                self.circle(
+                    bx + 3.0 + (bw - 6.0) * f,
+                    by + bh / 2.0,
+                    6.5,
+                    self.cc(fg, 0.95),
+                );
+                if hov {
+                    let pct = format!("{}%", (v * 100.0).round());
+                    self.text(
+                        &pct,
+                        &self.f.small_r,
+                        bx,
+                        y - 6.0,
+                        bw,
+                        14.0,
+                        self.cc(fg, 0.8),
+                    );
+                }
+            }
+            Row::Pick(label, key, opts, cur) => {
+                self.text(label, &self.f.body, 22.0, y, 130.0, 30.0, self.cc(fg, 0.9));
+                let (px, pw) = (w - 22.0 - 206.0, 206.0);
+                self.fill_rr(px, y + 3.0, pw, 24.0, 12.0, self.cc(fg, 0.06));
+                let sw = pw / opts.len() as f32;
+                for (j, (name, v)) in opts.into_iter().enumerate() {
+                    let x = px + j as f32 * sw;
+                    let hov = self.hit(x, y + 3.0, sw, 24.0, Action::Set(key, v));
+                    let on = j == cur;
+                    if on {
+                        self.fill_rr(x + 2.0, y + 5.0, sw - 4.0, 20.0, 10.0, self.cc(acc, 0.26));
+                    } else if hov {
+                        self.fill_rr(x + 2.0, y + 5.0, sw - 4.0, 20.0, 10.0, self.cc(fg, 0.07));
+                    }
+                    let a = if on || hov { 1.0 } else { 0.62 };
+                    self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
+                }
+            }
         }
     }
 

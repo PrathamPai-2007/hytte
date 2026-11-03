@@ -86,7 +86,7 @@ impl Default for General {
             adaptive_glow: true,
             glow_strength: 1.2,
             pill_opacity: 1.0,
-            hover_delay_ms: 0,
+            hover_delay_ms: 200,
             hotkey: String::new(),
             theme: "dark".into(),
             fullscreen: "line".into(),
