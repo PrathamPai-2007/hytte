@@ -67,6 +67,8 @@ pub enum Action {
     AppVolume(String),
     /// The pill-opacity slider in settings: drag or click; saved on release.
     Opacity,
+    /// A section in the settings window's list: scroll to it.
+    Jump(usize),
     /// The chevron at the end of the volume bar: open / close the per-app list.
     ToggleApps,
     /// Keep-awake tile: off -> an hour -> on -> off.
@@ -101,12 +103,29 @@ pub enum Action {
 
 /// What the big settings window tells the renderer about the pointer and the scroll.
 pub struct SettingsView {
-    /// Pointer in client logical px (unscrolled).
+    /// Pointer in client logical px.
     pub mouse: Option<(f32, f32)>,
     pub pressed: bool,
     pub light: bool,
     pub accent: [f32; 3],
     pub scroll: f32,
+    /// The scroll bar was used or pointed at lately.
+    pub scrolling: bool,
+    /// Seconds since the last frame (drives the easing).
+    pub dt: f32,
+    /// 0 -> 1 over the first moments after the window opens.
+    pub open: f32,
+}
+
+/// What a settings-window frame laid out.
+#[derive(Default)]
+pub struct SettingsOut {
+    /// Height of everything, for limiting the scroll.
+    pub content: f32,
+    /// Where each section starts (content px), for the section list's jumps.
+    pub tops: Vec<f32>,
+    /// Something is still easing: draw another frame soon.
+    pub busy: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -198,6 +217,14 @@ pub struct Renderer {
     scale: f32,
     // per-frame scratch
     ca: Cell<f32>,
+    /// Settings window: the extra vertical offset hits are registered at (its scroll).
+    oy: Cell<f32>,
+    /// Settings window: animate (`ease`), the frame's time step, and whether a value is
+    /// still on its way (another frame is due).
+    fx: Cell<bool>,
+    fx_dt: Cell<f32>,
+    fx_busy: Cell<bool>,
+    fx_vals: RefCell<HashMap<String, f32>>,
     ox: Cell<f32>,
     t: Cell<f32>,
     mouse: Cell<Option<(f32, f32)>>,
@@ -270,6 +297,10 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> D2D_RECT_F {
 fn v(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
+fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t)
+}
+
 fn mat(s: f32, tx: f32, ty: f32) -> Matrix3x2 {
     Matrix3x2 {
         M11: s,
@@ -748,6 +779,11 @@ impl Renderer {
                 px: (0, 0),
                 scale: 1.0,
                 ca: Cell::new(1.0),
+                oy: Cell::new(0.0),
+                fx: Cell::new(false),
+                fx_dt: Cell::new(0.0),
+                fx_busy: Cell::new(false),
+                fx_vals: RefCell::new(HashMap::new()),
                 ox: Cell::new(0.0),
                 t: Cell::new(0.0),
                 mouse: Cell::new(None),
@@ -910,100 +946,110 @@ impl Renderer {
         self.scale = scale;
     }
 
-    /// Draw the big settings window: every setting in `settings_table`, scrolled by
-    /// `view.scroll`. Fills `hits` (unscrolled client-logical rects) and returns the height
-    /// of the content, so the caller can limit scrolling.
+    /// Draw the big settings window: a section list on the left (when there is room) and
+    /// every setting in `settings_table` on the right, scrolled by `view.scroll`. Fills `hits`
+    /// with where things are on screen.
     pub fn draw_settings_window(
         &mut self,
         cfg: &Config,
         view: &SettingsView,
         hits: &mut Vec<Hit>,
-    ) -> f32 {
-        const COL: f32 = 640.0;
+    ) -> SettingsOut {
+        const COL: f32 = 560.0;
+        const SIDE: f32 = 188.0;
+        const ROW: f32 = 34.0;
         let (w, h) = (self.px.0 as f32 / self.scale, self.px.1 as f32 / self.scale);
-        let x0 = ((w - COL) / 2.0).max(0.0);
-        let cw = COL.min(w);
+        let side = if w >= 720.0 { SIDE } else { 0.0 };
+        let cw = COL
+            .min(w - side - if side > 0.0 { 48.0 } else { 24.0 })
+            .max(280.0);
+        let x0 = side + ((w - side - cw) / 2.0).max(0.0);
         self.hits.borrow_mut().clear();
-        self.mouse
-            .set(view.mouse.map(|(x, y)| (x, y + view.scroll)));
+        self.mouse.set(view.mouse);
         self.pressed.set(view.pressed);
         self.light.set(view.light);
         self.accent.set(view.accent);
         self.focus.set(None);
         self.focus_live.set(false);
-        self.ca.set(1.0);
-        self.ox.set(x0);
-        let (fg, bg) = if view.light {
-            (self.fg(), [0.955, 0.955, 0.965])
+        self.fx.set(true);
+        self.fx_dt.set(view.dt);
+        self.fx_busy.set(false);
+        let (fg, acc) = (self.fg(), view.accent);
+        let bg = if view.light {
+            [0.955, 0.955, 0.965]
         } else {
-            (self.fg(), [0.085, 0.09, 0.105])
+            [0.085, 0.09, 0.105]
         };
-        let mut y = 22.0;
+        let sections = settings_table(cfg);
+        let mut tops: Vec<f32> = Vec::with_capacity(sections.len());
+        let mut y = if side > 0.0 { 30.0 } else { 74.0 };
         unsafe {
             if !self.gpu.as_ref().is_none_or(|g| g.begin()) {
                 hits.clear();
-                return 0.0;
+                return SettingsOut::default();
             }
             self.rt.BeginDraw();
             self.rt.Clear(Some(&color(bg, 1.0)));
+
+            // ---- content, scrolled
+            self.rt.SetTransform(&mat(self.scale, x0, 0.0));
+            self.ox.set(x0);
+            self.oy.set(-view.scroll);
             self.rt.SetTransform(&mat(self.scale, x0, -view.scroll));
-            self.text(
-                "Settings",
-                &self.f.big,
-                22.0,
-                y,
-                cw - 44.0,
-                34.0,
-                self.cc(fg, 1.0),
-            );
-            let hov = self.hit(cw - 22.0 - 132.0, y + 4.0, 132.0, 26.0, Action::OpenConfig);
-            self.fill_rr(
-                cw - 22.0 - 132.0,
-                y + 4.0,
-                132.0,
-                26.0,
-                13.0,
-                self.cc(fg, if hov { 0.12 } else { 0.07 }),
-            );
-            self.text(
-                "Open config.toml",
-                &self.f.btn,
-                cw - 22.0 - 132.0,
-                y + 4.0,
-                132.0,
-                26.0,
-                self.cc(fg, 0.9),
-            );
-            y += 46.0;
-            for sec in settings_table(cfg) {
-                y += 10.0;
+            if side == 0.0 {
+                self.ca.set(1.0);
+                self.text(
+                    "Settings",
+                    &self.f.big,
+                    22.0,
+                    20.0,
+                    cw - 200.0,
+                    34.0,
+                    self.cc(fg, 1.0),
+                );
+                self.open_button(cw - 22.0 - 132.0, 24.0, 132.0);
+            }
+            for (i, sec) in sections.into_iter().enumerate() {
+                // Each card eases in, one after the other, when the window opens.
+                let p = (view.open * 1.7 - i as f32 * 0.12).clamp(0.0, 1.0);
+                let p = 1.0 - (1.0 - p).powi(3);
+                self.ca.set(p);
+                let lift = (1.0 - p) * 14.0;
+                tops.push(y);
                 self.text(
                     &sec.name.to_uppercase(),
                     &self.f.small,
                     22.0,
-                    y,
+                    y + lift,
                     cw - 44.0,
                     18.0,
-                    self.cc(self.accent.get(), 0.95),
+                    self.cc(acc, 0.95),
                 );
-                y += 24.0;
-                let top = y;
+                let top = y + 24.0 + lift;
                 let n = sec.rows.len() as f32;
-                self.fill_rr(
-                    10.0,
-                    top - 2.0,
-                    cw - 20.0,
-                    n * 32.0 + 4.0,
+                let ch = n * ROW + 8.0;
+                self.fill_rr(0.0, top, cw, ch, 14.0, self.cc(fg, 0.045));
+                self.stroke_rr(
+                    0.5,
+                    top + 0.5,
+                    cw - 1.0,
+                    ch - 1.0,
                     14.0,
-                    self.cc(fg, 0.04),
+                    self.cc(fg, 0.07),
+                    1.0,
+                    false,
                 );
-                for (row, _) in sec.rows {
-                    self.setting_row(row, y, cw);
-                    y += 32.0;
+                let mut ry = top + 4.0;
+                for (k, (row, _)) in sec.rows.into_iter().enumerate() {
+                    if k > 0 {
+                        self.line((22.0, ry), (cw - 22.0, ry), self.cc(fg, 0.05), 1.0);
+                    }
+                    self.setting_row(row, ry + 2.0, cw);
+                    ry += ROW;
                 }
-                y += 6.0;
+                y += 24.0 + ch + 22.0;
             }
-            y += 8.0;
+            self.ca.set(1.0);
             self.text(
                 concat!(
                     "Hytte ",
@@ -1012,13 +1058,88 @@ impl Renderer {
                 ),
                 &self.f.small_c,
                 0.0,
-                y,
+                y - 6.0,
                 cw,
                 18.0,
                 self.cc(GRAY, 0.75),
             );
-            y += 34.0;
-            let _ = h;
+            y += 40.0;
+            let viewport = h;
+            let max = (y - viewport).max(0.0);
+            // A slim scroll bar, seen while it is being used or pointed at.
+            if max > 0.0 {
+                self.rt.SetTransform(&mat(self.scale, 0.0, 0.0));
+                self.ox.set(0.0);
+                self.oy.set(0.0);
+                let lit = self.ease("sb", view.scrolling as u8 as f32);
+                if lit > 0.01 {
+                    let th = (viewport * viewport / y).max(36.0);
+                    let ty = 4.0 + (view.scroll / max) * (viewport - th - 8.0);
+                    self.fill_rr(w - 9.0, ty, 4.0, th, 2.0, self.cc(fg, 0.28 * lit));
+                }
+            }
+
+            // ---- section list, fixed
+            if side > 0.0 {
+                self.rt.SetTransform(&mat(self.scale, 0.0, 0.0));
+                self.ox.set(0.0);
+                self.oy.set(0.0);
+                self.ca.set(1.0);
+                self.fill_rr(0.0, 0.0, side, h, 0.0, self.cc(fg, 0.03));
+                self.line((side, 0.0), (side, h), self.cc(fg, 0.06), 1.0);
+                self.text(
+                    "Settings",
+                    &self.f.big,
+                    24.0,
+                    22.0,
+                    side - 40.0,
+                    30.0,
+                    self.cc(fg, 1.0),
+                );
+                let active = tops
+                    .iter()
+                    .rposition(|t| *t <= view.scroll + 70.0)
+                    .unwrap_or(0);
+                let names: Vec<&str> = settings_table(cfg).iter().map(|s| s.name).collect();
+                let at = self.ease("nav", active as f32);
+                let ny = 74.0;
+                self.fill_rr(
+                    12.0,
+                    ny + at * 36.0,
+                    side - 24.0,
+                    32.0,
+                    10.0,
+                    self.cc(acc, 0.22),
+                );
+                for (i, name) in names.iter().enumerate() {
+                    let top = ny + i as f32 * 36.0;
+                    let hov = self.hit(12.0, top, side - 24.0, 32.0, Action::Jump(i));
+                    let hh = self.ease(&format!("nh:{i}"), (hov && i != active) as u8 as f32);
+                    if hh > 0.01 {
+                        self.fill_rr(12.0, top, side - 24.0, 32.0, 10.0, self.cc(fg, 0.06 * hh));
+                    }
+                    let a = if i == active { 1.0 } else { 0.62 + 0.3 * hh };
+                    self.text(
+                        name,
+                        &self.f.body,
+                        26.0,
+                        top,
+                        side - 40.0,
+                        32.0,
+                        self.cc(fg, a),
+                    );
+                }
+                self.open_button(12.0, h - 84.0, side - 24.0);
+                self.text(
+                    concat!("Hytte ", env!("CARGO_PKG_VERSION")),
+                    &self.f.small_c,
+                    0.0,
+                    h - 42.0,
+                    side,
+                    18.0,
+                    self.cc(GRAY, 0.75),
+                );
+            }
             let ended = self.rt.EndDraw(None, None);
             if let Some(g) = &self.gpu {
                 g.end();
@@ -1027,8 +1148,31 @@ impl Renderer {
                 }
             }
         }
+        self.oy.set(0.0);
+        self.fx.set(false);
         std::mem::swap(hits, &mut *self.hits.borrow_mut());
-        y
+        SettingsOut {
+            content: y,
+            tops,
+            busy: self.fx_busy.get(),
+        }
+    }
+
+    /// The "Open config.toml" button of the settings window.
+    fn open_button(&self, x: f32, y: f32, w: f32) {
+        let fg = self.fg();
+        let hov = self.hit(x, y, w, 30.0, Action::OpenConfig);
+        let h = self.ease("h:open", hov as u8 as f32);
+        self.fill_rr(x, y, w, 30.0, 15.0, self.cc(fg, 0.07 + 0.06 * h));
+        self.text(
+            "Open config.toml",
+            &self.f.btn,
+            x,
+            y,
+            w,
+            30.0,
+            self.cc(fg, 0.9),
+        );
     }
 
     /// Show the frame with the window at screen position (x, y).
@@ -1384,10 +1528,10 @@ impl Renderer {
 
     /// Register a clickable region (pill-relative); true when hovered.
     fn hit(&self, x: f32, y: f32, w: f32, h: f32, action: Action) -> bool {
-        let ox = self.ox.get();
+        let (ox, oy) = (self.ox.get(), self.oy.get());
         let index = self.hits.borrow().len();
         self.hits.borrow_mut().push(Hit {
-            rect: (x + ox, y, x + ox + w, y + h),
+            rect: (x + ox, y + oy, x + ox + w, y + oy + h),
             action,
         });
         if self.focus_live.get() && self.focus.get() == Some(index) {
@@ -1407,10 +1551,10 @@ impl Renderer {
 
     /// The pointer is over this pill-relative box (nothing is registered).
     fn over(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
-        let ox = self.ox.get();
-        self.mouse
-            .get()
-            .is_some_and(|(mx, my)| mx >= x + ox && mx <= x + ox + w && my >= y && my <= y + h)
+        let (ox, oy) = (self.ox.get(), self.oy.get());
+        self.mouse.get().is_some_and(|(mx, my)| {
+            mx >= x + ox && mx <= x + ox + w && my >= y + oy && my <= y + oy + h
+        })
     }
 
     /// Register a pressable region: (hovered, held down, the box shrunk 6 % while held).
@@ -3543,14 +3687,33 @@ impl Renderer {
         }
     }
 
+    /// `key`'s value eased towards `target` (settings window only: the pill's pane snaps).
+    /// The first sight of a key starts at the target, so nothing animates on open.
+    fn ease(&self, key: &str, target: f32) -> f32 {
+        if !self.fx.get() {
+            return target;
+        }
+        let mut m = self.fx_vals.borrow_mut();
+        let v = m.entry(key.to_string()).or_insert(target);
+        let k = 1.0 - (-self.fx_dt.get() * 16.0).exp();
+        *v += (target - *v) * k;
+        if (target - *v).abs() < 0.003 {
+            *v = target;
+        } else {
+            self.fx_busy.set(true);
+        }
+        *v
+    }
+
     /// One settings row at `y`, `w` wide: a switch, a few choices or the opacity slider.
     fn setting_row(&self, row: Row, y: f32, w: f32) {
         let (fg, acc) = (self.fg(), self.accent.get());
         match row {
             Row::Switch(label, key, on) => {
                 let hov = self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
-                if hov {
-                    self.fill_rr(10.0, y, w - 20.0, 30.0, 12.0, self.cc(fg, 0.05));
+                let h = self.ease(&format!("h:{key}"), hov as u8 as f32);
+                if h > 0.01 {
+                    self.fill_rr(10.0, y, w - 20.0, 30.0, 12.0, self.cc(fg, 0.06 * h));
                 }
                 self.text(
                     label,
@@ -3561,14 +3724,30 @@ impl Renderer {
                     30.0,
                     self.cc(fg, 0.9),
                 );
+                let t = self.ease(&format!("s:{key}"), on as u8 as f32);
                 let (kx, ky) = (w - 22.0 - 34.0, y + 6.0);
-                if on {
-                    self.fill_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(acc, 0.95));
-                    self.circle(kx + 25.0, ky + 9.0, 6.0, self.cc(self.ink(), 0.95));
-                } else {
-                    self.stroke_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(fg, 0.4), 1.2, false);
-                    self.circle(kx + 9.0, ky + 9.0, 5.0, self.cc(fg, 0.7));
+                if t < 0.99 {
+                    self.stroke_rr(
+                        kx,
+                        ky,
+                        34.0,
+                        18.0,
+                        9.0,
+                        self.cc(fg, 0.4 * (1.0 - t)),
+                        1.2,
+                        false,
+                    );
                 }
+                if t > 0.01 {
+                    self.fill_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(acc, 0.95 * t));
+                }
+                let knob = mix3(fg, self.ink(), t);
+                self.circle(
+                    kx + 9.0 + 16.0 * t,
+                    ky + 9.0,
+                    5.0 + t,
+                    self.cc(knob, 0.7 + 0.25 * t),
+                );
             }
             Row::Opacity(v) => {
                 self.text(
@@ -3576,57 +3755,57 @@ impl Renderer {
                     &self.f.body,
                     22.0,
                     y,
-                    130.0,
+                    100.0,
                     30.0,
                     self.cc(fg, 0.9),
                 );
+                let pct = format!("{}%", (v * 100.0).round());
+                self.text(&pct, &self.f.small, 84.0, y, 44.0, 30.0, self.cc(GRAY, 0.9));
                 let (bx, bw, bh) = (w - 22.0 - 206.0 + 6.0, 194.0, 6.0);
                 let by = y + 12.0;
                 let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, Action::Opacity);
-                self.fill_rr(
-                    bx,
-                    by,
-                    bw,
-                    bh,
-                    bh / 2.0,
-                    self.cc(fg, if hov { 0.12 } else { 0.08 }),
-                );
+                let h = self.ease("h:opacity", (hov || self.pressed.get() && hov) as u8 as f32);
+                self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(fg, 0.08 + 0.04 * h));
                 let f = ((v - 0.4) / 0.6).clamp(0.0, 1.0);
                 self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
                 self.circle(
                     bx + 3.0 + (bw - 6.0) * f,
                     by + bh / 2.0,
-                    6.5,
+                    6.5 + 1.5 * h,
                     self.cc(fg, 0.95),
                 );
-                if hov {
-                    let pct = format!("{}%", (v * 100.0).round());
-                    self.text(
-                        &pct,
-                        &self.f.small_r,
-                        bx,
-                        y - 6.0,
-                        bw,
-                        14.0,
-                        self.cc(fg, 0.8),
-                    );
-                }
             }
             Row::Pick(label, key, opts, cur) => {
-                self.text(label, &self.f.body, 22.0, y, 130.0, 30.0, self.cc(fg, 0.9));
+                self.text(label, &self.f.body, 22.0, y, 150.0, 30.0, self.cc(fg, 0.9));
                 let (px, pw) = (w - 22.0 - 206.0, 206.0);
                 self.fill_rr(px, y + 3.0, pw, 24.0, 12.0, self.cc(fg, 0.06));
                 let sw = pw / opts.len() as f32;
+                // The lit segment slides to the chosen one.
+                let at = self.ease(&format!("p:{key}"), cur as f32);
+                self.fill_rr(
+                    px + at * sw + 2.0,
+                    y + 5.0,
+                    sw - 4.0,
+                    20.0,
+                    10.0,
+                    self.cc(acc, 0.26),
+                );
                 for (j, (name, v)) in opts.into_iter().enumerate() {
                     let x = px + j as f32 * sw;
                     let hov = self.hit(x, y + 3.0, sw, 24.0, Action::Set(key, v));
                     let on = j == cur;
-                    if on {
-                        self.fill_rr(x + 2.0, y + 5.0, sw - 4.0, 20.0, 10.0, self.cc(acc, 0.26));
-                    } else if hov {
-                        self.fill_rr(x + 2.0, y + 5.0, sw - 4.0, 20.0, 10.0, self.cc(fg, 0.07));
+                    let h = self.ease(&format!("ph:{key}:{j}"), (hov && !on) as u8 as f32);
+                    if h > 0.01 {
+                        self.fill_rr(
+                            x + 2.0,
+                            y + 5.0,
+                            sw - 4.0,
+                            20.0,
+                            10.0,
+                            self.cc(fg, 0.07 * h),
+                        );
                     }
-                    let a = if on || hov { 1.0 } else { 0.62 };
+                    let a = if on { 1.0 } else { 0.62 + 0.38 * h };
                     self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
                 }
             }
@@ -4307,6 +4486,26 @@ mod snap {
             Ok(r)
         }
 
+        /// An offscreen renderer of an arbitrary size (the settings window).
+        fn offscreen_sized(w: i32, h: i32, scale: f32) -> windows::core::Result<Self> {
+            let factory1: ID2D1Factory1 =
+                unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
+            let dc = crate::gpu::offscreen(&factory1)?;
+            let mut r = Self::build(factory1, dc.cast()?, None)?;
+            r.px = (w, h);
+            r.scale = scale;
+            let size = D2D_SIZE_U {
+                width: w as u32,
+                height: h as u32,
+            };
+            unsafe {
+                let target =
+                    dc.CreateBitmap(size, None, 0, &bitmap_props(D2D1_BITMAP_OPTIONS_TARGET))?;
+                dc.SetTarget(&target);
+            }
+            Ok(r)
+        }
+
         /// The canvas as premultiplied BGRA rows.
         fn read_back(&self) -> Vec<u8> {
             let dc: ID2D1DeviceContext = self.rt.cast().unwrap();
@@ -4434,6 +4633,53 @@ mod snap {
             body_alpha: 1.0,
             ..Default::default()
         }
+    }
+
+    /// The settings window, light and dark, at the top, scrolled, and with the pointer on a row.
+    #[test]
+    #[ignore]
+    fn settings_window_snapshots() {
+        let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+        std::fs::create_dir_all(&dir).unwrap();
+        let (w, h, sc) = (860, 700, 1.0);
+        let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
+        let cfg = Config::default();
+        let shots: [(&str, bool, f32, Option<(f32, f32)>); 5] = [
+            ("settings-dark", false, 0.0, None),
+            ("settings-dark-hover", false, 0.0, Some((420.0, 150.0))),
+            ("settings-dark-scrolled", false, 640.0, None),
+            ("settings-light", true, 0.0, Some((560.0, 118.0))),
+            ("settings-narrow-light", true, 0.0, None),
+        ];
+        for (name, light, scroll, mouse) in shots {
+            let narrow = name.contains("narrow");
+            if narrow {
+                r = Renderer::offscreen_sized(560, 700, sc).unwrap();
+            }
+            let view = SettingsView {
+                mouse,
+                pressed: false,
+                light,
+                accent: BLUE,
+                scroll,
+                scrolling: scroll > 0.0,
+                dt: 0.016,
+                open: 1.0,
+            };
+            let mut hits = vec![];
+            // Twice: the first frame seeds the eased values, the second settles them.
+            r.draw_settings_window(&cfg, &view, &mut hits);
+            r.draw_settings_window(&cfg, &view, &mut hits);
+            let (pw, ph) = r.px;
+            let px = r.read_back();
+            let img = image::RgbImage::from_fn(pw as u32, ph as u32, |x, y| {
+                let i = ((y as i32 * pw + x as i32) * 4) as usize;
+                image::Rgb([px[i + 2], px[i + 1], px[i]])
+            });
+            img.save(dir.join(format!("{name}.png"))).unwrap();
+            SHOT.with(|v| v.borrow_mut().push(name.to_string()));
+        }
+        contact_sheet(&dir);
     }
 
     #[test]

@@ -1,15 +1,19 @@
-//! The big settings window: every switch, slider and step on one scrolling page.
+//! The big settings window: a section list and every switch, slider and step on one
+//! scrolling page.
 //!
 //! It is the pill's popout. It shares the pill's UI thread and message loop and draws with the
-//! same Direct2D renderer (`Renderer::draw_settings_window`). A change is written to
-//! `config.toml` and the pill picks it up through its config watcher, exactly as if the file
-//! had been edited by hand.
+//! same Direct2D renderer (`Renderer::draw_settings_window`), redrawing on input and, while
+//! anything eases (hover fades, the scroll, the first fade-in), on a 60 Hz timer that stops
+//! as soon as everything has settled. A change is written to `config.toml` and the pill picks
+//! it up through its config watcher, exactly as if the file had been edited by hand.
 
 use crate::config::{self, Config, Val};
 use crate::render::{Action, Hit, Renderer, SettingsView};
 use std::cell::RefCell;
+use std::time::{Duration, Instant};
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows::Win32::Graphics::Gdi::ValidateRect;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
@@ -19,6 +23,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+const T_ANIM: usize = 1;
+
 struct State {
     rend: Renderer,
     cfg: Config,
@@ -26,13 +32,19 @@ struct State {
     /// Pointer in client logical px.
     mouse: Option<(f32, f32)>,
     pressed: bool,
+    /// The scroll as drawn, and where it is heading (the wheel and the section list set it).
     scroll: f32,
+    target: f32,
     content: f32,
+    tops: Vec<f32>,
     /// Dragging the opacity slider: its hit box's left and right edges.
     scrub: Option<(f32, f32)>,
     tracking: bool,
     light: bool,
     accent: [f32; 3],
+    opened: Instant,
+    last_frame: Instant,
+    last_scroll: Instant,
 }
 
 thread_local! {
@@ -45,6 +57,19 @@ fn with<R>(f: impl FnOnce(&mut State, HWND) -> R, hwnd: HWND) -> Option<R> {
             .ok()
             .and_then(|mut g| g.as_mut().map(|s| f(s, hwnd)))
     })
+}
+
+/// Match the title bar to the theme.
+fn title_bar(hwnd: HWND, light: bool) {
+    let dark: i32 = (!light) as i32;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const i32 as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+    }
 }
 
 /// Open the window, or bring the one that is already open to the front.
@@ -79,8 +104,8 @@ pub fn open(cfg: &Config) {
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            (720.0 * s) as i32,
-            (800.0 * s) as i32,
+            (860.0 * s) as i32,
+            (700.0 * s) as i32,
             None,
             None,
             Some(hinst.into()),
@@ -104,6 +129,8 @@ pub fn open(cfg: &Config) {
             }
         };
         let (light, accent) = crate::window::look(&cfg.general.theme);
+        title_bar(hwnd, light);
+        let now = Instant::now();
         S.with(|c| {
             *c.borrow_mut() = Some(State {
                 rend,
@@ -112,11 +139,16 @@ pub fn open(cfg: &Config) {
                 mouse: None,
                 pressed: false,
                 scroll: 0.0,
+                target: 0.0,
                 content: 0.0,
+                tops: vec![],
                 scrub: None,
                 tracking: false,
                 light,
                 accent,
+                opened: now,
+                last_frame: now,
+                last_scroll: now - Duration::from_secs(10),
             })
         });
         with(redraw, hwnd);
@@ -133,6 +165,7 @@ pub fn refresh(cfg: &Config) {
                 if s.scrub.is_none() {
                     s.cfg = cfg.clone();
                     (s.light, s.accent) = crate::window::look(&cfg.general.theme);
+                    title_bar(hwnd, s.light);
                     redraw(s, hwnd);
                 }
             },
@@ -145,7 +178,11 @@ fn scale(hwnd: HWND) -> f32 {
     unsafe { GetDpiForWindow(hwnd) as f32 / 96.0 }
 }
 
+/// Draw a frame, then keep the 60 Hz timer going only while something is still moving.
 fn redraw(s: &mut State, hwnd: HWND) {
+    let now = Instant::now();
+    let dt = now.duration_since(s.last_frame).as_secs_f32().min(0.05);
+    s.last_frame = now;
     let sc = scale(hwnd);
     let mut r = RECT::default();
     unsafe {
@@ -153,26 +190,48 @@ fn redraw(s: &mut State, hwnd: HWND) {
     }
     let (cw, ch) = ((r.right - r.left).max(1), (r.bottom - r.top).max(1));
     s.rend.resize_window(cw, ch, sc);
-    s.scroll = s.scroll.clamp(0.0, (s.content - ch as f32 / sc).max(0.0));
+    let max = (s.content - ch as f32 / sc).max(0.0);
+    s.target = s.target.clamp(0.0, max);
+    s.scroll += (s.target - s.scroll) * (1.0 - (-dt * 14.0).exp());
+    if (s.target - s.scroll).abs() < 0.4 {
+        s.scroll = s.target;
+    }
+    let since_scroll = now.duration_since(s.last_scroll);
     let view = SettingsView {
         mouse: s.mouse,
         pressed: s.pressed,
         light: s.light,
         accent: s.accent,
         scroll: s.scroll,
+        scrolling: since_scroll < Duration::from_millis(900)
+            || s.mouse.is_some_and(|(x, _)| x > cw as f32 / sc - 16.0),
+        dt,
+        open: (now.duration_since(s.opened).as_secs_f32() / 0.5).min(1.0),
     };
-    s.content = s.rend.draw_settings_window(&s.cfg, &view, &mut s.hits);
+    let out = s.rend.draw_settings_window(&s.cfg, &view, &mut s.hits);
+    s.content = out.content;
+    s.tops = out.tops;
     if s.rend.lost() {
         // Device lost: a fresh renderer on the same window.
         if let Ok(n) = Renderer::new_for_window(hwnd, cw as u32, ch as u32) {
             s.rend = n;
         }
     }
+    let moving = out.busy
+        || s.scroll != s.target
+        || view.open < 1.0
+        || since_scroll < Duration::from_millis(1500);
+    unsafe {
+        if moving {
+            SetTimer(Some(hwnd), T_ANIM, 16, None);
+        } else {
+            let _ = KillTimer(Some(hwnd), T_ANIM);
+        }
+    }
 }
 
 fn hit_at(s: &State) -> Option<&Hit> {
     let (mx, my) = s.mouse?;
-    let my = my + s.scroll;
     s.hits
         .iter()
         .find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
@@ -216,6 +275,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             return LRESULT(0);
         }
         WM_SIZE => {
+            with(redraw, hwnd);
+            return LRESULT(0);
+        }
+        WM_TIMER if wparam.0 == T_ANIM => {
             with(redraw, hwnd);
             return LRESULT(0);
         }
@@ -272,7 +335,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             let delta = (wparam.0 >> 16) as i16 as f32;
             with(
                 |s, hwnd| {
-                    s.scroll -= delta / 120.0 * 56.0;
+                    s.target -= delta / 120.0 * 84.0;
+                    s.last_scroll = Instant::now();
                     redraw(s, hwnd);
                 },
                 hwnd,
@@ -314,6 +378,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     } else if let Some(a) = hit_at(s).map(|h| h.action.clone()) {
                         match a {
                             Action::Set(k, v) => set(s, k, v),
+                            Action::Jump(i) => {
+                                if let Some(t) = s.tops.get(i) {
+                                    s.target = (*t - 30.0).max(0.0);
+                                    s.last_scroll = Instant::now();
+                                }
+                            }
                             Action::OpenConfig => {
                                 let path = config::config_path();
                                 if !path.exists() {
@@ -346,6 +416,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             return LRESULT(1);
         }
         WM_DESTROY => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), T_ANIM);
+            }
             // Release the GPU objects here, on the UI thread, not at process exit.
             S.with(|c| drop(c.borrow_mut().take()));
             return LRESULT(0);
