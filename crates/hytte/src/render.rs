@@ -581,6 +581,23 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (sw("Remember between runs", "shelf.persist", sh.persist), -1),
                 (
+                    pick_i(
+                        "Screenshots stay",
+                        "shelf.screenshot_secs",
+                        &[("Keep", 0), ("30 s", 30), ("1 min", 60), ("5 min", 300)],
+                        sh.screenshot_secs as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    sw(
+                        "Delete screenshot after paste",
+                        "shelf.delete_after_paste",
+                        sh.delete_after_paste,
+                    ),
+                    -1,
+                ),
+                (
                     sw(
                         "Remove after dragging out",
                         "shelf.remove_after_drag",

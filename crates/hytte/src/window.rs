@@ -91,6 +91,7 @@ mod win {
     const T_TIMER: usize = 5;
     const T_TRIM: usize = 6;
     const T_GPU: usize = 7;
+    const T_SHOT: usize = 8;
     /// Idle this long (no frames) before the working set is trimmed.
     const TRIM_MS: u32 = 30_000;
     const COLLAPSE_MS: u32 = 300;
@@ -302,6 +303,13 @@ mod win {
         /// Hash of the last screenshot shelved from the clipboard: the Snipping Tool can
         /// announce one image more than once.
         last_snip: u64,
+        /// Clipboard sequence number when that screenshot was copied.
+        snip_seq: u32,
+        /// Screenshots on the shelf and when they arrived (they leave after
+        /// `[shelf] screenshot_secs`).
+        shots: Vec<(std::path::PathBuf, Instant)>,
+        /// The newest screenshot, waiting for a Ctrl+V (`[shelf] delete_after_paste`).
+        paste: Option<Paste>,
         /// Keep-awake is held (SetThreadExecutionState).
         awake_on: bool,
         /// Dragging on the volume bar or the media timeline: which, and its left and right
@@ -322,6 +330,21 @@ mod win {
             return Duration::ZERO;
         }
         Duration::from_millis(unsafe { GetTickCount() }.wrapping_sub(li.dwTime) as u64)
+    }
+
+    /// A screenshot that is deleted once it has been pasted: where it is, when to stop
+    /// waiting for a paste, whether Ctrl+V was already down, and when a paste is due.
+    struct Paste {
+        path: std::path::PathBuf,
+        until: Instant,
+        key_down: bool,
+        due: Option<Instant>,
+    }
+
+    /// Ctrl and V are both held right now.
+    fn ctrl_v_down() -> bool {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+        unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) < 0 && GetAsyncKeyState(0x56) < 0 }
     }
 
     thread_local! {
@@ -600,13 +623,12 @@ mod win {
                         });
                     }
                     UiEvent::ShelfStaged(staged) => {
-                        let n =
-                            crate::shelf::insert(&self.cfg.shelf, &mut self.model.shelf, staged);
-                        if n > 0 {
-                            self.save_shelf();
-                            self.model.peek(Panel::Shelf, now + Duration::from_secs(5));
-                            self.model.force_until = Some(now + Duration::from_secs(5));
-                            self.anim.squash();
+                        self.add_staged(staged, now);
+                    }
+                    UiEvent::Screenshot(it) => {
+                        let path = it.path.clone();
+                        if self.add_staged(vec![it], now) > 0 {
+                            self.track_shot(hwnd, path, now);
                         }
                     }
                     UiEvent::Thumb(id, bmp) => {
@@ -892,6 +914,107 @@ mod win {
                     None => crate::logging::line(&format!("hotkey {spec}: not understood")),
                 }
             }
+        }
+
+        /// Put staged items on the shelf and open it to show them.
+        fn add_staged(&mut self, staged: Vec<crate::shelf::ShelfItem>, now: Instant) -> usize {
+            let n = crate::shelf::insert(&self.cfg.shelf, &mut self.model.shelf, staged);
+            if n > 0 {
+                self.save_shelf();
+                self.model.peek(Panel::Shelf, now + Duration::from_secs(5));
+                self.model.force_until = Some(now + Duration::from_secs(5));
+                self.anim.squash();
+            }
+            n
+        }
+
+        /// A screenshot went on the shelf: it leaves after `screenshot_secs`, and with
+        /// `delete_after_paste` it is deleted once pasted.
+        fn track_shot(&mut self, hwnd: HWND, path: std::path::PathBuf, now: Instant) {
+            self.shots.push((path.clone(), now));
+            self.paste = self.cfg.shelf.delete_after_paste.then(|| Paste {
+                path,
+                until: now + Duration::from_secs(600),
+                key_down: ctrl_v_down(),
+                due: None,
+            });
+            self.arm_shots(hwnd);
+        }
+
+        fn arm_shots(&self, hwnd: HWND) {
+            let ms = if self.paste.is_some() && !self.gaming {
+                60
+            } else if !self.shots.is_empty() && self.cfg.shelf.screenshot_secs > 0 {
+                1000
+            } else {
+                0
+            };
+            if ms > 0 {
+                unsafe {
+                    SetTimer(Some(hwnd), T_SHOT, ms, None);
+                }
+            }
+        }
+
+        /// Take screenshots off the shelf that outstayed `screenshot_secs` or were pasted.
+        fn tick_shots(&mut self, hwnd: HWND) {
+            let now = Instant::now();
+            let life = Duration::from_secs(self.cfg.shelf.screenshot_secs);
+            let mut gone: Vec<std::path::PathBuf> = Vec::new();
+            if !life.is_zero() {
+                self.shots.retain(|(p, at)| {
+                    let old = now.duration_since(*at) >= life;
+                    if old {
+                        gone.push(p.clone());
+                    }
+                    !old
+                });
+            }
+            if !self.cfg.shelf.delete_after_paste
+                || self.paste.as_ref().is_some_and(|p| now >= p.until)
+            {
+                self.paste = None;
+            }
+            if let Some(p) = &mut self.paste {
+                if let Some(due) = p.due {
+                    // Pasted: give the target a moment to take the image, then delete.
+                    if now >= due {
+                        gone.push(p.path.clone());
+                        self.paste = None;
+                    }
+                } else if unsafe { GetClipboardSequenceNumber() } != self.snip_seq {
+                    // Something else was copied: that screenshot can't be pasted any more.
+                    self.paste = None;
+                } else if !self.gaming {
+                    let down = ctrl_v_down();
+                    if down && !p.key_down {
+                        p.due = Some(now + Duration::from_secs(2));
+                    }
+                    p.key_down = down;
+                }
+            }
+            if !gone.is_empty() {
+                for p in gone {
+                    // Only what is still on the shelf: a file the user dragged out is theirs.
+                    if let Some(id) = self
+                        .model
+                        .shelf
+                        .iter()
+                        .find(|i| i.owned && i.path == p)
+                        .map(|i| i.id)
+                    {
+                        crate::shelf::remove(&mut self.model.shelf, id);
+                        if self.model.shelf_sel == Some(id) {
+                            self.model.shelf_sel = None;
+                        }
+                    }
+                    self.shots.retain(|(q, _)| *q != p);
+                }
+                self.save_shelf();
+                self.layout();
+                self.after_model_change(hwnd);
+            }
+            self.arm_shots(hwnd);
         }
 
         fn save_shelf(&self) {
@@ -1433,10 +1556,11 @@ mod win {
             if std::mem::replace(&mut self.last_snip, hash) == hash {
                 return;
             }
+            self.snip_seq = unsafe { GetClipboardSequenceNumber() };
             let sh = self.shared.clone();
             std::thread::spawn(move || {
                 if let Some(it) = crate::shelf::stage_dib(&dib) {
-                    push_event(&sh, UiEvent::ShelfStaged(vec![it]));
+                    push_event(&sh, UiEvent::Screenshot(it));
                 }
             });
         }
@@ -1574,8 +1698,10 @@ mod win {
                 }
                 return;
             }
-            if self.model.panel() == Panel::Tasks && self.model.rows_hidden() != (0, 0) {
-                self.model.scroll_tasks(-steps.signum());
+            if self.hover
+                && self.model.panel() == Panel::Tasks
+                && self.model.scroll_tasks(-steps.signum())
+            {
                 return;
             }
             if self.model.timer_panel && self.model.timer.is_none() {
@@ -1819,6 +1945,9 @@ mod win {
                 gpu_retry: 0,
                 ringing: false,
                 last_snip: 0,
+                snip_seq: 0,
+                shots: Vec::new(),
+                paste: None,
                 awake_on: false,
                 scrub: None,
             };
@@ -2622,6 +2751,7 @@ mod win {
                         }
                     }
                     T_GPU => ui.rebuild_gpu(hwnd),
+                    T_SHOT => ui.tick_shots(hwnd),
                     T_FS => {
                         // Settled after a foreground change or move: stay above it,
                         // unless it is a game.

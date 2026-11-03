@@ -69,6 +69,8 @@ pub enum UiEvent {
     ShelfAdd(crate::drop::DropJob),
     /// Drop items whose file work (copies, snippets) finished on a worker thread.
     ShelfStaged(Vec<ShelfItem>),
+    /// A Snipping Tool screenshot saved as a PNG: shelved, and tracked for its short stay.
+    Screenshot(ShelfItem),
     Thumb(u64, Option<Arc<ArtBitmap>>),
     SetClipboard(String),
     DragEnter,
@@ -508,11 +510,13 @@ impl Model {
             }
         }
         let existing = self.tasks.iter().position(|t| t.id == s.task_id);
-        // Shell command that ended before the threshold, or was Ctrl-C'd: never shown.
-        if shell && terminal {
-            let hidden = existing
-                .map(|i| now < self.tasks[i].visible_after)
-                .unwrap_or(true);
+        // A command the user stopped (Ctrl+C, window closed) is not an error: never shown.
+        // A shell command that ended before the threshold is not shown either.
+        if terminal {
+            let hidden = shell
+                && existing
+                    .map(|i| now < self.tasks[i].visible_after)
+                    .unwrap_or(true);
             if hidden || is_interrupt(s.exit_code) {
                 if let Some(i) = existing {
                     self.tasks.remove(i);
@@ -648,6 +652,9 @@ impl Model {
         // A row that finished while the user was away starts its hold when they come back.
         let (away, back) = (self.away, self.back);
         let from = move |c: Instant| back.map_or(c, |b| b.max(c));
+        if self.visible_count() <= TASK_ROWS {
+            self.task_first = 0;
+        }
         self.tasks.retain(|t| match t.event {
             TaskEvent::Done => away || now.duration_since(from(t.changed)) < SUCCESS_HOLD,
             TaskEvent::Lost => away || now.duration_since(from(t.changed)) < LOST_HOLD,
@@ -819,11 +826,14 @@ impl Model {
         (first, n.saturating_sub(first + TASK_ROWS))
     }
 
-    /// Wheel over the task list: `by` rows down (negative = up).
-    pub fn scroll_tasks(&mut self, by: i32) {
+    /// Wheel over the task list: `by` rows down (negative = up). False when the list is
+    /// already at that end, so the wheel can page the panes instead.
+    pub fn scroll_tasks(&mut self, by: i32) -> bool {
         let max = self.visible_count().saturating_sub(TASK_ROWS) as i32;
         let first = self.task_first.min(max as usize) as i32;
-        self.task_first = (first + by).clamp(0, max) as usize;
+        let next = (first + by).clamp(0, max);
+        self.task_first = next as usize;
+        next != first
     }
 
     /// The task whose process started this server (it, or one of its ancestors, is the task's).
@@ -2096,7 +2106,8 @@ bang"
         }
         assert_eq!(m.rows().len(), 4);
         assert_eq!(m.rows_hidden(), (0, 3));
-        m.scroll_tasks(10);
+        assert!(m.scroll_tasks(10));
+        assert!(!m.scroll_tasks(1), "at the end: the wheel pages instead");
         assert_eq!(m.rows_hidden(), (3, 0));
         assert_eq!(m.rows().len(), 4);
         m.scroll_tasks(-1);

@@ -83,8 +83,11 @@ pub fn spawn_registry(
                         cwd: msg.cwd.clone(),
                         updated: Instant::now(),
                     };
+                    // Only a shell hook's pid is the terminal that stays; `hytte run` sends its own,
+                    // which exits right after reporting.
+                    let from_shell = msg.source.as_deref() == Some("shell");
                     match (msg.event, msg.pid) {
-                        (TaskEvent::Failed, Some(pid)) => {
+                        (TaskEvent::Failed, Some(pid)) if from_shell => {
                             ended.insert(msg.task_id.clone(), pid);
                         }
                         _ => {

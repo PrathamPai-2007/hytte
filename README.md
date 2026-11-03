@@ -261,6 +261,8 @@ ignore = ["vim", "nvim", "vi", "nano", "less", "more", "man", "ssh", "top", "hto
 [shelf]
 mode = "reference"             # "reference" points at your file, "copy" keeps its own copy
 max_items = 12
+screenshot_secs = 60           # screenshots leave the shelf after this long (0 = keep them)
+delete_after_paste = false     # delete a screenshot once you paste it (Ctrl+V)
 
 [ports]
 watch = [3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888]

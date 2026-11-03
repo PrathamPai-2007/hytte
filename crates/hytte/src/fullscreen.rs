@@ -67,6 +67,9 @@ pub struct Fg {
     pub frame: bool,
     /// Maximised.
     pub zoomed: bool,
+    /// A resizable window sitting on the top of the work area and reaching the pill's centre
+    /// line: a half of a split screen, or a quarter along the top.
+    pub snapped: bool,
     /// The desktop or taskbar is in front (or nothing is): never fullscreen.
     pub shell: bool,
     /// A tool, click-through or cloaked window (Game Bar, GPU / OEM overlays): says nothing
@@ -102,8 +105,9 @@ pub fn decide(cfg: &General, fg_exe: Option<&str>, fg: Fg) -> Option<Suppress> {
         } else {
             Suppress::Game
         }
-    } else if fg.covers || fg.zoomed {
+    } else if fg.covers || fg.zoomed || fg.snapped {
         // Maximised fills the work area: with a visible taskbar it doesn't cover the monitor.
+        // A snapped window is under the pill the same way.
         Suppress::Hide
     } else {
         Suppress::Show
@@ -147,7 +151,9 @@ pub fn evaluate(cfg: &General, pill_mon: isize) -> Option<Suppress> {
 #[cfg(windows)]
 mod win {
     use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows::Win32::Graphics::Dwm::{
+        DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+    };
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
@@ -242,7 +248,27 @@ mod win {
                 && r.right >= m.right - SLACK
                 && r.bottom >= m.bottom - SLACK;
             let has = |bits: u32| style & bits == bits;
+            // The visible box, without the invisible resize border the window rect includes.
+            let mut vis = RECT::default();
+            let vis_ok = DwmGetWindowAttribute(
+                fg,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                &mut vis as *mut RECT as *mut _,
+                std::mem::size_of::<RECT>() as u32,
+            )
+            .is_ok();
+            let vis = if vis_ok { vis } else { r };
+            let work = mi.rcWork;
+            let mid = (m.left + m.right) / 2;
+            // Resizable (a frameless Electron window included), as every snappable window is.
+            let snapped = has(WS_THICKFRAME.0)
+                && !IsZoomed(fg).as_bool()
+                && !covers
+                && vis.top <= work.top + SLACK * 2
+                && vis.left <= mid + SLACK
+                && vis.right >= mid - SLACK;
             super::Fg {
+                snapped,
                 covers,
                 caption: has(WS_CAPTION.0),
                 frame: has(WS_THICKFRAME.0) || (has(WS_DLGFRAME.0) && !has(WS_CAPTION.0)),
@@ -295,6 +321,27 @@ mod tests {
         assert_eq!(decide(&g, Some("explorer.exe"), desk), SHOW);
         g.deny_list = vec!["explorer.exe".into()];
         assert_eq!(decide(&g, Some("explorer.exe"), desk), GAME);
+    }
+
+    #[test]
+    fn a_snapped_window_gets_the_thin_line() {
+        let g = General::default();
+        let snapped = Fg {
+            snapped: true,
+            frame: true,
+            ..fg(false, false, true, false)
+        };
+        assert_eq!(decide(&g, Some("Code.exe"), snapped), HIDE);
+        // On another monitor it leaves this pill alone, like a maximised window.
+        let away = Fg {
+            same_monitor: false,
+            ..snapped
+        };
+        assert_eq!(decide(&g, Some("Code.exe"), away), SHOW);
+        // The allow list still wins.
+        let mut a = General::default();
+        a.allow_list = vec!["code.exe".into()];
+        assert_eq!(decide(&a, Some("Code.exe"), snapped), SHOW);
     }
 
     #[test]

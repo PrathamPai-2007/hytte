@@ -143,6 +143,10 @@ pub struct Shelf {
     pub remove_after_drag: bool,
     /// Put Snipping Tool screenshots (Win+Shift+S) on the shelf as they are copied.
     pub screenshots: bool,
+    /// Seconds a screenshot stays on the shelf before it is removed (0 = keep it).
+    pub screenshot_secs: u64,
+    /// Remove a screenshot from the shelf (and delete its copy) once it has been pasted.
+    pub delete_after_paste: bool,
 }
 impl Default for Shelf {
     fn default() -> Self {
@@ -152,6 +156,8 @@ impl Default for Shelf {
             persist: true,
             remove_after_drag: true,
             screenshots: true,
+            screenshot_secs: 60,
+            delete_after_paste: false,
         }
     }
 }
