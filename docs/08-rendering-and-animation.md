@@ -18,14 +18,14 @@ Hytte draws with **Direct2D** and **DirectWrite**: anti-aliased shapes, gradient
 
 ### Measured
 
-On the development machine (60 Hz display, `HYTTE_PERF=1`, a task starting and finishing repeatedly), frame cost p50:
+Frame cost p50 when each renderer was introduced (60 Hz display, `HYTTE_PERF=1`, a task starting and finishing repeatedly). These rows are a historical comparison from an earlier build and screen scaling; the current figures are in [section 12](12-performance.md#budgets).
 
 | Renderer | draw + present |
 |---|---|
 | layered window, GPU-backed DC target (the first version) | 6.5 ms |
 | layered window, software target (removed in 1.2.2) | 3.6 ms |
 | gpu (hardware device, before) | 0.9 ms |
-| gpu (WARP device, now) | 0.45 ms |
+| gpu (WARP device, when introduced) | 0.45 ms |
 
 ### A second renderer: the settings window
 

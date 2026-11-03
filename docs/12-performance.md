@@ -4,18 +4,18 @@ Hytte runs all day next to everything else on the machine, so its idle cost matt
 
 ## Budgets
 
-| Budget | Target | Last measured (release build) |
+| Budget | Target | Last measured (1.3.0 release build, default settings, a fresh data folder) |
 |---|---|---|
-| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.1 % (78 ms of CPU in 30 s) |
-| Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 10 MB private (committed) bytes; working set ≈ 3 MB after the 30 s trim, 43 MB peak at startup. 34 threads, 400 handles. |
+| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.5 to 0.7 % of one core (156 to 203 ms of CPU in 30 s, in two runs, on a PC with about 270 processes running) |
+| Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 11 MB private (committed) bytes; working set ≈ 43 MB at startup and ≈ 4 MB after the 30 s trim. 35 threads, about 410 handles. The trim only runs once nothing has been drawing for 30 s: with music playing it never did (a run with VLC playing stayed at 45 to 50 MB). |
 | Animation | Monitor refresh rate during transitions only | vsync-paced; parks when settled |
-| Frame cost while a spring moves | well under one refresh period | `gpu`: p50 ≈ 0.45 ms, p99 ≈ 1.0 ms (120 Hz display, WARP device). The first (layered-window) renderer took 6.5 / 10 ms. |
+| Frame cost while a spring moves | well under one refresh period | `gpu`: draw + present p50 ≈ 2.0 ms, p99 ≈ 2.5 to 5.8 ms, with a running task's spinner in the open pill (60 Hz display at 200 % scaling, WARP device; the draw alone is p50 ≈ 1.8 ms). A refresh period is 16.6 ms here. |
 
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`) for a smaller binary and less resident code.
 
 ### Why the GPU renderer uses WARP
 
-The pill is a few hundred pixels, so a real GPU has nothing to gain, but loading its user-mode driver is expensive. Measured on an AMD machine, idle, release build:
+The pill is a few hundred pixels, so a real GPU has nothing to gain, but loading its user-mode driver is expensive. Measured once, when the WARP device was introduced, on an AMD machine, idle, release build (a historical comparison; the current figures are in the table above):
 
 | `gpu` device | Private bytes | Threads | Handles | Frame cost p50 / p99 |
 |---|---|---|---|---|
@@ -24,7 +24,7 @@ The pill is a few hundred pixels, so a real GPU has nothing to gain, but loading
 
 The driver (`amdxx64.dll`) alone is ≈ 62 MB of mapped image and a pool of its own threads. WARP draws the same frames in about half the time and the same DirectComposition path. Frame pacing is unchanged (gap p50 8.3 ms, the display's 120 Hz).
 
-Measure it yourself: start the exe with an isolated `%APPDATA%`, wait 45 s, and read `PrivateMemorySize64` (the working set is small only because of the trim). For frame cost use `HYTTE_PERF=1` and run `hytte run -- ping -n 3 127.0.0.1` in a loop, which makes the pill expand and collapse.
+Measure it yourself: start the exe with an isolated `%APPDATA%`, wait 45 s, and read `PrivateMemorySize64` (the working set is small only because of the trim). Nothing may be playing, or the pill keeps drawing and never trims. For frame cost put `fullscreen = "off"` in that folder's `config.toml` (otherwise a maximised window in front hides the pill and no frames are drawn), then use `HYTTE_PERF=1` and run `hytte run -- ping -n 3 127.0.0.1` in a loop, which makes the pill expand and collapse.
 
 ## The rules
 
