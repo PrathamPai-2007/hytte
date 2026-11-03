@@ -73,10 +73,10 @@ Hytte only writes `config.toml` in three cases: creating it on first run (`confi
 | `open_on` | `"hover"` | `"hover"` opens when the pointer rests on the pill; `"click"` waits for a click on the closed pill. |
 | `pill_scale` | `1.0` | Size of the pill, `0.7` to `1.6`. |
 | `idle_opacity` | `1.0` | The idle pill (nothing to show) fades to this, `0.2` to `1.0`, until it is pointed at. |
-| `top_offset` | `0` | Gap between the top of the screen and the pill, `0` to `48` px. The gap is not part of the pill, so it cannot be hovered. |
+| `top_offset` | `0` | Gap between the top of the screen and the pill, `0` to `48` px. The strip above the pill belongs to the pill's window, so pointing at it opens the pill like pointing at the pill itself (and it takes clicks that would have gone to what is under it). |
 | `animation` | `"normal"` | `"calm"`, `"normal"` or `"snappy"`: how fast the pill moves. |
 | `start_panel` | `"last"` | The panel it opens on: `"last"` (the one you left), `"auto"` (what is happening, else the quick controls) or `"home"`. |
-| `quiet_hours` | `""` | No sounds (agent alerts, the timer alarm) inside this window, for example `"22:00-07:00"`; it may wrap past midnight. Empty = never. |
+| `quiet_hours` | `""` | No sounds (agent alerts, the timer alarm) inside this window, for example `"22:00-07:00"`; it may wrap past midnight. Empty = never. The settings window offers four presets and **Custom**, which writes the key into the file with a note above it and opens it. |
 | `task_rows` | `4` | Task rows shown before the list scrolls (`2` to `8`). |
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |

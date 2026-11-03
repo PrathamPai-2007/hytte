@@ -488,6 +488,48 @@ pub fn set(key: &str, v: Val) -> std::io::Result<Option<Config>> {
     Ok(parse(&next))
 }
 
+/// Make sure `key` is in config.toml with a comment above it saying what it takes, so
+/// "Custom" in the settings window lands the user on the line with its instructions. A value
+/// already there is kept (a new key is written as `v`), and so is a comment already there.
+pub fn ensure_noted(key: &str, v: Val, note: &str) -> std::io::Result<()> {
+    let path = config_path();
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| toml::to_string_pretty(&Config::default()).unwrap_or_default());
+    let Some((section, name)) = key.split_once('.') else {
+        return Ok(());
+    };
+    // A file with a mistake in it is left for the user to fix, not rewritten.
+    let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else {
+        return Ok(());
+    };
+    let Some(table) = doc
+        .entry(section)
+        .or_insert_with(toml_edit::table)
+        .as_table_like_mut()
+    else {
+        return Ok(());
+    };
+    if !table.contains_key(name) {
+        table.insert(name, toml_edit::value(toml_edit::Value::from(v)));
+    }
+    if let Some(mut k) = table.key_mut(name) {
+        let has_note = k
+            .leaf_decor()
+            .prefix()
+            .and_then(|p| p.as_str())
+            .is_some_and(|p| p.contains('#'));
+        if !has_note {
+            let lines: String = note.lines().map(|l| format!("# {l}\n")).collect();
+            k.leaf_decor_mut().set_prefix(format!("\n{lines}"));
+        }
+    }
+    let next = doc.to_string();
+    if next != text {
+        write_atomic(&path, &next)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn with_value(text: &str, key: &str, v: Val) -> Option<String> {
     let (section, name) = key.split_once('.')?;
     let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
@@ -715,5 +757,26 @@ mod tests {
         for bad in ["", "22:00", "25:00-07:00", "a-b", "22:00-"] {
             assert!(!in_quiet_hours(bad, at(23, 0)), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_note_goes_above_the_key_once() {
+        let mut doc: toml_edit::DocumentMut = "[general]\nquiet_hours = \"\"\n".parse().unwrap();
+        // The same edit `ensure_noted` makes, on text instead of the file.
+        for _ in 0..2 {
+            let t = doc["general"].as_table_like_mut().unwrap();
+            let mut k = t.key_mut("quiet_hours").unwrap();
+            let has = k
+                .leaf_decor()
+                .prefix()
+                .and_then(|p| p.as_str())
+                .is_some_and(|p| p.contains('#'));
+            if !has {
+                k.leaf_decor_mut().set_prefix("\n# how to\n");
+            }
+        }
+        let out = doc.to_string();
+        assert_eq!(out.matches("# how to").count(), 1, "{out}");
+        assert!(parse(&out).is_some());
     }
 }

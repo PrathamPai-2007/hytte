@@ -30,7 +30,7 @@ use windows_numerics::{Matrix3x2, Vector2};
 
 /// Logical canvas size (the window), pill hangs from the top centre.
 pub const CANVAS_W: f32 = 460.0;
-pub const CANVAS_H: f32 = 310.0;
+pub const CANVAS_H: f32 = 360.0;
 const HOT_ZONE_H: f32 = 40.0;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +69,8 @@ pub enum Action {
     Opacity,
     /// A section in the settings window's list: scroll to it.
     Jump(usize),
+    /// "Custom" on a setting only `config.toml` can hold: open the file at it (the hint id).
+    EditConfig(&'static str),
     /// The chevron at the end of the volume bar: open / close the per-app list.
     ToggleApps,
     /// Keep-awake tile: off -> an hour -> on -> off.
@@ -102,7 +104,7 @@ pub enum Action {
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.
-pub struct SettingsView {
+pub struct SettingsView<'a> {
     /// Pointer in client logical px.
     pub mouse: Option<(f32, f32)>,
     pub pressed: bool,
@@ -115,6 +117,8 @@ pub struct SettingsView {
     pub dt: f32,
     /// 0 -> 1 over the first moments after the window opens.
     pub open: f32,
+    /// A note shown over the bottom of the page, and how visible it is (0..1).
+    pub toast: Option<(&'a str, f32)>,
 }
 
 /// What a settings-window frame laid out.
@@ -219,6 +223,9 @@ pub struct Renderer {
     ca: Cell<f32>,
     /// Settings window: the extra vertical offset hits are registered at (its scroll).
     oy: Cell<f32>,
+    /// `[general] top_offset`: logical px between the top of the window and the pill. The
+    /// strip is part of the window, so pointing at it still reaches the pill.
+    gap: Cell<f32>,
     /// Settings window: animate (`ease`), the frame's time step, and whether a value is
     /// still on its way (another frame is due).
     fx: Cell<bool>,
@@ -384,6 +391,17 @@ type Choice = (&'static str, Val);
 pub enum Row {
     Switch(&'static str, &'static str, bool),
     Pick(&'static str, &'static str, Vec<Choice>, usize),
+    /// Steps plus a last "Custom" segment for a value only `config.toml` can hold: the
+    /// segment opens the file with a note (`Action::EditConfig(hint)`). `String` is what the
+    /// file holds when it is none of the steps (shown beside the label), empty otherwise.
+    PickCustom(
+        &'static str,
+        &'static str,
+        Vec<Choice>,
+        usize,
+        &'static str,
+        String,
+    ),
     /// Pill opacity slider, current value.
     Opacity(f32),
 }
@@ -407,6 +425,30 @@ fn pick_s(
         key,
         opts.iter().map(|(n, v)| (*n, Val::S(v))).collect(),
         i,
+    )
+}
+
+/// `pick_s` with a trailing "Custom" segment (see `Row::PickCustom`).
+fn pick_s_custom(
+    label: &'static str,
+    key: &'static str,
+    opts: &[(&'static str, &'static str)],
+    cur: &str,
+    hint: &'static str,
+) -> Row {
+    let found = opts.iter().position(|(_, v)| *v == cur);
+    let custom = if found.is_none() {
+        cur.to_string()
+    } else {
+        String::new()
+    };
+    Row::PickCustom(
+        label,
+        key,
+        opts.iter().map(|(n, v)| (*n, Val::S(v))).collect(),
+        found.unwrap_or(opts.len()),
+        hint,
+        custom,
     )
 }
 
@@ -560,7 +602,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     -1,
                 ),
                 (
-                    pick_s(
+                    pick_s_custom(
                         "Quiet hours",
                         "general.quiet_hours",
                         &[
@@ -570,6 +612,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                             ("Work", "09:00-17:00"),
                         ],
                         &g.quiet_hours,
+                        "general.quiet_hours",
                     ),
                     -1,
                 ),
@@ -873,6 +916,7 @@ impl Renderer {
                 scale: 1.0,
                 ca: Cell::new(1.0),
                 oy: Cell::new(0.0),
+                gap: Cell::new(0.0),
                 fx: Cell::new(false),
                 fx_dt: Cell::new(0.0),
                 fx_busy: Cell::new(false),
@@ -902,6 +946,11 @@ impl Renderer {
     /// A hovered label is scrolling: keep frames coming until the pointer leaves it.
     pub fn wants_frames(&self) -> bool {
         self.scrolling.get()
+    }
+
+    /// The gap above the pill, in logical px (see `gap`).
+    pub fn set_gap(&self, g: f32) {
+        self.gap.set(g);
     }
 
     /// True once the GPU device was lost (driver reset, adapter removed).
@@ -952,7 +1001,7 @@ impl Renderer {
     /// over a fullscreen video must not block the browser tabs around it.
     pub fn plan(&self, pw: f32, ph: f32, armed: bool, room: f32, glow: bool) -> Crop {
         let margin = if glow { 28.0 } else { 4.0 };
-        let (mut w, mut h) = (pw + 2.0 * (margin + room), ph + margin);
+        let (mut w, mut h) = (pw + 2.0 * (margin + room), ph + margin + self.gap.get());
         if armed {
             w = w.max(CANVAS_W);
             h = h.max(HOT_ZONE_H);
@@ -1002,7 +1051,7 @@ impl Renderer {
                     &*self.solid(color([0.0; 3], 0.008)),
                 );
             }
-            self.rt.SetTransform(&mat(self.scale, ox, 0.0));
+            self.rt.SetTransform(&mat(self.scale, ox, self.gap.get()));
             self.scene(fr, pw, ph);
             let ended = self.rt.EndDraw(None, None);
             if let Some(g) = &self.gpu {
@@ -1045,7 +1094,7 @@ impl Renderer {
     pub fn draw_settings_window(
         &mut self,
         cfg: &Config,
-        view: &SettingsView,
+        view: &SettingsView<'_>,
         hits: &mut Vec<Hit>,
     ) -> SettingsOut {
         const COL: f32 = 560.0;
@@ -1231,6 +1280,26 @@ impl Renderer {
                     side,
                     18.0,
                     self.cc(GRAY, 0.75),
+                );
+            }
+            // ---- a note over the bottom of the page
+            if let Some((text, a)) = view.toast {
+                self.rt.SetTransform(&mat(self.scale, 0.0, 0.0));
+                self.ox.set(0.0);
+                self.oy.set(0.0);
+                self.ca.set(a);
+                let (tx, tw, th) = (side + 24.0, w - side - 48.0, 64.0);
+                let ty = h - th - 24.0 + (1.0 - a) * 10.0;
+                self.fill_rr(tx, ty, tw, th, 14.0, color(mix3(bg, fg, 0.12), a));
+                self.fill_rr(tx, ty + 12.0, 3.0, th - 24.0, 1.5, self.cc(acc, 0.95));
+                self.text(
+                    text,
+                    &self.f.wrap,
+                    tx + 20.0,
+                    ty + 10.0,
+                    tw - 40.0,
+                    th - 20.0,
+                    self.cc(fg, 0.95),
                 );
             }
             let ended = self.rt.EndDraw(None, None);
@@ -3868,40 +3937,78 @@ impl Renderer {
                     self.cc(fg, 0.95),
                 );
             }
-            Row::Pick(label, key, opts, cur) => {
-                self.text(label, &self.f.body, 22.0, y, 150.0, 30.0, self.cc(fg, 0.9));
-                let (px, pw) = (w - 22.0 - 206.0, 206.0);
-                self.fill_rr(px, y + 3.0, pw, 24.0, 12.0, self.cc(fg, 0.06));
-                let sw = pw / opts.len() as f32;
-                // The lit segment slides to the chosen one.
-                let at = self.ease(&format!("p:{key}"), cur as f32);
+            Row::Pick(label, key, opts, cur) => self.pick_row(label, key, opts, cur, None, y, w),
+            Row::PickCustom(label, key, opts, cur, hint, shown) => {
+                self.pick_row(label, key, opts, cur, Some((hint, shown)), y, w)
+            }
+        }
+    }
+
+    /// Steps in a pill, the lit one sliding to the chosen step. With `custom`, one more
+    /// segment ("Custom") opens `config.toml` at the setting; it is lit, and the file's value
+    /// shown beside the label, when the value is none of the steps.
+    #[allow(clippy::too_many_arguments)]
+    fn pick_row(
+        &self,
+        label: &str,
+        key: &'static str,
+        opts: Vec<Choice>,
+        cur: usize,
+        custom: Option<(&'static str, String)>,
+        y: f32,
+        w: f32,
+    ) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        self.text(label, &self.f.body, 22.0, y, 150.0, 30.0, self.cc(fg, 0.9));
+        let extra = custom.is_some() as usize;
+        let pw = 206.0 + 40.0 * extra as f32;
+        let px = w - 22.0 - pw;
+        if let Some((_, shown)) = &custom {
+            if !shown.is_empty() {
+                self.text(
+                    shown,
+                    &self.f.small,
+                    108.0,
+                    y,
+                    px - 112.0,
+                    30.0,
+                    self.cc(GRAY, 0.9),
+                );
+            }
+        }
+        self.fill_rr(px, y + 3.0, pw, 24.0, 12.0, self.cc(fg, 0.06));
+        let sw = pw / (opts.len() + extra) as f32;
+        // The lit segment slides to the chosen one.
+        let at = self.ease(&format!("p:{key}"), cur as f32);
+        self.fill_rr(
+            px + at * sw + 2.0,
+            y + 5.0,
+            sw - 4.0,
+            20.0,
+            10.0,
+            self.cc(acc, 0.26),
+        );
+        let segments = opts
+            .into_iter()
+            .map(|(name, v)| (name, Action::Set(key, v)))
+            .chain(custom.map(|(hint, _)| ("Custom", Action::EditConfig(hint))));
+        for (j, (name, action)) in segments.enumerate() {
+            let x = px + j as f32 * sw;
+            let hov = self.hit(x, y + 3.0, sw, 24.0, action);
+            let on = j == cur;
+            let h = self.ease(&format!("ph:{key}:{j}"), (hov && !on) as u8 as f32);
+            if h > 0.01 {
                 self.fill_rr(
-                    px + at * sw + 2.0,
+                    x + 2.0,
                     y + 5.0,
                     sw - 4.0,
                     20.0,
                     10.0,
-                    self.cc(acc, 0.26),
+                    self.cc(fg, 0.07 * h),
                 );
-                for (j, (name, v)) in opts.into_iter().enumerate() {
-                    let x = px + j as f32 * sw;
-                    let hov = self.hit(x, y + 3.0, sw, 24.0, Action::Set(key, v));
-                    let on = j == cur;
-                    let h = self.ease(&format!("ph:{key}:{j}"), (hov && !on) as u8 as f32);
-                    if h > 0.01 {
-                        self.fill_rr(
-                            x + 2.0,
-                            y + 5.0,
-                            sw - 4.0,
-                            20.0,
-                            10.0,
-                            self.cc(fg, 0.07 * h),
-                        );
-                    }
-                    let a = if on { 1.0 } else { 0.62 + 0.38 * h };
-                    self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
-                }
             }
+            let a = if on { 1.0 } else { 0.62 + 0.38 * h };
+            self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
         }
     }
 
@@ -4738,7 +4845,9 @@ mod snap {
             for (row, _) in sec.rows {
                 let writes: Vec<(&str, Val)> = match row {
                     Row::Switch(_, k, _) => vec![(k, Val::B(true)), (k, Val::B(false))],
-                    Row::Pick(_, k, opts, _) => opts.into_iter().map(|(_, v)| (k, v)).collect(),
+                    Row::Pick(_, k, opts, _) | Row::PickCustom(_, k, opts, ..) => {
+                        opts.into_iter().map(|(_, v)| (k, v)).collect()
+                    }
                     Row::Opacity(_) => vec![("general.pill_opacity", Val::F(0.7))],
                 };
                 for (k, v) in writes {
@@ -4784,6 +4893,7 @@ mod snap {
                 scrolling: scroll > 0.0,
                 dt: 0.016,
                 open: 1.0,
+                toast: None,
             };
             let mut hits = vec![];
             // Twice: the first frame seeds the eased values, the second settles them.
@@ -4798,7 +4908,49 @@ mod snap {
             img.save(dir.join(format!("{name}.png"))).unwrap();
             SHOT.with(|v| v.borrow_mut().push(name.to_string()));
         }
+        // A custom quiet-hours value in the file, and the note "Custom" shows.
+        let mut custom = Config::default();
+        custom.general.quiet_hours = "22:30-06:00".into();
+        let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
+        let view = SettingsView {
+            mouse: None,
+            pressed: false,
+            light: false,
+            accent: BLUE,
+            scroll: 330.0,
+            scrolling: false,
+            dt: 0.016,
+            open: 1.0,
+            toast: Some(("In config.toml, under [general], set quiet_hours to your times as \"HH:MM-HH:MM\" (24-hour clock, may wrap past midnight), for example \"22:30-06:00\". Save the file and it applies.", 1.0)),
+        };
+        let mut hits = vec![];
+        r.draw_settings_window(&custom, &view, &mut hits);
+        r.draw_settings_window(&custom, &view, &mut hits);
+        let (pw, ph) = r.px;
+        let px = r.read_back();
+        image::RgbImage::from_fn(pw as u32, ph as u32, |x, y| {
+            let i = ((y as i32 * pw + x as i32) * 4) as usize;
+            image::Rgb([px[i + 2], px[i + 1], px[i]])
+        })
+        .save(dir.join("settings-custom.png"))
+        .unwrap();
+        SHOT.with(|v| v.borrow_mut().push("settings-custom".to_string()));
         contact_sheet(&dir);
+    }
+
+    /// The gap above the pill is part of the window: taller by that much, so pointing at the
+    /// strip still reaches the pill.
+    #[test]
+    fn the_gap_above_the_pill_is_inside_the_window() {
+        let r = Renderer::offscreen(2.0).unwrap();
+        let plain = r.plan(380.0, 100.0, false, 0.0, true);
+        r.set_gap(20.0);
+        let gapped = r.plan(380.0, 100.0, false, 0.0, true);
+        assert_eq!(gapped.clip.3 - plain.clip.3, 40);
+        assert_eq!(
+            gapped.clip.1, 0,
+            "the window region still starts at the top"
+        );
     }
 
     #[test]

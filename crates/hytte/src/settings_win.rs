@@ -24,6 +24,21 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const T_ANIM: usize = 1;
+/// How long a note stays over the page.
+const TOAST_SECS: f32 = 10.0;
+
+/// What "Custom" does for a setting that only `config.toml` can hold: the key, the note
+/// written above it in the file, and the shorter one shown over the window.
+fn custom(id: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    match id {
+        "general.quiet_hours" => Some((
+            "general.quiet_hours",
+            "Quiet hours: no sounds (agent alerts, the timer alarm) between these times.\nWrite them as \"HH:MM-HH:MM\" on a 24-hour clock; the window may wrap past midnight,\nfor example \"22:30-06:00\". Leave it empty (\"\") for no quiet hours.",
+            "In config.toml, under [general], set quiet_hours to your times as \"HH:MM-HH:MM\" (24-hour clock, may wrap past midnight), for example \"22:30-06:00\". Save the file and it applies.",
+        )),
+        _ => None,
+    }
+}
 
 struct State {
     rend: Renderer,
@@ -45,6 +60,8 @@ struct State {
     opened: Instant,
     last_frame: Instant,
     last_scroll: Instant,
+    /// A note over the page (what "Custom" asked for) and when it appeared.
+    toast: Option<(String, Instant)>,
 }
 
 thread_local! {
@@ -149,6 +166,7 @@ pub fn open(cfg: &Config) {
                 opened: now,
                 last_frame: now,
                 last_scroll: now - Duration::from_secs(10),
+                toast: None,
             })
         });
         with(redraw, hwnd);
@@ -174,6 +192,15 @@ pub fn refresh(cfg: &Config) {
     }
 }
 
+/// Open `config.toml` in the user's editor (creating it first when it isn't there yet).
+fn open_config(cfg: &Config) {
+    let path = config::config_path();
+    if !path.exists() {
+        let _ = config::save(cfg);
+    }
+    let _ = std::process::Command::new("explorer").arg(&path).spawn();
+}
+
 fn scale(hwnd: HWND) -> f32 {
     unsafe { GetDpiForWindow(hwnd) as f32 / 96.0 }
 }
@@ -197,6 +224,19 @@ fn redraw(s: &mut State, hwnd: HWND) {
         s.scroll = s.target;
     }
     let since_scroll = now.duration_since(s.last_scroll);
+    let toast_age = s
+        .toast
+        .as_ref()
+        .map(|(_, at)| now.duration_since(*at).as_secs_f32());
+    if toast_age.is_some_and(|a| a > TOAST_SECS) {
+        s.toast = None;
+    }
+    let toast = s.toast.as_ref().zip(toast_age).map(|((t, _), a)| {
+        (
+            t.as_str(),
+            (a / 0.2).min(1.0).min(((TOAST_SECS - a) / 0.5).max(0.0)),
+        )
+    });
     let view = SettingsView {
         mouse: s.mouse,
         pressed: s.pressed,
@@ -207,6 +247,7 @@ fn redraw(s: &mut State, hwnd: HWND) {
             || s.mouse.is_some_and(|(x, _)| x > cw as f32 / sc - 16.0),
         dt,
         open: (now.duration_since(s.opened).as_secs_f32() / 0.5).min(1.0),
+        toast,
     };
     let out = s.rend.draw_settings_window(&s.cfg, &view, &mut s.hits);
     s.content = out.content;
@@ -220,6 +261,7 @@ fn redraw(s: &mut State, hwnd: HWND) {
     let moving = out.busy
         || s.scroll != s.target
         || view.open < 1.0
+        || s.toast.is_some()
         || since_scroll < Duration::from_millis(1500);
     unsafe {
         if moving {
@@ -384,12 +426,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                                     s.last_scroll = Instant::now();
                                 }
                             }
-                            Action::OpenConfig => {
-                                let path = config::config_path();
-                                if !path.exists() {
-                                    let _ = config::save(&s.cfg);
+                            Action::EditConfig(id) => {
+                                if let Some((key, note, toast)) = custom(id) {
+                                    let _ = config::ensure_noted(key, Val::S(""), note);
+                                    open_config(&s.cfg);
+                                    s.toast = Some((toast.to_string(), Instant::now()));
                                 }
-                                let _ = std::process::Command::new("explorer").arg(&path).spawn();
+                            }
+                            Action::OpenConfig => {
+                                open_config(&s.cfg);
                             }
                             _ => {}
                         }

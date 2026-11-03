@@ -235,7 +235,7 @@ The everyday settings are in the pill: the **gear** next to the volume bar on Ho
   <img src="docs/img/settings-pane.png" alt="The settings pane inside the pill" width="420">
 </p>
 
-The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, the gap from the top, motion speed, which panel it opens on, quiet hours for sounds, how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
+The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, the gap from the top, motion speed, which panel it opens on, quiet hours for sounds (presets, or **Custom** to open `config.toml` at the setting with instructions), how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
 
 <p align="center">
   <img src="docs/img/settings-window.png" alt="The settings window, dark" width="560">

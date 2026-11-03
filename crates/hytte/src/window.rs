@@ -405,12 +405,17 @@ mod win {
             let (sx, sy) = self.mouse?;
             Some((
                 (sx - self.origin.0) as f32 / self.scale,
-                (sy - self.origin.1) as f32 / self.scale,
+                (sy - self.origin.1) as f32 / self.scale - self.gap(),
             ))
         }
 
         fn set_mouse_client(&mut self, lparam: LPARAM) {
             self.mouse = Some((self.origin.0 + lo(lparam), self.origin.1 + hi(lparam)));
+        }
+
+        /// `[general] top_offset` in logical px: the strip above the pill.
+        fn gap(&self) -> f32 {
+            self.cfg.general.top_offset.min(48) as f32
         }
 
         fn pill_contains(&self) -> bool {
@@ -420,10 +425,12 @@ mod win {
             let pw = self.anim.rect.w.pos as f32;
             let ph = (self.anim.rect.h.pos as f32).max(6.0);
             let ox = (self.crop_w - pw) / 2.0;
-            mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph
+            // The strip above the pill counts, so the gap is as easy to hover as the pill.
+            mx >= ox && mx <= ox + pw && my >= -self.gap() && my <= ph
         }
 
         fn crop(&self) -> Crop {
+            self.rend.set_gap(self.gap());
             self.rend.plan(
                 self.anim.rect.w.pos as f32,
                 self.anim.rect.h.pos as f32,
@@ -439,8 +446,7 @@ mod win {
 
         fn origin_for(&self, crop: Crop) -> (i32, i32) {
             let mon_w = self.mon.2 - self.mon.0;
-            let gap = (self.cfg.general.top_offset.min(48) as f32 * self.scale) as i32;
-            (self.mon.0 + (mon_w - crop.w_px) / 2, self.mon.1 + gap)
+            (self.mon.0 + (mon_w - crop.w_px) / 2, self.mon.1)
         }
 
         /// The monitor the pill should hang from, per `[general] monitor`: "active" is the one
@@ -1399,7 +1405,7 @@ mod win {
                 Action::TimerClose => self.model.timer_panel = false,
                 Action::Settings(g) => self.model.settings = g,
                 // Dragged: handled by `scrub_to`.
-                Action::Opacity | Action::Jump(_) => {}
+                Action::Opacity | Action::Jump(_) | Action::EditConfig(_) => {}
                 Action::Set(key, v) => match crate::config::set(key, v) {
                     Ok(Some(cfg)) => self.apply_config(cfg),
                     Ok(None) => {
