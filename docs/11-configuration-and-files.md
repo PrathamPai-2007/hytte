@@ -43,7 +43,7 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 | `[general] hotkey` | The old hotkey is unregistered and the new one registered. |
 | `[general] hide_from_capture` | `SetWindowDisplayAffinity` is called again. |
 | `[general] monitor` | `refresh_monitor` moves the pill. |
-| `[general] theme`, `adaptive_glow`, `glow_strength` | Re-read; the next frame uses them. |
+| `[general] theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `pill_scale`, `idle_opacity`, `top_offset`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `quiet_hours`, `task_rows` | Re-read; the next frame uses them. |
 | `[timer] rounds` | The running Focus cycle shows the new number of dots. |
 | `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
 | `[hog]` | `ports::reconfigure_hog` hands them to the same thread, used from the next tick. |
@@ -67,6 +67,17 @@ Hytte only writes `config.toml` in three cases: creating it on first run (`confi
 | `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) or `"cursor"` (the monitor under the pointer). `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
 | `theme` | `"dark"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
 | `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. |
+| `pill_opacity` | `1.0` | Opacity of the pill's body, `0.4` to `1.0`. Text and icons stay solid. Applies live. |
+| `hover_delay_ms` | `200` | How long the pointer must rest on the pill (or the sentinel line) before it opens; `0` opens at once. |
+| `collapse_delay_ms` | `300` | How long the pill stays open after the pointer leaves it. |
+| `open_on` | `"hover"` | `"hover"` opens when the pointer rests on the pill; `"click"` waits for a click on the closed pill. |
+| `pill_scale` | `1.0` | Size of the pill, `0.7` to `1.6`. |
+| `idle_opacity` | `1.0` | The idle pill (nothing to show) fades to this, `0.2` to `1.0`, until it is pointed at. |
+| `top_offset` | `0` | Gap between the top of the screen and the pill, `0` to `48` px. The gap is not part of the pill, so it cannot be hovered. |
+| `animation` | `"normal"` | `"calm"`, `"normal"` or `"snappy"`: how fast the pill moves. |
+| `start_panel` | `"last"` | The panel it opens on: `"last"` (the one you left), `"auto"` (what is happening, else the quick controls) or `"home"`. |
+| `quiet_hours` | `""` | No sounds (agent alerts, the timer alarm) inside this window, for example `"22:00-07:00"`; it may wrap past midnight. Empty = never. |
+| `task_rows` | `4` | Task rows shown before the list scrolls (`2` to `8`). |
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `fullscreen` | `"line"` | Over a maximised window (whether or not the taskbar auto-hides), or a fullscreen browser / media player: `"line"` shrinks to a 3 px bar, `"hide"` fades out completely, `"off"` stays as usual. Real fullscreen apps (games) always hide fully ([section 7](07-window-and-input.md#fullscreen-suppression)), except with `"off"`. Settings from before 1.2.2 (`suppress_fullscreen = false`, `fullscreen_mode = "hide"`) are read as `"off"` / `"hide"`. |
@@ -92,6 +103,8 @@ Hytte only writes `config.toml` in three cases: creating it on first run (`confi
 | `max_items` | `12` | Maximum tiles on the shelf. |
 | `persist` | `true` | Save the shelf to `shelf.json` and restore it at startup. |
 | `remove_after_drag` | `true` | Remove a tile after it has been dragged out successfully. |
+| `screenshot_secs` | `60` | A screenshot leaves the shelf (and its PNG is deleted) after this many seconds; `0` keeps it. Applies to screenshots taken while Hytte runs. |
+| `delete_after_paste` | `false` | Delete a screenshot about two seconds after you paste it with Ctrl+V while it is still on the clipboard. Only Hytte's own copy is deleted, and only while it is still on the shelf. |
 | `screenshots` | `true` | A screenshot the Snipping Tool copies (Win+Shift+S) goes on the shelf as a PNG in `%APPDATA%\Hytte\shelf\` (`WM_CLIPBOARDUPDATE`, clipboard owner `SnippingTool.exe` or `ScreenClippingHost.exe`). Images other apps copy are left alone; nothing is shelved in game mode or while paused. Applies live. |
 
 ### `[ports]`

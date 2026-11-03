@@ -463,7 +463,66 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     ),
                     0,
                 ),
+                (
+                    pick_s(
+                        "Open on",
+                        "general.open_on",
+                        &[("Hover", "hover"), ("Click", "click")],
+                        &g.open_on,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Close delay",
+                        "general.collapse_delay_ms",
+                        &[("Quick", 100), ("0.3s", 300), ("0.6s", 600), ("1s", 1000)],
+                        g.collapse_delay_ms as i64,
+                    ),
+                    -1,
+                ),
                 (Row::Opacity(g.pill_opacity), 0),
+                (
+                    pick_f(
+                        "Idle opacity",
+                        "general.idle_opacity",
+                        &[("Full", 1.0), ("High", 0.75), ("Low", 0.5), ("Faint", 0.3)],
+                        g.idle_opacity as f64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_f(
+                        "Size",
+                        "general.pill_scale",
+                        &[
+                            ("Small", 0.85),
+                            ("Normal", 1.0),
+                            ("Large", 1.2),
+                            ("XL", 1.4),
+                        ],
+                        g.pill_scale as f64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Gap from top",
+                        "general.top_offset",
+                        &[("None", 0), ("4 px", 4), ("10 px", 10), ("20 px", 20)],
+                        g.top_offset as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_s(
+                        "Motion",
+                        "general.animation",
+                        &[("Calm", "calm"), ("Normal", "normal"), ("Snappy", "snappy")],
+                        &g.animation,
+                    ),
+                    -1,
+                ),
                 (
                     pick_f(
                         "Glow",
@@ -490,6 +549,29 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 (
                     sw("Start with Windows", "general.autostart", g.autostart),
                     1,
+                ),
+                (
+                    pick_s(
+                        "Opens on",
+                        "general.start_panel",
+                        &[("Last", "last"), ("Active", "auto"), ("Home", "home")],
+                        &g.start_panel,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_s(
+                        "Quiet hours",
+                        "general.quiet_hours",
+                        &[
+                            ("Off", ""),
+                            ("Night", "22:00-07:00"),
+                            ("Late", "00:00-08:00"),
+                            ("Work", "09:00-17:00"),
+                        ],
+                        &g.quiet_hours,
+                    ),
+                    -1,
                 ),
                 (
                     pick_s(
@@ -580,14 +662,25 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
         },
         Section {
             name: "Agents",
-            rows: vec![(
-                sw(
-                    "Sound when an agent needs you",
-                    "agent.sound",
-                    c.agent.sound,
+            rows: vec![
+                (
+                    pick_i(
+                        "Task rows",
+                        "general.task_rows",
+                        &[("3", 3), ("4", 4), ("6", 6), ("8", 8)],
+                        g.task_rows as i64,
+                    ),
+                    -1,
                 ),
-                -1,
-            )],
+                (
+                    sw(
+                        "Sound when an agent needs you",
+                        "agent.sound",
+                        c.agent.sound,
+                    ),
+                    -1,
+                ),
+            ],
         },
         Section {
             name: "Shelf",
@@ -4635,6 +4728,33 @@ mod snap {
         }
     }
 
+    /// Every row of the settings table writes a key that `config.toml` accepts, and the file
+    /// still parses afterwards (a typo in a key would silently write nothing useful).
+    #[test]
+    fn settings_rows_write_valid_config() {
+        let cfg = Config::default();
+        let mut keys = std::collections::HashSet::new();
+        for sec in settings_table(&cfg) {
+            for (row, _) in sec.rows {
+                let writes: Vec<(&str, Val)> = match row {
+                    Row::Switch(_, k, _) => vec![(k, Val::B(true)), (k, Val::B(false))],
+                    Row::Pick(_, k, opts, _) => opts.into_iter().map(|(_, v)| (k, v)).collect(),
+                    Row::Opacity(_) => vec![("general.pill_opacity", Val::F(0.7))],
+                };
+                for (k, v) in writes {
+                    keys.insert(k);
+                    let text = crate::config::with_value("", k, v).expect(k);
+                    assert!(crate::config::parse(&text).is_some(), "{k} broke the file");
+                    let leaf = k.rsplit('.').next().unwrap();
+                    assert!(text.contains(leaf), "{k} wrote nothing: {text}");
+                }
+            }
+        }
+        // No key twice in the table (a row would fight another).
+        let rows: usize = settings_table(&cfg).iter().map(|s| s.rows.len()).sum();
+        assert_eq!(keys.len(), rows);
+    }
+
     /// The settings window, light and dark, at the top, scrolled, and with the pointer on a row.
     #[test]
     #[ignore]
@@ -4644,7 +4764,8 @@ mod snap {
         let (w, h, sc) = (860, 700, 1.0);
         let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
         let cfg = Config::default();
-        let shots: [(&str, bool, f32, Option<(f32, f32)>); 5] = [
+        type Shot = (&'static str, bool, f32, Option<(f32, f32)>);
+        let shots: [Shot; 5] = [
             ("settings-dark", false, 0.0, None),
             ("settings-dark-hover", false, 0.0, Some((420.0, 150.0))),
             ("settings-dark-scrolled", false, 640.0, None),

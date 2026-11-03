@@ -20,6 +20,25 @@ pub struct General {
     pub pill_opacity: f32,
     /// How long the pointer must rest on the pill (or sentinel) before it opens, in ms. 0 = at once.
     pub hover_delay_ms: u32,
+    /// How long the pill stays open after the pointer leaves it, in ms.
+    pub collapse_delay_ms: u32,
+    /// "hover" opens the pill when the pointer rests on it; "click" waits for a click.
+    pub open_on: String,
+    /// Size of the pill, 0.7..1.6 (1.0 = as designed).
+    pub pill_scale: f32,
+    /// Opacity of the idle pill (nothing to show) until it is pointed at, 0.2..1.0.
+    pub idle_opacity: f32,
+    /// Gap between the top of the screen and the pill, in px (0..48).
+    pub top_offset: u32,
+    /// "calm", "normal" or "snappy": how fast the pill moves.
+    pub animation: String,
+    /// The panel the pill opens on: "last" (the one you left), "auto" (what is happening,
+    /// else the quick controls) or "home".
+    pub start_panel: String,
+    /// Sounds stay silent in this window, "HH:MM-HH:MM" (may wrap midnight). Empty = never.
+    pub quiet_hours: String,
+    /// Task rows the list shows before it scrolls (2..8).
+    pub task_rows: usize,
     /// Global hotkey that opens the pill for keyboard use, e.g. "Win+Alt+N". Empty = off.
     pub hotkey: String,
     /// "dark" (default), "light", or "auto" (follow the Windows app theme).
@@ -47,6 +66,27 @@ pub const MOD_WIN: u32 = 8;
 /// Parse a hotkey such as "Win+Alt+N" or "ctrl+shift+F9" into (modifiers, virtual key).
 /// Needs at least one modifier and exactly one key (a letter, a digit or F1-F24), so a
 /// typo can't claim a bare key system-wide.
+/// Whether `now_min` (minutes since midnight) falls in a "HH:MM-HH:MM" window, which may wrap
+/// past midnight. Empty or malformed means no quiet hours.
+pub fn in_quiet_hours(spec: &str, now_min: u32) -> bool {
+    let clock = |s: &str| {
+        let (h, m) = s.trim().split_once(':')?;
+        let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    };
+    let Some((from, to)) = spec.split_once('-') else {
+        return false;
+    };
+    let (Some(from), Some(to)) = (clock(from), clock(to)) else {
+        return false;
+    };
+    if from <= to {
+        (from..to).contains(&now_min)
+    } else {
+        now_min >= from || now_min < to
+    }
+}
+
 pub fn parse_hotkey(s: &str) -> Option<(u32, u32)> {
     let (mut mods, mut key) = (0u32, None);
     for part in s.split('+').map(str::trim).filter(|p| !p.is_empty()) {
@@ -87,6 +127,15 @@ impl Default for General {
             glow_strength: 1.2,
             pill_opacity: 1.0,
             hover_delay_ms: 200,
+            collapse_delay_ms: 300,
+            open_on: "hover".into(),
+            pill_scale: 1.0,
+            idle_opacity: 1.0,
+            top_offset: 0,
+            animation: "normal".into(),
+            start_panel: "last".into(),
+            quiet_hours: String::new(),
+            task_rows: 4,
             hotkey: String::new(),
             theme: "dark".into(),
             fullscreen: "line".into(),
@@ -439,7 +488,7 @@ pub fn set(key: &str, v: Val) -> std::io::Result<Option<Config>> {
     Ok(parse(&next))
 }
 
-fn with_value(text: &str, key: &str, v: Val) -> Option<String> {
+pub(crate) fn with_value(text: &str, key: &str, v: Val) -> Option<String> {
     let (section, name) = key.split_once('.')?;
     let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
     let table = doc
@@ -652,5 +701,19 @@ mod tests {
         // A key that no longer exists is ignored, not an error.
         let gone = "[general]\nrenderer = \"classic\"\nsolid_pill = true\nacrylic = true\n";
         assert!(parse(gone).is_some());
+    }
+
+    #[test]
+    fn quiet_hours_wrap_midnight() {
+        let at = |h: u32, m: u32| h * 60 + m;
+        assert!(in_quiet_hours("22:00-07:00", at(23, 30)));
+        assert!(in_quiet_hours("22:00-07:00", at(6, 59)));
+        assert!(!in_quiet_hours("22:00-07:00", at(7, 0)));
+        assert!(!in_quiet_hours("22:00-07:00", at(12, 0)));
+        assert!(in_quiet_hours("09:00-17:00", at(9, 0)));
+        assert!(!in_quiet_hours("09:00-17:00", at(17, 0)));
+        for bad in ["", "22:00", "25:00-07:00", "a-b", "22:00-"] {
+            assert!(!in_quiet_hours(bad, at(23, 0)), "{bad:?}");
+        }
     }
 }

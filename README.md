@@ -229,9 +229,11 @@ Release numbers were reset at the same time: the old releases are now `v0.1.0` t
 
 ## Settings
 
-The everyday settings are in the pill: the **gear** next to the volume bar on Home opens them (theme, glow, what happens over fullscreen, which screen, start with Windows, hiding from screen capture, the finished-task peek, the timer sound, and switching downloads, calendar, resource alerts and update checks on or off). A change applies straight away.
+The everyday settings are in the pill: the **gear** next to the volume bar on Home opens them (theme, hover delay, opacity, glow, what happens over fullscreen, which screen, start with Windows, the finished-task peek, the timer sound, and switching downloads, calendar, resource alerts and update checks on or off). A change applies straight away.
 
-Everything is stored in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**, or the open button at the top right of the settings pane). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
+The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, the gap from the top, motion speed, which panel it opens on, quiet hours for sounds, how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
+
+Everything is stored in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**, or the **Open config.toml** button in the settings window). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
 
 The ones people change most:
 
@@ -243,6 +245,15 @@ monitor = "primary"            # "primary", "active" (the focused window's) or "
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
+collapse_delay_ms = 300        # how long the pill stays open after the pointer leaves
+open_on = "hover"              # "hover" opens at once (after hover_delay_ms), "click" waits for a click
+pill_scale = 1.0               # size of the pill, 0.7 to 1.6
+idle_opacity = 1.0             # the idle pill fades to this (0.2 to 1.0) until you point at it
+top_offset = 0                 # gap between the top of the screen and the pill, in px (0 to 48)
+animation = "normal"           # "calm", "normal" or "snappy"
+start_panel = "last"           # the panel it opens on: "last", "auto" (what is happening) or "home"
+quiet_hours = ""               # no sounds in this window, e.g. "22:00-07:00" (empty = never)
+task_rows = 4                  # task rows shown before the list scrolls (2 to 8)
 hover_delay_ms = 200            # how long to rest the pointer on the pill before it opens (0 = instant)
 pill_opacity = 1.0             # pill body opacity, 0.4 to 1.0 (text stays solid)
 fullscreen = "line"           # over maximised windows and fullscreen video: "line" = thin line, "hide" = disappear, "off" = stay (games always hide)

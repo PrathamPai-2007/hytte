@@ -394,6 +394,8 @@ pub struct Model {
     pub kill_armed: Option<(u16, Instant)>,
     /// The first task row shown: the list scrolls (mouse wheel) when more than fit.
     pub task_first: usize,
+    /// `[general] task_rows`: how many rows show before the list scrolls (0 = the default, 4).
+    pub task_rows: usize,
     pub shelf: Vec<ShelfItem>,
     pub shelf_sel: Option<u64>,
     /// First shelf tile in view when there are more than `SHELF_VISIBLE`.
@@ -461,9 +463,6 @@ pub fn command_name(label: &str) -> String {
 fn is_interrupt(code: Option<i32>) -> bool {
     matches!(code, Some(130 | 143 | -1_073_741_510))
 }
-
-/// Task rows that fit before the list scrolls.
-const TASK_ROWS: usize = 4;
 
 impl Model {
     pub fn apply_task(&mut self, u: TaskUpdate, now: Instant) {
@@ -652,7 +651,7 @@ impl Model {
         // A row that finished while the user was away starts its hold when they come back.
         let (away, back) = (self.away, self.back);
         let from = move |c: Instant| back.map_or(c, |b| b.max(c));
-        if self.visible_count() <= TASK_ROWS {
+        if self.visible_count() <= self.row_cap() {
             self.task_first = 0;
         }
         self.tasks.retain(|t| match t.event {
@@ -810,26 +809,35 @@ impl Model {
     }
 
     /// Visible tasks: waiting-on-you first, then failed, running, finished.
+    /// Task rows that fit before the list scrolls.
+    fn row_cap(&self) -> usize {
+        if self.task_rows == 0 {
+            4
+        } else {
+            self.task_rows.clamp(2, 8)
+        }
+    }
+
     pub fn rows(&self) -> Vec<&TaskView> {
         let mut v: Vec<&TaskView> = self.tasks.iter().filter(|t| self.visible(t)).collect();
         v.sort_by(|a, b| Self::row_order(a, b));
-        let first = self.task_first.min(v.len().saturating_sub(TASK_ROWS));
+        let first = self.task_first.min(v.len().saturating_sub(self.row_cap()));
         v.drain(..first);
-        v.truncate(TASK_ROWS);
+        v.truncate(self.row_cap());
         v
     }
 
     /// Rows scrolled off above and below the ones shown.
     pub fn rows_hidden(&self) -> (usize, usize) {
         let n = self.visible_count();
-        let first = self.task_first.min(n.saturating_sub(TASK_ROWS));
-        (first, n.saturating_sub(first + TASK_ROWS))
+        let first = self.task_first.min(n.saturating_sub(self.row_cap()));
+        (first, n.saturating_sub(first + self.row_cap()))
     }
 
     /// Wheel over the task list: `by` rows down (negative = up). False when the list is
     /// already at that end, so the wheel can page the panes instead.
     pub fn scroll_tasks(&mut self, by: i32) -> bool {
-        let max = self.visible_count().saturating_sub(TASK_ROWS) as i32;
+        let max = self.visible_count().saturating_sub(self.row_cap()) as i32;
         let first = self.task_first.min(max as usize) as i32;
         let next = (first + by).clamp(0, max);
         self.task_first = next as usize;
@@ -1053,7 +1061,10 @@ impl Model {
                 if let Some(f) = rows.iter().find(|t| t.failed()) {
                     h += f.stderr.len().min(4) as f64 * 15.0 + 34.0;
                 }
-                (380.0, h.min(290.0))
+                (
+                    380.0,
+                    h.min(290.0 + (self.row_cap() as f64 - 4.0).max(0.0) * 34.0),
+                )
             }
         }
     }

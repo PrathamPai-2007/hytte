@@ -94,7 +94,6 @@ mod win {
     const T_SHOT: usize = 8;
     /// Idle this long (no frames) before the working set is trimmed.
     const TRIM_MS: u32 = 30_000;
-    const COLLAPSE_MS: u32 = 300;
 
     /// Cross-thread state: queue + ticker control only.
     struct Shared {
@@ -303,6 +302,8 @@ mod win {
         /// Hash of the last screenshot shelved from the clipboard: the Snipping Tool can
         /// announce one image more than once.
         last_snip: u64,
+        /// Idle-pill dimming as drawn (1 = full), easing towards `[general] idle_opacity`.
+        dim: f32,
         /// Clipboard sequence number when that screenshot was copied.
         snip_seq: u32,
         /// Screenshots on the shelf and when they arrived (they leave after
@@ -438,7 +439,8 @@ mod win {
 
         fn origin_for(&self, crop: Crop) -> (i32, i32) {
             let mon_w = self.mon.2 - self.mon.0;
-            (self.mon.0 + (mon_w - crop.w_px) / 2, self.mon.1)
+            let gap = (self.cfg.general.top_offset.min(48) as f32 * self.scale) as i32;
+            (self.mon.0 + (mon_w - crop.w_px) / 2, self.mon.1 + gap)
         }
 
         /// The monitor the pill should hang from, per `[general] monitor`: "active" is the one
@@ -496,7 +498,7 @@ mod win {
                 }
                 let (mut dx, mut dy) = (96u32, 96u32);
                 let _ = GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
-                self.scale = dx as f32 / 96.0;
+                self.scale = dx as f32 / 96.0 * self.cfg.general.pill_scale.clamp(0.7, 1.6);
             }
             self.rend.set_scale(self.scale);
             // Hot zone for drag arming, in screen px.
@@ -529,7 +531,7 @@ mod win {
                                 self.model.peek(Panel::Tasks, until);
                                 // An agent waiting on you shows even over a maximised terminal.
                                 self.model.force_until = Some(until);
-                                if self.cfg.agent.sound {
+                                if self.cfg.agent.sound && !self.quiet() {
                                     unsafe {
                                         let _ =
                                             windows::Win32::System::Diagnostics::Debug::MessageBeep(
@@ -672,7 +674,7 @@ mod win {
                         // Urgent: it takes the chip over; a second agent's ask queues behind.
                         self.asks.push_back((id, summary, now, reply));
                         self.show_ask(now);
-                        if self.cfg.agent.sound {
+                        if self.cfg.agent.sound && !self.quiet() {
                             unsafe {
                                 let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
                                     MB_ICONASTERISK,
@@ -720,8 +722,10 @@ mod win {
             self.model.finish_peek = Duration::from_secs(new.general.finish_peek_secs);
             self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
             self.model.body_alpha = new.general.pill_opacity.clamp(0.4, 1.0);
+            self.model.task_rows = new.general.task_rows;
             self.model.rounds = new.timer.rounds;
-            let monitor_changed = new.general.monitor != self.cfg.general.monitor;
+            let monitor_changed = new.general.monitor != self.cfg.general.monitor
+                || new.general.pill_scale != self.cfg.general.pill_scale;
             let general = new.general != self.cfg.general;
             crate::settings_win::refresh(&new);
             self.cfg = new;
@@ -1017,6 +1021,16 @@ mod win {
             self.arm_shots(hwnd);
         }
 
+        /// Sounds are silent right now (`[general] quiet_hours`).
+        fn quiet(&self) -> bool {
+            let spec = &self.cfg.general.quiet_hours;
+            if spec.is_empty() {
+                return false;
+            }
+            let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+            crate::config::in_quiet_hours(spec, t.wHour as u32 * 60 + t.wMinute as u32)
+        }
+
         fn save_shelf(&self) {
             if self.cfg.shelf.persist {
                 crate::shelf::save(&self.model.shelf);
@@ -1162,7 +1176,27 @@ mod win {
             self.prev_vblank = vb;
             self.last = now;
             self.layout();
-            let moving = self.anim.step(dt as f64);
+            let speed = match self.cfg.general.animation.as_str() {
+                "calm" => 0.7,
+                "snappy" => 1.4,
+                _ => 1.0,
+            };
+            let mut moving = self.anim.step((dt * speed) as f64);
+            // The idle pill fades towards `idle_opacity` and back when it is pointed at.
+            let idle = self.model.scene(self.hover, self.sentinel()) == Scene::Idle
+                && self.kb.is_none()
+                && !self.inside;
+            let dim_to = if idle {
+                self.cfg.general.idle_opacity.clamp(0.2, 1.0)
+            } else {
+                1.0
+            };
+            self.dim += (dim_to - self.dim) * (1.0 - (-dt * 6.0).exp());
+            if (dim_to - self.dim).abs() < 0.004 {
+                self.dim = dim_to;
+            } else {
+                moving = true;
+            }
 
             // Visibility: fade out then hide; show before fading in.
             let want_hidden = self.hidden();
@@ -1200,7 +1234,7 @@ mod win {
                 };
                 self.rend.draw(&fr, crop, &mut self.hits);
                 let drawn = now.elapsed().as_micros() as u32;
-                let a = (self.anim.vis.pos.clamp(0.0, 1.0) * 255.0).round() as u8;
+                let a = (self.anim.vis.pos.clamp(0.0, 1.0) * self.dim as f64 * 255.0).round() as u8;
                 let heading = self
                     .rend
                     .plan(
@@ -1736,7 +1770,10 @@ mod win {
         /// The alarm rings as long as the finished card is up (dismissed, or its hold ran out),
         /// but not over a game: the card is hidden there, so nothing could stop it.
         fn sync_ring(&mut self) {
-            let ring = self.cfg.timer.sound && self.model.timer_done.is_some() && !self.gaming;
+            let ring = self.cfg.timer.sound
+                && self.model.timer_done.is_some()
+                && !self.gaming
+                && !self.quiet();
             if ring != self.ringing {
                 self.ringing = ring;
                 crate::timer::ring(ring);
@@ -1945,6 +1982,7 @@ mod win {
                 gpu_retry: 0,
                 ringing: false,
                 last_snip: 0,
+                dim: 1.0,
                 snip_seq: 0,
                 shots: Vec::new(),
                 paste: None,
@@ -1958,6 +1996,7 @@ mod win {
             ui.model.finish_peek = Duration::from_secs(ui.cfg.general.finish_peek_secs);
             ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
             ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
+            ui.model.task_rows = ui.cfg.general.task_rows;
             ui.model.rounds = ui.cfg.timer.rounds;
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
@@ -2562,7 +2601,7 @@ mod win {
                     if inside && !ui.inside {
                         unsafe {
                             let _ = KillTimer(Some(hwnd), T_COLLAPSE);
-                            if !ui.hover {
+                            if !ui.hover && ui.cfg.general.open_on != "click" {
                                 let ms = ui.cfg.general.hover_delay_ms.min(2000);
                                 if ms == 0 {
                                     ui.open_hover();
@@ -2575,7 +2614,7 @@ mod win {
                         unsafe {
                             let _ = KillTimer(Some(hwnd), T_DWELL);
                             if ui.hover {
-                                SetTimer(Some(hwnd), T_COLLAPSE, COLLAPSE_MS, None);
+                                SetTimer(Some(hwnd), T_COLLAPSE, ui.cfg.general.collapse_delay_ms.clamp(20, 5000), None);
                             }
                         }
                     }
@@ -2611,7 +2650,7 @@ mod win {
                     unsafe {
                         let _ = KillTimer(Some(hwnd), T_DWELL);
                         if ui.hover {
-                            SetTimer(Some(hwnd), T_COLLAPSE, COLLAPSE_MS, None);
+                            SetTimer(Some(hwnd), T_COLLAPSE, ui.cfg.general.collapse_delay_ms.clamp(20, 5000), None);
                         }
                     }
                     ui.layout();
@@ -2695,6 +2734,15 @@ mod win {
                         ui.after_model_change(hwnd);
                         return;
                     }
+                    // Click mode: the first click on the closed pill opens it and does nothing else.
+                    if ui.cfg.general.open_on == "click"
+                        && !ui.hover
+                        && ui.pill_contains()
+                        && ui.hit_at().is_none()
+                    {
+                        ui.open_hover();
+                        return;
+                    }
                     if let Some(a) = ui.hit_at().map(|h| h.action.clone()) {
                         ui.run_action(hwnd, a);
                     }
@@ -2733,6 +2781,11 @@ mod win {
                             ui.hover = false;
                             ui.model.timer_panel = false;
                             ui.model.settings = None;
+                            match ui.cfg.general.start_panel.as_str() {
+                                "auto" => ui.model.selected = None,
+                                "home" => ui.model.selected = Some(Panel::Home),
+                                _ => {}
+                            }
                             ui.layout();
                             ui.kick();
                         }
