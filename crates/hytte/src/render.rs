@@ -67,6 +67,8 @@ pub enum Action {
     AppVolume(String),
     /// The pill-opacity slider in settings: drag or click; saved on release.
     Opacity,
+    /// The glow-strength slider of the big settings window.
+    Glow,
     /// A section in the settings window's list: scroll to it.
     Jump(usize),
     /// The settings window's search field: clear what was typed.
@@ -418,6 +420,8 @@ pub enum Row {
     ),
     /// Pill opacity slider, current value.
     Opacity(f32),
+    /// Glow strength slider, current value (0 to `GLOW_MAX`).
+    Glow(f32),
 }
 
 impl Row {
@@ -425,6 +429,7 @@ impl Row {
         match self {
             Row::Switch(l, ..) | Row::Pick(l, ..) | Row::PickCustom(l, ..) => l,
             Row::Opacity(_) => "Pill opacity when open",
+            Row::Glow(_) => "Glow strength",
         }
     }
 
@@ -432,6 +437,7 @@ impl Row {
         match self {
             Row::Switch(_, k, _) | Row::Pick(_, k, ..) | Row::PickCustom(_, k, ..) => k,
             Row::Opacity(_) => "general.pill_opacity",
+            Row::Glow(_) => "general.glow_strength",
         }
     }
 
@@ -440,7 +446,7 @@ impl Row {
             Row::Switch(_, k, v) => Row::Switch(l, k, v),
             Row::Pick(_, k, o, i, off) => Row::Pick(l, k, o, i, off),
             Row::PickCustom(_, k, o, i, h, s) => Row::PickCustom(l, k, o, i, h, s),
-            o @ Row::Opacity(_) => o,
+            o @ (Row::Opacity(_) | Row::Glow(_)) => o,
         }
     }
 
@@ -450,7 +456,7 @@ impl Row {
             Row::Switch(_, _, on) => *on as u8 as f32,
             Row::Pick(_, _, _, i, off) => *i as f32 + if off.is_none() { 0.0 } else { 0.5 },
             Row::PickCustom(_, _, _, i, ..) => *i as f32,
-            Row::Opacity(v) => *v,
+            Row::Opacity(v) | Row::Glow(v) => *v,
         }
     }
 
@@ -463,6 +469,7 @@ impl Row {
                 o.get(*i).map(|(_, v)| Action::Set(k, *v))
             }
             Row::Opacity(v) => Some(Action::Set("general.pill_opacity", Val::F(*v as f64))),
+            Row::Glow(v) => Some(Action::Set("general.glow_strength", Val::F(*v as f64))),
         }
     }
 }
@@ -522,6 +529,9 @@ fn row_label_opacity() -> &'static str {
     "Pill opacity when open"
 }
 
+/// Where the glow slider ends: 20 % past the old "Strong" (1.6).
+pub const GLOW_MAX: f32 = 1.92;
+
 /// The unit a number in `config.toml` is in, from the end of its key.
 fn unit(key: &str) -> &'static str {
     match key {
@@ -550,7 +560,7 @@ pub fn help(key: &str) -> &'static str {
         "general.idle_opacity" => "How faint the closed pill gets while you are not using it.",
         "general.pill_scale" => "Scales the whole pill and its panels (1.0 is normal).",
         "general.animation" => "Speed of the open and close animation.",
-        "general.glow_strength" => "How strong the colored glow around the pill is (0 is off).",
+        "general.glow_strength" => "How strong the colored glow around the pill is. 100% is the strongest the slider goes; 0% is off.",
         "general.adaptive_glow" => "Tints the glow with the colors of the album art that is playing.",
         "general.autostart" => "Starts Hytte when you sign in to Windows.",
         "general.start_panel" => "Which panel opens first: the last one you used, the busiest one, or Home.",
@@ -719,20 +729,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     ),
                     -1,
                 ),
-                (
-                    pick_f(
-                        "Glow strength",
-                        "general.glow_strength",
-                        &[
-                            ("Off", 0.0),
-                            ("Soft", 0.5),
-                            ("Normal", 1.0),
-                            ("Strong", 1.6),
-                        ],
-                        g.glow_strength as f64,
-                    ),
-                    0,
-                ),
+                (Row::Glow(g.glow_strength), 0),
                 (
                     sw(
                         "Tint glow from album art",
@@ -4209,7 +4206,22 @@ impl Renderer {
             .into_iter()
             .flat_map(|s| s.rows)
             .filter(|(_, q)| *q == group as i8)
-            .map(|(r, _)| match pane_label(r.key()) {
+            .map(|(r, _)| match r {
+                // The pane has no room for a slider: steps, the last being the slider's end.
+                Row::Glow(v) => pick_f(
+                    "Glow",
+                    "general.glow_strength",
+                    &[
+                        ("Off", 0.0),
+                        ("Soft", 0.6),
+                        ("Normal", 1.2),
+                        ("Max", GLOW_MAX as f64),
+                    ],
+                    v as f64,
+                ),
+                r => r,
+            })
+            .map(|r| match pane_label(r.key()) {
                 Some(l) => r.relabel(l),
                 None => r,
             })
@@ -4258,7 +4270,7 @@ impl Renderer {
         let wide = gut > 0.0;
         let ctrl = match &row {
             Row::Switch(..) => 34.0,
-            Row::Opacity(_) => 206.0,
+            Row::Opacity(_) | Row::Glow(_) => 206.0,
             Row::Pick(_, _, o, ..) if wide && is_numeric(o) => 246.0,
             Row::Pick(..) => 206.0,
             Row::PickCustom(..) => 246.0,
@@ -4395,41 +4407,32 @@ impl Renderer {
                 );
             }
             Row::Opacity(v) => {
-                let (bx, bw, bh) = (rw - 22.0 - 206.0 + 6.0, 194.0, 6.0);
-                self.text(
-                    if gut > 0.0 {
-                        row_label_opacity()
-                    } else {
-                        "Opacity"
-                    },
-                    &self.f.body,
-                    22.0,
-                    y,
-                    (bx - 100.0).max(60.0),
-                    30.0,
-                    self.cc(fg, 0.9),
-                );
-                let pct = format!("{}%", (v * 100.0).round());
-                self.text(
-                    &pct,
-                    &self.f.small,
-                    bx - 46.0,
-                    y,
-                    40.0,
-                    30.0,
-                    self.cc(GRAY, 0.9),
-                );
-                let by = y + 12.0;
-                let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, Action::Opacity);
-                let h = self.ease("h:opacity", (hov || self.pressed.get() && hov) as u8 as f32);
-                self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(fg, 0.08 + 0.04 * h));
+                let name = if gut > 0.0 {
+                    row_label_opacity()
+                } else {
+                    "Opacity"
+                };
                 let f = ((v - 0.4) / 0.6).clamp(0.0, 1.0);
-                self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
-                self.circle(
-                    bx + 3.0 + (bw - 6.0) * f,
-                    by + bh / 2.0,
-                    6.5 + 1.5 * h,
-                    self.cc(fg, 0.95),
+                self.slider(
+                    name,
+                    "opacity",
+                    f,
+                    (v * 100.0).round(),
+                    Action::Opacity,
+                    y,
+                    rw,
+                );
+            }
+            Row::Glow(v) => {
+                let f = (v / GLOW_MAX).clamp(0.0, 1.0);
+                self.slider(
+                    "Glow strength",
+                    "glow",
+                    f,
+                    (f * 100.0).round(),
+                    Action::Glow,
+                    y,
+                    rw,
                 );
             }
             // Numbers also get "Custom": lit, with the file's value beside it, when the value
@@ -4448,6 +4451,46 @@ impl Renderer {
                 self.pick_row(label, key, opts, cur, Some((hint, shown)), y, w, gut)
             }
         }
+    }
+
+    /// A labelled slider, `f` (0..1) of the way along, with `pct` written beside it.
+    #[allow(clippy::too_many_arguments)]
+    fn slider(&self, name: &str, id: &str, f: f32, pct: f32, action: Action, y: f32, rw: f32) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        let (bx, bw, bh) = (rw - 22.0 - 206.0 + 6.0, 194.0, 6.0);
+        self.text(
+            name,
+            &self.f.body,
+            22.0,
+            y,
+            (bx - 100.0).max(60.0),
+            30.0,
+            self.cc(fg, 0.9),
+        );
+        let pct = format!("{pct}%");
+        self.text(
+            &pct,
+            &self.f.small,
+            bx - 46.0,
+            y,
+            40.0,
+            30.0,
+            self.cc(GRAY, 0.9),
+        );
+        let by = y + 12.0;
+        let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, action);
+        let h = self.ease(
+            &format!("h:{id}"),
+            (hov || self.pressed.get() && hov) as u8 as f32,
+        );
+        self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(fg, 0.08 + 0.04 * h));
+        self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
+        self.circle(
+            bx + 3.0 + (bw - 6.0) * f,
+            by + bh / 2.0,
+            6.5 + 1.5 * h,
+            self.cc(fg, 0.95),
+        );
     }
 
     /// Steps in a pill, the lit one sliding to the chosen step. With `custom`, one more
@@ -5370,6 +5413,7 @@ mod snap {
                         opts.into_iter().map(|(_, v)| (k, v)).collect()
                     }
                     Row::Opacity(_) => vec![("general.pill_opacity", Val::F(0.7))],
+                    Row::Glow(_) => vec![("general.glow_strength", Val::F(1.0))],
                 };
                 for (k, v) in writes {
                     keys.insert(k);

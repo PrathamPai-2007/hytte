@@ -79,6 +79,8 @@ struct State {
     tops: Vec<f32>,
     /// Dragging the opacity slider: its hit box's left and right edges.
     scrub: Option<(f32, f32)>,
+    /// The slider being dragged is the glow one (else the opacity one).
+    scrub_glow: bool,
     tracking: bool,
     light: bool,
     accent: [f32; 3],
@@ -187,6 +189,7 @@ pub fn open(cfg: &Config) {
                 content: 0.0,
                 tops: vec![],
                 scrub: None,
+                scrub_glow: false,
                 tracking: false,
                 light,
                 accent,
@@ -325,13 +328,18 @@ fn set_mouse(s: &mut State, hwnd: HWND, lparam: LPARAM) {
     s.mouse = Some((x, y));
 }
 
-/// The opacity slider follows the pointer; written to the file on release.
+/// The opacity or glow slider follows the pointer; written to the file on release.
 fn scrub(s: &mut State) {
     let (Some((l, r)), Some((mx, _))) = (s.scrub, s.mouse) else {
         return;
     };
     let f = ((mx - l - 6.0) / (r - l - 12.0)).clamp(0.0, 1.0);
-    s.cfg.general.pill_opacity = 0.4 + 0.6 * ((f * 100.0).round() / 100.0);
+    let f = (f * 100.0).round() / 100.0;
+    if s.scrub_glow {
+        s.cfg.general.glow_strength = f * crate::render::GLOW_MAX;
+    } else {
+        s.cfg.general.pill_opacity = 0.4 + 0.6 * f;
+    }
 }
 
 fn set(s: &mut State, key: &'static str, v: Val) {
@@ -429,7 +437,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 |s, hwnd| {
                     set_mouse(s, hwnd, lparam);
                     s.pressed = true;
-                    if let Some(h) = hit_at(s).filter(|h| h.action == Action::Opacity) {
+                    if let Some(h) = hit_at(s)
+                        .filter(|h| matches!(h.action, Action::Opacity | Action::Glow))
+                        .cloned()
+                    {
+                        s.scrub_glow = h.action == Action::Glow;
                         s.scrub = Some((h.rect.0, h.rect.2));
                         scrub(s);
                         unsafe {
@@ -454,8 +466,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         let _ = ReleaseCapture();
                     }
                     if s.scrub.take().is_some() {
-                        let v = s.cfg.general.pill_opacity as f64;
-                        set(s, "general.pill_opacity", Val::F(v));
+                        if s.scrub_glow {
+                            let v = s.cfg.general.glow_strength as f64;
+                            set(s, "general.glow_strength", Val::F(v));
+                        } else {
+                            let v = s.cfg.general.pill_opacity as f64;
+                            set(s, "general.pill_opacity", Val::F(v));
+                        }
                     } else if let Some(a) = hit_at(s).map(|h| h.action.clone()) {
                         match a {
                             Action::Set(k, v) => set(s, k, v),
