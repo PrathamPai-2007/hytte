@@ -120,6 +120,16 @@ pub fn decide(cfg: &General, fg_exe: Option<&str>, fg: Fg) -> Option<Suppress> {
     })
 }
 
+/// A window snapped to a half, a quarter or a third of the screen that reaches the top edge
+/// and the middle of the screen, which is where the pill hangs. `plain`: resizable, and neither
+/// maximised nor covering the monitor. `vis` is the visible (left, top, right), `mid` the
+/// monitor's centre column. Pixels of slack cover DPI rounding and snap gaps.
+fn is_snapped(plain: bool, vis: (i32, i32, i32), work_top: i32, mid: i32) -> bool {
+    const SLACK: i32 = 2;
+    let (left, top, right) = vis;
+    plain && top <= work_top + SLACK * 2 && left <= mid + SLACK && right >= mid - SLACK
+}
+
 /// Query the OS and decide for the current foreground window. `pill_mon` is the `HMONITOR`
 /// the pill hangs from.
 pub fn evaluate(cfg: &General, pill_mon: isize) -> Option<Suppress> {
@@ -258,15 +268,13 @@ mod win {
             )
             .is_ok();
             let vis = if vis_ok { vis } else { r };
-            let work = mi.rcWork;
-            let mid = (m.left + m.right) / 2;
             // Resizable (a frameless Electron window included), as every snappable window is.
-            let snapped = has(WS_THICKFRAME.0)
-                && !IsZoomed(fg).as_bool()
-                && !covers
-                && vis.top <= work.top + SLACK * 2
-                && vis.left <= mid + SLACK
-                && vis.right >= mid - SLACK;
+            let snapped = super::is_snapped(
+                has(WS_THICKFRAME.0) && !IsZoomed(fg).as_bool() && !covers,
+                (vis.left, vis.top, vis.right),
+                mi.rcWork.top,
+                (m.left + m.right) / 2,
+            );
             super::Fg {
                 snapped,
                 covers,
@@ -321,6 +329,30 @@ mod tests {
         assert_eq!(decide(&g, Some("explorer.exe"), desk), SHOW);
         g.deny_list = vec!["explorer.exe".into()];
         assert_eq!(decide(&g, Some("explorer.exe"), desk), GAME);
+    }
+
+    #[test]
+    fn snapping_geometry_on_a_1440_by_900_screen() {
+        // (left, top, right) of the visible box, work area from y = 0, centre column 720.
+        let snapped = |v| is_snapped(true, v, 0, 720);
+        assert!(snapped((0, 0, 720)), "left half");
+        assert!(snapped((720, 0, 1440)), "right half");
+        assert!(snapped((0, 0, 960)), "left two thirds");
+        assert!(snapped((480, 0, 1440)), "right two thirds");
+        assert!(snapped((0, 0, 720)) && snapped((1, 1, 721)), "snap gaps");
+        assert!(
+            snapped((720, 0, 1440)) && snapped((8, 0, 724)),
+            "a few px of border"
+        );
+        // Not under the pill: a third at the far side, the bottom quarters, a floating window.
+        assert!(!snapped((960, 0, 1440)), "right third");
+        assert!(!snapped((0, 450, 720)), "bottom-left quarter");
+        assert!(!snapped((300, 200, 1000)), "floating mid-screen");
+        assert!(!snapped((840, 100, 1440)), "floating at the right edge");
+        // Not a plain window (maximised, covering, not resizable): decided elsewhere.
+        assert!(!is_snapped(false, (0, 0, 720), 0, 720));
+        // A monitor whose work area starts below its top edge (a top taskbar).
+        assert!(is_snapped(true, (0, 48, 720), 48, 720));
     }
 
     #[test]
