@@ -23,7 +23,7 @@ What changed in each version, newest first. The first part is for people who use
 
 **Fixes**
 
-- **Hovering the small second pill** (the timer's clock, or the music's album art beside a compact task) opens that pane: the timer or the player, not the main pill's.
+- **Hovering the small second pill** (the timer's clock, or the music's album art beside a compact task) opens that pane: the timer or the player, not the main pill's. Gliding along the top edge between the pill and its bubble switches the pane to match.
 - **Ctrl+C in PowerShell no longer shows a failed task**, for a command that doesn't leave a recognisable exit code too. A failing cmdlet reports 1 instead of an old exit code from the last program. Open a new terminal after updating so its hook is the new one.
 - **Screenshots: delete after paste is now on by default.** A screenshot is deleted about two seconds after you paste it. If your `config.toml` already says `delete_after_paste = false`, that stays; switch it on in the settings window.
 - A second clipboard update from the Snipping Tool no longer cancels the paste watch.

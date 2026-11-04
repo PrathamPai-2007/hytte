@@ -248,6 +248,31 @@ mod win {
         post(WM_UI);
     }
 
+    /// Where the pointer is in the strip a compact pill and its bubble occupied.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Spot {
+        Pill,
+        Bubble,
+    }
+
+    /// The two spots of a compact pill and its bubble, kept while the pane they opened is up,
+    /// so that gliding from one to the other switches the pane, and neither spot closes it
+    /// (the pane is wider than the compact pill but not always wide enough to cover the
+    /// bubble, and leaving that spot would close the pane, bring the bubble back under the
+    /// pointer and open it again).
+    struct BubbleZone {
+        kind: Bubble,
+        /// The bubble's left edge from the pill's centre, and its width.
+        dx: f32,
+        w: f32,
+        /// The compact pill's width.
+        pill_w: f32,
+        /// The panel the pill was on before a bubble chose one (restored on the pill's spot
+        /// and when the pane closes).
+        base: Option<Panel>,
+        at: Option<Spot>,
+    }
+
     struct Ui {
         cfg: Config,
         model: Model,
@@ -262,11 +287,8 @@ mod win {
         inside: bool,
         /// The bubble the pointer was last on while the pill was closed (see `open_hover`).
         bubble_pref: Option<Bubble>,
-        /// The spot the bubble was in (left edge from the pill's centre, width, height) while
-        /// the pane it opened is up.
-        bubble_zone: Option<(f32, f32, f32)>,
-        /// The panel to go back to when a pane opened from a bubble closes.
-        bubble_restore: Option<Option<Panel>>,
+        /// The compact pill's and the bubble's spots while the pane they opened is up.
+        zone: Option<BubbleZone>,
         /// Cursor in screen px (stable while the window moves/resizes).
         mouse: Option<(i32, i32)>,
         origin: (i32, i32),
@@ -551,15 +573,57 @@ mod win {
             let ph = (self.anim.rect.h.pos as f32).max(6.0);
             let ox = (self.crop_w - pw) / 2.0;
             let on_pill = mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph;
-            // Where the bubble was stays part of the pane it opened: the pane is wider than the
-            // compact pill but not always wide enough to cover it, and leaving that spot would
-            // close the pane, bring the bubble back under the pointer and open it again.
-            let on_zone = self.hover
-                && self.bubble_zone.is_some_and(|(dx, w, h)| {
-                    let x = self.crop_w / 2.0 + dx;
-                    mx >= x && mx <= x + w && my >= 0.0 && my <= h
-                });
+            let on_zone = self.hover && self.spot_at().is_some();
             on_pill || on_zone || self.bubble_hit().is_some()
+        }
+
+        /// Which of the two kept spots the pointer is on (the top 32 px strip only).
+        fn spot_at(&self) -> Option<Spot> {
+            let (mx, my) = self.mouse_logical()?;
+            let z = self.zone.as_ref()?;
+            let dx = mx - self.crop_w / 2.0;
+            if !(0.0..=32.0).contains(&my) {
+                return None;
+            }
+            if dx.abs() <= z.pill_w / 2.0 {
+                Some(Spot::Pill)
+            } else if dx >= z.dx && dx <= z.dx + z.w {
+                Some(Spot::Bubble)
+            } else {
+                None
+            }
+        }
+
+        /// Gliding along the top strip from the bubble to the pill (or back) shows that one's
+        /// pane. Entering the strip from below, or the gap between, changes nothing.
+        fn follow_spot(&mut self) {
+            if !self.hover {
+                return;
+            }
+            let (mx, my) = match self.mouse_logical() {
+                Some(m) => m,
+                None => return,
+            };
+            let now = self.spot_at();
+            let Some(z) = self.zone.as_mut() else { return };
+            if my > 32.0 || mx < 0.0 {
+                // Left the strip: the next spot entered is not a glide.
+                z.at = None;
+                return;
+            }
+            let Some(now) = now else { return };
+            let (was, kind, base) = (z.at.replace(now), z.kind, z.base);
+            match (was, now) {
+                (Some(Spot::Bubble), Spot::Pill) => {
+                    self.model.timer_panel = false;
+                    self.model.selected = base;
+                    self.anim.nav = 0.0;
+                }
+                (Some(Spot::Pill), Spot::Bubble) if self.model.panels().contains(&kind.panel()) => {
+                    self.select_panel(kind.panel());
+                }
+                _ => {}
+            }
         }
 
         /// The bubble (the second live activity beside a compact pill) under the pointer.
@@ -929,18 +993,26 @@ mod win {
 
         /// The pointer has rested on the pill long enough: open it.
         fn open_hover(&mut self) {
-            // Resting on the bubble opens its own pane, not the main pill's.
-            if let Some(kind) = self.bubble_pref.take() {
-                let p = kind.panel();
-                if self.model.panels().contains(&p) {
-                    let pw = self.anim.rect.w.pos as f32;
-                    let dx = kind.x(pw, self.anim.bubble.pos as f32) - pw / 2.0;
-                    self.bubble_zone = Some((dx, kind.width(), 32.0));
-                    // Only for this opening: when the pane closes, the pill goes back to the
-                    // panel it was on.
-                    self.bubble_restore.get_or_insert(self.model.selected);
-                    self.select_panel(p);
+            // Resting on the bubble opens its own pane, not the main pill's. Either way the two
+            // spots are remembered while the pane is up (see `BubbleZone`).
+            self.zone = None;
+            let shown = self.model.bubble(self.model.scene(false, self.sentinel()));
+            let pref = self.bubble_pref.take();
+            if let Some(kind) = shown.filter(|k| self.anim.bubble_kind == Some(*k)) {
+                let pw = self.anim.rect.w.pos as f32;
+                let mut zone = BubbleZone {
+                    kind,
+                    dx: kind.x(pw, self.anim.bubble.pos as f32) - pw / 2.0,
+                    w: kind.width(),
+                    pill_w: pw,
+                    base: self.model.selected,
+                    at: Some(Spot::Pill),
+                };
+                if pref == Some(kind) && self.model.panels().contains(&kind.panel()) {
+                    zone.at = Some(Spot::Bubble);
+                    self.select_panel(kind.panel());
                 }
+                self.zone = Some(zone);
             }
             self.hover = true;
             // Opening the pill: make sure the port list and charge rate are not stale.
@@ -2161,8 +2233,7 @@ mod win {
                 hover: false,
                 inside: false,
                 bubble_pref: None,
-                bubble_zone: None,
-                bubble_restore: None,
+                zone: None,
                 mouse: None,
                 origin: (0, 0),
                 crop_w: 0.0,
@@ -2810,8 +2881,9 @@ mod win {
                     let inside = ui.pill_contains();
                     if !ui.hover {
                         ui.bubble_pref = ui.bubble_hit();
-                        ui.bubble_zone = None;
+                        ui.zone = None;
                     }
+                    ui.follow_spot();
                     if !ui.tracking {
                         let mut tme = TRACKMOUSEEVENT {
                             cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
@@ -3005,10 +3077,9 @@ mod win {
                     }
                     T_COLLAPSE => {
                         if !ui.inside && ui.kb.is_none() && !ui.model.pinned {
-                            if let Some(prev) = ui.bubble_restore.take() {
-                                ui.model.selected = prev;
+                            if let Some(z) = ui.zone.take() {
+                                ui.model.selected = z.base;
                             }
-                            ui.bubble_zone = None;
                             ui.remember_panel();
                             ui.hover = false;
                             ui.model.timer_panel = false;
