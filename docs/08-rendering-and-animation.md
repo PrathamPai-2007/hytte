@@ -89,7 +89,7 @@ Order of painting (`Renderer::scene`):
 | `fill_rr`, `stroke_rr` | Rounded rectangles (solid or dashed stroke). |
 | `circle`, `ring`, `line`, `poly` | Basic shapes; `poly` builds a path for small icons. |
 | `text` | DirectWrite text into a box, clipped, with an ellipsis when it doesn't fit. |
-| `label` | `text`, except that while hovered, text that doesn't fit scrolls (a marquee: pause, glide, pause) instead of showing an ellipsis. Only a hovered label is measured, and only a scrolling one asks for frames (`wants_frames`). |
+| `label` | `text`, except that text that doesn't fit is not cut with an ellipsis: while hovered it scrolls (a marquee: pause, glide, pause), and otherwise it fades out over its last ~26 px (the end is drawn in 14 slices of falling opacity). Every label is measured (a text layout), and only a scrolling one asks for frames (`wants_frames`). |
 | `button` | A pill-shaped button that registers a hit region and brightens on hover. |
 | `hit(x, y, w, h, action)` | Registers a clickable region and returns whether the pointer is over it, so callers can draw a hover state. |
 | `cc(color, alpha)` | A colour with the current content opacity applied. Use it for all content colours so fades work. |
@@ -130,7 +130,7 @@ A `Spring` has `pos`, `vel`, `target`, a damping ratio `zeta`, a `period`, and a
 
 | Spring | Zeta / period | Character |
 |---|---|---|
-| Pill size, **expanding** (`GROW`) | 0.78 / 0.28 s | Lively, a small overshoot. |
+| Pill size, **expanding** (`GROW`) | 0.86 / 0.30 s | A touch of overshoot that settles rather than bounces. |
 | Pill size, **collapsing** (`SHRINK`) | 1.0 / 0.40 s | Slower, no bounce: eases shut. |
 | Content fade-in | 1.0 / 0.18 s | |
 | Outgoing content fade | 1.0 / 0.16 s | |

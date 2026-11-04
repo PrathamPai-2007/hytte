@@ -21,6 +21,7 @@ Read the sections in order the first time: each one builds on the previous ones.
 | 13 | [Testing and releasing](13-testing-and-release.md) | What the tests cover, CI, and how a release is built and published. |
 | 14 | [How-to recipes](14-how-to-recipes.md) | Step-by-step guides for common changes: a new panel, event, setting, protocol field or file action. |
 | 15 | [Updates](15-updates.md) | How the update check and in-place self-replace work, and how to test them. |
+| 16 | [What's new](16-whats-new.md) | What changed in each version, for people who use Hytte and for people who change it. |
 
 ## Conventions used in these docs
 

@@ -139,7 +139,7 @@ Details worth knowing:
 
 - Each script guards itself (`__notch_loaded`, `$global:__notch`) so sourcing it twice does nothing.
 - Under Git Bash / MSYS, `$$` is not the Windows pid. The bash and zsh scripts read `/proc/$$/winpid` so click-to-focus and liveness use the real Windows process.
-- PowerShell computes the exit code from `$?` and `$LASTEXITCODE`, and the duration with a `Stopwatch`. bash and zsh use whole seconds. Nushell uses `CMD_DURATION_MS`.
+- PowerShell computes the exit code from `$?` and `$LASTEXITCODE`, and the duration with a `Stopwatch`. Two details keep it honest. A command that PowerShell recorded as **Stopped** in its history (`Get-History -Count 1`'s `ExecutionStatus`, which is what Ctrl+C leaves, for a cmdlet and for a program alike; a failing program is `Completed` and a `throw` is `Failed`) reports exit code 130, which the daemon takes as "stopped by the user" and shows nothing for. And when a cmdlet fails (a new record in `$Error`), the code is 1, not whatever `$LASTEXITCODE` the last program left. bash and zsh use whole seconds. Nushell uses `CMD_DURATION_MS`.
 - The PowerShell integration replaces any existing custom **Enter** binding.
 - Shell tasks have no stderr tail (the shell owns the command's streams), so failures show `exit N`.
 

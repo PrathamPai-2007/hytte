@@ -119,7 +119,7 @@ The bridge delivers `TaskUpdate`s as `UiEvent::Task` to `Ui::handle_events` (`wi
 
 - **Ignored commands.** A shell task whose command name (first word, lower-cased, without path or `.exe`) is in `[shell] ignore` is dropped.
 - **Too fast to show.** A shell task that ends (`Done` or `Failed`) before its `visible_after` time is removed silently. This is how fast commands never flash up.
-- **Stopped by the user.** A task of any source that ends with exit code 130 (SIGINT), 143 (SIGTERM) or -1073741510 (`0xC000013A`, Windows' Ctrl+C) was stopped, not broken, so it is removed silently instead of showing a red error. (Ctrl+C on a PowerShell cmdlet reports plain failure code 1, which can't be told apart from a real failure.)
+- **Stopped by the user.** A task of any source that ends with exit code 130 (SIGINT), 143 (SIGTERM) or -1073741510 (`0xC000013A`, Windows' Ctrl+C) was stopped, not broken, so it is removed silently instead of showing a red error. The PowerShell hook reports 130 for any command PowerShell itself records as stopped (Ctrl+C on a cmdlet or on a program), whatever code the program left behind ([section 5](05-cli.md#how-the-shell-integrations-work)). A program that handles Ctrl+C and exits with some other code still shows as failed: nothing says it was stopped.
 - **New task.** It is added with `started = changed = now` and `visible_after = now + delay_ms`.
 - **Existing task.** Its fields are updated. An empty label keeps the old label, a missing `progress` keeps the old progress, and a missing `pid` keeps the old pid.
 - `stderr_tail` is split into lines, and `message` becomes the amber attention text while `NeedsInput`.

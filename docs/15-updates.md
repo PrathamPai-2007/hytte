@@ -15,7 +15,7 @@ Only one check runs at a time (`BUSY`). A manual check while the daily one's pro
 
 1. **Ask GitHub.** `curl.exe` fetches `https://api.github.com/repos/PrathamPai-2007/hytte/releases/latest` (the most recent published, non-draft release). `release_from_json` takes `tag_name` and the download URL of the asset named exactly `hytte.exe`. A release without that asset (every release before 1.0) is an error, not an update.
 2. **Compare.** `parse` turns `v1.2.3` (an optional `v`, an optional `-suffix` ignored) into `(1, 2, 3)`, compared as numbers. Anything else, such as `v1.2` or `latest`, is not a version and is ignored. If the release isn't newer than `CARGO_PKG_VERSION`, the check ends.
-3. **Ask the user.** A topmost message box (`setup::message`, the same helper the terminal setup uses): "Hytte X is available (you have Y). Update now?" On **No**, the tag is written to `%APPDATA%\Hytte\update-skip`.
+3. **Ask the user.** A topmost message box (`setup::message`, the same helper the terminal setup uses): "Hytte X is available (you have Y).", then "New in X: …" when the release has notes (the first real line of its body, without the heading, bullet and "by @user" tail of GitHub's generated notes, at most 140 characters; `first_note`), then "Update now?". On **No**, the tag is written to `%APPDATA%\Hytte\update-skip`.
 4. **Install** (`install`), on **Yes**:
    1. Write an empty `hytte.exe.new` next to the running exe. If that fails, the folder isn't writable (for example under `Program Files`), and the user gets a message saying so and pointing to a manual download.
    2. Download the asset into `hytte.exe.new`.

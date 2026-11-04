@@ -11,6 +11,7 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 | `%APPDATA%\Hytte\shelf\` | `shelf::stage` | Copies (in `mode = "copy"`) and dropped text snippets. |
 | `%APPDATA%\Hytte\timer.json` | `timer::save` | The running timer, so it survives a restart. Deleted when the timer stops or finishes. |
 | `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics; a line whenever the fullscreen decision changes; hotkey registration failures; GPU renderer lost or unavailable; startup failures (window, renderer, Start Menu shortcut, `PATH`); migrated shell profiles; update checks, prompts and installs; frame telemetry when `HYTTE_PERF=1`. |
+| `%APPDATA%\Hytte\panel.txt` | `Ui::remember_panel` | With `[general] remember_panel`, the name of the panel the pill was on when it last collapsed. |
 | `%APPDATA%\Hytte\update-skip` | `update.rs` | The release tag the user answered **No** to, so the daily check doesn't ask about it again. A newer release is still offered. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. With autostart off, a copy removes the value only when it points at that copy or at an exe that no longer exists, so a second copy (a dev build) can't switch off the installed one. |
 | `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `hytte` resolves in new terminals (`[general] add_to_path`). |
@@ -28,11 +29,11 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 
 - File missing or empty → write a file with every default and use it.
 - File present → parse it with `toml`. Every section and every key has a serde default, so a partial file is fine.
-- File present but **invalid** → use the defaults in memory, without overwriting the file, so a typo doesn't destroy the user's settings.
+- File present but **invalid** → use the defaults in memory, without overwriting the file, so a typo doesn't destroy the user's settings. The line and column of the mistake are written to `hytte.log` and shown in a warning card (click it to open the file).
 
 ### Live reload
 
-Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChangeNotificationW` for the data folder (last-write and file-name changes), so it costs nothing while nothing changes. On a notification it waits 150 ms for the editor to finish saving, re-reads `config.toml`, and sends `UiEvent::Config` only if the text changed and parses. Writes to `shelf.json` or `timer.json` in the same folder are filtered out by the text comparison. An invalid file mid-edit is ignored, and the current settings stay until it parses.
+Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChangeNotificationW` for the data folder (last-write and file-name changes), so it costs nothing while nothing changes. On a notification it waits 150 ms for the editor to finish saving, re-reads `config.toml`, and sends `UiEvent::Config` only if the text changed and parses. Writes to `shelf.json` or `timer.json` in the same folder are filtered out by the text comparison. An invalid file mid-edit is ignored, and the current settings stay until it parses; each time, `config::problem` says what is wrong (`UiEvent::ConfigProblem`: a warning card that opens the file, and a line in the log). The same function finds keys that aren't settings, by comparing the file's keys with those of `Config::default()` serialised (plus the few that only appear once set, and the old names above), so a typo such as `hover_dely_ms` is named instead of silently doing nothing.
 
 On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was derived from it at startup:
 
@@ -43,14 +44,14 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 | `[general] hotkey` | The old hotkey is unregistered and the new one registered. |
 | `[general] hide_from_capture` | `SetWindowDisplayAffinity` is called again. |
 | `[general] monitor`, `pill_scale` | `refresh_monitor` moves the pill and recomputes its scale. |
-| `[general] theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `quiet_hours`, `task_rows` | Re-read; the next frame uses them. |
+| `[general] theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `remember_panel`, `pin_button`, `quiet_hours`, `task_rows` | Re-read; the next frame uses them. Switching `pin_button` off un-pins. |
 | `[timer] rounds` | The running Focus cycle shows the new number of dots. |
 | `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
 | `[hog]` | `ports::reconfigure_hog` hands them to the same thread, used from the next tick. |
 | `[general]` fullscreen keys | `evaluate_fullscreen` runs again. |
 | Everything else | Already read at the point of use (`self.cfg`, or `config::load()` for `output_folder`). |
 
-Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path` and `check_updates` only matter at the next startup. Keys Hytte no longer knows (`renderer`, `solid_pill`, `acrylic`) are ignored.
+Lowering `[shelf] max_items` keeps the tiles already on the shelf; it only limits new ones. `[general] add_to_path` and `check_updates` only matter at the next startup. Keys Hytte no longer knows (`renderer`, `solid_pill`, `acrylic`, `config_version`, `top_offset`) are ignored without a word. Any other key it doesn't know is ignored too, but named (see below).
 
 ### Writing the file
 
@@ -68,6 +69,8 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 | `theme` | `"dark"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
 | `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. |
 | `pill_opacity` | `1.0` | Opacity of the pill's body, `0.4` to `1.0`. Text and icons stay solid. Applies live. |
+| `pin_button` | `false` | Show a pin in the open pill's tab strip. Clicking it keeps the pill open until it is clicked again (or a fullscreen app takes the screen). The pinned state is not saved. |
+| `remember_panel` | `false` | With `start_panel = "last"`, remember the panel across restarts (`panel.txt`). |
 | `hover_delay_ms` | `200` | How long the pointer must rest on the pill (or the sentinel line) before it opens; `0` opens at once. |
 | `collapse_delay_ms` | `300` | How long the pill stays open after the pointer leaves it. |
 | `open_on` | `"hover"` | `"hover"` opens when the pointer rests on the pill; `"click"` waits for a click on the closed pill. |
@@ -103,7 +106,7 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 | `persist` | `true` | Save the shelf to `shelf.json` and restore it at startup. |
 | `remove_after_drag` | `true` | Remove a tile after it has been dragged out successfully. |
 | `screenshot_secs` | `60` | A screenshot leaves the shelf (and its PNG is deleted) after this many seconds; `0` keeps it. Applies to screenshots taken while Hytte runs. |
-| `delete_after_paste` | `false` | Delete a screenshot about two seconds after you paste it with Ctrl+V while it is still on the clipboard. Only Hytte's own copy is deleted, and only while it is still on the shelf. |
+| `delete_after_paste` | `true` | Delete a screenshot about two seconds after you paste it with Ctrl+V while it is still on the clipboard. (A file written by an older version may say `false` explicitly; that is respected.) Only Hytte's own copy is deleted, and only while it is still on the shelf. |
 | `screenshots` | `true` | A screenshot the Snipping Tool copies (Win+Shift+S) goes on the shelf as a PNG in `%APPDATA%\Hytte\shelf\` (`WM_CLIPBOARDUPDATE`, clipboard owner `SnippingTool.exe` or `ScreenClippingHost.exe`). Images other apps copy are left alone; nothing is shelved in game mode or while paused. Applies live. |
 
 ### `[ports]`

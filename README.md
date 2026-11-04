@@ -21,7 +21,7 @@ It never steals focus from what you're typing, and it uses almost no CPU while i
 - **Follow your AI agents.** Claude Code, Codex, OpenCode, Gemini CLI, Antigravity and Cursor show up by name with what they're doing right now ("Editing render.rs"). When one is waiting for you the pill turns amber, even over a maximised terminal, and one click takes you to the right terminal. When one finishes, a card shows the first line of its reply, with **Copy** for the whole thing, for as long as **Open on finish** says (off: no card). One click in the tray connects them all.
 - **Answer permission prompts from the pill.** When Claude Code, Codex or OpenCode asks to run something, the pill shows the command with **Allow** and **Deny**, so you don't have to switch windows.
 - **Show your dev servers.** Anything listening on `localhost:3000`, `5173`, `8080` and friends shows up under your tasks, with **Open** and **Stop** buttons. A server you started from a terminal is labelled with that command, and clicking it takes you to the terminal.
-- **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them. Past five items the row scrolls (arrows, or the mouse wheel over it). Screenshots you take with Win+Shift+S land there too, ready to drag into a chat. They leave the shelf after a minute (you can change that, or have one deleted as soon as you paste it with Ctrl+V), and you can switch it off in settings.
+- **Hold files for you (the shelf).** Drag files or text onto the pill, switch windows or desktops, then drag them back out wherever you need them. Past five items the row scrolls (arrows, or the mouse wheel over it). Screenshots you take with Win+Shift+S land there too, ready to drag into a chat. They leave the shelf after a minute, and a screenshot is deleted a couple of seconds after you paste it with Ctrl+V (both can be changed or switched off in settings).
 - **Quick file actions.** Shrink an image under 5 MB, turn it into a PDF, strip its location data, copy the text out of it, tidy up JSON, or decode a pasted JWT, Unix timestamp, URL-encoded or base64 text, or hex colour. One click each.
 - **Control music.** See what's playing, skip or pause, and click or drag the timeline to jump around in the track.
 - **Quick controls.** One pane of tiles: mute every microphone at once (with a red lock on the pill so you always know), mute the speakers, keep the PC awake (an hour, or until you turn it off), and the timer. Under them a volume bar you can drag, click or scroll; the ▾ at its end opens a bar per app (up to four, the ones playing first), so you can turn one noisy app down.
@@ -233,14 +233,14 @@ The everyday settings are in the pill: the **gear** next to the volume bar on Ho
   <img src="docs/img/settings-pane.png" alt="The settings pane inside the pill" width="420">
 </p>
 
-The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, motion speed, which panel it opens on, quiet hours for sounds (presets, or **Custom** to open `config.toml` at the setting with instructions), how long screenshots stay on the shelf and more. Lists, the hotkey and folders stay in `config.toml`.
+The button at the top right of that pane opens the **settings window**: a bigger, scrolling page with every switch, slider and step, grouped in sections (look, behaviour, timer, shelf, watchers and more). It adds things the pane has no room for: opacity as a slider, how the pill opens (hover or click), its size, idle dimming, motion speed, which panel it opens on, quiet hours for sounds (presets, or **Custom** to open `config.toml` at the setting with instructions), how long screenshots stay on the shelf and more. Start typing to **search** the settings, and a small **↺** appears beside any value that isn't its default: click it to put it back. Lists, the hotkey and folders stay in `config.toml`.
 
 <p align="center">
   <img src="docs/img/settings-window.png" alt="The settings window, dark" width="560">
   <img src="docs/img/settings-window-light.png" alt="The settings window, light" width="560">
 </p>
 
-Everything is stored in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**, or the **Open config.toml** button in the settings window). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file; if it has a mistake, Hytte keeps the previous settings until it reads correctly again.
+Everything is stored in `%APPDATA%\Hytte\config.toml` (tray menu → **Open settings folder**, or the **Open config.toml** button in the settings window). The file is created on first run, and every setting is optional. Most changes apply as soon as you save the file. If it has a mistake, Hytte keeps the previous settings until it reads correctly again, and says where the mistake is (the line and column) in a warning card you can click to open the file. A setting it doesn't know (usually a typo) is named the same way and ignored.
 
 The ones people change most:
 
@@ -258,6 +258,8 @@ pill_scale = 1.0               # size of the pill, 0.7 to 1.6
 idle_opacity = 1.0             # the idle pill fades to this (0.2 to 1.0) until you point at it
 animation = "normal"           # "calm", "normal" or "snappy"
 start_panel = "last"           # the panel it opens on: "last", "auto" (what is happening) or "home"
+remember_panel = false         # with "last": also remember the panel across restarts
+pin_button = false             # show a pin in the open pill: click it to keep the pill open until you click it again
 quiet_hours = ""               # no sounds in this window, e.g. "22:00-07:00" (empty = never)
 task_rows = 4                  # task rows shown before the list scrolls (2 to 8)
 hover_delay_ms = 200            # how long to rest the pointer on the pill before it opens (0 = instant)
@@ -282,7 +284,7 @@ persist = true                 # keep the shelf between runs
 remove_after_drag = true       # take a tile off the shelf once you have dragged it out
 screenshots = true             # Snipping Tool screenshots (Win+Shift+S) land on the shelf
 screenshot_secs = 60           # screenshots leave the shelf after this long (0 = keep them)
-delete_after_paste = false     # delete a screenshot once you paste it (Ctrl+V)
+delete_after_paste = true      # delete a screenshot once you paste it (Ctrl+V)
 
 [ports]
 watch = [3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888]
@@ -310,7 +312,7 @@ lead_min = 10                  # minutes before the start to show the heads-up
 
 **Keyboard.** Set `hotkey` (for example `"Win+Alt+N"`) and save the file, then press it: the pill opens and takes focus. **Left / Right** switch panels, **Tab** moves a highlight over the buttons, **Enter** presses one, **Esc** closes it and gives focus back to what you were doing.
 
-The full list of settings, including which ones need a restart, is in [the configuration guide](docs/11-configuration-and-files.md).
+The full list of settings, including which ones need a restart, is in [the configuration guide](docs/11-configuration-and-files.md). What changed in each version is in [What's new](docs/16-whats-new.md).
 
 ## Troubleshooting
 
@@ -325,6 +327,10 @@ The full list of settings, including which ones need a restart, is in [the confi
 | Shell commands don't show up | Use **Set up terminal integration** in the tray, then open a new terminal. Commands under 3 seconds are hidden on purpose. |
 | A console window flashes when Hytte starts | That happens on Windows 11 versions before 24H2. It closes by itself, and Hytte keeps running. |
 | "The update didn't install" | Usually the folder isn't writable. Move `hytte.exe` somewhere under your user folder, or update by hand from the releases page. |
+| A warning card says `config.toml` has a mistake, or names a setting | The card gives the line and column, or the name of a setting Hytte doesn't know (often a typo, and it is ignored). Click it to open the file. Until the file reads correctly Hytte keeps your previous settings (or the defaults, if it was already wrong at startup). |
+| A task shows as failed after I pressed Ctrl+C | It shouldn't: Ctrl+C is taken as "you stopped it" and the row disappears. If you still see one, the terminal integration may be an old one: open a **new** terminal after updating, so its PowerShell hook is the current one. A program that catches Ctrl+C and exits with its own error code can't be told apart from a real failure. |
+| The pill flickers when I hover it | Seen occasionally on some setups. It may be a Windows issue rather than Hytte, and nothing in Hytte is known to cause it. If it bothers you, open an issue with your Windows version and graphics driver. |
+| A snapped window turned the pill into a thin line | That is on purpose: a window snapped to a half or third of the screen reaches the middle of the top edge, where the pill hangs. Hover the line to open the pill anyway, or set `fullscreen = "off"` (or add the app to `allow_list`). |
 | A port isn't listed | Add it to `[ports] watch`, or set `show_all = true`. |
 | The hotkey does nothing | Another app may own that combination (see `hytte.log`), or it has no modifier. Try another, such as `"Ctrl+Alt+H"`. |
 | A "resource" warning I don't want | Press **Ignore** for that program, or raise `[hog] cpu_pct` / `mem_mb`, or set `[hog] enabled = false`. |

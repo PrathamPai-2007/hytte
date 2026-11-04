@@ -54,6 +54,7 @@ These words are used consistently in the code and in these docs.
 ```text
 Cargo.toml                 workspace: members, shared dependency versions, release profile
 rust-toolchain.toml        pins stable Rust with the x86_64-pc-windows-msvc target
+scripts/                   release.ps1 (cut a release) and version.ps1 (keep the version, and the winget hash, in step)
 crates/
   proto/                   hytte-proto: code shared by daemon and CLI
     src/lib.rs             HytteMessage (the pipe protocol), TaskEvent, validation, Ask / Answer
