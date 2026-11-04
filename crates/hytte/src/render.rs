@@ -69,6 +69,8 @@ pub enum Action {
     Opacity,
     /// A section in the settings window's list: scroll to it.
     Jump(usize),
+    /// The settings window's search field: clear what was typed.
+    ClearSearch,
     /// "Custom" on a setting only `config.toml` can hold: open the file at it (the hint id).
     EditConfig(&'static str),
     /// The chevron at the end of the volume bar: open / close the per-app list.
@@ -119,6 +121,8 @@ pub struct SettingsView<'a> {
     pub open: f32,
     /// A note shown over the bottom of the page, and how visible it is (0..1).
     pub toast: Option<(&'a str, f32)>,
+    /// What was typed in the search field (rows and sections not matching it are hidden).
+    pub query: &'a str,
 }
 
 /// What a settings-window frame laid out.
@@ -401,6 +405,42 @@ pub enum Row {
     ),
     /// Pill opacity slider, current value.
     Opacity(f32),
+}
+
+impl Row {
+    fn label(&self) -> &'static str {
+        match self {
+            Row::Switch(l, ..) | Row::Pick(l, ..) | Row::PickCustom(l, ..) => l,
+            Row::Opacity(_) => "Opacity",
+        }
+    }
+
+    fn key(&self) -> &'static str {
+        match self {
+            Row::Switch(_, k, _) | Row::Pick(_, k, ..) | Row::PickCustom(_, k, ..) => k,
+            Row::Opacity(_) => "general.pill_opacity",
+        }
+    }
+
+    /// Where the value sits, to compare with the default's.
+    fn at(&self) -> f32 {
+        match self {
+            Row::Switch(_, _, on) => *on as u8 as f32,
+            Row::Pick(_, _, _, i) | Row::PickCustom(_, _, _, i, ..) => *i as f32,
+            Row::Opacity(v) => *v,
+        }
+    }
+
+    /// The action that writes this row's value as it is shown (for a default, the reset).
+    fn set_action(&self) -> Option<Action> {
+        match self {
+            Row::Switch(_, k, on) => Some(Action::Set(k, Val::B(*on))),
+            Row::Pick(_, k, o, i) | Row::PickCustom(_, k, o, i, ..) => {
+                o.get(*i).map(|(_, v)| Action::Set(k, *v))
+            }
+            Row::Opacity(v) => Some(Action::Set("general.pill_opacity", Val::F(*v as f64))),
+        }
+    }
 }
 
 /// A titled run of rows. Each row also says which page of the pill's small settings pane
@@ -1104,7 +1144,25 @@ impl Renderer {
         } else {
             [0.085, 0.09, 0.105]
         };
-        let sections = settings_table(cfg);
+        let mut sections = settings_table(cfg);
+        let q = view.query.trim().to_lowercase();
+        if !q.is_empty() {
+            for s in &mut sections {
+                if !s.name.to_lowercase().contains(&q) {
+                    s.rows
+                        .retain(|(r, _)| r.label().to_lowercase().contains(&q));
+                }
+            }
+            sections.retain(|s| !s.rows.is_empty());
+        }
+        let names: Vec<&str> = sections.iter().map(|s| s.name).collect();
+        // What each row holds by default, to offer a reset where it differs.
+        let defaults: std::collections::HashMap<&str, (f32, Option<Action>)> =
+            settings_table(&Config::default())
+                .into_iter()
+                .flat_map(|s| s.rows)
+                .map(|(r, _)| (r.key(), (r.at(), r.set_action())))
+                .collect();
         let mut tops: Vec<f32> = Vec::with_capacity(sections.len());
         let mut y = if side > 0.0 { 30.0 } else { 74.0 };
         unsafe {
@@ -1132,6 +1190,21 @@ impl Renderer {
                     self.cc(fg, 1.0),
                 );
                 self.open_button(cw - 22.0 - 132.0, 24.0, 132.0);
+            }
+            self.ca.set(1.0);
+            self.search_field(view.query, 0.0, y, cw);
+            y += 46.0;
+            if sections.is_empty() {
+                self.text(
+                    "No setting matches",
+                    &self.f.body,
+                    0.0,
+                    y + 10.0,
+                    cw,
+                    24.0,
+                    self.cc(GRAY, 0.9),
+                );
+                y += 60.0;
             }
             for (i, sec) in sections.into_iter().enumerate() {
                 // Each card eases in, one after the other, when the window opens.
@@ -1168,7 +1241,11 @@ impl Renderer {
                     if k > 0 {
                         self.line((22.0, ry), (cw - 22.0, ry), self.cc(fg, 0.05), 1.0);
                     }
-                    self.setting_row(row, ry + 2.0, cw);
+                    let reset = defaults
+                        .get(row.key())
+                        .filter(|(at, _)| (at - row.at()).abs() > 0.004)
+                        .and_then(|(_, a)| a.clone());
+                    self.setting_row(row, reset, ry + 2.0, cw);
                     ry += ROW;
                 }
                 y += 24.0 + ch + 22.0;
@@ -1224,7 +1301,6 @@ impl Renderer {
                     .iter()
                     .rposition(|t| *t <= view.scroll + 70.0)
                     .unwrap_or(0);
-                let names: Vec<&str> = settings_table(cfg).iter().map(|s| s.name).collect();
                 let at = self.ease("nav", active as f32);
                 let ny = 74.0;
                 self.fill_rr(
@@ -1606,7 +1682,7 @@ impl Renderer {
         };
     }
 
-    /// Text that doesn't fit is cut with an ellipsis; while `hov`, it instead scrolls to show
+    /// Text that doesn't fit fades out at the end; while `hov`, it instead scrolls to show
     /// the rest: a pause, a glide to the end, a pause, then back to the start.
     #[allow(clippy::too_many_arguments)]
     fn label(
@@ -1620,19 +1696,50 @@ impl Renderer {
         c: D2D1_COLOR_F,
         hov: bool,
     ) {
-        let layout = hov
-            .then(|| {
-                let wide: Vec<u16> = s.encode_utf16().collect();
-                let l = unsafe { self.dw.CreateTextLayout(&wide, f, 4096.0, h).ok()? };
-                let mut m = DWRITE_TEXT_METRICS::default();
-                unsafe { l.GetMetrics(&mut m).ok()? };
-                (m.widthIncludingTrailingWhitespace > w)
-                    .then_some((l, m.widthIncludingTrailingWhitespace))
-            })
-            .flatten();
+        let layout = (|| {
+            let wide: Vec<u16> = s.encode_utf16().collect();
+            let l = unsafe { self.dw.CreateTextLayout(&wide, f, 4096.0, h).ok()? };
+            let mut m = DWRITE_TEXT_METRICS::default();
+            unsafe { l.GetMetrics(&mut m).ok()? };
+            (m.widthIncludingTrailingWhitespace > w)
+                .then_some((l, m.widthIncludingTrailingWhitespace))
+        })();
         let Some((l, tw)) = layout else {
             return self.text(s, f, x, y, w, h, c);
         };
+        if !hov {
+            // Too long and not hovered: it fades out at the end rather than being cut.
+            const SLICES: usize = 14;
+            let fw = (w * 0.4).min(26.0);
+            let sw = fw / SLICES as f32;
+            unsafe {
+                let _ = l.SetMaxWidth(tw + 1.0);
+                let _ = l.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                self.rt
+                    .PushAxisAlignedClip(&rect(x, y, w - fw, h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                self.rt
+                    .DrawTextLayout(v(x, y), &l, self.solid(c), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                self.rt.PopAxisAlignedClip();
+                for i in 0..SLICES {
+                    let k = 1.0 - (i as f32 + 0.5) / SLICES as f32;
+                    let sx = x + w - fw + i as f32 * sw;
+                    self.rt.PushAxisAlignedClip(
+                        &rect(sx, y, sw + 0.3, h),
+                        D2D1_ANTIALIAS_MODE_ALIASED,
+                    );
+                    let mut cc = c;
+                    cc.a *= k * k;
+                    self.rt.DrawTextLayout(
+                        v(x, y),
+                        &l,
+                        self.solid(cc),
+                        D2D1_DRAW_TEXT_OPTIONS_NONE,
+                    );
+                    self.rt.PopAxisAlignedClip();
+                }
+            }
+            return;
+        }
         // Restart from the beginning whenever a different label is hovered.
         let key = {
             use std::hash::{Hash, Hasher};
@@ -2852,6 +2959,12 @@ impl Renderer {
                 let gx = 42.0 + label_w + 10.0;
                 self.glyph_s('\u{E8A7}', gx, y + 17.0, self.cc(self.fg(), 0.6));
             }
+            // A row that wants you says so before you read it: a wash and a bar in its colour.
+            if matches!(t.event, TaskEvent::Failed | TaskEvent::NeedsInput) {
+                let col = task_color(t);
+                self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(col, 0.075));
+                self.fill_rr(8.0, y + 9.0, 2.5, 18.0, 1.25, self.cc(col, 0.9));
+            }
             // The first row is the compact task's twin: its icon and label slide in from there.
             let first = row == 0;
             let (ic, saved) = if first {
@@ -2879,7 +2992,15 @@ impl Renderer {
                 lb[1],
                 lb[2],
                 lb[3],
-                self.cc(self.fg(), 0.95),
+                // A finished task recedes; the ones still going or wanting you stay bright.
+                self.cc(
+                    self.fg(),
+                    if t.event == TaskEvent::Done {
+                        0.72
+                    } else {
+                        0.95
+                    },
+                ),
                 hov,
             );
             self.hero_end(saved);
@@ -3817,7 +3938,7 @@ impl Renderer {
             .collect();
         let n = rows.len();
         for (i, row) in rows.into_iter().enumerate() {
-            self.setting_row(row, 46.0 + i as f32 * 32.0, w);
+            self.setting_row(row, None, 46.0 + i as f32 * 32.0, w);
         }
         // Spare room at the bottom: where the rest of the settings live.
         if n < 5 {
@@ -3850,7 +3971,95 @@ impl Renderer {
     }
 
     /// One settings row at `y`, `w` wide: a switch, a few choices or the opacity slider.
-    fn setting_row(&self, row: Row, y: f32, w: f32) {
+    fn setting_row(&self, row: Row, reset: Option<Action>, y: f32, w: f32) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        // The reset sits just left of the control, drawn after the row so it is on top.
+        let key = row.key();
+        let rx = match &row {
+            Row::Switch(..) => w - 22.0 - 34.0 - 30.0,
+            Row::Opacity(_) => w - 22.0 - 206.0 - 28.0,
+            Row::Pick(..) => w - 22.0 - 206.0 - 30.0,
+            Row::PickCustom(..) => w - 22.0 - 246.0 - 30.0,
+        };
+        self.setting_row_body(row, y, w);
+        if let Some(a) = reset {
+            let hov = self.hit(rx, y + 4.0, 24.0, 22.0, a);
+            let h = self.ease(&format!("r:{key}"), hov as u8 as f32);
+            self.fill_rr(rx, y + 4.0, 24.0, 22.0, 11.0, self.cc(fg, 0.1 * h));
+            self.text(
+                "↺",
+                &self.f.big,
+                rx,
+                y + 4.0,
+                24.0,
+                22.0,
+                self.cc(acc, 0.55 + 0.45 * h),
+            );
+        }
+    }
+
+    /// The search field at the top of the settings window.
+    fn search_field(&self, query: &str, x: f32, y: f32, w: f32) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        self.fill_rr(x, y, w, 34.0, 17.0, self.cc(fg, 0.06));
+        if !query.is_empty() {
+            self.stroke_rr(
+                x + 0.5,
+                y + 0.5,
+                w - 1.0,
+                33.0,
+                17.0,
+                self.cc(acc, 0.7),
+                1.0,
+                false,
+            );
+        }
+        // A magnifier.
+        self.ring(x + 24.0, y + 16.0, 5.0, self.cc(fg, 0.55), 1.6);
+        self.line(
+            (x + 28.0, y + 20.0),
+            (x + 32.0, y + 24.0),
+            self.cc(fg, 0.55),
+            1.6,
+        );
+        if query.is_empty() {
+            self.text(
+                "Search settings",
+                &self.f.body,
+                x + 42.0,
+                y,
+                w - 90.0,
+                34.0,
+                self.cc(GRAY, 0.9),
+            );
+        } else {
+            self.text(
+                query,
+                &self.f.body,
+                x + 42.0,
+                y,
+                w - 90.0,
+                34.0,
+                self.cc(fg, 0.95),
+            );
+            let hov = self.hit(x + w - 34.0, y + 5.0, 24.0, 24.0, Action::ClearSearch);
+            let h = self.ease("h:clear", hov as u8 as f32);
+            self.fill_rr(
+                x + w - 34.0,
+                y + 5.0,
+                24.0,
+                24.0,
+                12.0,
+                self.cc(fg, 0.1 * h),
+            );
+            let (cx, cy, r) = (x + w - 22.0, y + 17.0, 4.0);
+            let c = self.cc(fg, 0.6 + 0.3 * h);
+            self.line((cx - r, cy - r), (cx + r, cy + r), c, 1.5);
+            self.line((cx - r, cy + r), (cx + r, cy - r), c, 1.5);
+        }
+    }
+
+    fn setting_row_body(&self, row: Row, y: f32, w: f32) {
         let (fg, acc) = (self.fg(), self.accent.get());
         match row {
             Row::Switch(label, key, on) => {
@@ -3952,7 +4161,7 @@ impl Renderer {
                     &self.f.small,
                     108.0,
                     y,
-                    px - 112.0,
+                    px - 140.0,
                     30.0,
                     self.cc(GRAY, 0.9),
                 );
@@ -4846,6 +5055,30 @@ mod snap {
         assert_eq!(keys.len(), rows);
     }
 
+    /// The reset of every row writes its default back as a valid file, and rows at their
+    /// defaults compare equal to themselves (so no reset is offered for them).
+    #[test]
+    fn resets_write_the_default() {
+        let cfg = Config::default();
+        for sec in settings_table(&cfg) {
+            for (row, _) in sec.rows {
+                let Some(Action::Set(k, v)) = row.set_action() else {
+                    continue;
+                };
+                assert_eq!(k, row.key());
+                let text = crate::config::with_value("", k, v).expect(k);
+                let back = crate::config::parse(&text).expect(k);
+                let again = settings_table(&back)
+                    .into_iter()
+                    .flat_map(|s| s.rows)
+                    .find(|(r, _)| r.key() == k)
+                    .unwrap()
+                    .0;
+                assert!((again.at() - row.at()).abs() < 0.004, "{k}");
+            }
+        }
+    }
+
     /// The settings window, light and dark, at the top, scrolled, and with the pointer on a row.
     #[test]
     #[ignore]
@@ -4876,6 +5109,7 @@ mod snap {
                 dt: 0.016,
                 open: 1.0,
                 toast: None,
+                query: "",
             };
             let mut hits = vec![];
             // Twice: the first frame seeds the eased values, the second settles them.
@@ -4904,6 +5138,7 @@ mod snap {
             dt: 0.016,
             open: 1.0,
             toast: Some(("In config.toml, under [general], set quiet_hours to your times as \"HH:MM-HH:MM\" (24-hour clock, may wrap past midnight), for example \"22:30-06:00\". Save the file and it applies.", 1.0)),
+            query: "",
         };
         let mut hits = vec![];
         r.draw_settings_window(&custom, &view, &mut hits);
@@ -4917,6 +5152,38 @@ mod snap {
         .save(dir.join("settings-custom.png"))
         .unwrap();
         SHOT.with(|v| v.borrow_mut().push("settings-custom".to_string()));
+        // Searching, with a few values off their defaults (so resets show).
+        let mut dirty = Config::default();
+        dirty.general.hover_delay_ms = 500;
+        dirty.general.pill_opacity = 0.7;
+        dirty.general.theme = "auto".into();
+        for (name, query) in [("settings-search", "hover"), ("settings-nomatch", "zzz")] {
+            let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
+            let view = SettingsView {
+                mouse: Some((690.0, 150.0)),
+                pressed: false,
+                light: false,
+                accent: BLUE,
+                scroll: 0.0,
+                scrolling: false,
+                dt: 0.016,
+                open: 1.0,
+                toast: None,
+                query,
+            };
+            let mut hits = vec![];
+            r.draw_settings_window(&dirty, &view, &mut hits);
+            r.draw_settings_window(&dirty, &view, &mut hits);
+            let (pw, ph) = r.px;
+            let px = r.read_back();
+            image::RgbImage::from_fn(pw as u32, ph as u32, |x, y| {
+                let i = ((y as i32 * pw + x as i32) * 4) as usize;
+                image::Rgb([px[i + 2], px[i + 1], px[i]])
+            })
+            .save(dir.join(format!("{name}.png")))
+            .unwrap();
+            SHOT.with(|v| v.borrow_mut().push(name.to_string()));
+        }
         contact_sheet(&dir);
     }
 
@@ -5013,6 +5280,11 @@ mod snap {
             false,
             Some((240.0, 67.0)),
         );
+        // A title too long for the pill fades out at its end.
+        if let Some(i) = m.media.as_mut() {
+            i.title = "Midnight City (Official Video, Remastered 2021 Extended Cut)".into();
+        }
+        shoot(&mut r, &dir, "media-long", &m, Scene::ExpMedia, false);
         m.media = None;
 
         m.power = Some(crate::power::Battery {

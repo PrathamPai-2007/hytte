@@ -4,7 +4,7 @@
 /// Global tempo: >1 slows every spring (user found the defaults a touch fast).
 const SLOW: f64 = 1.18;
 
-/// Spring params: zeta ≈ 0.78, period ≈ 0.28 s.
+/// Spring params: zeta ≈ 0.78, period ≈ 0.28 s (a fresh spring's default; the pill's own are below).
 #[derive(Debug, Clone, Copy)]
 pub struct Spring {
     pub zeta: f64,
@@ -93,8 +93,8 @@ impl Spring {
     }
 }
 
-/// Expanding: lively, with a small overshoot.
-const GROW: (f64, f64) = (0.78, 0.28);
+/// Expanding: a touch of overshoot, softer than it was, so it settles rather than bounces.
+const GROW: (f64, f64) = (0.86, 0.30);
 /// Collapsing: slower and critically damped, so the pill eases shut without a bounce.
 const SHRINK: (f64, f64) = (1.0, 0.40);
 

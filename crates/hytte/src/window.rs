@@ -1398,7 +1398,8 @@ mod win {
                 Action::TimerClose => self.model.timer_panel = false,
                 Action::Settings(g) => self.model.settings = g,
                 // Dragged: handled by `scrub_to`.
-                Action::Opacity | Action::Jump(_) | Action::EditConfig(_) => {}
+                Action::Opacity | Action::ClearSearch | Action::Jump(_) | Action::EditConfig(_) => {
+                }
                 Action::Set(key, v) => match crate::config::set(key, v) {
                     Ok(Some(cfg)) => self.apply_config(cfg),
                     Ok(None) => {

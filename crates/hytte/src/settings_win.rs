@@ -62,6 +62,8 @@ struct State {
     last_scroll: Instant,
     /// A note over the page (what "Custom" asked for) and when it appeared.
     toast: Option<(String, Instant)>,
+    /// What was typed to filter the rows.
+    query: String,
 }
 
 thread_local! {
@@ -167,6 +169,7 @@ pub fn open(cfg: &Config) {
                 last_frame: now,
                 last_scroll: now - Duration::from_secs(10),
                 toast: None,
+                query: String::new(),
             })
         });
         with(redraw, hwnd);
@@ -258,6 +261,7 @@ fn redraw(s: &mut State, hwnd: HWND) {
         dt,
         open: (now.duration_since(s.opened).as_secs_f32() / 0.5).min(1.0),
         toast,
+        query: &s.query,
     };
     let out = s.rend.draw_settings_window(&s.cfg, &view, &mut s.hits);
     s.content = out.content;
@@ -286,7 +290,7 @@ fn hit_at(s: &State) -> Option<&Hit> {
     let (mx, my) = s.mouse?;
     s.hits
         .iter()
-        .find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
+        .rfind(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
 }
 
 fn set_mouse(s: &mut State, hwnd: HWND, lparam: LPARAM) {
@@ -443,6 +447,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                                     s.toast = Some((toast.to_string(), Instant::now()));
                                 }
                             }
+                            Action::ClearSearch => {
+                                s.query.clear();
+                                s.target = 0.0;
+                            }
                             Action::OpenConfig => {
                                 open_config(&s.cfg);
                             }
@@ -455,11 +463,55 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             );
             return LRESULT(0);
         }
+        // Typing filters the settings; Esc clears the search first, then closes.
+        WM_CHAR => {
+            let c = char::from_u32(wparam.0 as u32).unwrap_or('\0');
+            with(
+                |s, hwnd| {
+                    if c == '\u{8}' {
+                        s.query.pop();
+                    } else if !c.is_control() && s.query.chars().count() < 40 {
+                        s.query.push(c);
+                    } else {
+                        return;
+                    }
+                    s.target = 0.0;
+                    redraw(s, hwnd);
+                },
+                hwnd,
+            );
+            return LRESULT(0);
+        }
         WM_KEYDOWN if wparam.0 == VK_ESCAPE.0 as usize => {
+            if with(
+                |s, hwnd| {
+                    let had = !s.query.is_empty();
+                    s.query.clear();
+                    s.target = 0.0;
+                    redraw(s, hwnd);
+                    had
+                },
+                hwnd,
+            )
+            .unwrap_or(false)
+            {
+                return LRESULT(0);
+            }
             unsafe {
                 let _ = DestroyWindow(hwnd);
             }
             return LRESULT(0);
+        }
+        // The Windows theme or accent changed: "auto" follows it live.
+        WM_SETTINGCHANGE => {
+            with(
+                |s, hwnd| {
+                    (s.light, s.accent) = crate::window::look(&s.cfg.general.theme);
+                    title_bar(hwnd, s.light);
+                    redraw(s, hwnd);
+                },
+                hwnd,
+            );
         }
         WM_SETCURSOR if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => {
             let hand = with(|s, _| hit_at(s).is_some(), hwnd).unwrap_or(false);
