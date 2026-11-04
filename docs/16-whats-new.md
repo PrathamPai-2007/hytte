@@ -6,6 +6,8 @@ What changed in each version, newest first. The first part is for people who use
 
 **Settings**
 
+- **New defaults** (on a fresh `config.toml`; a file you already have keeps its values): starts with Windows, theme follows Windows, the open pill is 70 % opaque and an idle one 75 %, the pill closes after 0.1 s, the pin button is on, the pill peeks for 3 s when a task finishes, an agent that needs you beeps, resource alerts at 70 % CPU, and the timer has 2 rounds before a long break.
+- **Glow strength is a slider** in the settings window, 0 to 100 %, where 100 % is 20 % stronger than the old "Strong". The pill's small pane has steps Off, Soft, Normal and Max.
 - **Every setting has a clearer name**, and resting the pointer on one explains it. The names in the pill's small pane are shorter versions of the same.
 - **A Custom step on every number** (waits, sizes, opacities, break lengths, thresholds): it opens `config.toml` at that setting with a note, and shows the value when it is none of the steps. The reset (**↺**) now sits in a column at the right of every row and restores the exact default.
 - **Per-app volume only lists apps you can see or hear.** Idle background helpers that hold an audio session (an audio console, a wallpaper engine) are left out, and an app is named as it names itself ("Spotify", "Wallpaper Engine").

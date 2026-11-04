@@ -63,19 +63,19 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 
 | Key | Default | Meaning |
 |---|---|---|
-| `autostart` | `false` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
+| `autostart` | `true` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
 | `add_to_path` | `true` | At startup, add the folder holding `hytte.exe` to the user's `PATH` if `hytte` isn't found already. Set to `false` to manage `PATH` yourself. |
 | `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) or `"cursor"` (the monitor under the pointer). `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
-| `theme` | `"dark"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
-| `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. |
-| `pill_opacity` | `1.0` | Opacity of the pill's body, `0.4` to `1.0`. Text and icons stay solid. Applies live. |
-| `pin_button` | `false` | Show a pin in the open pill's tab strip. Clicking it keeps the pill open until it is clicked again (or a fullscreen app takes the screen). The pinned state is not saved. |
+| `theme` | `"auto"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
+| `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. The settings window's slider runs 0 to 1.92 (shown as 0 to 100 %), 20 % past the old "Strong" (1.6). |
+| `pill_opacity` | `0.7` | Opacity of the pill's body, `0.4` to `1.0`. Text and icons stay solid. Applies live. |
+| `pin_button` | `true` | Show a pin in the open pill's tab strip. Clicking it keeps the pill open until it is clicked again (or a fullscreen app takes the screen). The pinned state is not saved. |
 | `remember_panel` | `false` | With `start_panel = "last"`, remember the panel across restarts (`panel.txt`). |
 | `hover_delay_ms` | `200` | How long the pointer must rest on the pill (or the sentinel line) before it opens; `0` opens at once. |
-| `collapse_delay_ms` | `300` | How long the pill stays open after the pointer leaves it. |
+| `collapse_delay_ms` | `100` | How long the pill stays open after the pointer leaves it. |
 | `open_on` | `"hover"` | `"hover"` opens when the pointer rests on the pill; `"click"` waits for a click on the closed pill. |
 | `pill_scale` | `1.0` | Size of the pill, `0.7` to `1.6`. |
-| `idle_opacity` | `1.0` | The idle pill (nothing to show) fades to this, `0.2` to `1.0`, until it is pointed at. |
+| `idle_opacity` | `0.75` | The idle pill (nothing to show) fades to this, `0.2` to `1.0`, until it is pointed at. |
 | `animation` | `"normal"` | `"calm"`, `"normal"` or `"snappy"`: how fast the pill moves. |
 | `start_panel` | `"last"` | The panel it opens on: `"last"` (the one you left), `"auto"` (what is happening, else the quick controls) or `"home"`. |
 | `quiet_hours` | `""` | No sounds (agent alerts, the timer alarm) inside this window, for example `"22:00-07:00"`; it may wrap past midnight. Empty = never. The settings window offers four presets and **Custom**, which writes the key into the file with a note above it and opens it. |
@@ -83,7 +83,7 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `fullscreen` | `"line"` | Over a maximised window (whether or not the taskbar auto-hides), or a fullscreen browser / media player: `"line"` shrinks to a 3 px bar, `"hide"` fades out completely, `"off"` stays as usual. Real fullscreen apps (games) always hide fully ([section 7](07-window-and-input.md#fullscreen-suppression)), except with `"off"`. Settings from before 1.2.2 (`suppress_fullscreen = false`, `fullscreen_mode = "hide"`) are read as `"off"` / `"hide"`. |
-| `finish_peek_secs` | `5` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
+| `finish_peek_secs` | `3` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |
 | `check_updates` | `true` | Once a day (first 60 s after start), ask GitHub whether a newer release exists and offer to install it ([section 15](15-updates.md)). The tray's **Check for updates…** works either way. Live: while off, the daily check is skipped. |
 | `hide_from_capture` | `true` | Keep the pill out of screenshots, screen recordings and screen share (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`). You still see it on your own screen. Applies live. |
 | `output_folder` | none | Folder for Drop Vault results; if unset or missing, results go next to the source file. |
@@ -122,14 +122,14 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 | Key | Default | Meaning |
 |---|---|---|
 | `peek_secs` | `6` | How long the pill peeks open when a task needs input. |
-| `sound` | `false` | Play the system "asterisk" sound on `NeedsInput`. |
+| `sound` | `true` | Play the system "asterisk" sound on `NeedsInput`. |
 
 ### `[hog]`
 
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `true` | Warn when one process keeps using a lot of CPU or memory ([section 9](09-workers.md#resource-hogs-hogrs-hog)). |
-| `cpu_pct` | `80` | Percent of the **whole machine** (all cores = 100) that has to be exceeded. |
+| `cpu_pct` | `70` | Percent of the **whole machine** (all cores = 100) that has to be exceeded. |
 | `secs` | `30` | How long the CPU has to stay over the limit. |
 | `mem_mb` | `4096` | Working set in MB; memory alerts at once. |
 
@@ -154,7 +154,7 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 | `sound` | `true` | Ring when a timer ends, until **Stop alarm** (2 minutes at most). |
 | `break_min` | `5` | Short break length after a Focus session. |
 | `long_break_min` | `15` | Long break length. |
-| `rounds` | `4` | Every `rounds`-th Focus session is followed by a long break. A Focus or Break timer shows this many round dots. |
+| `rounds` | `2` | Every `rounds`-th Focus session is followed by a long break. A Focus or Break timer shows this many round dots. |
 
 ## The timer's persistence
 

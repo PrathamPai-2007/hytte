@@ -122,30 +122,30 @@ pub fn parse_hotkey(s: &str) -> Option<(u32, u32)> {
 impl Default for General {
     fn default() -> Self {
         Self {
-            autostart: false,
+            autostart: true,
             add_to_path: true,
             monitor: "primary".into(),
             adaptive_glow: true,
             glow_strength: 1.2,
-            pill_opacity: 1.0,
+            pill_opacity: 0.7,
             hover_delay_ms: 200,
-            collapse_delay_ms: 300,
+            collapse_delay_ms: 100,
             open_on: "hover".into(),
             pill_scale: 1.0,
-            idle_opacity: 1.0,
+            idle_opacity: 0.75,
             animation: "normal".into(),
             start_panel: "last".into(),
-            pin_button: false,
+            pin_button: true,
             remember_panel: false,
             quiet_hours: String::new(),
             task_rows: 4,
             hotkey: String::new(),
-            theme: "dark".into(),
+            theme: "auto".into(),
             fullscreen: "line".into(),
             output_folder: None,
             allow_list: vec![],
             deny_list: vec![],
-            finish_peek_secs: 5,
+            finish_peek_secs: 3,
             hide_from_capture: true,
             check_updates: true,
         }
@@ -282,7 +282,7 @@ impl Default for Hog {
     fn default() -> Self {
         Self {
             enabled: true,
-            cpu_pct: 80,
+            cpu_pct: 70,
             mem_mb: 4096,
             secs: 30,
         }
@@ -299,7 +299,7 @@ impl Default for Agent {
     fn default() -> Self {
         Self {
             peek_secs: 6,
-            sound: false,
+            sound: true,
         }
     }
 }
@@ -319,7 +319,7 @@ impl Default for Timer {
             sound: true,
             break_min: 5,
             long_break_min: 15,
-            rounds: 4,
+            rounds: 2,
         }
     }
 }

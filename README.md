@@ -246,26 +246,26 @@ The ones people change most:
 
 ```toml
 [general]
-autostart = false              # start with Windows
-theme = "dark"                 # "dark", "light" or "auto" (follow Windows)
+autostart = true               # start with Windows
+theme = "auto"                 # "dark", "light" or "auto" (follow Windows)
 monitor = "primary"            # "primary", "active" (the focused window's) or "cursor"
 hotkey = ""                    # e.g. "Win+Alt+N": open the pill for keyboard use
 adaptive_glow = true           # tint the music glow with the album art
 glow_strength = 1.2            # border glow strength (1.0 = original, 0 = off, max 3)
-collapse_delay_ms = 300        # how long the pill stays open after the pointer leaves
+collapse_delay_ms = 100        # how long the pill stays open after the pointer leaves
 open_on = "hover"              # "hover" opens at once (after hover_delay_ms), "click" waits for a click
 pill_scale = 1.0               # size of the pill, 0.7 to 1.6
-idle_opacity = 1.0             # the idle pill fades to this (0.2 to 1.0) until you point at it
+idle_opacity = 0.75            # the idle pill fades to this (0.2 to 1.0) until you point at it
 animation = "normal"           # "calm", "normal" or "snappy"
 start_panel = "last"           # the panel it opens on: "last", "auto" (what is happening) or "home"
 remember_panel = false         # with "last": also remember the panel across restarts
-pin_button = false             # show a pin in the open pill: click it to keep the pill open until you click it again
+pin_button = true              # show a pin in the open pill: click it to keep the pill open until you click it again
 quiet_hours = ""               # no sounds in this window, e.g. "22:00-07:00" (empty = never)
 task_rows = 4                  # task rows shown before the list scrolls (2 to 8)
 hover_delay_ms = 200            # how long to rest the pointer on the pill before it opens (0 = instant)
-pill_opacity = 1.0             # pill body opacity, 0.4 to 1.0 (text stays solid)
+pill_opacity = 0.7             # pill body opacity, 0.4 to 1.0 (text stays solid)
 fullscreen = "line"           # over maximised windows and fullscreen video: "line" = thin line, "hide" = disappear, "off" = stay (games always hide)
-finish_peek_secs = 5           # how long the pill opens when a task finishes (0 = never)
+finish_peek_secs = 3           # how long the pill opens when a task finishes (0 = never)
 hide_from_capture = true       # keep the pill out of screenshots and screen share (false = capturable)
 check_updates = true           # look for a new version once a day (needs a restart)
 add_to_path = true             # put the Hytte folder on PATH so `hytte` works in terminals
@@ -291,14 +291,14 @@ watch = [3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888]
 show_all = false               # true = show every server, not just the ports above
 
 [agent]
-sound = false                  # beep when an agent needs you
+sound = true                   # beep when an agent needs you
 
 [timer]
 sound = true                   # ring when a timer ends, until stopped (2 min at most)
 
 [hog]
 enabled = true                 # warn about a process that keeps using lots of CPU or memory
-cpu_pct = 80                   # of the whole machine, for `secs` seconds
+cpu_pct = 70                   # of the whole machine, for `secs` seconds
 secs = 30
 mem_mb = 4096
 
