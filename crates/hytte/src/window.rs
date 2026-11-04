@@ -262,6 +262,11 @@ mod win {
         inside: bool,
         /// The bubble the pointer was last on while the pill was closed (see `open_hover`).
         bubble_pref: Option<Bubble>,
+        /// The spot the bubble was in (left edge from the pill's centre, width, height) while
+        /// the pane it opened is up.
+        bubble_zone: Option<(f32, f32, f32)>,
+        /// The panel to go back to when a pane opened from a bubble closes.
+        bubble_restore: Option<Option<Panel>>,
         /// Cursor in screen px (stable while the window moves/resizes).
         mouse: Option<(i32, i32)>,
         origin: (i32, i32),
@@ -545,7 +550,16 @@ mod win {
             let pw = self.anim.rect.w.pos as f32;
             let ph = (self.anim.rect.h.pos as f32).max(6.0);
             let ox = (self.crop_w - pw) / 2.0;
-            (mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph) || self.bubble_hit().is_some()
+            let on_pill = mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph;
+            // Where the bubble was stays part of the pane it opened: the pane is wider than the
+            // compact pill but not always wide enough to cover it, and leaving that spot would
+            // close the pane, bring the bubble back under the pointer and open it again.
+            let on_zone = self.hover
+                && self.bubble_zone.is_some_and(|(dx, w, h)| {
+                    let x = self.crop_w / 2.0 + dx;
+                    mx >= x && mx <= x + w && my >= 0.0 && my <= h
+                });
+            on_pill || on_zone || self.bubble_hit().is_some()
         }
 
         /// The bubble (the second live activity beside a compact pill) under the pointer.
@@ -916,8 +930,15 @@ mod win {
         /// The pointer has rested on the pill long enough: open it.
         fn open_hover(&mut self) {
             // Resting on the bubble opens its own pane, not the main pill's.
-            if let Some(p) = self.bubble_pref.take().map(Bubble::panel) {
+            if let Some(kind) = self.bubble_pref.take() {
+                let p = kind.panel();
                 if self.model.panels().contains(&p) {
+                    let pw = self.anim.rect.w.pos as f32;
+                    let dx = kind.x(pw, self.anim.bubble.pos as f32) - pw / 2.0;
+                    self.bubble_zone = Some((dx, kind.width(), 32.0));
+                    // Only for this opening: when the pane closes, the pill goes back to the
+                    // panel it was on.
+                    self.bubble_restore.get_or_insert(self.model.selected);
                     self.select_panel(p);
                 }
             }
@@ -2140,6 +2161,8 @@ mod win {
                 hover: false,
                 inside: false,
                 bubble_pref: None,
+                bubble_zone: None,
+                bubble_restore: None,
                 mouse: None,
                 origin: (0, 0),
                 crop_w: 0.0,
@@ -2787,6 +2810,7 @@ mod win {
                     let inside = ui.pill_contains();
                     if !ui.hover {
                         ui.bubble_pref = ui.bubble_hit();
+                        ui.bubble_zone = None;
                     }
                     if !ui.tracking {
                         let mut tme = TRACKMOUSEEVENT {
@@ -2981,6 +3005,10 @@ mod win {
                     }
                     T_COLLAPSE => {
                         if !ui.inside && ui.kb.is_none() && !ui.model.pinned {
+                            if let Some(prev) = ui.bubble_restore.take() {
+                                ui.model.selected = prev;
+                            }
+                            ui.bubble_zone = None;
                             ui.remember_panel();
                             ui.hover = false;
                             ui.model.timer_panel = false;
