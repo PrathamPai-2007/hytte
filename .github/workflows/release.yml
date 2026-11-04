@@ -8,6 +8,10 @@ on:
       tag:
         description: "Release tag, e.g. v1.0.0"
         required: true
+      dry_run:
+        description: "Build and check everything, but publish nothing and commit nothing"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -16,6 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      # Before spending a build: the tag, both Cargo.toml files, Cargo.lock and the winget manifest agree.
+      - run: ./scripts/version.ps1 check "${{ inputs.tag || github.ref_name }}"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -31,6 +37,7 @@ jobs:
           Copy-Item target\release\hytte.exe hytte.exe
       # hytte.exe on its own is what the in-app updater downloads; the zip is for people.
       - uses: softprops/action-gh-release@v2
+        if: ${{ !inputs.dry_run }}
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: Hytte ${{ inputs.tag || github.ref_name }}
@@ -38,3 +45,35 @@ jobs:
             hytte-*-x64.zip
             hytte.exe
           generate_release_notes: true
+
+  # The winget manifest needs the SHA-256 of the zip that was just published. Take it from the
+  # published asset itself (what winget will download) and commit it to main.
+  winget:
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Fill in InstallerSha256
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ inputs.tag || github.ref_name }}"
+          $dir = Join-Path $env:RUNNER_TEMP "dl"
+          gh release download $tag --repo "${{ github.repository }}" --pattern "hytte-*-x64.zip" --dir $dir
+          if ($LASTEXITCODE -ne 0) { throw "couldn't download the published zip" }
+          $zip = (Get-ChildItem $dir -Filter "hytte-*-x64.zip" | Select-Object -First 1).FullName
+          ./scripts/version.ps1 hash $zip
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if (git status --porcelain manifests/winget) {
+            git add manifests/winget/Hytte.Hytte.yaml
+            git commit -m "winget: InstallerSha256 for $($tag.TrimStart('v'))"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          } else {
+            Write-Host "the manifest already has this hash"
+          }

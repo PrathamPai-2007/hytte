@@ -10,6 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      # The version must be the same in both Cargo.toml files, Cargo.lock and the winget manifest.
+      - run: ./scripts/version.ps1 check
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
