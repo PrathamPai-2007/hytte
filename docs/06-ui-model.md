@@ -211,7 +211,7 @@ A new card never replaces one that is showing: an alert that arrives meanwhile i
 | `CompactTask` or `CompactMedia`, timer running | `Bubble::Timer` | The remaining time as a clock (red under a minute) |
 | `CompactTask`, music playing, no timer | `Bubble::Media` | The album art |
 
-Expanded scenes show the same things as panels, so they get no bubble. The layout step passes the answer to `Anim::set_bubble`, which points the `bubble` spring (0.72 / 0.34 s, so it overshoots a little) at 1 or 0. `bubble_kind` keeps the last kind so a retracting bubble can still be drawn, and `bubble_room()` is the extra width (`BUBBLE_ROOM`, 72 px) the crop and window region must make room for while any of it is out.
+Expanded scenes show the same things as panels, so they get no bubble. The bubble is part of the hover area (`pill_contains`, `bubble_hit`; its position comes from `Bubble::x`, shared with the renderer): resting the pointer on it opens the pill on **its** pane (`Bubble::panel`: the timer's or the music's) instead of the main pill's. The layout step passes the answer to `Anim::set_bubble`, which points the `bubble` spring (0.72 / 0.34 s, so it overshoots a little) at 1 or 0. `bubble_kind` keeps the last kind so a retracting bubble can still be drawn, and `bubble_room()` is the extra width (`BUBBLE_ROOM`, 72 px) the crop and window region must make room for while any of it is out.
 
 ## Paging, squash and other motion state
 

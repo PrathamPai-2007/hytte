@@ -2505,12 +2505,9 @@ impl Renderer {
         let Some(kind) = an.bubble_kind.filter(|_| s > 0.01) else {
             return;
         };
-        let bw = match kind {
-            Bubble::Timer => 58.0,
-            Bubble::Media => 34.0,
-        };
+        let bw = kind.width();
         let bh = ph.min(32.0);
-        let x = (pw - bw - 6.0) + (bw + 14.0) * s;
+        let x = kind.x(pw, s);
         let a = s.clamp(0.0, 1.0);
         let (_, bottom) = self.body_colors();
         // Hangs from the top edge like the pill: its top corners are above the screen.

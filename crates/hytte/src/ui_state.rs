@@ -357,6 +357,31 @@ pub enum Bubble {
     Media,
 }
 
+impl Bubble {
+    pub fn width(self) -> f32 {
+        match self {
+            Bubble::Timer => 58.0,
+            Bubble::Media => 34.0,
+        }
+    }
+
+    /// The pane that opens when the pointer rests on this bubble.
+    pub fn panel(self) -> Panel {
+        match self {
+            Bubble::Timer => Panel::Timer,
+            Bubble::Media => Panel::Media,
+        }
+    }
+
+    /// Left edge of the bubble in pill-local px, for a pill `pw` wide with the bubble `s` of
+    /// the way out (0 behind the pill, 1 fully out). The renderer draws it here and the
+    /// window hit-tests it here.
+    pub fn x(self, pw: f32, s: f32) -> f32 {
+        let bw = self.width();
+        (pw - bw - 6.0) + (bw + 14.0) * s
+    }
+}
+
 /// Logical px to the right of the pill that the bubble can occupy (gap + widest bubble).
 pub const BUBBLE_ROOM: f32 = 72.0;
 
@@ -2047,6 +2072,15 @@ bang"
         // Expanded scenes show these as panels instead.
         assert_eq!(m.bubble(Scene::ExpTasks), None);
         assert_eq!(m.bubble(Scene::Idle), None);
+    }
+
+    #[test]
+    fn a_bubble_opens_its_own_pane_and_sits_right_of_the_pill() {
+        assert_eq!(Bubble::Timer.panel(), Panel::Timer);
+        assert_eq!(Bubble::Media.panel(), Panel::Media);
+        // Out (s = 1) it starts 8 px past the pill's right edge; at 0 it is tucked behind it.
+        assert_eq!(Bubble::Timer.x(292.0, 1.0), 292.0 + 8.0);
+        assert!(Bubble::Media.x(292.0, 0.0) < 292.0);
     }
 
     #[test]

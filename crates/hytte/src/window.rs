@@ -53,7 +53,7 @@ pub fn run(
 mod win {
     use super::*;
     use crate::render::{Action, Crop, Frame, Hit, Renderer};
-    use crate::ui_state::{Anim, Chip, ChipAction, Model, Panel, Scene};
+    use crate::ui_state::{Anim, Bubble, Chip, ChipAction, Model, Panel, Scene};
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
@@ -260,6 +260,8 @@ mod win {
         hmon: isize,
         hover: bool,
         inside: bool,
+        /// The bubble the pointer was last on while the pill was closed (see `open_hover`).
+        bubble_pref: Option<Bubble>,
         /// Cursor in screen px (stable while the window moves/resizes).
         mouse: Option<(i32, i32)>,
         origin: (i32, i32),
@@ -535,6 +537,7 @@ mod win {
             self.mouse = Some((self.origin.0 + lo(lparam), self.origin.1 + hi(lparam)));
         }
 
+        /// The pointer is on the pill, or on the bubble beside it.
         fn pill_contains(&self) -> bool {
             let Some((mx, my)) = self.mouse_logical() else {
                 return false;
@@ -542,7 +545,28 @@ mod win {
             let pw = self.anim.rect.w.pos as f32;
             let ph = (self.anim.rect.h.pos as f32).max(6.0);
             let ox = (self.crop_w - pw) / 2.0;
-            mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph
+            (mx >= ox && mx <= ox + pw && my >= 0.0 && my <= ph) || self.bubble_hit().is_some()
+        }
+
+        /// The bubble (the second live activity beside a compact pill) under the pointer.
+        fn bubble_hit(&self) -> Option<Bubble> {
+            let (mx, my) = self.mouse_logical()?;
+            let kind = self.anim.bubble_kind?;
+            let s = self.anim.bubble.pos as f32;
+            // Only while it is out and still wanted (not while it slides back in).
+            if s < 0.5
+                || self
+                    .model
+                    .bubble(self.model.scene(self.hover, self.sentinel()))
+                    != Some(kind)
+            {
+                return None;
+            }
+            let pw = self.anim.rect.w.pos as f32;
+            let ox = (self.crop_w - pw) / 2.0;
+            let x = ox + kind.x(pw, s);
+            let bh = (self.anim.rect.h.pos as f32).clamp(6.0, 32.0);
+            (mx >= x && mx <= x + kind.width() && my >= 0.0 && my <= bh).then_some(kind)
         }
 
         fn crop(&self) -> Crop {
@@ -891,6 +915,12 @@ mod win {
 
         /// The pointer has rested on the pill long enough: open it.
         fn open_hover(&mut self) {
+            // Resting on the bubble opens its own pane, not the main pill's.
+            if let Some(p) = self.bubble_pref.take().map(Bubble::panel) {
+                if self.model.panels().contains(&p) {
+                    self.select_panel(p);
+                }
+            }
             self.hover = true;
             // Opening the pill: make sure the port list and charge rate are not stale.
             crate::ports::request_refresh();
@@ -2109,6 +2139,7 @@ mod win {
                 hmon: 0,
                 hover: false,
                 inside: false,
+                bubble_pref: None,
                 mouse: None,
                 origin: (0, 0),
                 crop_w: 0.0,
@@ -2754,6 +2785,9 @@ mod win {
                 with_ui(|ui| {
                     ui.set_mouse_client(lparam);
                     let inside = ui.pill_contains();
+                    if !ui.hover {
+                        ui.bubble_pref = ui.bubble_hit();
+                    }
                     if !ui.tracking {
                         let mut tme = TRACKMOUSEEVENT {
                             cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
@@ -2814,6 +2848,7 @@ mod win {
                 with_ui(|ui| {
                     ui.tracking = false;
                     ui.inside = false;
+                    ui.bubble_pref = None;
                     ui.mouse = None;
                     unsafe {
                         let _ = KillTimer(Some(hwnd), T_DWELL);
