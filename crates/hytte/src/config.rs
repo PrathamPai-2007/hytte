@@ -209,7 +209,7 @@ impl Default for Shelf {
             remove_after_drag: true,
             screenshots: true,
             screenshot_secs: 60,
-            delete_after_paste: false,
+            delete_after_paste: true,
         }
     }
 }

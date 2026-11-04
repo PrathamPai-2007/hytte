@@ -347,6 +347,123 @@ mod win {
         due: Option<Instant>,
     }
 
+    /// What the next look at a screenshot waiting for its paste decides.
+    #[derive(Debug, PartialEq)]
+    enum PasteStep {
+        /// Keep waiting.
+        Wait,
+        /// Stop waiting: it can't be pasted any more (something else was copied) or took too long.
+        Drop,
+        /// It was pasted and the target has had its moment: delete the screenshot.
+        Delete,
+    }
+
+    /// One look at a screenshot waiting for a Ctrl+V. `clip_changed`: something else was copied
+    /// since the screenshot. `down`: Ctrl+V is held now (`None` while a game is running and the
+    /// keys aren't polled). A paste is a press, not a held key: a Ctrl+V already down when
+    /// the screenshot arrived doesn't count until it has been let go and pressed again.
+    fn paste_step(
+        p: &mut Paste,
+        now: Instant,
+        clip_changed: bool,
+        down: Option<bool>,
+    ) -> PasteStep {
+        if now >= p.until {
+            return PasteStep::Drop;
+        }
+        if let Some(due) = p.due {
+            // Pasted: give the target a moment to take the image, then delete.
+            return if now >= due {
+                PasteStep::Delete
+            } else {
+                PasteStep::Wait
+            };
+        }
+        if clip_changed {
+            return PasteStep::Drop;
+        }
+        if let Some(down) = down {
+            if down && !p.key_down {
+                p.due = Some(now + PASTE_GRACE);
+            }
+            p.key_down = down;
+        }
+        PasteStep::Wait
+    }
+
+    /// How long a screenshot waits to be pasted before it is left alone.
+    const PASTE_WINDOW: Duration = Duration::from_secs(600);
+
+    /// How long after a paste the screenshot is deleted (the target app must read the image first).
+    const PASTE_GRACE: Duration = Duration::from_secs(2);
+
+    #[cfg(test)]
+    mod paste_tests {
+        use super::*;
+
+        fn waiting(now: Instant, key_down: bool) -> Paste {
+            Paste {
+                path: "shot.png".into(),
+                until: now + PASTE_WINDOW,
+                key_down,
+                due: None,
+            }
+        }
+
+        #[test]
+        fn a_paste_deletes_the_screenshot_after_a_short_wait() {
+            let t0 = Instant::now();
+            let mut p = waiting(t0, false);
+            // Nothing pressed: keep waiting.
+            assert_eq!(paste_step(&mut p, t0, false, Some(false)), PasteStep::Wait);
+            // Ctrl+V pressed: not deleted yet (the target app is still reading the image)...
+            let t1 = t0 + Duration::from_millis(500);
+            assert_eq!(paste_step(&mut p, t1, false, Some(true)), PasteStep::Wait);
+            assert!(p.due.is_some());
+            // ...held on, or released, it is deleted after the grace and not before.
+            let almost = t1 + PASTE_GRACE - Duration::from_millis(1);
+            assert_eq!(
+                paste_step(&mut p, almost, false, Some(false)),
+                PasteStep::Wait
+            );
+            assert_eq!(
+                paste_step(&mut p, t1 + PASTE_GRACE, false, Some(false)),
+                PasteStep::Delete
+            );
+        }
+
+        #[test]
+        fn a_paste_after_something_else_was_copied_does_not_count() {
+            let t0 = Instant::now();
+            let mut p = waiting(t0, false);
+            assert_eq!(paste_step(&mut p, t0, true, Some(true)), PasteStep::Drop);
+            assert!(p.due.is_none());
+        }
+
+        #[test]
+        fn an_already_pressed_ctrl_v_is_not_a_paste_until_it_is_pressed_again() {
+            let t0 = Instant::now();
+            let mut p = waiting(t0, true); // Ctrl+V was down when the screenshot arrived
+            assert_eq!(paste_step(&mut p, t0, false, Some(true)), PasteStep::Wait);
+            assert!(p.due.is_none());
+            assert_eq!(paste_step(&mut p, t0, false, Some(false)), PasteStep::Wait);
+            assert_eq!(paste_step(&mut p, t0, false, Some(true)), PasteStep::Wait);
+            assert!(p.due.is_some());
+        }
+
+        #[test]
+        fn nothing_is_polled_in_a_game_and_a_forgotten_screenshot_is_let_go() {
+            let t0 = Instant::now();
+            let mut p = waiting(t0, false);
+            assert_eq!(paste_step(&mut p, t0, false, None), PasteStep::Wait);
+            assert!(p.due.is_none());
+            assert_eq!(
+                paste_step(&mut p, t0 + PASTE_WINDOW, false, Some(false)),
+                PasteStep::Drop
+            );
+        }
+    }
+
     /// Ctrl and V are both held right now.
     fn ctrl_v_down() -> bool {
         use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
@@ -953,7 +1070,7 @@ mod win {
             self.shots.push((path.clone(), now));
             self.paste = self.cfg.shelf.delete_after_paste.then(|| Paste {
                 path,
-                until: now + Duration::from_secs(600),
+                until: now + PASTE_WINDOW,
                 key_down: ctrl_v_down(),
                 due: None,
             });
@@ -989,27 +1106,19 @@ mod win {
                     !old
                 });
             }
-            if !self.cfg.shelf.delete_after_paste
-                || self.paste.as_ref().is_some_and(|p| now >= p.until)
-            {
+            if !self.cfg.shelf.delete_after_paste {
                 self.paste = None;
             }
             if let Some(p) = &mut self.paste {
-                if let Some(due) = p.due {
-                    // Pasted: give the target a moment to take the image, then delete.
-                    if now >= due {
+                let clip_changed = unsafe { GetClipboardSequenceNumber() } != self.snip_seq;
+                let down = (!self.gaming).then(ctrl_v_down);
+                match paste_step(p, now, clip_changed, down) {
+                    PasteStep::Wait => {}
+                    PasteStep::Drop => self.paste = None,
+                    PasteStep::Delete => {
                         gone.push(p.path.clone());
                         self.paste = None;
                     }
-                } else if unsafe { GetClipboardSequenceNumber() } != self.snip_seq {
-                    // Something else was copied: that screenshot can't be pasted any more.
-                    self.paste = None;
-                } else if !self.gaming {
-                    let down = ctrl_v_down();
-                    if down && !p.key_down {
-                        p.due = Some(now + Duration::from_secs(2));
-                    }
-                    p.key_down = down;
                 }
             }
             if !gone.is_empty() {
@@ -1617,10 +1726,12 @@ mod win {
                 dib.hash(&mut h);
                 h.finish()
             };
+            self.snip_seq = unsafe { GetClipboardSequenceNumber() };
+            // The same picture again (the Snipping Tool touches the clipboard more than once):
+            // not a new screenshot, but still the one on the clipboard, so a paste still counts.
             if std::mem::replace(&mut self.last_snip, hash) == hash {
                 return;
             }
-            self.snip_seq = unsafe { GetClipboardSequenceNumber() };
             let sh = self.shared.clone();
             std::thread::spawn(move || {
                 if let Some(it) = crate::shelf::stage_dib(&dib) {
