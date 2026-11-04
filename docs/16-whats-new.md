@@ -12,7 +12,7 @@ What changed in each version, newest first. The first part is for people who use
 - **A Custom step on every number** (waits, sizes, opacities, break lengths, thresholds): it opens `config.toml` at that setting with a note, and shows the value when it is none of the steps. The reset (**↺**) now sits in a column at the right of every row and restores the exact default.
 - **Per-app volume only lists apps you can see or hear.** Idle background helpers that hold an audio session (an audio console, a wallpaper engine) are left out, and an app is named as it names itself ("Spotify", "Wallpaper Engine").
 - **Search and reset in the settings window.** Start typing and only the settings that match stay (a section's name matches all of its rows). Esc clears the search, and closes the window when there is nothing to clear. A small **↺** appears beside any value that isn't its default; one click puts it back.
-- **Two new optional settings, both off by default.** `pin_button` adds a pin to the open pill: click it and the pill stays open until you click it again (it lets go by itself when a fullscreen app takes the screen). `remember_panel` makes `start_panel = "last"` survive a restart.
+- **Two new settings.** `pin_button` (on by default from this version) adds a pin to the open pill: click it and the pill stays open until you click it again (it lets go by itself when a fullscreen app takes the screen). `remember_panel` makes `start_panel = "last"` survive a restart.
 - The settings window follows a change of the Windows theme or accent colour while it is open.
 
 **Looks**
