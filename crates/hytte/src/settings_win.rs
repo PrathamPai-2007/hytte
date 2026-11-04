@@ -27,17 +27,42 @@ const T_ANIM: usize = 1;
 /// How long a note stays over the page.
 const TOAST_SECS: f32 = 10.0;
 
-/// What "Custom" does for a setting that only `config.toml` can hold: the key, the note
-/// written above it in the file, and the shorter one shown over the window.
-fn custom(id: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    match id {
-        "general.quiet_hours" => Some((
-            "general.quiet_hours",
-            "Quiet hours: no sounds (agent alerts, the timer alarm) between these times.\nWrite them as \"HH:MM-HH:MM\" on a 24-hour clock; the window may wrap past midnight,\nfor example \"22:30-06:00\". Leave it empty (\"\") for no quiet hours.",
-            "In config.toml, under [general], set quiet_hours to your times as \"HH:MM-HH:MM\" (24-hour clock, may wrap past midnight), for example \"22:30-06:00\". Save the file and it applies.",
-        )),
-        _ => None,
+/// What "Custom" does for a setting that only `config.toml` can hold: the value to write if
+/// the key is missing, the note written above it in the file, and the one shown over the window.
+fn custom(id: &str) -> Option<(Val, String, String)> {
+    if id == "general.quiet_hours" {
+        return Some((
+            Val::S(""),
+            "Quiet hours: no sounds (agent alerts, the timer alarm) between these times.
+Write them as \"HH:MM-HH:MM\" on a 24-hour clock; the window may wrap past midnight,
+for example \"22:30-06:00\". Leave it empty (\"\") for no quiet hours.".into(),
+            "In config.toml, under [general], set quiet_hours to your times as \"HH:MM-HH:MM\" (24-hour clock, may wrap past midnight), for example \"22:30-06:00\". Save the file and it applies.".into(),
+        ));
     }
+    let what = crate::render::help(id);
+    if what.is_empty() {
+        return None;
+    }
+    // Where the key sits now: its default is what is written if the file has no line for it.
+    let default = crate::render::settings_table(&Config::default())
+        .into_iter()
+        .flat_map(|s| s.rows)
+        .find(|(r, _)| r.key() == id)
+        .and_then(|(r, _)| match r.set_action() {
+            Some(Action::Set(_, v)) => Some(v),
+            _ => None,
+        })?;
+    let (section, name) = id.split_once('.')?;
+    Some((
+        default,
+        format!(
+            "{what}
+Type your own value and save the file; it applies at once."
+        ),
+        format!(
+            "In config.toml, under [{section}], set {name} to your own value, then save. {what}"
+        ),
+    ))
 }
 
 struct State {
@@ -441,10 +466,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                                 }
                             }
                             Action::EditConfig(id) => {
-                                if let Some((key, note, toast)) = custom(id) {
-                                    let _ = config::ensure_noted(key, Val::S(""), note);
+                                if let Some((default, note, toast)) = custom(id) {
+                                    let _ = config::ensure_noted(id, default, &note);
                                     open_config(&s.cfg);
-                                    s.toast = Some((toast.to_string(), Instant::now()));
+                                    s.toast = Some((toast, Instant::now()));
                                 }
                             }
                             Action::ClearSearch => {

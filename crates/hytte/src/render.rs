@@ -235,6 +235,10 @@ pub struct Renderer {
     fx_dt: Cell<f32>,
     fx_busy: Cell<bool>,
     fx_vals: RefCell<HashMap<String, f32>>,
+    /// The settings row the pointer is on this frame (key, row y), and how long the same one
+    /// has been pointed at (for the hover note).
+    tip_now: Cell<Option<(&'static str, f32)>>,
+    tip: RefCell<(&'static str, f32)>,
     ox: Cell<f32>,
     t: Cell<f32>,
     mouse: Cell<Option<(f32, f32)>>,
@@ -393,7 +397,14 @@ type Choice = (&'static str, Val);
 /// One line of settings: a switch, a few steps, or the opacity slider.
 pub enum Row {
     Switch(&'static str, &'static str, bool),
-    Pick(&'static str, &'static str, Vec<Choice>, usize),
+    /// Steps; the the last is the value in the file, and how it reads, when it is none of them (numbers only).
+    Pick(
+        &'static str,
+        &'static str,
+        Vec<Choice>,
+        usize,
+        Option<(String, Val)>,
+    ),
     /// Steps plus a last "Custom" segment for a value only `config.toml` can hold: the
     /// segment opens the file with a note (`Action::EditConfig(hint)`). `String` is what the
     /// file holds when it is none of the steps (shown beside the label), empty otherwise.
@@ -413,14 +424,23 @@ impl Row {
     fn label(&self) -> &'static str {
         match self {
             Row::Switch(l, ..) | Row::Pick(l, ..) | Row::PickCustom(l, ..) => l,
-            Row::Opacity(_) => "Opacity",
+            Row::Opacity(_) => "Pill opacity when open",
         }
     }
 
-    fn key(&self) -> &'static str {
+    pub fn key(&self) -> &'static str {
         match self {
             Row::Switch(_, k, _) | Row::Pick(_, k, ..) | Row::PickCustom(_, k, ..) => k,
             Row::Opacity(_) => "general.pill_opacity",
+        }
+    }
+
+    fn relabel(self, l: &'static str) -> Row {
+        match self {
+            Row::Switch(_, k, v) => Row::Switch(l, k, v),
+            Row::Pick(_, k, o, i, off) => Row::Pick(l, k, o, i, off),
+            Row::PickCustom(_, k, o, i, h, s) => Row::PickCustom(l, k, o, i, h, s),
+            o @ Row::Opacity(_) => o,
         }
     }
 
@@ -428,16 +448,18 @@ impl Row {
     fn at(&self) -> f32 {
         match self {
             Row::Switch(_, _, on) => *on as u8 as f32,
-            Row::Pick(_, _, _, i) | Row::PickCustom(_, _, _, i, ..) => *i as f32,
+            Row::Pick(_, _, _, i, off) => *i as f32 + if off.is_none() { 0.0 } else { 0.5 },
+            Row::PickCustom(_, _, _, i, ..) => *i as f32,
             Row::Opacity(v) => *v,
         }
     }
 
     /// The action that writes this row's value as it is shown (for a default, the reset).
-    fn set_action(&self) -> Option<Action> {
+    pub fn set_action(&self) -> Option<Action> {
         match self {
             Row::Switch(_, k, on) => Some(Action::Set(k, Val::B(*on))),
-            Row::Pick(_, k, o, i) | Row::PickCustom(_, k, o, i, ..) => {
+            Row::Pick(_, k, _, _, Some((_, v))) => Some(Action::Set(k, *v)),
+            Row::Pick(_, k, o, i, None) | Row::PickCustom(_, k, o, i, ..) => {
                 o.get(*i).map(|(_, v)| Action::Set(k, *v))
             }
             Row::Opacity(v) => Some(Action::Set("general.pill_opacity", Val::F(*v as f64))),
@@ -464,6 +486,7 @@ fn pick_s(
         key,
         opts.iter().map(|(n, v)| (*n, Val::S(v))).collect(),
         i,
+        None,
     )
 }
 
@@ -491,6 +514,104 @@ fn pick_s_custom(
     )
 }
 
+fn is_numeric(opts: &[Choice]) -> bool {
+    matches!(opts.first(), Some((_, Val::I(_) | Val::F(_))))
+}
+
+fn row_label_opacity() -> &'static str {
+    "Pill opacity when open"
+}
+
+/// The unit a number in `config.toml` is in, from the end of its key.
+fn unit(key: &str) -> &'static str {
+    match key {
+        k if k.ends_with("_ms") => " ms",
+        k if k.ends_with("secs") => " s",
+        k if k.ends_with("_min") => " min",
+        k if k.ends_with("_mb") => " MB",
+        k if k.ends_with("_pct") => "%",
+        _ => "",
+    }
+}
+
+fn label_key(key: &str) -> &str {
+    key.rsplit('.').next().unwrap_or(key)
+}
+
+/// What a setting does, for the hover note and the note "Custom" writes above the key. Empty
+/// for a setting whose label says it all.
+pub fn help(key: &str) -> &'static str {
+    match key {
+        "general.theme" => "Dark, light, or follow the Windows color mode.",
+        "general.hover_delay_ms" => "How long the pointer must rest on the pill before it opens. Instant opens at once.",
+        "general.open_on" => "Hover opens the pill when you rest the pointer on it; Click waits for a click.",
+        "general.collapse_delay_ms" => "How long the pill stays open after the pointer leaves it.",
+        "general.pill_opacity" => "How see-through the open pill is.",
+        "general.idle_opacity" => "How faint the closed pill gets while you are not using it.",
+        "general.pill_scale" => "Scales the whole pill and its panels (1.0 is normal).",
+        "general.animation" => "Speed of the open and close animation.",
+        "general.glow_strength" => "How strong the colored glow around the pill is (0 is off).",
+        "general.adaptive_glow" => "Tints the glow with the colors of the album art that is playing.",
+        "general.autostart" => "Starts Hytte when you sign in to Windows.",
+        "general.start_panel" => "Which panel opens first: the last one you used, the busiest one, or Home.",
+        "general.remember_panel" => "Keeps the last-used panel after Hytte restarts. Works with Panel on launch = Last used.",
+        "general.pin_button" => "Adds a pin to the open pill. Pinned, it stays open until you unpin it.",
+        "general.quiet_hours" => "No sounds between these hours. Custom lets you type your own times.",
+        "general.fullscreen" => "What the pill does over a fullscreen or maximized window: shrink to a thin line, hide, or carry on as usual.",
+        "general.monitor" => "Which screen the pill sits on: the primary one, the one with the active window, or the one under the cursor.",
+        "general.finish_peek_secs" => "Opens the pill for a moment to show a task that finished or failed. Off keeps it closed.",
+        "general.hide_from_capture" => "Keeps the pill out of screenshots, screen shares and recordings.",
+        "general.add_to_path" => "Lets you run the hytte command from any terminal.",
+        "general.check_updates" => "Checks GitHub for a new Hytte release and offers to install it.",
+        "timer.sound" => "Plays a short chime when a timer or focus round ends.",
+        "timer.break_min" => "Length of the short break between focus rounds, in minutes.",
+        "timer.long_break_min" => "Length of the longer break after several focus rounds, in minutes.",
+        "timer.rounds" => "How many focus rounds run before a long break.",
+        "general.task_rows" => "How many terminal and agent tasks show before the list scrolls.",
+        "agent.sound" => "Plays a sound when an AI agent is waiting for your answer.",
+        "shelf.mode" => "Link keeps a pointer to the original file; Copy stores its own copy on the shelf.",
+        "shelf.max_items" => "The most items the shelf holds; the oldest drops off first.",
+        "shelf.persist" => "Keeps shelf items after Hytte restarts.",
+        "shelf.screenshot_secs" => "How long a screenshot stays on the shelf, in seconds. Keep never removes it.",
+        "shelf.delete_after_paste" => "Deletes the screenshot file about two seconds after you paste it somewhere.",
+        "shelf.remove_after_drag" => "Takes an item off the shelf once you have dragged it out.",
+        "shelf.screenshots" => "Adds new screenshots (Win+Shift+S, Print Screen) to the shelf.",
+        "downloads.enabled" => "Shows a card when a file finishes downloading.",
+        "calendar.enabled" => "Warns shortly before an event in your Windows calendar starts.",
+        "calendar.lead_min" => "How many minutes before an event the warning appears.",
+        "hog.enabled" => "Alerts when one app keeps using a lot of CPU or memory.",
+        "hog.cpu_pct" => "CPU use that counts as heavy, in percent.",
+        "hog.mem_mb" => "Memory use that counts as heavy, in megabytes.",
+        "hog.secs" => "How long the usage must last before you are alerted, in seconds.",
+        "ports.show_all" => "Lists every program listening on a port, not only likely dev servers.",
+        "ports.poll_secs" => "How often the ports list refreshes while it is open, in seconds.",
+        "shell.threshold_ms" => "Terminal commands that run longer than this show up as tasks, in milliseconds.",
+        _ => "",
+    }
+}
+
+/// The shorter name a row has in the pill's small settings pane.
+fn pane_label(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "general.theme" => "Theme",
+        "general.hover_delay_ms" => "Open delay",
+        "general.pill_opacity" => "Opacity",
+        "general.glow_strength" => "Glow",
+        "general.adaptive_glow" => "Art-tinted glow",
+        "general.autostart" => "Start with Windows",
+        "general.fullscreen" => "In fullscreen",
+        "general.monitor" => "Show on screen",
+        "general.finish_peek_secs" => "Peek on finish",
+        "timer.sound" => "Timer chime",
+        "general.check_updates" => "Update check",
+        "shelf.screenshots" => "Shelve screenshots",
+        "downloads.enabled" => "Download alerts",
+        "calendar.enabled" => "Calendar alerts",
+        "hog.enabled" => "CPU / RAM alerts",
+        _ => return None,
+    })
+}
+
 /// Whole-number steps; the one nearest to what the file says is lit.
 fn pick_i(label: &'static str, key: &'static str, opts: &[(&'static str, i64)], cur: i64) -> Row {
     let i = (0..opts.len())
@@ -501,6 +622,7 @@ fn pick_i(label: &'static str, key: &'static str, opts: &[(&'static str, i64)], 
         key,
         opts.iter().map(|(n, v)| (*n, Val::I(*v))).collect(),
         i,
+        (opts[i].1 != cur).then(|| (format!("{cur}{}", unit(label_key(key))), Val::I(cur))),
     )
 }
 
@@ -514,6 +636,8 @@ fn pick_f(label: &'static str, key: &'static str, opts: &[(&'static str, f64)], 
         key,
         opts.iter().map(|(n, v)| (*n, Val::F(*v))).collect(),
         i,
+        ((opts[i].1 - cur).abs() >= 1e-3)
+            .then(|| (format!("{}", (cur * 100.0).round() / 100.0), Val::F(cur))),
     )
 }
 
@@ -524,20 +648,20 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
     let sw = Row::Switch;
     vec![
         Section {
-            name: "Look",
+            name: "Look and feel",
             rows: vec![
                 (
                     pick_s(
-                        "Theme",
+                        "Color theme",
                         "general.theme",
-                        &[("Dark", "dark"), ("Light", "light"), ("Auto", "auto")],
+                        &[("Dark", "dark"), ("Light", "light"), ("System", "auto")],
                         &g.theme,
                     ),
                     0,
                 ),
                 (
                     pick_i(
-                        "Hover delay",
+                        "Wait before opening on hover",
                         "general.hover_delay_ms",
                         &[("Instant", 0), ("0.2s", 200), ("0.5s", 500), ("1s", 1000)],
                         g.hover_delay_ms as i64,
@@ -546,7 +670,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_s(
-                        "Open with",
+                        "How the pill opens",
                         "general.open_on",
                         &[("Hover", "hover"), ("Click", "click")],
                         &g.open_on,
@@ -555,9 +679,9 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "Close delay",
+                        "Wait before closing",
                         "general.collapse_delay_ms",
-                        &[("Quick", 100), ("0.3s", 300), ("0.6s", 600), ("1s", 1000)],
+                        &[("0.1s", 100), ("0.3s", 300), ("0.6s", 600), ("1s", 1000)],
                         g.collapse_delay_ms as i64,
                     ),
                     -1,
@@ -565,16 +689,16 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 (Row::Opacity(g.pill_opacity), 0),
                 (
                     pick_f(
-                        "Idle opacity",
+                        "Opacity when idle",
                         "general.idle_opacity",
-                        &[("Full", 1.0), ("High", 0.75), ("Low", 0.5), ("Faint", 0.3)],
+                        &[("100%", 1.0), ("75%", 0.75), ("50%", 0.5), ("30%", 0.3)],
                         g.idle_opacity as f64,
                     ),
                     -1,
                 ),
                 (
                     pick_f(
-                        "Size",
+                        "Pill size",
                         "general.pill_scale",
                         &[
                             ("Small", 0.85),
@@ -588,16 +712,16 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_s(
-                        "Motion",
+                        "Animation speed",
                         "general.animation",
-                        &[("Calm", "calm"), ("Normal", "normal"), ("Snappy", "snappy")],
+                        &[("Slow", "calm"), ("Normal", "normal"), ("Fast", "snappy")],
                         &g.animation,
                     ),
                     -1,
                 ),
                 (
                     pick_f(
-                        "Glow",
+                        "Glow strength",
                         "general.glow_strength",
                         &[
                             ("Off", 0.0),
@@ -610,7 +734,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     0,
                 ),
                 (
-                    sw("Album-art glow", "general.adaptive_glow", g.adaptive_glow),
+                    sw(
+                        "Tint glow from album art",
+                        "general.adaptive_glow",
+                        g.adaptive_glow,
+                    ),
                     0,
                 ),
             ],
@@ -619,26 +747,37 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             name: "Behaviour",
             rows: vec![
                 (
-                    sw("Start with Windows", "general.autostart", g.autostart),
+                    sw("Start Hytte with Windows", "general.autostart", g.autostart),
                     1,
                 ),
                 (
                     pick_s(
-                        "Start on",
+                        "Panel shown on launch",
                         "general.start_panel",
-                        &[("Last", "last"), ("Active", "auto"), ("Home", "home")],
+                        &[("Last used", "last"), ("Busiest", "auto"), ("Home", "home")],
                         &g.start_panel,
                     ),
                     -1,
                 ),
                 (
-                    sw("Remember panel", "general.remember_panel", g.remember_panel),
+                    sw(
+                        "Remember last panel after restart",
+                        "general.remember_panel",
+                        g.remember_panel,
+                    ),
                     -1,
                 ),
-                (sw("Pin button", "general.pin_button", g.pin_button), -1),
+                (
+                    sw(
+                        "Show a pin button on the open pill",
+                        "general.pin_button",
+                        g.pin_button,
+                    ),
+                    -1,
+                ),
                 (
                     pick_s_custom(
-                        "Quiet hours",
+                        "Mute sounds during quiet hours",
                         "general.quiet_hours",
                         &[
                             ("Off", ""),
@@ -653,20 +792,20 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_s(
-                        "Over fullscreen",
+                        "When an app is fullscreen",
                         "general.fullscreen",
-                        &[("Line", "line"), ("Hide", "hide"), ("Off", "off")],
+                        &[("Thin line", "line"), ("Hide", "hide"), ("Show", "off")],
                         &g.fullscreen,
                     ),
                     1,
                 ),
                 (
                     pick_s(
-                        "Screen",
+                        "Show the pill on screen",
                         "general.monitor",
                         &[
-                            ("Primary", "primary"),
-                            ("Active", "active"),
+                            ("Main", "primary"),
+                            ("With app", "active"),
                             ("Cursor", "cursor"),
                         ],
                         &g.monitor,
@@ -675,7 +814,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "Open on finish",
+                        "Open the pill when a task ends",
                         "general.finish_peek_secs",
                         &[("Off", 0), ("3 s", 3), ("5 s", 5), ("10 s", 10)],
                         g.finish_peek_secs as i64,
@@ -684,18 +823,26 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     sw(
-                        "Hide from screen capture",
+                        "Hide pill from screenshots and recordings",
                         "general.hide_from_capture",
                         g.hide_from_capture,
                     ),
                     -1,
                 ),
                 (
-                    sw("Hytte on PATH", "general.add_to_path", g.add_to_path),
+                    sw(
+                        "Run hytte from any terminal (PATH)",
+                        "general.add_to_path",
+                        g.add_to_path,
+                    ),
                     -1,
                 ),
                 (
-                    sw("Update checks", "general.check_updates", g.check_updates),
+                    sw(
+                        "Check for updates automatically",
+                        "general.check_updates",
+                        g.check_updates,
+                    ),
                     2,
                 ),
             ],
@@ -703,10 +850,17 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
         Section {
             name: "Timer",
             rows: vec![
-                (sw("Timer sound", "timer.sound", c.timer.sound), 1),
+                (
+                    sw(
+                        "Play a chime when the timer ends",
+                        "timer.sound",
+                        c.timer.sound,
+                    ),
+                    1,
+                ),
                 (
                     pick_i(
-                        "Break",
+                        "Short break length",
                         "timer.break_min",
                         &[("3 min", 3), ("5 min", 5), ("10 min", 10)],
                         c.timer.break_min as i64,
@@ -715,7 +869,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "Long break",
+                        "Long break length",
                         "timer.long_break_min",
                         &[
                             ("10 min", 10),
@@ -729,7 +883,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "Rounds to long break",
+                        "Focus rounds before a long break",
                         "timer.rounds",
                         &[("2", 2), ("3", 3), ("4", 4), ("6", 6)],
                         c.timer.rounds as i64,
@@ -739,11 +893,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             ],
         },
         Section {
-            name: "Agents",
+            name: "AI agents",
             rows: vec![
                 (
                     pick_i(
-                        "Task rows",
+                        "Task rows shown before scrolling",
                         "general.task_rows",
                         &[("3", 3), ("4", 4), ("6", 6), ("8", 8)],
                         g.task_rows as i64,
@@ -752,7 +906,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     sw(
-                        "Sound when an agent needs you",
+                        "Sound when an AI agent needs you",
                         "agent.sound",
                         c.agent.sound,
                     ),
@@ -765,35 +919,38 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             rows: vec![
                 (
                     pick_s(
-                        "Keep files by",
+                        "Shelf stores files as",
                         "shelf.mode",
-                        &[("Reference", "reference"), ("Copy", "copy")],
+                        &[("Link", "reference"), ("Copy", "copy")],
                         &sh.mode,
                     ),
                     -1,
                 ),
                 (
                     pick_i(
-                        "Max items",
+                        "Most items on the shelf",
                         "shelf.max_items",
                         &[("6", 6), ("12", 12), ("24", 24), ("48", 48)],
                         sh.max_items as i64,
                     ),
                     -1,
                 ),
-                (sw("Remember between runs", "shelf.persist", sh.persist), -1),
+                (
+                    sw("Keep the shelf after restart", "shelf.persist", sh.persist),
+                    -1,
+                ),
                 (
                     pick_i(
-                        "Screenshots stay",
+                        "Remove screenshots after",
                         "shelf.screenshot_secs",
-                        &[("Keep", 0), ("30 s", 30), ("1 min", 60), ("5 min", 300)],
+                        &[("Never", 0), ("30 s", 30), ("1 min", 60), ("5 min", 300)],
                         sh.screenshot_secs as i64,
                     ),
                     -1,
                 ),
                 (
                     sw(
-                        "Delete screenshot after paste",
+                        "Delete a screenshot after pasting it",
                         "shelf.delete_after_paste",
                         sh.delete_after_paste,
                     ),
@@ -801,39 +958,57 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     sw(
-                        "Remove after dragging out",
+                        "Remove an item after dragging it out",
                         "shelf.remove_after_drag",
                         sh.remove_after_drag,
                     ),
                     -1,
                 ),
                 (
-                    sw("Shelve screenshots", "shelf.screenshots", sh.screenshots),
+                    sw(
+                        "Add new screenshots to the shelf",
+                        "shelf.screenshots",
+                        sh.screenshots,
+                    ),
                     2,
                 ),
             ],
         },
         Section {
-            name: "Watchers",
+            name: "Alerts",
             rows: vec![
-                (sw("Downloads", "downloads.enabled", c.downloads.enabled), 2),
                 (
-                    sw("Calendar heads-up", "calendar.enabled", c.calendar.enabled),
+                    sw(
+                        "Notify when a download finishes",
+                        "downloads.enabled",
+                        c.downloads.enabled,
+                    ),
+                    2,
+                ),
+                (
+                    sw(
+                        "Warn before calendar events",
+                        "calendar.enabled",
+                        c.calendar.enabled,
+                    ),
                     2,
                 ),
                 (
                     pick_i(
-                        "Heads-up lead",
+                        "Warn this long before an event",
                         "calendar.lead_min",
                         &[("2 min", 2), ("5 min", 5), ("10 min", 10), ("15 min", 15)],
                         c.calendar.lead_min as i64,
                     ),
                     -1,
                 ),
-                (sw("Resource alerts", "hog.enabled", c.hog.enabled), 2),
+                (
+                    sw("Alert on CPU or memory hogs", "hog.enabled", c.hog.enabled),
+                    2,
+                ),
                 (
                     pick_i(
-                        "Alert above CPU",
+                        "CPU level that counts as heavy",
                         "hog.cpu_pct",
                         &[("50%", 50), ("70%", 70), ("85%", 85), ("95%", 95)],
                         c.hog.cpu_pct as i64,
@@ -842,7 +1017,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "Alert above memory",
+                        "Memory level that counts as heavy",
                         "hog.mem_mb",
                         &[
                             ("0.5 GB", 512),
@@ -856,7 +1031,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "For at least",
+                        "Only if it lasts at least",
                         "hog.secs",
                         &[("10 s", 10), ("30 s", 30), ("60 s", 60), ("2 min", 120)],
                         c.hog.secs as i64,
@@ -866,15 +1041,19 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             ],
         },
         Section {
-            name: "Ports and shell",
+            name: "Ports and terminal",
             rows: vec![
                 (
-                    sw("Show every server", "ports.show_all", c.ports.show_all),
+                    sw(
+                        "List every listening port",
+                        "ports.show_all",
+                        c.ports.show_all,
+                    ),
                     -1,
                 ),
                 (
                     pick_i(
-                        "Port check every",
+                        "Refresh the ports list every",
                         "ports.poll_secs",
                         &[("2 s", 2), ("5 s", 5), ("10 s", 10), ("30 s", 30)],
                         c.ports.poll_secs as i64,
@@ -883,7 +1062,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
                 (
                     pick_i(
-                        "Show commands over",
+                        "Show terminal commands slower than",
                         "shell.threshold_ms",
                         &[("1 s", 1000), ("3 s", 3000), ("5 s", 5000), ("10 s", 10000)],
                         c.shell.threshold_ms as i64,
@@ -955,6 +1134,8 @@ impl Renderer {
                 fx_dt: Cell::new(0.0),
                 fx_busy: Cell::new(false),
                 fx_vals: RefCell::new(HashMap::new()),
+                tip_now: Cell::new(None),
+                tip: RefCell::new(("", 0.0)),
                 ox: Cell::new(0.0),
                 t: Cell::new(0.0),
                 mouse: Cell::new(None),
@@ -1129,6 +1310,8 @@ impl Renderer {
         const COL: f32 = 560.0;
         const SIDE: f32 = 188.0;
         const ROW: f32 = 34.0;
+        /// Right-hand column the reset button lives in, the same on every row.
+        const RESET_GUT: f32 = 30.0;
         let (w, h) = (self.px.0 as f32 / self.scale, self.px.1 as f32 / self.scale);
         let side = if w >= 720.0 { SIDE } else { 0.0 };
         let cw = COL
@@ -1145,6 +1328,7 @@ impl Renderer {
         self.fx.set(true);
         self.fx_dt.set(view.dt);
         self.fx_busy.set(false);
+        self.tip_now.set(None);
         let (fg, acc) = (self.fg(), view.accent);
         let bg = if view.light {
             [0.955, 0.955, 0.965]
@@ -1156,8 +1340,10 @@ impl Renderer {
         if !q.is_empty() {
             for s in &mut sections {
                 if !s.name.to_lowercase().contains(&q) {
-                    s.rows
-                        .retain(|(r, _)| r.label().to_lowercase().contains(&q));
+                    s.rows.retain(|(r, _)| {
+                        r.label().to_lowercase().contains(&q)
+                            || help(r.key()).to_lowercase().contains(&q)
+                    });
                 }
             }
             sections.retain(|s| !s.rows.is_empty());
@@ -1252,7 +1438,7 @@ impl Renderer {
                         .get(row.key())
                         .filter(|(at, _)| (at - row.at()).abs() > 0.004)
                         .and_then(|(_, a)| a.clone());
-                    self.setting_row(row, reset, ry + 2.0, cw);
+                    self.setting_row(row, reset, ry + 2.0, cw, RESET_GUT);
                     ry += ROW;
                 }
                 y += 24.0 + ch + 22.0;
@@ -1347,13 +1533,73 @@ impl Renderer {
                     self.cc(GRAY, 0.75),
                 );
             }
+            // ---- the note for the setting under the pointer, after a short rest on it
+            let pointed = self.tip_now.take().map(|(k, _)| k).unwrap_or("");
+            {
+                let mut t = self.tip.borrow_mut();
+                if t.0 != pointed {
+                    *t = (pointed, 0.0);
+                } else if !pointed.is_empty() {
+                    t.1 += view.dt;
+                }
+                if !pointed.is_empty() && t.1 < 0.6 {
+                    self.fx_busy.set(true);
+                }
+                if let (false, true, Some((mx, my))) = (pointed.is_empty(), t.1 >= 0.6, view.mouse)
+                {
+                    let text = if pointed == "reset" {
+                        "Put this setting back to its default."
+                    } else {
+                        help(pointed)
+                    };
+                    let a = ((t.1 - 0.6) * 7.0).min(1.0);
+                    if a < 1.0 {
+                        self.fx_busy.set(true);
+                    }
+                    self.rt.SetTransform(&mat(self.scale, 0.0, 0.0));
+                    self.ox.set(0.0);
+                    self.oy.set(0.0);
+                    self.ca.set(a);
+                    let tw = 290.0f32.min(w - 24.0);
+                    let lines = (text.chars().count() as f32 * 6.4 / (tw - 24.0))
+                        .ceil()
+                        .max(1.0);
+                    let th = lines * 17.0 + 18.0;
+                    let tx = (mx + 12.0).min(w - tw - 12.0).max(12.0);
+                    let ty = if my + 22.0 + th > h {
+                        my - th - 10.0
+                    } else {
+                        my + 22.0
+                    };
+                    self.fill_rr(tx, ty, tw, th, 12.0, color(mix3(bg, fg, 0.16), a));
+                    self.stroke_rr(
+                        tx + 0.5,
+                        ty + 0.5,
+                        tw - 1.0,
+                        th - 1.0,
+                        12.0,
+                        self.cc(fg, 0.12),
+                        1.0,
+                        false,
+                    );
+                    self.text(
+                        text,
+                        &self.f.wrap,
+                        tx + 12.0,
+                        ty + 9.0,
+                        tw - 24.0,
+                        th - 12.0,
+                        self.cc(fg, 0.95),
+                    );
+                }
+            }
             // ---- a note over the bottom of the page
             if let Some((text, a)) = view.toast {
                 self.rt.SetTransform(&mat(self.scale, 0.0, 0.0));
                 self.ox.set(0.0);
                 self.oy.set(0.0);
                 self.ca.set(a);
-                let (tx, tw, th) = (side + 24.0, w - side - 48.0, 64.0);
+                let (tx, tw, th) = (side + 24.0, w - side - 48.0, 78.0);
                 let ty = h - th - 24.0 + (1.0 - a) * 10.0;
                 self.fill_rr(tx, ty, tw, th, 14.0, color(mix3(bg, fg, 0.12), a));
                 self.fill_rr(tx, ty + 12.0, 3.0, th - 24.0, 1.5, self.cc(acc, 0.95));
@@ -3772,7 +4018,7 @@ impl Renderer {
         let (bx, bw, bh) = (120.0, w - 136.0, 18.0);
         for (i, a) in m.apps.iter().enumerate() {
             let ry = y + i as f32 * APP_ROW_H;
-            let label = crate::mic::app_label(&a.exe);
+            let label = a.name.clone();
             let alpha = if a.active { 0.9 } else { 0.6 };
             self.text(
                 &label,
@@ -3963,11 +4209,14 @@ impl Renderer {
             .into_iter()
             .flat_map(|s| s.rows)
             .filter(|(_, q)| *q == group as i8)
-            .map(|(r, _)| r)
+            .map(|(r, _)| match pane_label(r.key()) {
+                Some(l) => r.relabel(l),
+                None => r,
+            })
             .collect();
         let n = rows.len();
         for (i, row) in rows.into_iter().enumerate() {
-            self.setting_row(row, None, 46.0 + i as f32 * 32.0, w);
+            self.setting_row(row, None, 46.0 + i as f32 * 32.0, w, 0.0);
         }
         // Spare room at the bottom: where the rest of the settings live.
         if n < 5 {
@@ -3999,24 +4248,34 @@ impl Renderer {
         *v
     }
 
-    /// One settings row at `y`, `w` wide: a switch, a few choices or the opacity slider.
-    fn setting_row(&self, row: Row, reset: Option<Action>, y: f32, w: f32) {
+    /// One settings row at `y`, `w` wide: a switch, a few choices or the opacity slider. A
+    /// `gut` (the big window) keeps a column at the right for the reset, and turns on the
+    /// hover note and the "Custom" step of numbers.
+    fn setting_row(&self, row: Row, reset: Option<Action>, y: f32, w: f32, gut: f32) {
         let (fg, acc) = (self.fg(), self.accent.get());
-        // The reset sits just left of the control, drawn after the row so it is on top.
         let key = row.key();
-        let rx = match &row {
-            Row::Switch(..) => w - 22.0 - 34.0 - 30.0,
-            Row::Opacity(_) => w - 22.0 - 206.0 - 28.0,
-            Row::Pick(..) => w - 22.0 - 206.0 - 30.0,
-            Row::PickCustom(..) => w - 22.0 - 246.0 - 30.0,
+        // How wide the control is, to know where the label's room ends.
+        let wide = gut > 0.0;
+        let ctrl = match &row {
+            Row::Switch(..) => 34.0,
+            Row::Opacity(_) => 206.0,
+            Row::Pick(_, _, o, ..) if wide && is_numeric(o) => 246.0,
+            Row::Pick(..) => 206.0,
+            Row::PickCustom(..) => 246.0,
         };
-        self.setting_row_body(row, y, w);
+        let label_w = w - gut - 22.0 - ctrl - 30.0;
+        if wide && !help(key).is_empty() && self.over(0.0, y, label_w.max(60.0), 30.0) {
+            self.tip_now.set(Some((key, y)));
+        }
+        self.setting_row_body(row, y, w, gut);
         if let Some(a) = reset {
+            // Always the same spot: the right edge of the row.
+            let rx = w - 22.0 - 24.0;
             let hov = self.hit(rx, y + 4.0, 24.0, 22.0, a);
             let h = self.ease(&format!("r:{key}"), hov as u8 as f32);
             self.fill_rr(rx, y + 4.0, 24.0, 22.0, 11.0, self.cc(fg, 0.1 * h));
             self.text(
-                "↺",
+                "\u{21BA}",
                 &self.f.big,
                 rx,
                 y + 4.0,
@@ -4024,6 +4283,9 @@ impl Renderer {
                 22.0,
                 self.cc(acc, 0.55 + 0.45 * h),
             );
+            if hov {
+                self.tip_now.set(Some(("reset", y)));
+            }
         }
     }
 
@@ -4088,8 +4350,9 @@ impl Renderer {
         }
     }
 
-    fn setting_row_body(&self, row: Row, y: f32, w: f32) {
+    fn setting_row_body(&self, row: Row, y: f32, w: f32, gut: f32) {
         let (fg, acc) = (self.fg(), self.accent.get());
+        let rw = w - gut;
         match row {
             Row::Switch(label, key, on) => {
                 let hov = self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
@@ -4102,12 +4365,12 @@ impl Renderer {
                     &self.f.body,
                     22.0,
                     y,
-                    w - 90.0,
+                    rw - 90.0,
                     30.0,
                     self.cc(fg, 0.9),
                 );
                 let t = self.ease(&format!("s:{key}"), on as u8 as f32);
-                let (kx, ky) = (w - 22.0 - 34.0, y + 6.0);
+                let (kx, ky) = (rw - 22.0 - 34.0, y + 6.0);
                 if t < 0.99 {
                     self.stroke_rr(
                         kx,
@@ -4132,18 +4395,30 @@ impl Renderer {
                 );
             }
             Row::Opacity(v) => {
+                let (bx, bw, bh) = (rw - 22.0 - 206.0 + 6.0, 194.0, 6.0);
                 self.text(
-                    "Opacity",
+                    if gut > 0.0 {
+                        row_label_opacity()
+                    } else {
+                        "Opacity"
+                    },
                     &self.f.body,
                     22.0,
                     y,
-                    100.0,
+                    (bx - 100.0).max(60.0),
                     30.0,
                     self.cc(fg, 0.9),
                 );
                 let pct = format!("{}%", (v * 100.0).round());
-                self.text(&pct, &self.f.small, 84.0, y, 44.0, 30.0, self.cc(GRAY, 0.9));
-                let (bx, bw, bh) = (w - 22.0 - 206.0 + 6.0, 194.0, 6.0);
+                self.text(
+                    &pct,
+                    &self.f.small,
+                    bx - 46.0,
+                    y,
+                    40.0,
+                    30.0,
+                    self.cc(GRAY, 0.9),
+                );
                 let by = y + 12.0;
                 let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, Action::Opacity);
                 let h = self.ease("h:opacity", (hov || self.pressed.get() && hov) as u8 as f32);
@@ -4157,9 +4432,20 @@ impl Renderer {
                     self.cc(fg, 0.95),
                 );
             }
-            Row::Pick(label, key, opts, cur) => self.pick_row(label, key, opts, cur, None, y, w),
+            // Numbers also get "Custom": lit, with the file's value beside it, when the value
+            // is none of the steps.
+            Row::Pick(label, key, opts, cur, off) if gut > 0.0 && is_numeric(&opts) => {
+                let (cur, shown) = match off {
+                    None => (cur, String::new()),
+                    Some((text, _)) => (opts.len(), text),
+                };
+                self.pick_row(label, key, opts, cur, Some((key, shown)), y, w, gut)
+            }
+            Row::Pick(label, key, opts, cur, _) => {
+                self.pick_row(label, key, opts, cur, None, y, w, gut)
+            }
             Row::PickCustom(label, key, opts, cur, hint, shown) => {
-                self.pick_row(label, key, opts, cur, Some((hint, shown)), y, w)
+                self.pick_row(label, key, opts, cur, Some((hint, shown)), y, w, gut)
             }
         }
     }
@@ -4177,22 +4463,37 @@ impl Renderer {
         custom: Option<(&'static str, String)>,
         y: f32,
         w: f32,
+        gut: f32,
     ) {
         let (fg, acc) = (self.fg(), self.accent.get());
-        self.text(label, &self.f.body, 22.0, y, 150.0, 30.0, self.cc(fg, 0.9));
         let extra = custom.is_some() as usize;
         let pw = 206.0 + 40.0 * extra as f32;
-        let px = w - 22.0 - pw;
+        let px = w - gut - 22.0 - pw;
+        // The value in the file, when it is none of the steps, sits just left of the control.
+        let shown_w =
+            custom.as_ref().map_or(
+                0.0,
+                |(_, s)| if s.is_empty() { 0.0 } else { text_w(s) + 14.0 },
+            );
+        self.text(
+            label,
+            &self.f.body,
+            22.0,
+            y,
+            (px - 30.0 - shown_w).max(60.0),
+            30.0,
+            self.cc(fg, 0.9),
+        );
         if let Some((_, shown)) = &custom {
-            if !shown.is_empty() {
+            if shown_w > 0.0 {
                 self.text(
                     shown,
                     &self.f.small,
-                    108.0,
+                    px - shown_w,
                     y,
-                    px - 140.0,
+                    shown_w,
                     30.0,
-                    self.cc(GRAY, 0.9),
+                    self.cc(acc, 0.95),
                 );
             }
         }
@@ -5065,7 +5366,7 @@ mod snap {
             for (row, _) in sec.rows {
                 let writes: Vec<(&str, Val)> = match row {
                     Row::Switch(_, k, _) => vec![(k, Val::B(true)), (k, Val::B(false))],
-                    Row::Pick(_, k, opts, _) | Row::PickCustom(_, k, opts, ..) => {
+                    Row::Pick(_, k, opts, ..) | Row::PickCustom(_, k, opts, ..) => {
                         opts.into_iter().map(|(_, v)| (k, v)).collect()
                     }
                     Row::Opacity(_) => vec![("general.pill_opacity", Val::F(0.7))],
@@ -5186,16 +5487,23 @@ mod snap {
         dirty.general.hover_delay_ms = 500;
         dirty.general.pill_opacity = 0.7;
         dirty.general.theme = "auto".into();
-        for (name, query) in [("settings-search", "hover"), ("settings-nomatch", "zzz")] {
+        dirty.general.collapse_delay_ms = 450;
+        let scenes = [
+            ("settings-search", "hover", (690.0, 150.0), 0.016),
+            ("settings-nomatch", "zzz", (690.0, 150.0), 0.016),
+            // Resting on a label: its note appears after a moment.
+            ("settings-tip", "", (330.0, 154.0), 1.0),
+        ];
+        for (name, query, mouse, dt) in scenes {
             let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
             let view = SettingsView {
-                mouse: Some((690.0, 150.0)),
+                mouse: Some(mouse),
                 pressed: false,
                 light: false,
                 accent: BLUE,
                 scroll: 0.0,
                 scrolling: false,
-                dt: 0.016,
+                dt,
                 open: 1.0,
                 toast: None,
                 query,
