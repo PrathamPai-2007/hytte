@@ -2,7 +2,7 @@
 
 What changed in each version, newest first. The first part is for people who use Hytte; each version ends with a short note for people who change it.
 
-## Next release (on `main`, not released yet)
+## 1.5.0
 
 **Settings**
 
@@ -41,6 +41,7 @@ What changed in each version, newest first. The first part is for people who use
 
 - `scripts/release.ps1` cuts a release (version bumped everywhere, checks, commit, tag). `scripts/version.ps1` keeps the version in both `Cargo.toml` files, `Cargo.lock` and the winget manifest in step; CI and the release workflow check it. After a release, a job commits the published zip's SHA-256 to the winget manifest ([section 13](13-testing-and-release.md#how-a-release-is-built)).
 - The paste decision and the snapping geometry are plain functions with tests.
+- Settings rows are described in one place (`render::help`: the hover note, the note "Custom" writes into the file, and what search matches); numbers get their Custom step by themselves ([section 14](14-how-to-recipes.md)).
 
 ## 1.3.0
 
