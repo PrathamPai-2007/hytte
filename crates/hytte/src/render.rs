@@ -4283,18 +4283,11 @@ impl Renderer {
         if let Some(a) = reset {
             // Always the same spot: the right edge of the row.
             let rx = w - 22.0 - 24.0;
-            let hov = self.hit(rx, y + 4.0, 24.0, 22.0, a);
+            // A true circle, centred on the row, with a font icon centred in it.
+            let hov = self.hit(rx, y + 3.0, 24.0, 24.0, a);
             let h = self.ease(&format!("r:{key}"), hov as u8 as f32);
-            self.fill_rr(rx, y + 4.0, 24.0, 22.0, 11.0, self.cc(fg, 0.1 * h));
-            self.text(
-                "\u{21BA}",
-                &self.f.big,
-                rx,
-                y + 4.0,
-                24.0,
-                22.0,
-                self.cc(acc, 0.55 + 0.45 * h),
-            );
+            self.fill_rr(rx, y + 3.0, 24.0, 24.0, 12.0, self.cc(fg, 0.1 * h));
+            self.glyph_s('\u{E7A7}', rx + 12.0, y + 15.0, self.cc(acc, 0.6 + 0.4 * h));
             if hov {
                 self.tip_now.set(Some(("reset", y)));
             }

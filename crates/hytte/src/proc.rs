@@ -214,10 +214,11 @@ pub fn file_description(path: &str) -> Option<String> {
         {
             return None;
         }
-        let d = String::from_utf16_lossy(std::slice::from_raw_parts(s as *const u16, len as usize))
-            .trim_end_matches('\0')
-            .trim()
-            .to_owned();
+        // Up to the first NUL: some exes (Spotify's) report a length past the end of the string,
+        // which would read the next resource entry's text into the name.
+        let raw = std::slice::from_raw_parts(s as *const u16, len as usize);
+        let end = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+        let d = String::from_utf16_lossy(&raw[..end]).trim().to_owned();
         (!d.is_empty()).then_some(d)
     }
 }
@@ -235,6 +236,13 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn file_description_has_no_stray_text() {
+        // A real exe with a description; nothing may follow the name's own end.
+        let d = file_description(r"C:\Windows\System32\notepad.exe").unwrap();
+        assert!(!d.is_empty() && !d.contains('\0'), "{d:?}");
+    }
 
     #[test]
     fn self_is_alive_and_named() {
