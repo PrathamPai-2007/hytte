@@ -70,8 +70,10 @@ pub fn set_volume(v: f32) -> Option<(f32, bool)> {
 /// One app's volume on the default speaker (all its audio sessions: Chrome's tabs are one).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppVol {
-    /// Exe name, `chrome.exe`; [`app_label`] makes it readable.
+    /// Exe name, `chrome.exe`: what identifies the app.
     pub exe: String,
+    /// What the row shows: the exe's own description (`Wallpaper Engine`), else [`app_label`].
+    pub name: String,
     pub vol: f32,
     pub muted: bool,
     /// Playing right now (an active session), not just open.
@@ -92,6 +94,21 @@ pub fn app_label(exe: &str) -> String {
     c.next()
         .map(|f| f.to_uppercase().chain(c).collect())
         .unwrap_or_default()
+}
+
+/// The readable name of an app: its file description, remembered per exe path.
+#[cfg(windows)]
+fn display_name(pid: u32, exe: &str) -> String {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    let Some(path) = hytte_proto::ports::exe_path(pid) else {
+        return app_label(exe);
+    };
+    let mut c = CACHE.get_or_init(Default::default).lock().unwrap();
+    c.entry(path)
+        .or_insert_with_key(|p| crate::proc::file_description(p).unwrap_or_else(|| app_label(exe)))
+        .clone()
 }
 
 /// One row per exe (the first session's level), playing apps first, then by name.
@@ -119,8 +136,12 @@ pub fn apps() -> Vec<AppVol> {
         group(
             imp::sessions()
                 .into_iter()
-                .filter_map(|(exe, v, active)| unsafe {
+                // Playing now, or an app you can see: the idle helpers (audio consoles, wallpaper
+                // engines) that merely hold a session are left out, as the Windows mixer does.
+                .filter(|(_, _, active, pid)| *active || crate::proc::has_window(*pid))
+                .filter_map(|(exe, v, active, pid)| unsafe {
                     Some(AppVol {
+                        name: display_name(pid, &exe),
                         exe,
                         vol: (v.GetMasterVolume().ok()? * 100.0).round() / 100.0,
                         muted: v.GetMute().ok()?.as_bool(),
@@ -139,7 +160,7 @@ pub fn apps() -> Vec<AppVol> {
 /// Set every session of one app (by exe name) to `v` (0..1); turning it up also unmutes.
 pub fn set_app_volume(exe: &str, v: f32) {
     #[cfg(windows)]
-    for (e, s, _) in imp::sessions() {
+    for (e, s, ..) in imp::sessions() {
         if e.eq_ignore_ascii_case(exe) {
             unsafe {
                 let _ = s.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null());
@@ -225,8 +246,8 @@ mod imp {
         }
     }
 
-    /// The default speaker's audio sessions: (exe name, its volume, playing now).
-    pub fn sessions() -> Vec<(String, ISimpleAudioVolume, bool)> {
+    /// The default speaker's audio sessions: (exe name, its volume, playing now, pid).
+    pub fn sessions() -> Vec<(String, ISimpleAudioVolume, bool, u32)> {
         use windows::core::Interface;
         use windows::Win32::Media::Audio::{
             AudioSessionStateActive, AudioSessionStateExpired, IAudioSessionControl2,
@@ -254,8 +275,9 @@ mod imp {
                         {
                             return None;
                         }
-                        let exe = crate::proc::exe_name(c2.GetProcessId().ok()?)?;
-                        Some((exe, c.cast().ok()?, state == AudioSessionStateActive))
+                        let pid = c2.GetProcessId().ok()?;
+                        let exe = crate::proc::exe_name(pid)?;
+                        Some((exe, c.cast().ok()?, state == AudioSessionStateActive, pid))
                     })
                     .collect(),
             )
@@ -502,6 +524,7 @@ mod app_tests {
     fn apps_group_by_exe_playing_first() {
         let a = |exe: &str, vol, active| AppVol {
             exe: exe.into(),
+            name: app_label(exe),
             vol,
             muted: false,
             active,

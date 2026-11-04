@@ -162,6 +162,66 @@ pub fn focus_app(aumid: &str) {
     }
 }
 
+/// Whether `pid` owns a visible, captioned top-level window (what the Windows mixer lists).
+pub fn has_window(pid: u32) -> bool {
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    // Suspended UWP apps keep a "visible" but cloaked window; that isn't one you can see.
+    top_window_of(pid).is_some_and(|h| {
+        let mut cloaked = 0u32;
+        let ok = unsafe {
+            DwmGetWindowAttribute(h, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4)
+        };
+        ok.is_err() || cloaked == 0
+    })
+}
+
+/// The "file description" of an exe (`Spotify`, `Wallpaper Engine`), if it carries one.
+pub fn file_description(path: &str) -> Option<String> {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW,
+    };
+    let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    let p = PCWSTR(wide.as_ptr());
+    unsafe {
+        let n = GetFileVersionInfoSizeW(p, None);
+        if n == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; n as usize];
+        GetFileVersionInfoW(p, None, n, data.as_mut_ptr().cast()).ok()?;
+        let mut tr: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut len = 0u32;
+        if !VerQueryValueW(
+            data.as_ptr().cast(),
+            w!(r"\VarFileInfo\Translation"),
+            &mut tr,
+            &mut len,
+        )
+        .as_bool()
+            || len < 4
+        {
+            return None;
+        }
+        let t = *(tr as *const [u16; 2]);
+        let q: Vec<u16> = format!(r"\StringFileInfo\{:04x}{:04x}\FileDescription", t[0], t[1])
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut s: *mut core::ffi::c_void = std::ptr::null_mut();
+        if !VerQueryValueW(data.as_ptr().cast(), PCWSTR(q.as_ptr()), &mut s, &mut len).as_bool()
+            || len == 0
+        {
+            return None;
+        }
+        let d = String::from_utf16_lossy(std::slice::from_raw_parts(s as *const u16, len as usize))
+            .trim_end_matches('\0')
+            .trim()
+            .to_owned();
+        (!d.is_empty()).then_some(d)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
