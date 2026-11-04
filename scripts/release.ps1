@@ -16,33 +16,34 @@ $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 $Version = $Version.TrimStart("v")
 
-function Run {
-    & $args[0] @($args | Select-Object -Skip 1)
-    if ($LASTEXITCODE -ne 0) { throw "failed: $($args -join ' ')" }
+# Runs a native command and stops if it fails. (A script block, so `--` reaches the program.)
+function Run([scriptblock]$cmd) {
+    & $cmd
+    if ($LASTEXITCODE -ne 0) { throw "failed: $cmd" }
 }
 
 if (git status --porcelain) { throw "the working tree isn't clean; commit or stash first" }
 if ((git branch --show-current) -ne "main") { throw "release from main" }
-Run git fetch origin main --quiet
+Run { git fetch origin main --quiet }
 if ((git rev-parse HEAD) -ne (git rev-parse origin/main)) { throw "main isn't level with origin/main; pull (or push) first" }
 if (git tag -l "v$Version") { throw "tag v$Version already exists" }
 
 & "$PSScriptRoot/version.ps1" set $Version
 if (-not $SkipChecks) {
-    Run cargo fmt --all --check
-    Run cargo clippy --workspace --all-targets -- -D warnings
-    Run cargo test --workspace
-    Run cargo build --release --workspace
+    Run { cargo fmt --all --check }
+    Run { cargo clippy --workspace --all-targets -- -D warnings }
+    Run { cargo test --workspace }
+    Run { cargo build --release --workspace }
     $got = & target\release\hytte.exe --version
     if ($got -ne "hytte $Version") { throw "the built exe says '$got', not 'hytte $Version'" }
 }
 & "$PSScriptRoot/version.ps1" check "v$Version"
 
-Run git add -A
-Run git commit -m "Release $Version"
-Run git tag "v$Version"
+Run { git add -A }
+Run { git commit -m "Release $Version" }
+Run { git tag "v$Version" }
 if ($Push) {
-    Run git push origin main "v$Version"
+    Run { git push origin main "v$Version" }
     Write-Host "Pushed. Watch the release: gh run watch"
 } else {
     Write-Host "Ready. To release: git push origin main v$Version"
