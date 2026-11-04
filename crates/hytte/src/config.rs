@@ -33,6 +33,10 @@ pub struct General {
     /// The panel the pill opens on: "last" (the one you left), "auto" (what is happening,
     /// else the quick controls) or "home".
     pub start_panel: String,
+    /// Show a pin in the open pill: click it and the pill stays open until you click it again.
+    pub pin_button: bool,
+    /// With `start_panel = "last"`, also remember that panel across restarts.
+    pub remember_panel: bool,
     /// Sounds stay silent in this window, "HH:MM-HH:MM" (may wrap midnight). Empty = never.
     pub quiet_hours: String,
     /// Task rows the list shows before it scrolls (2..8).
@@ -131,6 +135,8 @@ impl Default for General {
             idle_opacity: 1.0,
             animation: "normal".into(),
             start_panel: "last".into(),
+            pin_button: false,
+            remember_panel: false,
             quiet_hours: String::new(),
             task_rows: 4,
             hotkey: String::new(),

@@ -211,6 +211,19 @@ impl Panel {
         }
     }
 
+    pub fn from_name(s: &str) -> Option<Panel> {
+        [
+            Panel::Tasks,
+            Panel::Shelf,
+            Panel::Media,
+            Panel::Timer,
+            Panel::Power,
+            Panel::Home,
+        ]
+        .into_iter()
+        .find(|p| p.name() == s.trim())
+    }
+
     /// The panel an expanded scene shows; None for scenes that aren't panels.
     pub fn of(scene: Scene) -> Option<Panel> {
         Some(match scene {
@@ -394,6 +407,10 @@ pub struct Model {
     pub kill_armed: Option<(u16, Instant)>,
     /// The first task row shown: the list scrolls (mouse wheel) when more than fit.
     pub task_first: usize,
+    /// `[general] pin_button`: the open pill shows a pin.
+    pub pin_button: bool,
+    /// The pill is pinned open (the pin was clicked); it ignores the collapse timer.
+    pub pinned: bool,
     /// `[general] task_rows`: how many rows show before the list scrolls (0 = the default, 4).
     pub task_rows: usize,
     pub shelf: Vec<ShelfItem>,
@@ -1355,6 +1372,30 @@ impl Swipe {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn panel_names_round_trip() {
+        for p in [
+            Panel::Tasks,
+            Panel::Shelf,
+            Panel::Media,
+            Panel::Timer,
+            Panel::Power,
+            Panel::Home,
+        ] {
+            assert_eq!(Panel::from_name(p.name()), Some(p));
+            assert_eq!(
+                Panel::from_name(&format!(
+                    "{}
+",
+                    p.name()
+                )),
+                Some(p)
+            );
+        }
+        assert_eq!(Panel::from_name("nope"), None);
+        assert_eq!(Panel::from_name(""), None);
+    }
+
     use super::*;
 
     #[test]

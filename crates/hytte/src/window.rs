@@ -14,6 +14,11 @@ use crossbeam_channel::{Receiver, Sender};
 
 pub const WM_TRAY: u32 = 0x8001;
 
+/// Where `[general] remember_panel` keeps the panel the pill was last on.
+fn panel_file() -> std::path::PathBuf {
+    crate::config::data_dir().join("panel.txt")
+}
+
 /// Whether the theme is light, and the accent colour that suits it.
 #[cfg(windows)]
 pub fn look(theme: &str) -> (bool, [f32; 3]) {
@@ -722,6 +727,10 @@ mod win {
             self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
             self.model.body_alpha = new.general.pill_opacity.clamp(0.4, 1.0);
             self.model.task_rows = new.general.task_rows;
+            self.model.pin_button = new.general.pin_button;
+            if !new.general.pin_button {
+                self.model.pinned = false;
+            }
             self.model.rounds = new.timer.rounds;
             let monitor_changed = new.general.monitor != self.cfg.general.monitor
                 || new.general.pill_scale != self.cfg.general.pill_scale;
@@ -1397,6 +1406,20 @@ mod win {
                 Action::TimerDismiss => self.model.timer_done = None,
                 Action::TimerClose => self.model.timer_panel = false,
                 Action::Settings(g) => self.model.settings = g,
+                Action::Pin => {
+                    self.model.pinned = !self.model.pinned;
+                    // Unpinned with the pointer already away: let it close as usual.
+                    if !self.model.pinned && !self.inside {
+                        unsafe {
+                            SetTimer(
+                                Some(hwnd),
+                                T_COLLAPSE,
+                                self.cfg.general.collapse_delay_ms.clamp(20, 5000),
+                                None,
+                            );
+                        }
+                    }
+                }
                 // Dragged: handled by `scrub_to`.
                 Action::Opacity | Action::ClearSearch | Action::Jump(_) | Action::EditConfig(_) => {
                 }
@@ -1780,6 +1803,21 @@ mod win {
             }
         }
 
+        /// `[general] remember_panel`: write the panel the pill is on, to open on it next launch.
+        fn remember_panel(&self) {
+            let g = &self.cfg.general;
+            if g.remember_panel && g.start_panel == "last" {
+                match self.model.selected {
+                    Some(p) => {
+                        let _ = std::fs::write(panel_file(), p.name());
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(panel_file());
+                    }
+                }
+            }
+        }
+
         fn evaluate_fullscreen(&mut self, hwnd: HWND) {
             use crate::fullscreen::Suppress;
             // None: an overlay (Game Bar, GPU / OEM tools) is in front; keep the current state.
@@ -1798,6 +1836,8 @@ mod win {
                 self.fs_hidden = hide;
                 if !hide {
                     self.hover = false;
+                } else {
+                    self.model.pinned = false;
                 }
                 self.layout();
                 if entering {
@@ -1997,6 +2037,12 @@ mod win {
             ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
             ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
             ui.model.task_rows = ui.cfg.general.task_rows;
+            ui.model.pin_button = ui.cfg.general.pin_button;
+            if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
+                ui.model.selected = std::fs::read_to_string(panel_file())
+                    .ok()
+                    .and_then(|s| Panel::from_name(&s));
+            }
             ui.model.rounds = ui.cfg.timer.rounds;
             if ui.cfg.shelf.persist {
                 ui.model.shelf = crate::shelf::load();
@@ -2778,7 +2824,8 @@ mod win {
                         }
                     }
                     T_COLLAPSE => {
-                        if !ui.inside && ui.kb.is_none() {
+                        if !ui.inside && ui.kb.is_none() && !ui.model.pinned {
+                            ui.remember_panel();
                             ui.hover = false;
                             ui.model.timer_panel = false;
                             ui.model.settings = None;

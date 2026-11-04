@@ -71,6 +71,8 @@ pub enum Action {
     Jump(usize),
     /// The settings window's search field: clear what was typed.
     ClearSearch,
+    /// The pin in the tab strip: keep the pill open (or let it close again).
+    Pin,
     /// "Custom" on a setting only `config.toml` can hold: open the file at it (the hint id).
     EditConfig(&'static str),
     /// The chevron at the end of the volume bar: open / close the per-app list.
@@ -629,6 +631,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     ),
                     -1,
                 ),
+                (
+                    sw("Remember panel", "general.remember_panel", g.remember_panel),
+                    -1,
+                ),
+                (sw("Pin button", "general.pin_button", g.pin_button), -1),
                 (
                     pick_s_custom(
                         "Quiet hours",
@@ -3411,6 +3418,28 @@ impl Renderer {
             }
             x += tw;
         }
+        if m.pin_button {
+            let (px, on) = (w - 26.0, m.pinned);
+            let hov = self.hit(px - 12.0, cy - 12.0, 24.0, 24.0, Action::Pin);
+            if on {
+                self.fill_rr(
+                    px - 11.0,
+                    cy - 11.0,
+                    22.0,
+                    22.0,
+                    11.0,
+                    self.cc(self.accent.get(), 0.24),
+                );
+            } else if hov {
+                self.fill_rr(px - 11.0, cy - 11.0, 22.0, 22.0, 11.0, self.cc(fg, 0.06));
+            }
+            let (glyph, a) = if on {
+                ('\u{E840}', 0.95)
+            } else {
+                ('\u{E718}', if hov { 0.8 } else { 0.42 })
+            };
+            self.glyph_s(glyph, px, cy, self.cc(fg, a));
+        }
         // The hovered tab's name, in a small label just above it.
         if let Some((p, tx)) = tip {
             let lw = text_w(p.name()) + 16.0;
@@ -5431,6 +5460,13 @@ mod snap {
             false,
             Some((236.0, h - 14.0)),
         );
+        // The optional pin, off and then on.
+        all.pin_button = true;
+        shoot(&mut r, &dir, "tabs-pin", all, Scene::ExpMedia, false);
+        all.pinned = true;
+        shoot(&mut r, &dir, "tabs-pinned", all, Scene::ExpMedia, false);
+        all.pin_button = false;
+        all.pinned = false;
         // One pane: a dev server started from a terminal task sits under it, linked.
         let mut m = model();
         m.now = Some(now);
