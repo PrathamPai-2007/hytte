@@ -25,6 +25,7 @@ if (-not $global:__notch) {
         $n.Id = "ps-$PID-$($n.Seq)"
         $n.Active = $true
         $n.Watch = [Diagnostics.Stopwatch]::StartNew()
+        $n.Err0 = if ($global:Error.Count -gt 0) { $global:Error[0] } else { $null }
         $label = if ($line.Length -gt 400) { $line.Substring(0, 400) } else { $line }
         __notch_send @{ task_id = $n.Id; event = 'Start'; label = $label; cwd = (Get-Location).Path }
     }
@@ -33,8 +34,16 @@ if (-not $global:__notch) {
     $global:__notch_prompt = $function:prompt
     function global:prompt {
         $ok = $?
-        $code = if ($ok) { 0 } elseif ($global:LASTEXITCODE -is [int] -and $global:LASTEXITCODE -ne 0) { $global:LASTEXITCODE } else { 1 }
         $n = $global:__notch
+        # Ctrl+C is not a failure: PowerShell records the command as "Stopped" in its history
+        # (a failing program is "Completed", a `throw` is "Failed"), whatever exit code a
+        # program that was interrupted happens to leave. 130 is what the daemon treats as "the
+        # user stopped it" and drops the row for.
+        $stopped = $n.Active -and ((Get-History -Count 1 -ErrorAction SilentlyContinue).ExecutionStatus -eq 'Stopped')
+        # A cmdlet that failed leaves $LASTEXITCODE as the last program left it, so a new error
+        # record (a program's failure adds none) means "1", not that old code.
+        $cmdletError = $global:Error.Count -gt 0 -and -not [object]::ReferenceEquals($global:Error[0], $n.Err0)
+        $code = if ($stopped) { 130 } elseif ($ok) { 0 } elseif ($cmdletError) { 1 } elseif ($global:LASTEXITCODE -is [int] -and $global:LASTEXITCODE -ne 0) { $global:LASTEXITCODE } else { 1 }
         if ($n.Active) {
             $n.Active = $false
             $ms = [int64]$n.Watch.ElapsedMilliseconds
