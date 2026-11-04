@@ -672,6 +672,13 @@ mod win {
                     UiEvent::DragEnter => self.model.drop_over = true,
                     UiEvent::DragLeave => self.model.drop_over = false,
                     UiEvent::Config(cfg) => self.apply_config(*cfg),
+                    UiEvent::ConfigProblem(msg) => {
+                        let mut c = Chip::new(msg, now);
+                        c.tone = crate::ui_state::Tone::Warn;
+                        c.hold = Duration::from_secs(12);
+                        c.open = Some(crate::config::config_path());
+                        self.model.chip = Some(c);
+                    }
                     // Nowhere to show it: dropping `reply` sends the agent to its terminal prompt now.
                     UiEvent::Ask { .. } if self.paused || self.gaming => {}
                     UiEvent::Ask { id, summary, reply } => {

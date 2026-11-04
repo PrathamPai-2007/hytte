@@ -79,6 +79,13 @@ fn main() {
     update::cleanup();
 
     let cfg = config::load();
+    // A mistake in the file is said once the window is up, and written to the log now.
+    let config_problem = std::fs::read_to_string(config::config_path())
+        .ok()
+        .and_then(|t| config::problem(&t, true));
+    if let Some(p) = &config_problem {
+        logging::line(p);
+    }
     config::ensure_autostart(cfg.general.autostart);
     config::ensure_start_menu();
     #[cfg(windows)]
@@ -105,6 +112,9 @@ fn main() {
     let (task_tx, task_rx) = unbounded::<tasks::TaskUpdate>();
 
     let (ui_tx, ui_rx) = unbounded::<ui_state::UiEvent>();
+    if let Some(p) = config_problem {
+        let _ = ui_tx.send(ui_state::UiEvent::ConfigProblem(p));
+    }
     let pipe_handle = pipe_server::spawn_listener(msg_tx, ui_tx.clone());
     let tasks_handle = tasks::spawn_registry(msg_rx, task_tx);
 

@@ -77,6 +77,8 @@ pub enum UiEvent {
     DragLeave,
     /// `config.toml` was edited and parses.
     Config(Box<crate::config::Config>),
+    /// What is wrong with `config.toml` (a mistake in it, or a setting that doesn't exist).
+    ConfigProblem(String),
     /// An agent asks permission (`hytte agent ask`); send the answer on `reply`.
     Ask {
         id: u64,

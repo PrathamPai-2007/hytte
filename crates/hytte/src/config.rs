@@ -363,6 +363,81 @@ pub fn load() -> Config {
     parse(&text).unwrap_or_default()
 }
 
+/// Settings that are read but are not in a default file (an unset `Option`), or that older
+/// versions wrote and that are ignored now (so nobody is told off for a file Hytte made).
+const ALSO_KNOWN: [(&str, &str); 9] = [
+    ("general", "output_folder"),
+    ("downloads", "folder"),
+    ("general", "suppress_fullscreen"),
+    ("general", "fullscreen_mode"),
+    ("general", "solid_pill"),
+    ("general", "acrylic"),
+    ("general", "config_version"),
+    ("general", "renderer"),
+    ("general", "top_offset"),
+];
+
+/// Settings in `text` that Hytte has no such key for (a typo), as "section.key".
+fn unknown_keys(text: &str) -> Vec<String> {
+    let (Ok(user), Ok(known)) = (
+        text.parse::<toml::Table>(),
+        toml::Table::try_from(Config::default()),
+    ) else {
+        return vec![];
+    };
+    let mut out = vec![];
+    for (sec, v) in &user {
+        let Some(known_sec) = known.get(sec) else {
+            out.push(sec.clone());
+            continue;
+        };
+        let (Some(keys), Some(known_keys)) = (v.as_table(), known_sec.as_table()) else {
+            continue;
+        };
+        for k in keys.keys() {
+            if !known_keys.contains_key(k) && !ALSO_KNOWN.contains(&(sec.as_str(), k.as_str())) {
+                out.push(format!("{sec}.{k}"));
+            }
+        }
+    }
+    out
+}
+
+/// What to tell the user about `config.toml`'s text, if anything: the line and column of a
+/// mistake that stops it loading, or the settings it names that don't exist (ignored, but a
+/// typo is worth hearing about). `startup`: there are no earlier settings to keep.
+pub fn problem(text: &str, startup: bool) -> Option<String> {
+    match toml::from_str::<Config>(text) {
+        Err(e) => {
+            let at = e.span().map_or(String::new(), |s| {
+                let before = &text[..s.start.min(text.len())];
+                let line = before.matches('\n').count() + 1;
+                let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+                format!(" (line {line}, column {col})")
+            });
+            let keep = if startup {
+                "using the defaults until it is fixed"
+            } else {
+                "keeping your current settings"
+            };
+            Some(format!(
+                "config.toml has a mistake{at}: {}. {keep}.",
+                e.message()
+            ))
+        }
+        Ok(_) => {
+            let unknown = unknown_keys(text);
+            (!unknown.is_empty()).then(|| {
+                let shown: Vec<_> = unknown.iter().take(3).cloned().collect();
+                format!(
+                    "config.toml: no such setting {} (ignored).",
+                    shown.join(", ")
+                )
+            })
+        }
+    }
+}
+
 /// `None` for invalid TOML, so a half-typed edit never replaces working settings.
 pub fn parse(text: &str) -> Option<Config> {
     let mut cfg: Config = toml::from_str(text).ok()?;
@@ -436,6 +511,11 @@ pub fn spawn_watcher(ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>)
             };
             if text == last || text.trim().is_empty() {
                 continue;
+            }
+            // Say what is wrong (a mistake, or a setting that doesn't exist), once per edit.
+            if let Some(p) = problem(&text, false) {
+                crate::logging::line(&p);
+                let _ = ui_tx.send(crate::ui_state::UiEvent::ConfigProblem(p));
             }
             // A half-typed, invalid file keeps the current settings until it parses again.
             if let Some(cfg) = parse(&text) {
@@ -746,6 +826,50 @@ mod tests {
         // A key that no longer exists is ignored, not an error.
         let gone = "[general]\nrenderer = \"classic\"\nsolid_pill = true\nacrylic = true\n";
         assert!(parse(gone).is_some());
+    }
+
+    #[test]
+    fn a_mistake_names_its_line_and_a_typo_its_key() {
+        // A value of the wrong kind: where it is, and what happens next.
+        let bad = "[general]
+autostart = false
+hover_delay_ms = \"soon\"
+";
+        let p = problem(bad, false).unwrap();
+        assert!(p.contains("line 3"), "{p}");
+        assert!(p.contains("keeping your current settings"), "{p}");
+        assert!(problem(bad, true).unwrap().contains("defaults"));
+        // A key that doesn't exist (a typo) loads, and is named.
+        let typo = "[general]
+hover_dely_ms = 100
+[nosuch]
+x = 1
+";
+        let p = problem(typo, false).unwrap();
+        assert!(
+            p.contains("general.hover_dely_ms") && p.contains("nosuch"),
+            "{p}"
+        );
+        // A clean file, an empty one and the file written by default say nothing.
+        assert_eq!(problem("", false), None);
+        let written = toml::to_string_pretty(&Config::default()).unwrap();
+        assert_eq!(problem(&written, false), None);
+        // Settings that are only written once set, and the old names, are known.
+        let rare = "[general]
+output_folder = \"C:/x\"
+suppress_fullscreen = false
+[downloads]
+folder = \"C:/d\"
+";
+        assert_eq!(problem(rare, false), None);
+    }
+
+    /// The file on this machine, for a look at what a real user's config says about itself.
+    #[test]
+    #[ignore]
+    fn this_machines_config_has_no_problems() {
+        let text = std::fs::read_to_string(config_path()).unwrap_or_default();
+        assert_eq!(problem(&text, false), None);
     }
 
     #[test]
