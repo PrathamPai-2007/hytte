@@ -35,6 +35,25 @@ fn parse(tag: &str) -> Option<(u32, u32, u32)> {
 struct Release {
     tag: String,
     url: String,
+    /// The first line of the release notes ("what changed"), empty when there are none.
+    note: String,
+}
+
+/// The first real line of a release body: not a heading or the "Full Changelog" footer, with
+/// its list bullet and GitHub's " by @user in <link>" tail removed, and short enough for a box.
+fn first_note(body: &str) -> String {
+    let line = body
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("**"))
+        .unwrap_or("");
+    let line = line.trim_start_matches(['*', '-', ' ']);
+    let line = line.split(" by @").next().unwrap_or(line).trim();
+    if line.chars().count() > 140 {
+        format!("{}…", line.chars().take(139).collect::<String>().trim_end())
+    } else {
+        line.to_string()
+    }
 }
 
 /// The release's tag and its `hytte.exe` download, from the GitHub API's JSON.
@@ -52,6 +71,7 @@ fn release_from_json(body: &[u8]) -> Result<Release, String> {
     Ok(Release {
         tag: tag.into(),
         url: url.into(),
+        note: first_note(v["body"].as_str().unwrap_or("")),
     })
 }
 
@@ -193,8 +213,13 @@ fn run_check(manual: bool) {
         return;
     }
     let shown = r.tag.trim_start_matches('v');
+    let what = if r.note.is_empty() {
+        String::new()
+    } else {
+        format!("New in {shown}: {}\n\n", r.note)
+    };
     let q = format!(
-        "Hytte {shown} is available (you have {CURRENT}).\n\nUpdate now? Hytte will restart in the same folder."
+        "Hytte {shown} is available (you have {CURRENT}).\n\n{what}Update now? Hytte will restart in the same folder."
     );
     if !message(&q, true) {
         let _ = std::fs::write(&skip, &r.tag);
@@ -257,6 +282,16 @@ mod tests {
     }
 
     #[test]
+    fn the_first_note_is_the_first_real_line() {
+        let body = "## What's Changed\n* Soften the timer chime by @someone in https://x/pull/9\n* Another\n\n**Full Changelog**: https://x";
+        assert_eq!(first_note(body), "Soften the timer chime");
+        assert_eq!(first_note(""), "");
+        assert_eq!(first_note("## Only a heading\n\n**Full Changelog**: x"), "");
+        let long = "a".repeat(300);
+        assert_eq!(first_note(&long).chars().count(), 140);
+    }
+
+    #[test]
     fn release_json_finds_the_exe_asset() {
         let body = br#"{"tag_name":"v2.1.0","assets":[
             {"name":"hytte-2.1.0-x64.zip","browser_download_url":"https://x/zip"},
@@ -265,7 +300,8 @@ mod tests {
             release_from_json(body),
             Ok(Release {
                 tag: "v2.1.0".into(),
-                url: "https://x/exe".into()
+                url: "https://x/exe".into(),
+                note: String::new(),
             })
         );
         // Pre-1.0 releases only had the zip.

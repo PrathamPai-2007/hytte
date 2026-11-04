@@ -150,23 +150,27 @@ pub fn load() -> Option<Timer> {
     serde_json::from_str(&std::fs::read_to_string(path()).ok()?).ok()
 }
 
-/// One alarm phrase: three soft decaying bell notes (E5, A5, E6, each with a quiet octave
-/// overtone) and a pause, 22.05 kHz mono 16-bit WAV. Looped while a finished timer rings.
+/// One alarm phrase: a soft rising chord of three bell notes (C5, E5, G5, a quiet octave
+/// overtone each, a gentle attack and a slow decay) and a long pause, 22.05 kHz mono 16-bit
+/// WAV. Looped while a finished timer rings. Quiet and unhurried on purpose: it should be
+/// noticed, not startle.
 pub fn chime_wav() -> Vec<u8> {
     const SR: u32 = 22_050;
     let mut pcm: Vec<i16> = vec![];
     for (hz, secs) in [
-        (659.25f32, 0.32f32),
-        (880.0, 0.32),
-        (1318.5, 0.9),
-        (0.0, 1.1),
+        (523.25f32, 0.42f32),
+        (659.25, 0.42),
+        (783.99, 1.2),
+        (0.0, 1.6),
     ] {
         let n = (SR as f32 * secs) as usize;
         for i in 0..n {
             let t = i as f32 / SR as f32;
-            let env = (t / 0.008).min(1.0) * (-4.5 * t).exp();
+            // A 30 ms swell in, a slow decay, and a short release so a note never ends on a click.
+            let release = ((n - i) as f32 / (SR as f32 * 0.025)).min(1.0);
+            let env = (t / 0.03).min(1.0) * (-3.2 * t).exp() * release;
             let ph = t * hz * std::f32::consts::TAU;
-            let v = (ph.sin() + 0.18 * (2.0 * ph).sin()) * env * 0.30;
+            let v = (ph.sin() + 0.08 * (2.0 * ph).sin()) * env * 0.24;
             pcm.push((v * i16::MAX as f32) as i16);
         }
     }
@@ -322,6 +326,13 @@ mod tests {
         );
         // One looped phrase, a few seconds of 16-bit mono.
         assert!(w.len() < 200_000);
+        // Soft: well under full scale.
+        let peak = w[44..]
+            .chunks(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]).unsigned_abs())
+            .max()
+            .unwrap();
+        assert!(peak < (i16::MAX as f32 * 0.3) as u16, "peak {peak}");
     }
 
     #[test]
