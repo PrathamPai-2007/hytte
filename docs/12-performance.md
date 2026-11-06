@@ -4,10 +4,10 @@ Hytte runs all day next to everything else on the machine, so its idle cost matt
 
 ## Budgets
 
-| Budget | Target | Last measured (1.3.0 release build, default settings, a fresh data folder) |
+| Budget | Target | Last measured (1.6.0 release build, default settings, a fresh data folder; the frame cost row is from 1.3.0) |
 |---|---|---|
-| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.5 to 0.7 % of one core (156 to 203 ms of CPU in 30 s, in two runs, on a PC with about 270 processes running) |
-| Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 11 MB private (committed) bytes; working set ≈ 43 MB at startup and ≈ 4 MB after the 30 s trim. 35 threads, about 410 handles. The trim only runs once nothing has been drawing for 30 s: with music playing it never did (a run with VLC playing stayed at 45 to 50 MB). |
+| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.3 % of one core (94 ms of CPU in 30 s, one run, after 45 s of settling) |
+| Idle memory | < 30 MB stretch goal, 100 MB ceiling | ≈ 10.8 MB private (committed) bytes; working set ≈ 7 MB after the trim. 35 threads, about 405 handles. Nothing was playing, so the pill had trimmed. |
 | Animation | Monitor refresh rate during transitions only | vsync-paced; parks when settled |
 | Frame cost while a spring moves | well under one refresh period | `gpu`: draw + present p50 ≈ 2.0 ms, p99 ≈ 2.5 to 5.8 ms, with a running task's spinner in the open pill (60 Hz display at 200 % scaling, WARP device; the draw alone is p50 ≈ 1.8 ms). A refresh period is 16.6 ms here. |
 
