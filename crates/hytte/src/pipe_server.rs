@@ -67,7 +67,7 @@ fn run_windows_loop(tx: Sender<HytteMessage>, ui_tx: Sender<UiEvent>) {
                     PIPE_ACCESS_DUPLEX
                 },
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                8,
+                PIPE_UNLIMITED_INSTANCES,
                 4096,
                 MAX_MESSAGE_BYTES as u32,
                 0,

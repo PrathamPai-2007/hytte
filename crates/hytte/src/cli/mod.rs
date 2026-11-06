@@ -50,35 +50,53 @@ fn chrono_stamp() -> u64 {
         .unwrap_or(0)
 }
 
-/// Best-effort pipe send. Returns false when daemon is absent.
+/// Best-effort pipe send. Returns false when the message did not get through.
 fn send_msg(msg: &HytteMessage) -> bool {
-    let line = match msg.to_line() {
-        Ok(l) => l,
-        Err(_) => return false,
-    };
-    send_line_best_effort(&line)
+    try_send(msg).is_ok()
 }
 
+/// Send one message; the error says whether there is no daemon ([`is_absent`]) or just no luck.
+fn try_send(msg: &HytteMessage) -> std::io::Result<()> {
+    let line = msg
+        .to_line()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    open_pipe(false)?.write_all(line.as_bytes())
+}
+
+/// No pipe at all, as opposed to a busy or refused one.
+fn is_absent(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::NotFound
+}
+
+/// Open the daemon's pipe. When every instance is busy for a moment (a burst of shell hooks)
+/// retry for up to ~200 ms instead of dropping the message; a missing pipe fails at once.
 #[cfg(windows)]
-fn send_line_best_effort(line: &str) -> bool {
+fn open_pipe(read: bool) -> std::io::Result<std::fs::File> {
     use std::fs::OpenOptions;
     use std::os::windows::fs::OpenOptionsExt;
-    // FILE_FLAG_WRITE_THROUGH to push the message out promptly.
+    const ERROR_PIPE_BUSY: i32 = 231;
+    // FILE_FLAG_WRITE_THROUGH pushes a message out promptly.
     const FILE_FLAG_WRITE_THROUGH: u32 = 0x8000_0000;
-    let mut f = match OpenOptions::new()
-        .write(true)
-        .custom_flags(FILE_FLAG_WRITE_THROUGH)
-        .open(PIPE_NAME)
-    {
-        Ok(f) => f,
-        Err(_) => return false,
-    };
-    f.write_all(line.as_bytes()).is_ok()
+    let mut tries = 0;
+    loop {
+        match OpenOptions::new()
+            .read(read)
+            .write(true)
+            .custom_flags(if read { 0 } else { FILE_FLAG_WRITE_THROUGH })
+            .open(PIPE_NAME)
+        {
+            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && tries < 10 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            r => return r,
+        }
+    }
 }
 
 #[cfg(not(windows))]
-fn send_line_best_effort(_line: &str) -> bool {
-    false
+fn open_pipe(_read: bool) -> std::io::Result<std::fs::File> {
+    Err(std::io::ErrorKind::NotFound.into())
 }
 
 /// Send an [`hytte_proto::Ask`] and wait for the human's answer. None = no daemon, no
@@ -87,11 +105,7 @@ fn ask_pipe(ask: &hytte_proto::Ask) -> Option<bool> {
     use std::io::{BufRead, BufReader};
     let mut line = serde_json::to_string(ask).ok()?;
     line.push('\n');
-    let mut f = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(PIPE_NAME)
-        .ok()?;
+    let mut f = open_pipe(true).ok()?;
     f.write_all(line.as_bytes()).ok()?;
     // The read blocks until the daemon answers or hangs up; cap it from outside.
     let (tx, rx) = std::sync::mpsc::channel();
@@ -121,11 +135,7 @@ fn start_daemon() -> bool {
     }
     for _ in 0..30 {
         std::thread::sleep(std::time::Duration::from_millis(100));
-        if std::fs::OpenOptions::new()
-            .write(true)
-            .open(PIPE_NAME)
-            .is_ok()
-        {
+        if open_pipe(false).is_ok() {
             return true;
         }
     }
@@ -221,7 +231,8 @@ fn cmd_run(args: &[String]) {
         m
     };
     let start = tag(HytteMessage::start(id.clone(), truncated.clone()));
-    if !send_msg(&start) && start_daemon() {
+    // Only a missing pipe starts a daemon; a busy one is a daemon that is just busy.
+    if try_send(&start).is_err_and(|e| is_absent(&e)) && start_daemon() {
         let _ = send_msg(&start);
     }
 
@@ -296,7 +307,7 @@ fn cmd_run(args: &[String]) {
                 m.event = TaskEvent::Progress;
                 m.progress = pct;
                 m.line = fresh.clone();
-                daemon = send_msg(&m);
+                daemon = !try_send(&m).is_err_and(|e| is_absent(&e));
                 shown = pct.or(shown);
                 if let Some(l) = fresh {
                     last_line = l;
