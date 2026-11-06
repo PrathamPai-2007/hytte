@@ -4,7 +4,7 @@
 
 use crate::ui_state::UiEvent;
 use crossbeam_channel::Sender;
-use hytte_proto::{HytteMessage, MAX_MESSAGE_BYTES, PIPE_NAME};
+use hytte_proto::{HytteMessage, MAX_MESSAGE_BYTES};
 
 pub fn spawn_listener(
     tx: Sender<HytteMessage>,
@@ -60,7 +60,7 @@ fn run_windows_loop(tx: Sender<HytteMessage>, ui_tx: Sender<UiEvent>) {
 
         let h = unsafe {
             CreateNamedPipeW(
-                &HSTRING::from(PIPE_NAME),
+                &HSTRING::from(hytte_proto::pipe_name()),
                 if first {
                     PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE
                 } else {

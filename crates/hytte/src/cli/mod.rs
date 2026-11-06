@@ -8,7 +8,7 @@ mod portscmd;
 mod progress;
 
 use crate::setup;
-use hytte_proto::{HytteMessage, TaskEvent, PIPE_NAME};
+use hytte_proto::{HytteMessage, TaskEvent};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::process::Command;
@@ -83,8 +83,15 @@ fn open_pipe(read: bool) -> std::io::Result<std::fs::File> {
             .read(read)
             .write(true)
             .custom_flags(if read { 0 } else { FILE_FLAG_WRITE_THROUGH })
-            .open(PIPE_NAME)
+            .open(hytte_proto::pipe_name())
         {
+            // Never talk to a pipe served by another user's process.
+            Ok(f) if !server_is_ours(&f) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "the Hytte pipe is served by another user",
+                ))
+            }
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && tries < 10 => {
                 tries += 1;
                 std::thread::sleep(Duration::from_millis(20));
@@ -92,6 +99,14 @@ fn open_pipe(read: bool) -> std::io::Result<std::fs::File> {
             r => return r,
         }
     }
+}
+
+#[cfg(windows)]
+fn server_is_ours(f: &std::fs::File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    hytte_proto::sys::pipe_server_is_current_user(windows::Win32::Foundation::HANDLE(
+        f.as_raw_handle(),
+    ))
 }
 
 #[cfg(not(windows))]

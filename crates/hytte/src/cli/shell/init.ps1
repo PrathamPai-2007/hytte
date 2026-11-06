@@ -3,7 +3,8 @@
 # Commands that run longer than the daemon's threshold (default 3 s) show up in the notch.
 
 if (-not $global:__notch) {
-    $global:__notch = @{ Seq = 0; Active = $false; Id = ''; Watch = $null }
+    # One pipe per Windows user: the daemon names it after the user's SID.
+    $global:__notch = @{ Seq = 0; Active = $false; Id = ''; Watch = $null; Pipe = ('hytte-' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) }
 
     function global:__notch_send([hashtable]$msg) {
         try {
@@ -11,7 +12,7 @@ if (-not $global:__notch) {
             $msg.source = 'shell'
             $msg.pid = $PID
             $json = $msg | ConvertTo-Json -Compress
-            $c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'hytte', [System.IO.Pipes.PipeDirection]::Out)
+            $c = New-Object System.IO.Pipes.NamedPipeClientStream('.', $global:__notch.Pipe, [System.IO.Pipes.PipeDirection]::Out)
             $c.Connect(40)
             $b = [Text.Encoding]::UTF8.GetBytes($json + "`n")
             $c.Write($b, 0, $b.Length)

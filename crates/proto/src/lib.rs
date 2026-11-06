@@ -8,8 +8,18 @@ pub mod sys;
 
 /// Protocol version. Bump on breaking change.
 pub const PROTOCOL_VERSION: u32 = 1;
-/// Canonical pipe name.
-pub const PIPE_NAME: &str = r"\\.\pipe\hytte";
+/// The pipe name prefix; the user's SID follows, so each Windows user has their own pipe.
+pub const PIPE_PREFIX: &str = r"\\.\pipe\hytte";
+
+/// This user's pipe: `\\.\pipe\hytte-<SID>`. Another account's Hytte uses another name, and a
+/// stranger who creates the plain name can't intercept anything.
+pub fn pipe_name() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| match sys::user_sid() {
+        Some(sid) => format!("{PIPE_PREFIX}-{sid}"),
+        None => PIPE_PREFIX.to_string(),
+    })
+}
 /// Max single message bytes — pipe input is untrusted.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
@@ -258,6 +268,14 @@ mod tests {
         assert_eq!(back.label.len(), 1023); // 341 whole characters
         assert_eq!(back.message.unwrap().len(), 1024);
         assert_eq!(back.stderr_tail.unwrap().len(), 8192);
+    }
+
+    #[test]
+    fn the_pipe_is_per_user() {
+        let name = pipe_name();
+        assert!(name.starts_with(PIPE_PREFIX));
+        #[cfg(windows)]
+        assert!(name.contains("-S-1-"), "{name}");
     }
 
     #[test]
