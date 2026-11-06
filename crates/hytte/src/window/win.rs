@@ -645,6 +645,7 @@ pub fn run_windows(
         ui.model.pin_button = ui.cfg.general.pin_button;
         ui.breaks.configure(break_minutes(&ui.cfg), Instant::now());
         ui.model.lyrics_on = ui.cfg.media.lyrics;
+        ui.model.skin = crate::skin::Skin::from_name(&ui.cfg.general.skin);
         ui.model.init_jot(&crate::jot::path());
         ui.model.weather_place = crate::weather::Place::load();
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);

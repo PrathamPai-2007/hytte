@@ -267,6 +267,7 @@ impl Ui {
         }
         self.model.rounds = new.timer.rounds;
         self.model.apply_panes(&new.panes);
+        self.model.skin = crate::skin::Skin::from_name(&new.general.skin);
         self.model.lyrics_on = new.media.lyrics;
         self.breaks.configure(break_minutes(&new), Instant::now());
         self.model.imperial = crate::weather::imperial(&new.weather.units);

@@ -130,10 +130,10 @@ impl Renderer {
                 }
             }
             // Rim: barely there at the screen edge, catching the light round the bottom.
-            let fg = self.fg();
+            let fg = self.skin.get().rim(self.fg(), self.light.get());
             let rim = self.grad(
                 Grad::Rim,
-                [fg[0], 0.0, 0.0, 0.0],
+                [fg[0], fg[1], fg[2], self.light.get() as u8 as f32],
                 &[(0.0, fg, 0.03), (1.0, fg, 0.14)],
             );
             match rim {

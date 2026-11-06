@@ -46,6 +46,7 @@ mod settings_win;
 mod setup;
 mod shelf;
 mod single_instance;
+mod skin;
 mod sleep;
 #[cfg(windows)]
 mod tabs;

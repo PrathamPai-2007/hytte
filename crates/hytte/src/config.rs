@@ -154,7 +154,7 @@ impl Default for General {
             allow_list: vec![],
             deny_list: vec![],
             finish_peek_secs: 3,
-            hide_from_capture: true,
+            hide_from_capture: false,
             check_updates: true,
             note_hotkey: String::new(),
             skin: "graphite".into(),
@@ -936,6 +936,22 @@ folder = \"C:/d\"
     fn this_machines_config_has_no_problems() {
         let text = std::fs::read_to_string(config_path()).unwrap_or_default();
         assert_eq!(problem(&text, false), None);
+    }
+
+    #[test]
+    fn new_installs_show_the_pill_in_screenshots_and_old_files_keep_their_choice() {
+        assert!(!Config::default().general.hide_from_capture);
+        // A file written before this change says `true` outright: that is respected.
+        let old = parse(
+            "[general]
+hide_from_capture = true
+",
+        )
+        .unwrap();
+        assert!(old.general.hide_from_capture);
+        // A first run writes every default, so the choice is then in the file either way.
+        let first_run = toml::to_string_pretty(&Config::default()).unwrap();
+        assert!(first_run.contains("hide_from_capture = false"));
     }
 
     #[test]

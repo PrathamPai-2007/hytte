@@ -186,6 +186,7 @@ pub fn help(key: &str) -> &'static str {
         "breaks.stretch_min" => "A card suggests standing up to stretch.",
         "breaks.water_min" => "A card reminds you to drink some water.",
         "media.lyrics" => "Shows the words of the song that is playing. Looking them up sends the song title and artist to lrclib.net.",
+        "general.skin" => "The colours of the pill: Graphite is the original dark look.",
         "panes.notes" => "Shows the Notes pane in the tab strip.",
         "panes.todo" => "Shows the To-do pane in the tab strip.",
         "panes.weather" => "Shows the Weather pane in the tab strip.",
@@ -443,6 +444,21 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                         g.finish_peek_secs as i64,
                     ),
                     1,
+                ),
+                (
+                    pick_s(
+                        "Pill skin",
+                        "general.skin",
+                        &[
+                            ("Graphite", "graphite"),
+                            ("Aurora", "aurora"),
+                            ("Ember", "ember"),
+                            ("Moss", "moss"),
+                            ("Dusk", "dusk"),
+                        ],
+                        &g.skin,
+                    ),
+                    -1,
                 ),
                 (
                     sw(

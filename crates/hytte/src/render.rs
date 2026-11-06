@@ -314,6 +314,7 @@ pub struct Renderer {
     morph: Cell<Option<f32>>,
     pressed: Cell<bool>,
     light: Cell<bool>,
+    skin: Cell<crate::skin::Skin>,
     accent: Cell<[f32; 3]>,
     focus: Cell<Option<usize>>,
     /// True while the live scene (not the one fading out) is drawing: only it shows focus.
@@ -528,6 +529,7 @@ impl Renderer {
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
                 light: Cell::new(false),
+                skin: Cell::new(crate::skin::Skin::Graphite),
                 accent: Cell::new(BLUE),
                 focus: Cell::new(None),
                 focus_live: Cell::new(false),
@@ -614,6 +616,7 @@ impl Renderer {
         self.t.set(fr.anim.t as f32);
         self.pressed.set(fr.pressed);
         self.light.set(fr.light);
+        self.skin.set(fr.model.skin);
         self.accent.set(fr.accent);
         self.focus.set(fr.focus);
         self.focus_live.set(false);

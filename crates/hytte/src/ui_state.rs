@@ -553,6 +553,8 @@ pub struct Model {
     pub places_for: String,
     /// Show Fahrenheit.
     pub imperial: bool,
+    /// `[general] skin`: the pill's colours.
+    pub skin: crate::skin::Skin,
     /// The sleep timer ("stop playing in 30 min"), and whether its chips are showing.
     pub sleep: Option<crate::sleep::Sleep>,
     pub sleep_open: bool,
@@ -1715,6 +1717,12 @@ impl Model {
 
     /// Glow colour (rgb 0..1) and strength for the scene.
     pub fn glow(&self, scene: Scene) -> ([f32; 3], f32) {
+        let (c, k) = self.glow_base(scene);
+        // A scene with no colour of its own takes the skin's.
+        (if c == [1.0; 3] { self.skin.glow() } else { c }, k)
+    }
+
+    fn glow_base(&self, scene: Scene) -> ([f32; 3], f32) {
         const RED: [f32; 3] = [1.0, 0.35, 0.37];
         const GREEN: [f32; 3] = [0.20, 0.82, 0.48];
         const BLUE: [f32; 3] = [0.35, 0.63, 1.0];

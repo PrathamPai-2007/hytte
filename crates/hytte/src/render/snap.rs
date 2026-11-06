@@ -1145,3 +1145,81 @@ fn media_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// Every skin on Home, Media, Notes and a bare pill, dark and light.
+#[test]
+#[ignore]
+fn skin_snapshots() {
+    use crate::jot::Kind;
+    use crate::skin::Skin;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    for light in [false, true] {
+        for skin in Skin::ALL {
+            let mut m = model();
+            m.now = Some(Instant::now());
+            m.skin = skin;
+            m.media_stamp = m.now;
+            m.media = Some(MediaInfo {
+                album: String::new(),
+                title: "Low Tide".into(),
+                artist: "The Lamplighters".into(),
+                playing: true,
+                app: "x".into(),
+                pos_ms: 70_000,
+                dur_ms: 214_000,
+            });
+            m.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+            m.jot.add(
+                Kind::Note,
+                "Wi-Fi code at the studio: 4471",
+                false,
+                wall - 7 * 3_600_000,
+            );
+            m.jot
+                .add(Kind::Note, "Passport renewal needs two photos", true, wall);
+            let n = format!("{}{}", skin.name(), if light { "-light" } else { "" });
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-home-{n}"),
+                &m,
+                Scene::ExpHome,
+                light,
+            );
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-media-{n}"),
+                &m,
+                Scene::ExpMedia,
+                light,
+            );
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-notes-{n}"),
+                &m,
+                Scene::ExpNotes,
+                light,
+            );
+            m.timer = Some(crate::timer::Timer::start(
+                crate::timer::TimerKind::Focus,
+                25,
+                wall - 10 * 60_000,
+            ));
+            m.media = None;
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-idle-{n}"),
+                &m,
+                Scene::Idle,
+                light,
+            );
+        }
+    }
+    contact_sheet(&dir);
+}
