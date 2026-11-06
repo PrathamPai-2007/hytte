@@ -1716,7 +1716,9 @@ mod win {
                     self.model.power = crate::power::read();
                 }
                 Action::FocusMedia(app) => crate::proc::focus_app(&app),
-                Action::OpenPort(port) | Action::KillPort(port, _)
+                Action::OpenPort(port)
+                | Action::KillPort(port, _)
+                | Action::RestartPort(port, _, _)
                     if !port_alive(&self.model, port) =>
                 {
                     // The process is gone since the last scan: drop it instead of erroring.
@@ -1737,6 +1739,30 @@ mod win {
                         SW_SHOWNORMAL,
                     );
                 },
+                Action::RestartPort(port, pid, task_id) => {
+                    if self.model.kill_armed.is_some_and(|(p, _)| p == port) {
+                        self.model.kill_armed = None;
+                        let exe = self
+                            .model
+                            .ports
+                            .iter()
+                            .find(|p| p.port == port && p.pid == pid)
+                            .map(|p| p.exe.clone())
+                            .unwrap_or_default();
+                        match hytte_proto::ports::kill(pid, &exe) {
+                            // The same command, in its folder, in a new terminal.
+                            Ok(()) => self.rerun(&task_id),
+                            Err(e) => {
+                                let msg = format!("Could not restart :{port} - {e}");
+                                self.model.chip = Some(Chip::new(msg, Instant::now()));
+                            }
+                        }
+                        crate::ports::request_refresh();
+                    } else {
+                        self.model.kill_armed =
+                            Some((port, Instant::now() + crate::ui_state::KILL_CONFIRM));
+                    }
+                }
                 Action::KillPort(port, pid) => {
                     if self.model.kill_armed.is_some_and(|(p, _)| p == port) {
                         self.model.kill_armed = None;

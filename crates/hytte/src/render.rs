@@ -53,6 +53,9 @@ pub enum Action {
     OpenPort(u16),
     /// First click arms ("Kill?"), second confirms.
     KillPort(u16, u32),
+    /// (port, pid, task id): stop the server and run its terminal command again. First click
+    /// arms ("Restart?"), second confirms, like Stop.
+    RestartPort(u16, u32, String),
     ShelfTile(u64),
     /// Scroll the shelf row by this many tiles.
     ShelfScroll(i32),
@@ -3369,6 +3372,9 @@ impl Renderer {
         for p in m.ports.iter().take(5) {
             let cy = y + row / 2.0;
             let task = m.task_for_port(p);
+            // Restart only for a server a tracked terminal command started: that command is
+            // what runs again.
+            let restart = m.restart_task(p).map(|t| t.id.clone());
             // Click the row: the terminal that runs it (as a task row does).
             let row_hov = match task.and_then(|t| t.pid.map(|pid| (pid, t.id.clone()))) {
                 Some((pid, id)) => self.hit(
@@ -3412,12 +3418,23 @@ impl Renderer {
                 &self.f.small,
                 41.0,
                 y + 19.0,
-                w - 41.0 - 130.0,
+                w - 41.0 - 130.0 - if restart.is_some() { 68.0 } else { 0.0 },
                 14.0,
                 self.cc(GRAY, 1.0),
                 self.over(8.0, y + 1.0, w - 146.0, row - 2.0),
             );
             let armed = m.kill_armed.is_some_and(|(port, _)| port == p.port);
+            if let Some(id) = restart {
+                self.button(
+                    if armed { "Restart?" } else { "Restart" },
+                    w - 16.0 - 54.0 - 6.0 - 54.0 - 6.0 - 62.0,
+                    cy - 12.0,
+                    62.0,
+                    24.0,
+                    self.accent.get(),
+                    Action::RestartPort(p.port, p.pid, id),
+                );
+            }
             self.button(
                 "Open",
                 w - 16.0 - 54.0 - 6.0 - 54.0,

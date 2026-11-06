@@ -920,6 +920,12 @@ impl Model {
         })
     }
 
+    /// The terminal command a server can be restarted from: the one that started it, when it
+    /// is tracked and can be run again whole (not cut off, not an agent or download).
+    pub fn restart_task(&self, p: &PortInfo) -> Option<&TaskView> {
+        self.task_for_port(p).filter(|t| t.rerunnable())
+    }
+
     pub fn visible_count(&self) -> usize {
         self.tasks.iter().filter(|t| self.visible(t)).count()
     }
@@ -1499,6 +1505,32 @@ mod tests {
         assert!(!ask_click_ready(Some(t), t + Duration::from_millis(100)));
         assert!(ask_click_ready(Some(t), t + Duration::from_millis(400)));
         assert!(ask_click_ready(None, t));
+    }
+
+    #[test]
+    fn restart_is_offered_only_for_a_tracked_runnable_command() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let port = PortInfo {
+            port: 3000,
+            pid: 500,
+            exe: "node.exe".into(),
+        };
+        assert!(m.restart_task(&port).is_none(), "no tracked command");
+        let up = |id: &str, source: &str| match st(id, TaskEvent::Start, t0) {
+            TaskUpdate::Upsert(mut s) => {
+                s.source = source.into();
+                s.pid = Some(500);
+                s.cwd = Some("C:/x".into());
+                TaskUpdate::Upsert(s)
+            }
+            u => u,
+        };
+        m.apply_task(up("agent", "agent"), t0);
+        assert!(m.restart_task(&port).is_none(), "an agent can't be rerun");
+        m.tasks.clear();
+        m.apply_task(up("dev", "run"), t0);
+        assert_eq!(m.restart_task(&port).map(|t| t.id.as_str()), Some("dev"));
     }
 
     #[test]
