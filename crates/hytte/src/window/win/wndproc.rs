@@ -303,6 +303,7 @@ pub(super) unsafe extern "system" fn wndproc(
                     }
                 }
                 T_EXPIRE | T_TIMER => ui.after_model_change(hwnd),
+                T_CARET => ui.caret_tick(hwnd),
                 T_TRIM => {
                     if !ui.shared.animating.load(Ordering::SeqCst) {
                         // Drops cold pages (decoder and COM leftovers); they fault back in on use.
@@ -334,6 +335,8 @@ pub(super) unsafe extern "system" fn wndproc(
         0x0312 /* WM_HOTKEY */ => {
             if wparam.0 as i32 == MONITOR_HOTKEY_ID {
                 with_ui(|ui| ui.next_monitor());
+            } else if wparam.0 as i32 == NOTE_HOTKEY_ID {
+                with_ui(|ui| ui.toggle_note(hwnd));
             } else {
                 with_ui(|ui| ui.toggle_keyboard(hwnd));
             }
@@ -341,6 +344,10 @@ pub(super) unsafe extern "system" fn wndproc(
         }
         WM_KEYDOWN => {
             with_ui(|ui| ui.key(hwnd, wparam.0 as u16));
+            return LRESULT(0);
+        }
+        WM_CHAR => {
+            with_ui(|ui| ui.type_char(hwnd, wparam.0 as u16));
             return LRESULT(0);
         }
         WM_KILLFOCUS => {

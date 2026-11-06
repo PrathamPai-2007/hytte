@@ -186,6 +186,12 @@ impl Ui {
         {
             return;
         }
+        if self.hover
+            && matches!(self.model.panel(), Panel::Notes | Panel::Todo)
+            && self.model.scroll_jot(-steps.signum())
+        {
+            return;
+        }
         if self.model.timer_panel && self.model.timer.is_none() {
             self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
             return;

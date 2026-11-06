@@ -11,7 +11,7 @@ use crate::config::{Config, Val};
 use crate::gpu::Gpu;
 use crate::power::Mode;
 use crate::ui_state::{
-    Anim, Bubble, ChipAction, Model, Panel, Scene, TaskView, Tone, LOCK_W, TAB_H,
+    Anim, Bubble, ChipAction, Field, Model, Panel, Scene, TaskView, Tone, LOCK_W, TAB_H,
 };
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
@@ -32,6 +32,7 @@ use windows_numerics::{Matrix3x2, Vector2};
 mod cards;
 mod compact;
 mod home;
+mod jot;
 mod media;
 mod pill;
 mod prims;
@@ -124,6 +125,18 @@ pub enum Action {
     Set(&'static str, Val),
     /// Open `config.toml` for the settings the pane doesn't have.
     OpenConfig,
+    /// A text field: click to type in it.
+    Field(Field),
+    /// The Notes field's 24 h / Keep switch.
+    NoteKeep(bool),
+    /// Tick or untick a to-do.
+    ToggleJot(u64),
+    /// Edit an existing note or to-do in the field.
+    EditJot(u64),
+    /// Keep a temporary note for good.
+    KeepJot(u64),
+    DeleteJot(u64),
+    UndoJot,
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.
@@ -196,6 +209,8 @@ pub struct Frame<'a> {
     pub armed: bool,
     /// The timer alarm is sounding.
     pub ringing: bool,
+    /// The text caret is in its visible half of the blink.
+    pub caret_on: bool,
 }
 
 struct Fmts {
@@ -392,6 +407,9 @@ fn panel_glyph(p: Panel) -> char {
         Panel::Tasks => '\u{E756}',
         Panel::Timer => '\u{E916}',
         Panel::Power => '\u{E83F}',
+        Panel::Notes => '\u{E70B}',
+        Panel::Todo => '\u{E73A}',
+        Panel::Weather => '\u{E753}',
     }
 }
 

@@ -33,6 +33,16 @@ impl Ui {
         }
         self.model.set_idle(input_idle(), now);
         let mut next = self.model.expire(now);
+        // A field only keeps focus while its pane is the one showing.
+        if let Some(f) = self.model.typing {
+            if self.model.panel() != typing::field_panel(f) {
+                self.end_keyboard(false);
+            }
+        }
+        if self.model.jot_dirty {
+            self.model.jot_dirty = false;
+            self.model.jot.save(&crate::jot::path());
+        }
         if self.model.chip.is_none() && !self.asks.is_empty() {
             // The front ask timed out (its agent asked in the terminal): show the next one.
             self.show_ask(now);
@@ -163,6 +173,7 @@ impl Ui {
                 focus: self.kb.and(self.kb_focus),
                 armed: self.armed,
                 ringing: self.ringing,
+                caret_on: self.caret_on,
             };
             self.rend.draw(&fr, crop, &mut self.hits);
             let drawn = now.elapsed().as_micros() as u32;

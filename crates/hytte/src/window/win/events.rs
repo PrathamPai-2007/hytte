@@ -206,7 +206,8 @@ impl Ui {
     /// the tiles already there and only limits new ones.
     pub(super) fn apply_config(&mut self, new: Config) {
         let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey
-            || new.general.monitor_hotkey != self.cfg.general.monitor_hotkey;
+            || new.general.monitor_hotkey != self.cfg.general.monitor_hotkey
+            || new.general.note_hotkey != self.cfg.general.note_hotkey;
         if new.general.hide_from_capture != self.cfg.general.hide_from_capture {
             set_capture_hidden(
                 HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _),
@@ -243,6 +244,7 @@ impl Ui {
             self.model.pinned = false;
         }
         self.model.rounds = new.timer.rounds;
+        self.model.apply_panes(&new.panes);
         let monitor_changed = new.general.monitor != self.cfg.general.monitor
             || new.general.pill_scale != self.cfg.general.pill_scale;
         let general = new.general != self.cfg.general;

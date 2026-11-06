@@ -213,6 +213,9 @@ pub enum Panel {
     Timer,
     Power,
     Home,
+    Notes,
+    Todo,
+    Weather,
 }
 
 impl Panel {
@@ -224,6 +227,9 @@ impl Panel {
             Panel::Timer => "Timer",
             Panel::Power => "Power",
             Panel::Home => "Home",
+            Panel::Notes => "Notes",
+            Panel::Todo => "To-do",
+            Panel::Weather => "Weather",
         }
     }
 
@@ -235,6 +241,9 @@ impl Panel {
             Panel::Timer,
             Panel::Power,
             Panel::Home,
+            Panel::Notes,
+            Panel::Todo,
+            Panel::Weather,
         ]
         .into_iter()
         .find(|p| p.name() == s.trim())
@@ -249,6 +258,9 @@ impl Panel {
             Scene::ExpTimer => Panel::Timer,
             Scene::ExpPower => Panel::Power,
             Scene::ExpHome => Panel::Home,
+            Scene::ExpNotes => Panel::Notes,
+            Scene::ExpTodo => Panel::Todo,
+            Scene::ExpWeather => Panel::Weather,
             _ => return None,
         })
     }
@@ -355,6 +367,9 @@ pub enum Scene {
     ExpShelf,
     ExpHome,
     ExpPower,
+    ExpNotes,
+    ExpTodo,
+    ExpWeather,
     ExpDrop,
     ExpChip,
     ExpTimer,
@@ -493,7 +508,38 @@ pub struct Model {
     pub away: bool,
     /// The last input after an away spell; held rows count their hold time from here.
     pub back: Option<Instant>,
+    /// `[panes]`: which of Notes, To-do and Weather show in the tab strip.
+    pub panes: crate::config::Panes,
+    /// Notes and to-dos; `jot_dirty` asks the window layer to save them.
+    pub jot: crate::jot::Store,
+    pub jot_dirty: bool,
+    /// The text field that has keyboard focus, if any.
+    pub typing: Option<Field>,
+    pub note_edit: crate::textedit::TextEdit,
+    pub todo_edit: crate::textedit::TextEdit,
+    pub place_edit: crate::textedit::TextEdit,
+    /// The Notes field's switch: keep the note for good (false = 24 h).
+    pub note_keep: bool,
+    /// An existing note or to-do being edited in the field (instead of adding a new one).
+    pub jot_edit: Option<u64>,
+    /// The last removed item, and when: Undo puts it back until it expires.
+    pub jot_undo: Option<(crate::jot::Jot, Instant)>,
+    /// First list row in view in Notes / To-do when there are more than `JOT_ROWS`.
+    pub jot_first: usize,
 }
+
+/// A text field on the pill that can take keyboard focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Note,
+    Todo,
+    Place,
+}
+
+/// Rows of notes or to-dos shown before the list scrolls.
+pub const JOT_ROWS: usize = 4;
+/// How long Undo stays after a delete.
+pub const UNDO_HOLD: Duration = Duration::from_secs(6);
 
 /// The settings pane's groups, as its segmented header shows them.
 pub const SETTINGS_GROUPS: [&str; 3] = ["Look", "Behaviour", "Features"];
@@ -755,8 +801,25 @@ impl Model {
         {
             self.timer_done = None;
         }
+        let wall = crate::timer::now_ms();
+        if self.jot.expire(wall) {
+            self.jot_dirty = true;
+        }
+        if self
+            .jot_undo
+            .as_ref()
+            .is_some_and(|(_, t)| now.duration_since(*t) >= UNDO_HOLD)
+        {
+            self.jot_undo = None;
+        }
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
+        if let Some(d) = self.jot.next_deadline() {
+            keep(now + Duration::from_millis(d.saturating_sub(wall)));
+        }
+        if let Some((_, t)) = &self.jot_undo {
+            keep(*t + UNDO_HOLD);
+        }
         for t in &self.tasks {
             match t.event {
                 TaskEvent::Done | TaskEvent::Lost if away => keep(now + AWAY_POLL),
@@ -797,6 +860,136 @@ impl Model {
             keep(t);
         }
         next
+    }
+
+    /// Apply `[panes]`; a hidden pane that was selected falls back to Home (via `panel()`).
+    pub fn apply_panes(&mut self, p: &crate::config::Panes) {
+        self.panes = p.clone();
+        if self.typing.is_some() && !self.panels().contains(&self.panel()) {
+            self.typing = None;
+        }
+    }
+
+    /// Load the saved notes and give the text fields their limits.
+    pub fn init_jot(&mut self, path: &std::path::Path) {
+        self.jot = crate::jot::Store::load(path, crate::timer::now_ms());
+        self.note_edit = crate::textedit::TextEdit::new(crate::jot::MAX_CHARS);
+        self.todo_edit = crate::textedit::TextEdit::new(crate::jot::MAX_CHARS);
+        self.place_edit = crate::textedit::TextEdit::new(80);
+        self.note_keep = false;
+    }
+
+    pub fn edit_mut(&mut self, f: Field) -> &mut crate::textedit::TextEdit {
+        match f {
+            Field::Note => &mut self.note_edit,
+            Field::Todo => &mut self.todo_edit,
+            Field::Place => &mut self.place_edit,
+        }
+    }
+
+    pub fn edit_ref(&self, f: Field) -> &crate::textedit::TextEdit {
+        match f {
+            Field::Note => &self.note_edit,
+            Field::Todo => &self.todo_edit,
+            Field::Place => &self.place_edit,
+        }
+    }
+
+    /// Enter in a Notes or To-do field: add the item, or save the edit of an existing one.
+    /// Returns true when something was stored. The field clears when it was.
+    pub fn submit_jot(&mut self, f: Field) -> bool {
+        use crate::jot::Kind;
+        let kind = match f {
+            Field::Note => Kind::Note,
+            Field::Todo => Kind::Todo,
+            Field::Place => return false,
+        };
+        let text = self.edit_ref(f).text().to_string();
+        let now = crate::timer::now_ms();
+        let ok = match self.jot_edit {
+            Some(id) if !text.trim().is_empty() => {
+                self.jot.edit(id, &text);
+                self.jot_edit = None;
+                true
+            }
+            Some(_) => false,
+            None => self.jot.add(kind, &text, self.note_keep, now).is_some(),
+        };
+        if ok {
+            self.edit_mut(f).clear();
+            self.jot_first = 0;
+            self.jot_dirty = true;
+        }
+        ok
+    }
+
+    /// Delete an item, keeping it for Undo.
+    pub fn delete_jot(&mut self, id: u64, now: Instant) {
+        if let Some(j) = self.jot.remove(id) {
+            self.jot_undo = Some((j, now));
+            self.jot_dirty = true;
+            if self.jot_edit == Some(id) {
+                self.jot_edit = None;
+            }
+        }
+    }
+
+    pub fn undo_jot(&mut self) {
+        if let Some((j, _)) = self.jot_undo.take() {
+            self.jot.restore(j);
+            self.jot_dirty = true;
+        }
+    }
+
+    /// Start editing an existing item in its pane's field.
+    pub fn begin_edit(&mut self, id: u64) {
+        let Some(j) = self.jot.get(id) else { return };
+        let (f, text) = match j.kind {
+            crate::jot::Kind::Note => (Field::Note, j.text.clone()),
+            crate::jot::Kind::Todo => (Field::Todo, j.text.clone()),
+        };
+        self.jot_edit = Some(id);
+        self.edit_mut(f).set(&text);
+        self.typing = Some(f);
+    }
+
+    /// Typing ended (Esc, clicked away): a half-made edit of an existing item is dropped, a
+    /// draft for a new one stays.
+    pub fn end_typing(&mut self) {
+        if self.jot_edit.take().is_some() {
+            if let Some(f) = self.typing {
+                self.edit_mut(f).clear();
+            }
+        }
+        self.typing = None;
+    }
+
+    /// The items of Notes or To-do as they list (top to bottom).
+    pub fn jot_list(&self, scene: Scene) -> Vec<&crate::jot::Jot> {
+        if scene == Scene::ExpTodo {
+            self.jot.todos()
+        } else {
+            self.jot.notes()
+        }
+    }
+
+    /// Rows in view: (first, count), with the scroll clamped.
+    pub fn jot_window(&self, scene: Scene) -> (usize, usize) {
+        let n = self.jot_list(scene).len();
+        let first = self.jot_first.min(n.saturating_sub(JOT_ROWS));
+        (first, (n - first).min(JOT_ROWS))
+    }
+
+    /// Height of the Notes / To-do pane without the tab strip: field, rows (one line of
+    /// invitation when empty) and a little room below.
+    pub fn jot_h(&self, scene: Scene) -> f64 {
+        let (_, shown) = self.jot_window(scene);
+        let undo = self
+            .jot_undo
+            .as_ref()
+            .is_some_and(|(j, _)| (j.kind == crate::jot::Kind::Todo) == (scene == Scene::ExpTodo));
+        let rows = (shown + undo as usize).max(1);
+        12.0 + 34.0 + 8.0 + rows as f64 * 30.0 + 8.0
     }
 
     /// Move a due timer to the finished card. Returns its kind when it just fired.
@@ -910,6 +1103,21 @@ impl Model {
         next != first
     }
 
+    /// Scroll the Notes or To-do list by `by` rows; false when it didn't move (at an end, or
+    /// nothing to scroll), so the wheel pages instead.
+    pub fn scroll_jot(&mut self, by: i32) -> bool {
+        let scene = if self.panel() == Panel::Todo {
+            Scene::ExpTodo
+        } else {
+            Scene::ExpNotes
+        };
+        let max = self.jot_list(scene).len().saturating_sub(JOT_ROWS) as i32;
+        let first = self.jot_first.min(max as usize) as i32;
+        let next = (first + by).clamp(0, max);
+        self.jot_first = next as usize;
+        next != first
+    }
+
     /// The task whose process started this server (it, or one of its ancestors, is the task's).
     pub fn task_for_port(&self, p: &PortInfo) -> Option<&TaskView> {
         let chain = self.port_parents.get(&p.pid);
@@ -1003,6 +1211,15 @@ impl Model {
         }
         // Quick controls (mic, sound, keep awake, timer) are always there.
         v.push(Panel::Home);
+        if self.panes.notes {
+            v.push(Panel::Notes);
+        }
+        if self.panes.todo {
+            v.push(Panel::Todo);
+        }
+        if self.panes.weather {
+            v.push(Panel::Weather);
+        }
         // Terminal tasks and the dev servers they run share one pane.
         if self.visible_count() > 0 || !self.ports.is_empty() {
             v.push(Panel::Tasks);
@@ -1083,6 +1300,9 @@ impl Model {
                 Panel::Timer => Scene::ExpTimer,
                 Panel::Power => Scene::ExpPower,
                 Panel::Home => Scene::ExpHome,
+                Panel::Notes => Scene::ExpNotes,
+                Panel::Todo => Scene::ExpTodo,
+                Panel::Weather => Scene::ExpWeather,
             };
         }
         if self
@@ -1120,6 +1340,8 @@ impl Model {
             Scene::ExpMedia => (380.0, 132.0 + tab),
             Scene::ExpHome => (380.0, 136.0 + tab + self.apps_h()),
             Scene::ExpPower => (380.0, 112.0 + tab),
+            Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
+            Scene::ExpWeather => (380.0, 150.0 + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
             Scene::ExpChip => (380.0, 96.0),
@@ -1191,9 +1413,13 @@ impl Model {
                 _ => ([1.0; 3], 0.10),
             },
             Scene::ExpTasks if self.visible_count() == 0 => ([1.0; 3], 0.10),
-            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpSettings => {
-                ([1.0; 3], 0.10)
-            }
+            Scene::CompactMedia
+            | Scene::ExpMedia
+            | Scene::ExpHome
+            | Scene::ExpSettings
+            | Scene::ExpNotes
+            | Scene::ExpTodo
+            | Scene::ExpWeather => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
                 Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),
@@ -1945,10 +2171,126 @@ bang"
         );
     }
 
+    /// A model showing only the panes that exist without Notes, To-do and Weather.
+    fn no_extra_panes() -> Model {
+        let mut m = Model::default();
+        m.panes = crate::config::Panes {
+            notes: false,
+            todo: false,
+            weather: false,
+        };
+        m
+    }
+
+    #[test]
+    fn notes_todo_and_weather_follow_home_and_can_be_switched_off() {
+        let mut m = Model::default();
+        assert_eq!(
+            m.panels(),
+            vec![Panel::Home, Panel::Notes, Panel::Todo, Panel::Weather]
+        );
+        assert!(m.tabs(), "the strip shows even with nothing else going on");
+        m.panes.todo = false;
+        m.selected = Some(Panel::Todo);
+        assert_eq!(m.panel(), Panel::Home, "a hidden pane can't stay selected");
+        assert_eq!(Panel::from_name("To-do"), Some(Panel::Todo));
+        assert_eq!(Panel::of(Scene::ExpWeather), Some(Panel::Weather));
+        // Scenes follow the panel, and the typing panes grow with their rows.
+        m.selected = Some(Panel::Notes);
+        assert_eq!(m.scene(true, false), Scene::ExpNotes);
+        let empty = m.size(Scene::ExpNotes).1;
+        let now = crate::timer::now_ms();
+        for i in 0..3 {
+            m.jot
+                .add(crate::jot::Kind::Note, &format!("n{i}"), true, now);
+        }
+        assert_eq!(m.size(Scene::ExpNotes).1, empty + 60.0);
+        for i in 3..9 {
+            m.jot
+                .add(crate::jot::Kind::Note, &format!("n{i}"), true, now);
+        }
+        assert_eq!(
+            m.size(Scene::ExpNotes).1,
+            empty + 90.0,
+            "no taller than four rows"
+        );
+    }
+
+    #[test]
+    fn notes_are_added_edited_deleted_and_undone() {
+        let mut m = Model::default();
+        m.note_edit.set("  buy milk ");
+        assert!(m.submit_jot(Field::Note));
+        assert!(m.note_edit.is_empty(), "the field clears");
+        assert!(m.jot_dirty);
+        assert_eq!(m.jot.notes()[0].text, "buy milk");
+        assert!(!m.submit_jot(Field::Note), "nothing to add");
+        let id = m.jot.notes()[0].id;
+        m.begin_edit(id);
+        assert_eq!(m.typing, Some(Field::Note));
+        assert_eq!(m.note_edit.text(), "buy milk");
+        m.note_edit.set("buy oat milk");
+        assert!(m.submit_jot(Field::Note));
+        assert_eq!(m.jot.notes()[0].text, "buy oat milk");
+        assert_eq!(m.jot.items.len(), 1, "an edit doesn't add");
+        // Esc on an edit drops it and leaves the field empty.
+        m.begin_edit(id);
+        m.end_typing();
+        assert!(m.note_edit.is_empty() && m.typing.is_none() && m.jot_edit.is_none());
+        let t0 = Instant::now();
+        m.delete_jot(id, t0);
+        assert!(m.jot.items.is_empty());
+        assert!(m.jot_undo.is_some());
+        m.undo_jot();
+        assert_eq!(m.jot.items.len(), 1);
+        // Undo goes after a few seconds, with its own deadline in `expire`.
+        m.delete_jot(id, t0);
+        let next = m.expire(t0 + Duration::from_secs(1));
+        assert_eq!(next, Some(t0 + UNDO_HOLD));
+        m.expire(t0 + UNDO_HOLD);
+        assert!(m.jot_undo.is_none());
+    }
+
+    #[test]
+    fn a_draft_survives_leaving_the_field_and_wheel_scrolls_only_long_lists() {
+        let mut m = Model::default();
+        m.note_edit.set("half a thought");
+        m.typing = Some(Field::Note);
+        m.end_typing();
+        assert_eq!(m.note_edit.text(), "half a thought", "the draft stays");
+        m.selected = Some(Panel::Notes);
+        let now = crate::timer::now_ms();
+        for i in 0..4 {
+            m.jot
+                .add(crate::jot::Kind::Note, &format!("n{i}"), true, now + i);
+        }
+        assert!(!m.scroll_jot(1), "four rows fit: the wheel pages instead");
+        m.jot.add(crate::jot::Kind::Note, "n4", true, now + 4);
+        assert!(m.scroll_jot(1));
+        assert!(!m.scroll_jot(1), "at the end it pages again");
+        assert_eq!(m.jot_window(Scene::ExpNotes), (1, 4));
+    }
+
+    #[test]
+    fn temporary_notes_set_the_next_deadline() {
+        let mut m = Model::default();
+        let t0 = Instant::now();
+        assert_eq!(m.expire(t0), None);
+        m.jot.add(
+            crate::jot::Kind::Note,
+            "soon",
+            false,
+            crate::timer::now_ms(),
+        );
+        let next = m.expire(t0).expect("a deadline for the 24 h note");
+        let secs = next.duration_since(t0).as_secs();
+        assert!((86_395..=86_400).contains(&secs), "{secs}");
+    }
+
     #[test]
     fn panels_and_selection() {
         // (a running timer adds its own pane)
-        let mut m = Model::default();
+        let mut m = no_extra_panes();
         assert_eq!(m.panels(), vec![Panel::Home]);
         assert!(!m.tabs());
         m.ports = vec![PortInfo {
@@ -1990,7 +2332,7 @@ bang"
 
     #[test]
     fn wheel_steps_and_wraps() {
-        let mut m = Model::default();
+        let mut m = no_extra_panes();
         m.ports = vec![PortInfo {
             port: 3000,
             pid: 9,

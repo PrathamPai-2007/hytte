@@ -181,6 +181,9 @@ pub fn help(key: &str) -> &'static str {
         "general.hide_from_capture" => "Keeps the pill out of screenshots, screen shares and recordings.",
         "general.add_to_path" => "Lets you run the hytte command from any terminal.",
         "general.check_updates" => "Checks GitHub for a new Hytte release and offers to install it.",
+        "panes.notes" => "Shows the Notes pane in the tab strip.",
+        "panes.todo" => "Shows the To-do pane in the tab strip.",
+        "panes.weather" => "Shows the Weather pane in the tab strip.",
         "timer.sound" => "Plays a short chime when a timer or focus round ends.",
         "timer.break_min" => "Length of the short break between focus rounds, in minutes.",
         "timer.long_break_min" => "Length of the longer break after several focus rounds, in minutes.",
@@ -460,6 +463,14 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     ),
                     2,
                 ),
+            ],
+        },
+        Section {
+            name: "Panes",
+            rows: vec![
+                (sw("Notes", "panes.notes", c.panes.notes), -1),
+                (sw("To-do", "panes.todo", c.panes.todo), -1),
+                (sw("Weather", "panes.weather", c.panes.weather), -1),
             ],
         },
         Section {

@@ -384,21 +384,12 @@ pub struct Media {
 }
 
 /// Break reminders: each kind has its own interval in minutes (0 = off).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Breaks {
     pub eyes_min: u32,
     pub stretch_min: u32,
     pub water_min: u32,
-}
-impl Default for Breaks {
-    fn default() -> Self {
-        Self {
-            eyes_min: 0,
-            stretch_min: 0,
-            water_min: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

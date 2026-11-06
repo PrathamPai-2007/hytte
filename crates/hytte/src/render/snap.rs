@@ -126,6 +126,7 @@ fn shoot_at(
         focus: None,
         armed: false,
         ringing: true,
+        caret_on: true,
     };
     let crop = r.plan(an.rect.w.pos as f32, an.rect.h.pos as f32, false, 0.0, true);
     let mut hits = vec![];
@@ -689,5 +690,149 @@ fn snapshots() {
     });
     m.charge_in = true;
     shoot(&mut r, &dir, "charge", &m, Scene::ExpCharge, false);
+    contact_sheet(&dir);
+}
+
+/// Notes and To-do: empty, full, editing, long text, undo, both themes. A mock "now" keeps the
+/// ring and time-left text stable.
+#[test]
+#[ignore]
+fn jot_snapshots() {
+    use crate::jot::Kind;
+    use crate::ui_state::Field;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    let mut m = model();
+    m.now = Some(Instant::now());
+    m.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+    m.panes = Config::default().panes;
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m2 = model();
+        m2.now = m.now;
+        m2.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+        m2.panes = Config::default().panes;
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-empty{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("todo-empty{sfx}"),
+            &m2,
+            Scene::ExpTodo,
+            light,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "Wi-Fi code at the studio: 4471",
+            false,
+            wall - 7 * 3_600_000,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "Call the dentist back after two",
+            false,
+            wall - 18 * 3_600_000,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "Passport renewal needs two photos and the old passport",
+            true,
+            wall,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "A much longer note that cannot possibly fit on one line of the pill and so gets trimmed",
+            true,
+            wall - 1000,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-full{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        m2.note_edit.set("Ask Mina about the invoice");
+        m2.typing = Some(Field::Note);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-typing{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        m2.note_edit.set("A very long draft that runs well past the end of the field so that it scrolls sideways");
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-scrolled{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        m2.note_edit.clear();
+        m2.typing = None;
+        m2.note_keep = true;
+        let at = Some((130.0, 72.0));
+        shoot_at(
+            &mut r,
+            &dir,
+            &format!("notes-hover{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+            at,
+        );
+        let id = m2.jot.notes()[0].id;
+        m2.delete_jot(id, Instant::now());
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-undo{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        for t in [
+            "Send the April invoice",
+            "Book the car service",
+            "Reply to the landlord",
+            "Renew the domain",
+        ] {
+            m2.jot.add(Kind::Todo, t, false, wall);
+        }
+        let done = m2.jot.todos()[2].id;
+        m2.jot.toggle(done, wall);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("todo-full{sfx}"),
+            &m2,
+            Scene::ExpTodo,
+            light,
+        );
+        for t in ["Water the plants", "Pay the council tax"] {
+            m2.jot.add(Kind::Todo, t, false, wall);
+        }
+        shoot(
+            &mut r,
+            &dir,
+            &format!("todo-six{sfx}"),
+            &m2,
+            Scene::ExpTodo,
+            light,
+        );
+    }
     contact_sheet(&dir);
 }

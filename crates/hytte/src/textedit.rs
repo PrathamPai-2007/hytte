@@ -33,6 +33,7 @@ impl TextEdit {
         }
     }
 
+    #[cfg(test)]
     pub fn with_text(text: &str, limit: usize) -> Self {
         let mut t = Self::new(limit);
         t.insert(text);
@@ -231,7 +232,11 @@ impl TextEdit {
         };
         let mut add = String::new();
         for c in s.chars() {
-            let c = if matches!(c, '\n' | '\r' | '\t') { ' ' } else { c };
+            let c = if matches!(c, '\n' | '\r' | '\t') {
+                ' '
+            } else {
+                c
+            };
             if c.is_control() {
                 continue;
             }

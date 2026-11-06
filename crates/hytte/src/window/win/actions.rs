@@ -33,6 +33,24 @@ impl Ui {
                 }
             }
             Action::SelectPanel(p) => self.select_panel(p),
+            Action::Field(f) => self.click_field(hwnd, f),
+            Action::NoteKeep(k) => self.model.note_keep = k,
+            Action::ToggleJot(id) => {
+                self.model.jot.toggle(id, crate::timer::now_ms());
+                self.model.jot_dirty = true;
+            }
+            Action::EditJot(id) => {
+                self.model.begin_edit(id);
+                if let Some(f) = self.model.typing {
+                    self.begin_typing(hwnd, f);
+                }
+            }
+            Action::KeepJot(id) => {
+                self.model.jot.keep(id);
+                self.model.jot_dirty = true;
+            }
+            Action::DeleteJot(id) => self.model.delete_jot(id, Instant::now()),
+            Action::UndoJot => self.model.undo_jot(),
             Action::ToggleMic => self.toggle_mic(),
             Action::ToggleSpeaker => {
                 if let Some(s) = crate::mic::toggle_speaker() {

@@ -172,11 +172,7 @@ impl Store {
     /// Tick or untick a to-do.
     pub fn toggle(&mut self, id: u64, now: u64) {
         if let Some(j) = self.get_mut(id).filter(|j| j.kind == Kind::Todo) {
-            j.done_ms = if j.done_ms.is_some() {
-                None
-            } else {
-                Some(now)
-            };
+            j.done_ms = if j.done_ms.is_some() { None } else { Some(now) };
         }
     }
 
