@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 
 pub const SUCCESS_HOLD: Duration = Duration::from_secs(3);
 pub const LOST_HOLD: Duration = Duration::from_secs(5);
+/// A running download whose file hasn't changed for this long is dropped from the list (its
+/// browser crashed or it was abandoned); it comes back if the file starts changing again.
+pub const DOWNLOAD_STALE: Duration = Duration::from_secs(5 * 60);
 /// No keyboard or mouse input for this long: the user is away, finished rows wait for them.
 pub const AWAY_AFTER: Duration = Duration::from_secs(60);
 /// While away with a finished row held, check this often whether the user is back.
@@ -703,6 +706,9 @@ impl Model {
         self.tasks.retain(|t| match t.event {
             TaskEvent::Done => away || now.duration_since(from(t.changed)) < SUCCESS_HOLD,
             TaskEvent::Lost => away || now.duration_since(from(t.changed)) < LOST_HOLD,
+            _ if t.source == "download" && t.running() => {
+                now.duration_since(t.changed) < DOWNLOAD_STALE
+            }
             _ => true, // running, waiting and failed persist
         });
         if self
@@ -743,6 +749,7 @@ impl Model {
                 TaskEvent::Done | TaskEvent::Lost if away => keep(now + AWAY_POLL),
                 TaskEvent::Done => keep(from(t.changed) + SUCCESS_HOLD),
                 TaskEvent::Lost => keep(from(t.changed) + LOST_HOLD),
+                _ if t.source == "download" && t.running() => keep(t.changed + DOWNLOAD_STALE),
                 _ => {}
             }
             if t.visible_after > now {
@@ -1624,6 +1631,32 @@ bang"
         assert_eq!(m.tasks.len(), 1);
         m.expire(t2 + SUCCESS_HOLD);
         assert!(m.tasks.is_empty());
+    }
+
+    #[test]
+    fn a_stalled_download_expires_and_a_live_one_does_not() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let dl = |id: &str, at| match st(id, TaskEvent::Start, at) {
+            TaskUpdate::Upsert(mut s) => {
+                s.source = "download".into();
+                TaskUpdate::Upsert(s)
+            }
+            u => u,
+        };
+        m.apply_task(dl("stalled", t0), t0);
+        m.apply_task(dl("live", t0), t0);
+        let late = t0 + DOWNLOAD_STALE - Duration::from_secs(1);
+        m.apply_task(dl("live", late), late); // its file grew
+        m.expire(late);
+        assert_eq!(m.tasks.len(), 2, "nothing is stale yet");
+        let later = t0 + DOWNLOAD_STALE + Duration::from_secs(1);
+        m.expire(later);
+        assert_eq!(m.tasks.len(), 1);
+        assert_eq!(m.tasks[0].id, "live");
+        // The stalled one starts changing again: it is back.
+        m.apply_task(dl("stalled", later), later);
+        assert_eq!(m.tasks.len(), 2);
     }
 
     #[test]
