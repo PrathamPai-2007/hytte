@@ -3061,7 +3061,7 @@ impl Renderer {
         let (lc, le) = self.label_ends(w, t);
         let (lb, saved) = self.hero(lc, le, [38.0, h / 2.0 - 10.0, right - rw - 46.0, 17.0]);
         self.text(
-            &t.label,
+            &crate::secrets::mask(&t.label),
             &self.f.title,
             lb[0],
             lb[1],
@@ -3233,7 +3233,7 @@ impl Renderer {
             };
             let hov = saved.is_none() && self.over(8.0, y + 2.0, w - 16.0, 32.0);
             self.label(
-                &t.label,
+                &crate::secrets::mask(&t.label),
                 &self.f.title,
                 lb[0],
                 lb[1],
@@ -3273,7 +3273,7 @@ impl Renderer {
             }
             if let Some(msg) = &t.attention {
                 self.label(
-                    msg,
+                    &crate::secrets::mask(msg),
                     &self.f.small,
                     42.0,
                     y + 26.0,
@@ -3286,7 +3286,7 @@ impl Renderer {
             }
             if let (true, Some(line)) = (t.shows_line() && t.attention.is_none(), t.line.as_ref()) {
                 self.label(
-                    line,
+                    &crate::secrets::mask(line),
                     &self.f.mono,
                     42.0,
                     y + 26.0,
@@ -3308,7 +3308,7 @@ impl Renderer {
                     self.fill_rr(14.0, y, w - 28.0, bh, 8.0, self.cc(self.fg(), 0.055));
                     for (i, l) in t.stderr.iter().rev().take(lines).rev().enumerate() {
                         self.text(
-                            l,
+                            &crate::secrets::mask(l),
                             &self.f.mono,
                             22.0,
                             y + 4.0 + i as f32 * 15.0,
@@ -3404,7 +3404,7 @@ impl Renderer {
             );
             let exe = p.exe.trim_end_matches(".exe");
             let sub = match task {
-                Some(t) => format!("{exe}  ·  {}", t.label),
+                Some(t) => format!("{exe}  ·  {}", crate::secrets::mask(&t.label)),
                 None => exe.to_string(),
             };
             self.label(
@@ -4637,7 +4637,7 @@ impl Renderer {
             }
         }
         self.text(
-            &c.summary,
+            &crate::secrets::mask(&c.summary),
             &self.f.wrap,
             46.0,
             10.0,

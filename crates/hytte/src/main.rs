@@ -35,6 +35,7 @@ mod proc;
 #[cfg(windows)]
 mod render;
 mod rerun;
+mod secrets;
 #[cfg(windows)]
 mod settings_win;
 mod setup;
