@@ -124,6 +124,7 @@ impl Tray {
             }
             let _ = AppendMenuW(menu, MF_STRING, 11, w!("Open settings folder"));
             let _ = AppendMenuW(menu, MF_STRING, 15, w!("Check for updates…"));
+            let _ = AppendMenuW(menu, MF_STRING, 18, w!("Help"));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
             let _ = AppendMenuW(menu, MF_STRING, 12, w!("Quit"));
             let mut pt = windows::Win32::Foundation::POINT::default();

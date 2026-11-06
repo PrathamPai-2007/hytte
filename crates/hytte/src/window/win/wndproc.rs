@@ -418,6 +418,7 @@ pub(super) unsafe extern "system" fn wndproc(
                 14 => crate::setup::tray_setup(),
                 16 => crate::agents::tray(),
                 15 => crate::update::check_now(),
+                18 => open_url("https://github.com/PrathamPai-2007/hytte/blob/main/manual/README.md"),
                 17 => {
                     with_ui(|ui| ui.next_monitor());
                 }

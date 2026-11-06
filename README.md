@@ -10,6 +10,8 @@ Hytte puts a small pill at the top-centre of your screen. It stays quiet until s
 
 It never steals focus, idles at almost no CPU, and uses under 20 MB of RAM. It is one small program, `hytte.exe`, which is both the pill and the `hytte` command in your terminal.
 
+**New here? Read the [manual](manual/README.md).**
+
 <p align="center">
   <img src="docs/img/task.png" alt="The pill showing two running tasks" width="420"><br>
   <img src="docs/img/tasks-open.png" alt="The task list opened up" width="420">
@@ -101,7 +103,7 @@ Click a task to jump to its terminal (the right Windows Terminal tab too). Click
 
 <img src="docs/img/tray.png" alt="The tray menu" width="260" align="right">
 
-Click it for: **Pause**, **Launch at startup**, **Set up terminal integration**, **Connect AI agents** (choose either again to remove), **Move to next monitor**, **Open settings folder**, **Check for updates…** and **Quit**.
+Click it for: **Pause**, **Launch at startup**, **Set up terminal integration**, **Connect AI agents** (choose either again to remove), **Move to next monitor**, **Open settings folder**, **Check for updates…**, **Help** and **Quit**.
 
 <br clear="right">
 

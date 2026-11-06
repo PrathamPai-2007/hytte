@@ -4,6 +4,10 @@ What changed in each version, newest first. Each version ends with a short note 
 
 ## Unreleased
 
+- **A user manual**, in [`manual/`](../manual/README.md). The tray's new **Help** item opens it.
+
+## 1.6.1
+
 - **Updater no longer verifies a signature.** It still uses HTTPS and checks the download reports the expected version ([section 15](15-updates.md#signing)). Releases still carry `hytte.exe.minisig` so 1.6.0 installs can update to this version.
 
 ## 1.6.0

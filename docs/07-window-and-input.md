@@ -69,7 +69,7 @@ Key methods: `layout()` (scene from the model; sets every spring target); `kick(
 | `WM_DISPLAYCHANGE`, `WM_DPICHANGED` | `refresh_monitor`, re-evaluate fullscreen. |
 | `WM_SETTINGCHANGE` | Re-reads "Animation effects" (`reduce_motion`), theme and accent. |
 | `WM_TRAY` (custom) | Tray click: shows the menu. |
-| `WM_COMMAND` | Tray items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, on its own thread, reports in a message box), 15 Check for updates (`update::check_now`), 16 Connect AI agents (`agents::tray`, likewise), 17 Move to next monitor (`Ui::next_monitor`, listed with two or more monitors). |
+| `WM_COMMAND` | Tray items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, on its own thread, reports in a message box), 15 Check for updates (`update::check_now`), 16 Connect AI agents (`agents::tray`, likewise), 17 Move to next monitor (`Ui::next_monitor`, listed with two or more monitors), 18 Help (opens the manual on GitHub). |
 | `TaskbarCreated` | Explorer restarted: re-add the tray icon, post `WM_FG`. |
 | `WM_POWERBROADCAST` | Wakes the power worker (`power::poke`); on resume also posts `WM_FG`. |
 | `WM_DESTROY` | Ends the message loop (unless torn down during startup). |

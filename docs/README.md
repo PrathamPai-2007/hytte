@@ -1,6 +1,6 @@
 # Hytte developer documentation
 
-This folder explains how Hytte works on the inside. It is written for people who want to change the code. If you only want to *use* Hytte, the [main README](../README.md) is all you need.
+This folder explains how Hytte works on the inside. It is written for people who want to change the code. If you only want to *use* Hytte, read the [manual](../manual/README.md).
 
 Read the sections in order the first time: each one builds on the previous ones. After that, jump straight to the section for the part you are changing.
 
