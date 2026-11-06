@@ -554,6 +554,21 @@ pub fn migrate_profiles() -> Vec<String> {
         .collect()
 }
 
+/// For `hytte doctor`: each detected shell, whether its profile has the hook, and the file.
+#[cfg(windows)]
+pub fn shell_status() -> Vec<(&'static str, bool, PathBuf)> {
+    profiles()
+        .iter()
+        .map(|p| (p.shell, has_block(p), p.path.clone()))
+        .collect()
+}
+
+/// For `hytte doctor`: Windows PowerShell's policy, when it stops profiles from loading.
+#[cfg(windows)]
+pub fn ps51_blocked() -> Option<String> {
+    blocked_by_policy().then(sys::ps51_policy)
+}
+
 /// Whether any shell profile already has the Hytte block.
 #[cfg(windows)]
 fn any_set_up() -> bool {

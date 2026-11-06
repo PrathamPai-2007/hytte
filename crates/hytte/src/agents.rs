@@ -335,6 +335,35 @@ pub fn connect(undo: bool) -> Vec<String> {
     out
 }
 
+/// How an installed agent's config stands, for `hytte doctor`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum State {
+    Connected,
+    NotConnected,
+    /// Our hooks are there, but every one points at a hytte.exe that no longer exists.
+    Stale,
+}
+
+/// Each installed agent and its state.
+pub fn status() -> Vec<(&'static str, State)> {
+    targets()
+        .iter()
+        .map(|t| {
+            let exes = std::fs::read_to_string(&t.path)
+                .map(|s| our_exes(&s))
+                .unwrap_or_default();
+            let state = if exes.is_empty() {
+                State::NotConnected
+            } else if exes.iter().all(|e| !Path::new(e).is_file()) {
+                State::Stale
+            } else {
+                State::Connected
+            };
+            (t.name, state)
+        })
+        .collect()
+}
+
 /// Whether any agent is connected.
 pub fn is_connected() -> bool {
     targets()

@@ -3,6 +3,7 @@
 //! `hytte run -- <cmd...>` still runs the command even if the daemon is absent.
 
 mod agent;
+mod doctor;
 mod hook;
 mod portscmd;
 mod progress;
@@ -28,6 +29,7 @@ usage:
   hytte init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s
   hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
   hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
+  hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
   hytte kill :PORT [--force]             # stop whatever listens on PORT
   hytte --version | help";
@@ -462,6 +464,7 @@ pub fn run(args: &[String]) {
         "ports" => portscmd::list(&args[1..]),
         "kill" => portscmd::kill_cmd(&args[1..]),
         "setup" => cmd_setup(&args[1..]),
+        "doctor" => doctor::run(),
         #[cfg(debug_assertions)]
         "__update" => crate::update::debug_install(),
         _ => usage(),
