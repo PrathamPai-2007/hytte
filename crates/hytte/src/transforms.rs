@@ -17,6 +17,8 @@ pub enum Conv {
     /// Decode a text snippet that is a JWT, a Unix time, URL- or base64-encoded, or a hex
     /// colour (see [`decode`]).
     Decode,
+    /// Turn a text snippet (a link, a Wi-Fi code, a note) into a QR code image to scan.
+    Qr,
     /// The per-type default (prettify JSON, copy text, reveal path...).
     Auto,
 }
@@ -45,8 +47,12 @@ pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
         ],
         "json" | "yaml" | "yml" => vec![("Format", Conv::Auto)],
         "txt" => match decode_label(path) {
-            Some(l) => vec![(l, Conv::Decode), ("Copy text", Conv::Auto)],
-            None => vec![("Copy text", Conv::Auto)],
+            Some(l) => vec![
+                (l, Conv::Decode),
+                ("Copy text", Conv::Auto),
+                ("QR code", Conv::Qr),
+            ],
+            None => vec![("Copy text", Conv::Auto), ("QR code", Conv::Qr)],
         },
         "md" => vec![("Copy text", Conv::Auto)],
         _ => vec![("Copy path", Conv::Auto)],
@@ -95,8 +101,57 @@ pub fn run(op: Conv, src: &Path) -> Outcome {
             },
             None => Outcome::msg("Nothing to decode"),
         },
+        Conv::Qr => match std::fs::read_to_string(src) {
+            Ok(text) => match qr_png(text.trim()) {
+                Ok(img) => {
+                    let out = place(src, ".qr", "png");
+                    match img.save(&out) {
+                        Ok(()) => Outcome {
+                            summary: "QR code ready; scan it from the screen".into(),
+                            open: Some(out),
+                            copy: None,
+                        },
+                        Err(e) => Outcome::msg(format!("Write failed: {e}")),
+                    }
+                }
+                Err(e) => Outcome::msg(e),
+            },
+            Err(e) => Outcome::msg(format!("Can't read the text: {e}")),
+        },
         Conv::Auto => transform_file(src),
     }
+}
+
+/// A QR code for `text` as a black-on-white image: 8 px per module with the 4-module quiet
+/// zone scanners need.
+pub fn qr_png(text: &str) -> Result<image::GrayImage, String> {
+    use qrcodegen::{QrCode, QrCodeEcc};
+    if text.is_empty() {
+        return Err("Nothing to encode".into());
+    }
+    let qr = QrCode::encode_text(text, QrCodeEcc::Medium)
+        .map_err(|_| "Too long for a QR code (about 2,300 characters at most)".to_string())?;
+    const SCALE: u32 = 8;
+    const QUIET: u32 = 4;
+    let n = qr.size() as u32;
+    let side = (n + 2 * QUIET) * SCALE;
+    let mut img = image::GrayImage::from_pixel(side, side, image::Luma([255]));
+    for y in 0..n {
+        for x in 0..n {
+            if qr.get_module(x as i32, y as i32) {
+                for dy in 0..SCALE {
+                    for dx in 0..SCALE {
+                        img.put_pixel(
+                            (x + QUIET) * SCALE + dx,
+                            (y + QUIET) * SCALE + dy,
+                            image::Luma([0]),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(img)
 }
 
 /// Decode + re-encode drops EXIF/GPS.
@@ -674,8 +729,14 @@ mod tests {
         ] {
             assert_eq!(d(t), None, "{t}");
         }
-        assert_eq!(labels_of("snippet.txt", "#fff"), ["To RGB", "Copy text"]);
-        assert_eq!(labels_of("note.txt", "just words"), ["Copy text"]);
+        assert_eq!(
+            labels_of("snippet.txt", "#fff"),
+            ["To RGB", "Copy text", "QR code"]
+        );
+        assert_eq!(
+            labels_of("note.txt", "just words"),
+            ["Copy text", "QR code"]
+        );
     }
 
     fn labels_of(name: &str, text: &str) -> Vec<&'static str> {
@@ -736,5 +797,23 @@ mod tests {
         let o = run(Conv::Clean, &src);
         assert_eq!(o.summary, "Location removed");
         assert!(o.copy.is_none());
+    }
+
+    #[test]
+    fn qr_codes_have_a_quiet_zone_and_refuse_overlong_text() {
+        let img = qr_png("https://example.com/a?b=c").unwrap();
+        let (w, h) = img.dimensions();
+        assert_eq!(w, h);
+        assert_eq!(w % 8, 0);
+        // The quiet zone (4 modules = 32 px) is white all round, and there is ink inside.
+        assert!(img.pixels().take(w as usize * 32).all(|p| p.0[0] == 255));
+        assert!(img.pixels().any(|p| p.0[0] == 0));
+        assert!(qr_png("").is_err());
+        let long = qr_png(&"x".repeat(5000)).unwrap_err();
+        assert!(long.contains("Too long"));
+        // The snippet chip row offers it.
+        assert!(chips_for(Path::new("a.txt"))
+            .iter()
+            .any(|c| c.0 == "QR code"));
     }
 }
