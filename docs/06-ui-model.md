@@ -1,230 +1,192 @@
 # 6. The UI model
 
-`crates/hytte/src/ui_state.rs` is the brain of the pill. It decides *what* to show, as plain Rust with no Win32 calls, so almost all of its behaviour is unit-tested. The window layer ([section 7](07-window-and-input.md)) feeds it events and clock ticks, and the renderer ([section 8](08-rendering-and-animation.md)) reads it to draw.
+`crates/hytte/src/ui_state.rs` decides *what* the pill shows. It is plain Rust with no Win32 calls, so almost all of it is unit-tested. The window layer ([section 7](07-window-and-input.md)) feeds it events and ticks; the renderer ([section 8](08-rendering-and-animation.md)) reads it to draw.
 
-It has three parts:
-
-- **`UiEvent`**: the messages workers send to the UI thread.
-- **`Model`**: everything the pill knows about the world.
-- **`Anim`**: the animation state that turns "what to show" into smooth motion.
+Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows), **`Anim`** (animation state).
 
 ## `UiEvent`
 
 | Variant | Sent by | Effect |
 |---|---|---|
-| `Task(TaskUpdate)` | task registry (via the bridge) | `Model::apply_task` ([section 4](04-ipc-protocol.md)) |
-| `Media(Option<MediaInfo>)` | media watcher | Sets or clears `media`. Clearing also clears the album art. |
-| `MediaArt(Option<Arc<ArtBitmap>>)` | media watcher | Sets `art` and bumps `art_gen` so the renderer re-uploads it. |
-| `Privacy(cam, mic, app)` | privacy watcher | The camera / mic dots and the app name. |
-| `MicMute(bool)` | mic watcher | The red lock. |
-| `Speaker(Option<(f32, bool)>)` | mic watcher | The default speaker's volume (0–1) and mute, for the **Sound** tile and the volume bar; `None` without an output device. Ignored while the volume bar is being dragged, so a late notification doesn't pull the bar back. |
-| `Power(Option<Battery>)` | power watcher | `Model::set_power`: the Power pane, and the plug-in or unplug card when the charger was just connected or removed. |
-| `Ports(Vec<PortInfo>, HashMap<pid, ancestors>)` | port watcher | `set_ports`: the listening ports, and each port's process with its ancestors (parent first), which `Model::task_for_port` uses to tie a server to the running task that started it. Also cancels an armed **Kill?** if that port is gone. |
-| `ShelfAdd(DropJob)` | OLE drop target | Starts staging on a worker ([section 10](10-shelf-and-drop-vault.md)). |
-| `ShelfStaged(Vec<ShelfItem>)` | shelf staging worker | Inserts the items, saves the shelf, and peeks the Shelf panel for 5 s. |
-| `Screenshot(ShelfItem)` | clipboard handler's worker | A Snipping Tool screenshot saved as a PNG: inserted like `ShelfStaged`, then tracked for its short stay and the optional delete-after-paste ([section 10](10-shelf-and-drop-vault.md#screenshots)). |
-| `Thumb(id, bitmap)` | thumbnail loader | Uploads a shelf thumbnail to the renderer. |
-| `DropDone(DropResult)` | Drop Vault worker | Shows the result chip. |
-| `SetClipboard(String)` | Drop Vault worker | Puts text on the clipboard (only the UI thread owns the clipboard window). |
-| `Hog(Alert)` | port watcher tick | A warning card for a process that kept using a lot of CPU or memory, unless that exe is muted or another card is showing. |
-| `DownloadDone { name, path }` | downloads watcher | The "finished downloading" card with Open and Shelve. |
-| `TaskGone(id)` | downloads watcher | `Model::remove_task`: a cancelled download leaves without a trace. |
-| `Calendar(Option<NextEvent>)` | calendar watcher | `Model::set_calendar`: arms the heads-up for the next event. |
+| `Task(TaskUpdate)` | task registry (via bridge) | `Model::apply_task` ([section 4](04-ipc-protocol.md)) |
+| `Media(Option<MediaInfo>)`, `MediaArt(Option<Arc<ArtBitmap>>)` | media watcher | Set or clear `media`; art bumps `art_gen` so the renderer re-uploads. |
+| `Privacy(cam, mic, app)`, `MicMute(bool)` | privacy / mic watchers | Camera and mic dots; the red lock. |
+| `Speaker(Option<(f32, bool)>)` | mic watcher | Default speaker volume and mute; `None` without an output. Ignored while the volume bar is dragged. |
+| `Power(Option<Battery>)` | power watcher | `set_power`: Power pane, plug-in / unplug card. |
+| `Ports(Vec<PortInfo>, HashMap<pid, ancestors>)` | port watcher | `set_ports`; ancestors let `task_for_port` tie a server to the task that started it. Cancels an armed **Kill?** if the port is gone. |
+| `ShelfAdd(DropJob)`, `ShelfStaged(Vec<ShelfItem>)`, `Screenshot(ShelfItem)`, `Thumb(id, bitmap)` | OLE drop target and shelf workers | Staging, inserting, saving and peeking the Shelf for 5 s; screenshots also get their short stay ([section 10](10-shelf-and-drop-vault.md#screenshots)). |
+| `DropDone(DropResult)`, `SetClipboard(String)` | Drop Vault worker | Result chip; clipboard text (only the UI thread owns the clipboard window). |
+| `Hog(Alert)` | port watcher tick | Warning card, unless the exe is muted or another card shows. |
+| `DownloadDone { name, path }`, `TaskGone(id)` | downloads watcher | "Finished downloading" card with Open / Shelve; `remove_task` for a cancelled download. |
+| `Calendar(Option<NextEvent>)` | calendar watcher | `set_calendar`: arms the heads-up. |
 | `DragEnter` / `DragLeave` | OLE drop target | `drop_over`: the purple drop zone. |
 
 ## `Model`: the state
 
-The important fields, grouped:
-
 | Group | Fields |
 |---|---|
-| Tasks | `tasks: Vec<TaskView>`, `ignore` (lower-cased shell commands to drop), `task_first` (the first row in view) and `task_rows` (`[general] task_rows`, 0 = 4): the list shows that many rows (`rows()`), the mouse wheel scrolls the rest (`scroll_tasks`), and `rows_hidden()` says how many are above and below |
-| Media | `media`, `media_stamp` (when the info arrived, used to extrapolate the timeline), `art`, `art_gen` |
-| System | `cam`, `mic`, `privacy_app`, `mic_muted`, `speaker` (volume, muted), `awake` (`Awake::Off`, `Until(instant)` or `On`), `power`, `charge_since` |
-| Servers | `ports`, `port_parents` (pid → ancestor pids), `kill_armed: Option<(port, until)>` |
-| Shelf | `shelf: Vec<ShelfItem>`, `shelf_sel` (the selected tile), `shelf_off` (the first tile in view; `shelf_page()` returns the `SHELF_VISIBLE` (5) in view, clamped so removing items never leaves a gap) |
+| Tasks | `tasks: Vec<TaskView>`, `ignore`, `task_first` and `task_rows` (`[general] task_rows`, 0 = 4): `rows()` shows that many, the wheel scrolls (`scroll_tasks`), `rows_hidden()` counts those above and below |
+| Media | `media`, `media_stamp` (extrapolates the timeline), `art`, `art_gen` |
+| System | `cam`, `mic`, `privacy_app`, `mic_muted`, `speaker`, `awake` (`Off`, `Until(instant)`, `On`), `power`, `charge_since` |
+| Servers | `ports`, `port_parents`, `kill_armed: Option<(port, until)>` |
+| Shelf | `shelf`, `shelf_sel`, `shelf_off`; `shelf_page()` returns the `SHELF_VISIBLE` (5) in view, clamped so removals leave no gap |
 | Navigation | `selected: Option<Panel>`, `peek_until`, `force_until`, `drop_over` |
-| Results | `chip: Option<Chip>`, `chip_armed` (a Kill button was clicked once), `hog_ignore` (exes muted for the session) |
-| Calendar | `calendar` (the next event and when its heads-up is due), `calendar_seen` |
-| Timer | `timer`, `timer_panel` (the setup card is open), `timer_min`, `timer_done`, `timer_last` (the timer that just finished), `timer_break`, `focus_done`, `rounds` |
-| Settings | `settings` (the pane is open, on this group of `SETTINGS_GROUPS`: Look, Behaviour, Features). Hovering away, picking a pane, or the back button closes it. |
-| Look | `art_accent` (dominant colour of the album art), `adaptive_glow` (`[general] adaptive_glow`), `glow_gain` (`glow_strength`), `body_alpha` (`pill_opacity`, 0.4 to 1: the alpha of the pill body only) |
-| Clock | `now`: the last time the model was advanced; visibility rules compare against it |
+| Results | `chip`, `chip_armed`, `hog_ignore` (exes muted this session) |
+| Calendar / Timer | `calendar`, `calendar_seen`; `timer`, `timer_panel`, `timer_min`, `timer_done`, `timer_last`, `timer_break`, `focus_done`, `rounds` |
+| Settings / Look | `settings` (pane open, on a group of `SETTINGS_GROUPS`: Look, Behaviour, Features; hovering away, picking a pane or Back closes it); `art_accent`, `adaptive_glow`, `glow_gain`, `body_alpha` |
+| Clock | `now`: last time the model advanced; visibility rules compare against it |
 
-`TaskView` is the display form of a task: the label, event, progress, stderr lines, pid, `attention` message, `source` and `cwd` (a `run` or `shell` task with a folder is `rerunnable()`), and three instants (`started`, `changed`, `visible_after`).
+`TaskView` is a task's display form: label, event, progress, stderr lines, pid, `attention` message, `source`, `cwd` (a `run` / `shell` task with a folder is `rerunnable()`), and instants `started`, `changed`, `visible_after`.
 
 ## Panels
 
-When expanded, the pill shows one **panel**. `Model::panels()` lists the panels that currently have content, **in this order**:
+`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (always: mic, sound, keep-awake, timer tiles and volume bar), **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery).
 
-1. **Shelf**: the shelf isn't empty
-2. **Media**: a media session exists
-3. **Home**: always present: the quick controls (mic, sound, keep awake, timer tiles and the volume bar)
-4. **Tasks**: at least one visible task, or a listening dev server (shown under the tasks as **SERVERS**)
-5. **Timer**: a timer is running
-6. **Power**: the machine has a battery (charge, time left, power mode)
-
-Home sits in the middle: music to its left; dev work, a timer and the battery to its right.
-
-- `Model::panel()` is the selected panel if it still exists. Otherwise it is what the collapsed pill shows (**Tasks** when a task is visible, **Media** when music plays), else **Home**. Attention still wins: a task that needs input or finishes `peek`s its own pane, which selects it.
-- `Model::tabs()` is true when there is more than one panel; the tab strip is drawn only then.
-- `Model::step_panel(dir)` moves the selection with wrap-around. It is used by a sideways scroll and the arrow keys.
+- `panel()` is the selected panel if it still exists, else what the collapsed pill shows (Tasks if a task is visible, Media if music plays), else Home. Attention wins: a task that needs input or finishes `peek`s its pane, which selects it.
+- `tabs()` is true with more than one panel (the tab strip is drawn only then). `step_panel(dir)` moves with wrap-around (sideways scroll, arrows).
 
 ## Choosing the scene
 
-`Model::scene(hover, suppressed)` returns exactly one `Scene`. The rules are checked **in order**, and the first match wins:
+`Model::scene(hover, suppressed)` returns one `Scene`; the **first match** wins:
 
 | # | Condition | Scene |
 |---|---|---|
-| 1 | Fullscreen suppression is on, the pointer isn't on the pill, and nothing is forcing it visible | `Sentinel` |
-| 2 | Something is being dragged over the pill (`drop_over`) | `ExpDrop` |
+| 1 | Fullscreen suppression on, pointer off the pill, nothing forcing visibility | `Sentinel` |
+| 2 | Dragging over the pill (`drop_over`) | `ExpDrop` |
 | 3 | A card (chip) exists | `ExpChip` |
-| 4 | A timer just finished (`timer_done`) | `ExpTimerDone` |
-| 5 | The timer setup card is open (`timer_panel`: right-click, or the **Timer** tile with no timer running) | `ExpTimer` |
-| 6 | The settings pane is open (`settings`: the gear on Home) | `ExpSettings` |
-| 7 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()`: `ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower` or `ExpHome` |
-| 8 | The charger was plugged in or out less than 3 s ago (`charge_since`; `charge_in` says which way) | `ExpCharge` |
-| 9 | At least one visible task | `CompactTask` |
-| 10 | Media is **playing** | `CompactMedia` |
+| 4 | Timer just finished (`timer_done`) | `ExpTimerDone` |
+| 5 | Timer setup card open (`timer_panel`) | `ExpTimer` |
+| 6 | Settings pane open (`settings`) | `ExpSettings` |
+| 7 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()` (`ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower`, `ExpHome`) |
+| 8 | Charger plugged / unplugged < 3 s ago (`charge_since`, `charge_in`) | `ExpCharge` |
+| 9 | A visible task | `CompactTask` |
+| 10 | Media **playing** | `CompactMedia` |
 | 11 | otherwise | `Idle` |
 
-**Forced visibility.** `Model::forced()` is true while something is dragged over the pill, while the timer-finished card is up (`timer_done`), while an agent's Allow / Deny chip is up, or until `force_until`. Hytte sets `force_until` for 5 s after a drop lands and for `[agent] peek_secs` after an agent reports `NeedsInput`, so these stay visible over a fullscreen app (the thin line, or hide mode). Game mode still hides everything ([section 7](07-window-and-input.md#fullscreen-suppression)).
+**Forced visibility.** `Model::forced()` is true during a drag over the pill, while the timer-finished card or an Allow / Deny chip is up, or until `force_until` (5 s after a drop; `[agent] peek_secs` after `NeedsInput`). These stay visible over fullscreen (thin line or hide mode); game mode still hides everything ([section 7](07-window-and-input.md#fullscreen-suppression)).
 
-**Peeking.** `Model::peek(panel, until)` selects a panel and opens the pill until the given instant. It is used when an agent needs input (`[agent] peek_secs`, 6 s), when items land on the shelf (5 s), when a tracked task finishes or fails (`[general] finish_peek_secs`, 5 s, `0` turns it off; the Tasks panel opens unless a shell command was too short to be shown), and when a sideways scroll pages a collapsed pill (3 s).
+**Peeking.** `Model::peek(panel, until)` selects a panel and opens the pill until `until`. Used for agent `NeedsInput` (6 s), items landing on the shelf (5 s), a tracked task finishing or failing (`[general] finish_peek_secs`, 5 s, 0 = off; Tasks opens unless a shell command was too short to show) and a sideways scroll on a collapsed pill (3 s).
 
 ## Size and glow
 
-`Model::size(scene)` returns the target pill size in logical pixels. The springs animate towards it.
+`Model::size(scene)` gives the target size in logical px; springs animate to it.
 
 | Scene | Width × height |
 |---|---|
 | `Sentinel` | 96 × 2.5 |
-| `Idle` | 120 × 24; 150 with privacy dots; 64 + 58 per chip (+34 with privacy dots) with port / shelf chips; +26 when the mic lock shows |
-| `CompactTask` | 292 × 32 |
-| `CompactMedia` | 240 × 32 |
-| `ExpTasks` | 380 × (22 + 34 per row shown (up to `task_rows`, 4), +16 for the "N more · scroll" line when rows are hidden, +20 per waiting row, +14 per output line, + stderr box for the first failure, + the servers section: 26 + 36 per server, at most 5), capped at 290 plus 34 per row beyond 4 |
-| `ExpMedia` / `ExpHome` / `ExpPower` | 380 × 132 / 136 / 112 (Home: +4 + 28 per app row while the per-app volume list is open, one row says "no apps") |
+| `Idle` | 120 × 24; 150 with privacy dots; 64 + 58 per chip (+34 with dots) for port / shelf chips; +26 with the mic lock |
+| `CompactTask` / `CompactMedia` | 292 × 32 / 240 × 32 |
+| `ExpTasks` | 380 × (22 + 34 per row shown (≤ `task_rows`, 4), +16 for the "N more · scroll" line, +20 per waiting row, +14 per output line, + stderr box for the first failure, + servers: 26 + 36 per server, ≤ 5), capped at 290 plus 34 per row beyond 4 |
+| `ExpMedia` / `ExpHome` / `ExpPower` | 380 × 132 / 136 / 112 (Home +4 + 28 per app row while the per-app list is open; one row says "no apps") |
 | `ExpShelf` | 380 × 118 (136 with a tile selected) |
-| `ExpTimer` | 380 × 96 while a timer runs, 152 for the setup card |
-| `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a short one-line card) / 114 |
-| `ExpCharge` | 300 × 52 |
-| `ExpSettings` | 380 × 216 (no tab strip) |
+| `ExpTimer` | 380 × 96 running, 152 setup card |
+| `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a one-line card) / 114 |
+| `ExpCharge` / `ExpSettings` | 300 × 52 / 380 × 216 (no tab strip) |
 
-Expanded panels that show the tab strip get `TAB_H` (24 px) more height.
+Panels that show the tab strip get `TAB_H` (24 px) more.
 
-`Model::glow(scene)` returns a colour and strength for the soft halo:
+`Model::glow(scene)`:
 
 | Situation | Glow |
 |---|---|
-| Mic muted, in Idle / CompactMedia / Home / Media | red, strong |
+| Mic muted (Idle / CompactMedia / Home / Media) | red, strong |
 | Task waiting for input | amber, full |
 | Task failed / done / running / lost | red / green / blue / grey |
 | Drop zone | purple, full |
 | Shelf, result chip | purple, half |
 | Timer panel / timer finished | blue, faint / green |
-| Charger plugged in | green |
-| Charger unplugged | amber |
-| Power | green while plugged in, red at 20 % or less, otherwise white, faint |
+| Charger plugged in / unplugged | green / amber |
+| Power | green plugged in, red ≤ 20 %, else white faint |
 | Media, Home, Tasks with only servers | white, faint |
 | Idle, Sentinel | none |
 
 ## Timed behaviour: `expire`
 
-Many things disappear on their own: finished tasks, chips, peeks, an armed **Kill?**, forced visibility, the timer-finished card. Instead of checking them periodically, `Model::expire(now)`:
+Instead of periodic checks, `Model::expire(now)` removes everything due and returns the **earliest future deadline** (including tasks still hidden by `visible_after`):
 
-1. removes everything whose time has passed:
+| What | Hold |
+|---|---|
+| `Done` task / `Lost` task | 3 s (`SUCCESS_HOLD`) / 5 s (`LOST_HOLD`); while the user is away, until they're back, then the hold from their first input |
+| Card (chip) | its own `hold`: 10 s (`CHIP_HOLD`), 20 s resource-hog, 60 s calendar |
+| Armed **Kill?** (chip or port) | 3 s (`KILL_CONFIRM`) |
+| Timer-finished card and alarm | 2 min (`TIMER_DONE_HOLD`) |
+| Keep-awake for an hour | `Awake::Until` its end (`AWAKE_FOR`) |
+| Plug-in / unplug card | 3 s (`CHARGE_HOLD`) |
+| Peek, forced visibility | their own deadline |
 
-   | What | Hold |
-   |---|---|
-   | `Done` task | 3 s (`SUCCESS_HOLD`) |
-   | `Lost` task | 5 s (`LOST_HOLD`) |
-   | Either, while the user is away | until they are back, then the hold above from their first input |
-   | Card (chip) | its own `hold`: 10 s (`CHIP_HOLD`) by default, 20 s for a resource-hog warning, 60 s for a calendar heads-up |
-   | Armed chip **Kill?** | 3 s (`KILL_CONFIRM`) |
-   | Armed **Kill?** | 3 s (`KILL_CONFIRM`) |
-   | Timer-finished card (and its alarm) | 2 min (`TIMER_DONE_HOLD`) |
-   | Keep-awake for an hour | `Awake::Until` its end (`AWAKE_FOR`, 1 h) |
-   | Plug-in / unplug card | 3 s (`CHARGE_HOLD`) |
-   | Peek, forced visibility | their own deadline |
+"Away" is no input anywhere for 60 s (`AWAY_AFTER`); the window layer feeds `GetLastInputInfo` through `Model::set_idle` before each `expire`. While a finished row is held and the user is away, the deadline is a 5 s poll (`AWAY_POLL`), the only way to notice their return without a hook.
 
-   "Away" is no keyboard or mouse input anywhere for 60 s (`AWAY_AFTER`); the window layer feeds `GetLastInputInfo` through `Model::set_idle` before each `expire`. While away with a finished row held, the deadline is a 5 s poll (`AWAY_POLL`), the only way to notice the user is back without a hook.
+The window layer arms one Win32 timer (`T_EXPIRE`) for exactly that instant and calls `expire` again when it fires, so the UI thread wakes only when something is due.
 
-2. returns the **earliest future deadline**, which also includes tasks that are still hidden (`visible_after`).
-
-The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant, then calls `expire` again when it fires. So the model wakes the UI thread only when something is actually due.
-
-`Model::finish_timer` does the same for the countdown timer: when it reaches zero, the timer moves to `timer_done` (and `timer_last`, for the card's "25 min focus · ended 14:35"), and the window layer works out the next break length. The finished card is forced visible over fullscreen (except in game mode) for as long as it is up (`TIMER_DONE_HOLD`, 2 minutes), and with `[timer] sound` the alarm loops for exactly that long: `Ui::after_model_change` starts and stops it (`timer::ring`) whenever `timer_done` appears or goes, whether by **Stop alarm**, a new timer, **+5 min**, or the hold running out.
+`Model::finish_timer` handles the countdown reaching zero: it moves to `timer_done` (and `timer_last`, for "25 min focus · ended 14:35") and the window layer picks the next break length. The finished card is forced visible over fullscreen (not game mode) for `TIMER_DONE_HOLD`, and with `[timer] sound` the alarm loops that long: `Ui::after_model_change` starts and stops it (`timer::ring`) whenever `timer_done` appears or goes (**Stop alarm**, a new timer, **+5 min**, or the hold ending).
 
 ## Rows, the primary task, and ambient motion
 
-- `Model::rows()` lists the visible tasks in this order: waiting for input, failed, running, everything else. Newest comes first within each group, and the list is truncated to 4. The expanded Tasks panel draws exactly these rows.
-- `Model::primary()` is the first of those rows, chosen without building the list (it runs several times per frame). The compact pill shows it.
-- `Model::visible_count()` drives the count badge on the compact pill.
-- `Model::ambient(scene, now)` answers "does anything need continuous frames right now?". It returns true for a running or waiting task, a failed task whose red pulse is still fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, the plug-in card, the timer-finished card (its bell swings while the alarm rings), or playing media in a media scene. It is always false for the `Sentinel`, which never moves. [Section 8](08-rendering-and-animation.md) explains why this matters.
+- `rows()` lists visible tasks: waiting, failed, running, then the rest; newest first within a group; truncated to 4. The Tasks panel draws exactly these.
+- `primary()` is the first row (computed without building the list: it runs several times per frame); the compact pill shows it. `visible_count()` drives the count badge.
+- `ambient(scene, now)` answers "does anything need continuous frames?": true for a running or waiting task, a failed task whose red pulse is fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, the plug-in card, the timer-finished card (its bell swings while the alarm rings), or playing media in a media scene. Always false for `Sentinel`. See [section 8](08-rendering-and-animation.md).
 
 ## `Anim`: animation state
 
-`Anim` holds springs (see `animation.rs`) and the current scene:
-
 | Field | Animates |
 |---|---|
-| `rect` (`RectSpring`) | Pill width and height. Expanding uses a lively spring with a slight overshoot; collapsing uses a slower, critically damped one. |
-| `glow` + `glow_rgb` | Glow strength (the colour switches instantly). |
-| `content` | Fade-in of the current scene's content (0 → 1). |
+| `rect` (`RectSpring`) | Pill size. Expanding: lively with slight overshoot; collapsing: slower, critically damped. |
+| `glow` + `glow_rgb` | Glow strength (colour switches instantly). |
+| `content` | Fade-in of the current scene (0 → 1). |
 | `out` + `prev` | Fade-out of the scene being left (1 → 0), drawn under the new one. |
-| `hover` | The slight brightening while the pointer is over the pill. |
-| `vis` | Whole-window opacity, for fading out when hidden or paused. |
-| `t` | Seconds of animation time, used by spinners and pulses. |
-| `reduce` | Windows "Animation effects" is off: springs snap instead of moving. |
+| `hover` | Slight brightening under the pointer. |
+| `vis` | Whole-window opacity, for hide and pause fades. |
+| `t` | Animation seconds for spinners and pulses. |
+| `reduce` | Windows "Animation effects" off: springs snap. |
 
-`Anim::set_scene(scene, size, glow)` is called on every layout. When the scene changes, it moves the old scene to `prev`, starts `out` from the old content's current opacity, and restarts `content` at 0. `Anim::step(dt)` advances every spring and returns whether anything is still moving.
+`Anim::set_scene(scene, size, glow)` runs on every layout; on a scene change it moves the old scene to `prev`, starts `out` from the old content's opacity and restarts `content` at 0. `Anim::step(dt)` advances every spring and reports whether anything still moves.
 
 ## Cards (chips)
 
-`Chip` is the one card scene (`ExpChip`, 380 × 96, or 80 when the summary fits on one line) that every "something happened" feature reuses, so a new alert doesn't need a new scene:
+`Chip` is the single card scene (`ExpChip`, 380 × 96, or 80 for a one-line summary) that every "something happened" feature reuses, so a new alert needs no new scene.
 
 | Field | Meaning |
 |---|---|
-| `summary` | The sentence (up to two lines). |
-| `open`, `copy` | The classic **Open** and **Copy** buttons (Drop Vault results). |
-| `extra` | More buttons: `(label, ChipAction)` in order, drawn before **Dismiss**. |
-| `hold` | How long it stays (default `CHIP_HOLD`, 10 s). |
-| `tone` | The icon: `Done` (purple tick), `Warn` (amber `!`) or `Info` (blue `i`). |
+| `summary` | The sentence (≤ two lines). |
+| `open`, `copy` | The classic **Open** / **Copy** buttons (Drop Vault results). |
+| `extra` | More `(label, ChipAction)` buttons, before **Dismiss**. |
+| `hold` | How long it stays (default 10 s). |
+| `tone` | Icon: `Done` (purple tick), `Warn` (amber `!`), `Info` (blue `i`). |
 
-`ChipAction` is what an extra button does: `OpenUrl` (only `http`/`https` links reach the shell), `Shelve(path)` (puts a file on the shelf through the normal `ShelfAdd` path), `KillPid(pid, exe)` (the first click arms it, the label turns **Kill?** and the button red for 3 s; the second click terminates the process through `hytte_proto::ports::kill`, which refuses pid 0, 4 and itself, and a pid that no longer belongs to `exe`), `IgnoreExe(name)` (adds to `hog_ignore`), `InstallUpdate` and `UpdateLater(tag)` (the update card's **Update** and **Later**, [section 15](15-updates.md)) and `Answer(id, allow)` (an agent ask; clicks within 400 ms of the ask appearing are ignored, `ask_click_ready`). The features that use cards:
+`ChipAction` values: `OpenUrl` (only `http` / `https` reach the shell), `Shelve(path)` (normal `ShelfAdd` path), `KillPid(pid, exe)` (first click arms it: label **Kill?**, button red 3 s; the second terminates via `hytte_proto::ports::kill`, which refuses pid 0, 4, itself, and a pid that no longer belongs to `exe`), `IgnoreExe(name)` (adds to `hog_ignore`), `InstallUpdate` / `UpdateLater(tag)` ([section 15](15-updates.md)), and `Answer(id, allow)` (agent ask; clicks within 400 ms of appearing are ignored, `ask_click_ready`).
 
 | Feature | Card | Buttons |
 |---|---|---|
 | Drop Vault, server **Stop** | Result | Open, Copy, Dismiss |
-| Resource hog (`hog.rs`, `[hog]`) | Warn: "`node.exe` has used 92% CPU for 30 s" or "... is using 5.2 GB of memory" | Kill (confirmed), Ignore, Dismiss |
-| Downloads (`downloads.rs`, `[downloads]`) | "`file.zip` finished downloading" | Open, Shelve, Dismiss |
-| Calendar (`calendar.rs`, `[calendar]`) | Info: "Design review starts in 9 min" | Join (when there is a link), Dismiss |
+| Resource hog (`hog.rs`, `[hog]`) | Warn: "`node.exe` has used 92% CPU for 30 s" / "is using 5.2 GB of memory" | Kill (confirmed), Ignore, Dismiss |
+| Downloads (`downloads.rs`) | "`file.zip` finished downloading" | Open, Shelve, Dismiss |
+| Calendar (`calendar.rs`) | Info: "Design review starts in 9 min" | Join (with a link), Dismiss |
 
-A new card never replaces one that is showing: an alert that arrives meanwhile is dropped (the sampler or watcher has already counted it as reported).
+A new card never replaces one that is showing: an alert arriving meanwhile is dropped (its watcher has already counted it as reported).
 
 ## Bubbles
 
-`Model::bubble(scene)` says whether a second activity should split off beside a **compact** scene as a small pill of its own:
+`Model::bubble(scene)` decides whether a second activity splits off beside a **compact** scene as a small pill:
 
 | Beside | Bubble | Shows |
 |---|---|---|
-| `CompactTask` or `CompactMedia`, timer running | `Bubble::Timer` | The remaining time as a clock (red under a minute) |
+| `CompactTask` or `CompactMedia`, timer running | `Bubble::Timer` | Remaining time as a clock (red under a minute) |
 | `CompactTask`, music playing, no timer | `Bubble::Media` | The album art |
 
-Expanded scenes show the same things as panels, so they get no bubble. The bubble is part of the hover area (`pill_contains`, `bubble_hit`; its position comes from `Bubble::x`, shared with the renderer): resting the pointer on it opens the pill on **its** pane (`Bubble::panel`: the timer's or the music's) instead of the main pill's. While the pane is up the compact pill's spot and the bubble's spot are both kept (`BubbleZone`): the pane is wider than the compact pill but not always wide enough to cover the bubble, and leaving that spot would close the pane, bring the bubble back under the pointer and open it again. Gliding along the top strip from the bubble to the pill shows the pill's pane again, and from the pill to the bubble shows the bubble's (`follow_spot`; entering the strip from below changes nothing, so the pane's own buttons are safe). The panel the pill was on is restored when the pane closes. The layout step passes the answer to `Anim::set_bubble`, which points the `bubble` spring (0.72 / 0.34 s, so it overshoots a little) at 1 or 0. `bubble_kind` keeps the last kind so a retracting bubble can still be drawn, and `bubble_room()` is the extra width (`BUBBLE_ROOM`, 72 px) the crop and window region must make room for while any of it is out.
+Expanded scenes show these as panels, so no bubble. The bubble is part of the hover area (`pill_contains`, `bubble_hit`; position from `Bubble::x`, shared with the renderer): hovering it opens the pill on **its** pane (`Bubble::panel`). While the pane is up both the compact pill's and the bubble's spots are kept (`BubbleZone`); otherwise leaving the bubble's spot would close the pane, bring the bubble back under the pointer, and reopen it. Gliding along the top strip between bubble and pill switches panes (`follow_spot`; entering from below changes nothing, so the pane's buttons are safe). The previous panel is restored when the pane closes. Layout passes the answer to `Anim::set_bubble`, which springs `bubble` (0.72 / 0.34 s, a little overshoot) to 1 or 0; `bubble_kind` remembers the last kind so a retracting bubble still draws; `bubble_room()` is the extra width (`BUBBLE_ROOM`, 72 px) the crop and window region need while any is out.
 
-## Paging, squash and other motion state
+## Paging, squash and other motion
 
-- `Anim::nav` is the direction the user is paging (+1 next, -1 previous); a sideways scroll, the tab strip and the keyboard set it just before a layout. `set_scene` moves it to `slide` when the scene changes, and the renderer slides the new content in from that side (and the old content out the other way) instead of the plain vertical drift. A change nobody paged for, such as a peek, keeps the drift. `after_model_change` clears `nav` so it only ever applies to the layout it was set for.
-- `Anim::squash` gives the size springs a small impulse (width +160, height −110 px/s), so the pill squashes and settles. It is called when items land on the shelf and when a Drop Vault result arrives; it does nothing under reduced motion.
-- `Model::set_power` starts the plug-in or unplug card (above); `glow_gain` is `[general] glow_strength`, applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry the output ticker of a running task, and `LINE_H` (14 px) is the extra row height it needs in `Model::size(ExpTasks)`.
-
-## Tests
-
-`ui_state.rs` has the largest test module in the project: scene priority, expiry, shell thresholds, ignored commands, attention peeking, panels and the wheel, fullscreen break-through on drops, the timer, the mic lock, ambient rules, the cross-fade, the plug-in card, the output line, bubbles, the paging direction, the squash and the album-art colour. When you change a rule above, change or add a test next to it. These tests need no Windows APIs.
-
-Next: [7. Window, input and timers](07-window-and-input.md)
+- `Anim::nav` is the paging direction (+1 / -1), set by sideways scroll, tab strip and keyboard just before layout. `set_scene` moves it to `slide`, and the renderer slides new content in from that side (old out the other) instead of the vertical drift; a change nobody paged for (a peek) keeps the drift. `after_model_change` clears `nav`.
+- `Anim::squash` kicks the size springs (width +160, height −110 px/s) when items land on the shelf or a Drop Vault result arrives; nothing under reduced motion.
+- `glow_gain` is `[general] glow_strength`, applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry a running task's output ticker, and `LINE_H` (14 px) is the row height it adds in `size(ExpTasks)`.
 
 ## Per-app volume
 
-The ▾ at the end of the Home pane's volume bar (`Action::ToggleApps`) sets `Model::apps_open` and fills `Model::apps` from `mic::apps()`: the default speaker's audio sessions (`IAudioSessionManager2`), system sounds and expired sessions left out, and so is an app that is neither playing nor has a visible window (audio consoles and wallpaper engines that merely hold a session; `proc::has_window`, which ignores a suspended app's cloaked window). One row per exe (Chrome's many sessions are one), the ones playing first, at most `APPS_MAX` (4). A row is named after the exe's file description ("Wallpaper Engine", `proc::file_description`, remembered per path), or the exe name when it has none. The pane grows by `Model::apps_h()`. The list is read again when the pane opens with it open, not while it shows, so a drag isn't fighting a refresh. An app's bar (`Action::AppVolume(exe)`) drags like the master bar (`scrub`), scrolls 2 % a notch, and from the keyboard toggles between silent and full; `mic::set_app_volume` sets every session of that exe and unmutes when turned up.
+The ▾ on the Home volume bar (`Action::ToggleApps`) sets `apps_open` and fills `Model::apps` from `mic::apps()`: the default speaker's audio sessions (`IAudioSessionManager2`), without system sounds, expired sessions, or apps that neither play nor have a visible window (audio consoles, wallpaper engines holding a session; `proc::has_window` ignores a suspended app's cloaked window). One row per exe (Chrome's sessions merge), playing first, at most `APPS_MAX` (4), named by the exe's file description (`proc::file_description`, cached per path) or the exe name. The pane grows by `apps_h()`. The list is re-read when the pane opens with it open, not while shown, so a drag isn't fighting a refresh. An app's bar (`Action::AppVolume(exe)`) drags like the master (`scrub`), scrolls 2 % a notch, toggles silent/full from the keyboard; `mic::set_app_volume` sets every session of that exe and unmutes when turned up.
+
+## Tests
+
+`ui_state.rs` has the project's largest test module (scene priority, expiry, thresholds, ignored commands, peeking, panels, fullscreen break-through, timer, mic lock, ambient rules, cross-fade, plug-in card, output line, bubbles, paging, squash, album-art colour). Change or add a test beside any rule you change. They need no Windows APIs.
+
+Next: [7. Window, input and timers](07-window-and-input.md)

@@ -2,136 +2,88 @@
 
 ## What Hytte is
 
-Hytte is a "dynamic notch" for Windows 11: a small pill-shaped overlay that hangs from the top-centre of your screen (the primary monitor by default; see `[general] monitor`). It shows ambient information (running tasks, agents waiting for input, dev servers, media, the shelf, a timer) and expands when you hover it.
+Hytte is a "dynamic notch" for Windows 11: a small pill-shaped overlay hanging from the top-centre of the screen (primary monitor by default, see `[general] monitor`). It shows ambient information (tasks, agents waiting, dev servers, media, the shelf, a timer) and expands on hover.
 
-Three properties shape almost every design decision in the code:
+Three properties shape almost every design decision:
 
-1. **It must never get in the way.** The window never takes keyboard focus, clicks outside the pill pass through to the windows behind, and it backs off when a game or video goes fullscreen.
-2. **It must cost nothing while idle.** No polling loops where Windows offers events, no frames drawn when nothing moves, and no async runtime.
-3. **It must be safe.** Anything arriving over the named pipe, or dropped onto the pill, is treated as untrusted input.
+1. **Never in the way.** The window never takes keyboard focus, clicks outside the pill pass through, and it backs off when a game or video goes fullscreen.
+2. **Free while idle.** No polling where Windows offers events, no frames when nothing moves, no async runtime.
+3. **Safe.** Anything arriving over the named pipe, or dropped on the pill, is untrusted input.
 
 ## One program, two modes
 
-The repository builds a single executable, `hytte.exe`, from the Cargo package `crates/hytte`. What it does depends on its arguments; `main()` decides before anything else runs:
+The repo builds one executable, `hytte.exe` (package `crates/hytte`). `main()` picks the mode from the arguments:
 
-| You run | Mode | Source | Role |
-|---|---|---|---|
-| `hytte` (no arguments) | **daemon** | `crates/hytte/src/main.rs` | The long-running process that owns the pill window, the tray icon and all background workers. Only one copy can run at a time. |
-| `hytte <command> ...` | **CLI** | `crates/hytte/src/cli/` | A short-lived command that terminals, scripts and agent hooks run (`hytte run`, `hytte agent`, `hytte hook`, ...). It usually sends one message to the daemon over a named pipe and exits. It never touches daemon state: no log file, no mutex, no config. |
+| You run | Mode | Role |
+|---|---|---|
+| `hytte` | **daemon** (`src/main.rs`) | The long-running process that owns the pill, the tray icon and all workers. One copy at a time. |
+| `hytte <command> ...` | **CLI** (`src/cli/`) | A short-lived command run by terminals, scripts and agent hooks. Usually sends one message over the named pipe and exits. It never touches daemon state: no log, no mutex, no config. |
 
-Before 1.0 these were two programs, `hytte.exe` and `notch.exe`; see [section 5](05-cli.md#upgrading-from-notch) for what changed.
+Before 1.0 these were two programs (`hytte.exe` and `notch.exe`); see [section 5](05-cli.md#upgrading-from-notch).
 
-`hytte.exe` is a **console-subsystem** program, so the CLI behaves like any command-line tool: the shell waits for it, output streams, and exit codes come back. The daemon must not keep a console, which is handled in two layers:
+`hytte.exe` is a **console-subsystem** program so the CLI behaves normally (the shell waits, exit codes return). The daemon must not keep a console:
 
-1. The app manifest sets `consoleAllocationPolicy` to `detached`. On Windows 11 24H2 and newer, Windows then gives no console to the exe when it's started from Explorer, the Start Menu or autostart. When started from a terminal, it still shares that terminal's console.
-2. `main.rs::detach_console` covers the rest. If the process was given a console of its own (older Windows builds), it frees it, which can show as a brief flash. If it shares a terminal's console because someone typed `hytte`, it starts a detached copy of itself and exits, so the prompt comes straight back.
+1. The manifest sets `consoleAllocationPolicy` to `detached`, so on Windows 11 24H2+ an exe started from Explorer, the Start Menu or autostart gets no console.
+2. `main.rs::detach_console` covers the rest. If the process got its own console (older Windows), it frees it (a brief flash). If it shares a terminal's console because someone typed `hytte`, it starts a detached copy of itself and exits, so the prompt returns at once.
 
-Both modes share types with a small library crate, `crates/proto` (`hytte-proto`).
+Both modes share the small `crates/proto` library (`hytte-proto`).
 
 ## Vocabulary
-
-These words are used consistently in the code and in these docs.
 
 | Term | Meaning |
 |---|---|
 | **Pill** | The visible black shape at the top of the screen. |
-| **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window itself never resizes. |
-| **Scene** | What the pill is currently showing, for example `Idle`, `CompactTask` or `ExpShelf`. Exactly one scene is active at a time. See `ui_state::Scene`. |
-| **Compact / expanded** | Compact scenes are the small, collapsed states (`Idle`, `CompactTask`, `CompactMedia`). Expanded scenes (`Exp*`) are shown on hover or when the pill "peeks". |
-| **Panel** | A page of the expanded pill, left to right: Shelf, Media, Home (the quick controls, the default), Tasks (with the listening dev servers under them), Timer, Power. Panels are reached with the tab strip, a sideways scroll, or the keyboard. Each panel maps to one expanded scene. |
-| **Peek** | The pill opening on its own for a few seconds (an agent needs input, a file landed on the shelf). |
-| **Sentinel** | The thin grey bar (96 × 2.5 px) shown instead of the pill while a maximised or snapped window, or a fullscreen app, is in front. |
-| **Task** | Something being tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` progress report. |
-| **Shelf** | The list of files and text snippets parked on the pill. |
-| **Drop Vault** | The one-click actions offered for shelf items (compress, PDF, remove metadata, OCR, format). |
-| **Chip** | A small result card shown after an action ("Stopped :3000", "PDF · 1.2 MB"). |
-| **Worker** | A background thread that watches something (media, ports, privacy, ...) and sends events to the UI thread. |
-| **`UiEvent`** | The message type workers use to talk to the UI thread. |
-| **Ambient animation** | Continuous motion that is not a spring settling: the spinner, the equaliser, the amber pulse. It runs the frame clock at about 30 fps. |
+| **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window never resizes. |
+| **Scene** | What the pill shows right now (`Idle`, `CompactTask`, `ExpShelf`, ...). Exactly one is active. See `ui_state::Scene`. |
+| **Compact / expanded** | Compact scenes are the collapsed states (`Idle`, `CompactTask`, `CompactMedia`); `Exp*` scenes show on hover or a peek. |
+| **Panel** | A page of the expanded pill: Shelf, Media, Home (default), Tasks (dev servers under it), Timer, Power. Each maps to one expanded scene. |
+| **Peek** | The pill opening by itself for a few seconds (agent needs input, file landed on the shelf). |
+| **Sentinel** | The thin grey bar (96 × 2.5 px) shown instead of the pill under a maximised, snapped or fullscreen window. |
+| **Task** | Something tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` report. |
+| **Shelf / Drop Vault** | Files and text parked on the pill / the one-click actions offered for them. |
+| **Chip** | A small result card after an action ("Stopped :3000"). |
+| **Worker** | A background thread watching something and sending `UiEvent`s to the UI thread. |
+| **Ambient animation** | Continuous motion that isn't a spring settling (spinner, equaliser, amber pulse); runs the frame clock at about 30 fps. |
 
 ## Repository map
 
 ```text
-Cargo.toml                 workspace: members, shared dependency versions, release profile
-rust-toolchain.toml        pins stable Rust with the x86_64-pc-windows-msvc target
-scripts/                   release.ps1 (cut a release) and version.ps1 (keep the version, and the winget hash, in step)
-crates/
-  proto/                   hytte-proto: code shared by daemon and CLI
-    src/lib.rs             HytteMessage (the pipe protocol), TaskEvent, validation, Ask / Answer
-    src/ports.rs           listening-port discovery, filtering and kill, DEFAULT_WATCH
-    src/sys.rs             process-tree helpers (parent pid, ancestor chains, "owner" pid)
-  hytte/                   the package that builds hytte.exe
-    Cargo.toml
-    build.rs               compiles hytte.rc into the exe (fails the build if it can't)
-    hytte.rc               Win32 resources: app icon, tray icons, manifest, version info
-    app.manifest           DPI awareness, UTF-8 code page, console allocation policy, ...
-    assets/                logo.png, the generated .ico files and make_icons.py
-    src/main.rs            entry point: CLI dispatch, console handling, then the daemon
-    src/window.rs          Win32 window, message loop, input, timers, drag & drop (a thin file; the code is in window/win.rs and window/win/: view, events, input, shots, frame, actions, controls, dnd, wndproc)
-    src/settings_win.rs    the big settings window (the pane's popout), drawn by its own renderer
-    src/render.rs          Direct2D / DirectWrite drawing: the Renderer, its constants and `Action`; each part of it is in render/ (prims, pill, compact, tasks, media, shelf, home, settings, cards, timer, plus settings_table and the snapshot test)
-    src/gpu.rs             D3D11 + DirectComposition swap chain for the gpu renderer
-    src/ui_state.rs        the pure UI model: tasks, panels, scenes, animation state
-    src/animation.rs       spring physics
-    src/pipe_server.rs     named-pipe listener
-    src/tasks.rs           task registry (staleness, dead owner detection)
-    src/proc.rs            process / window helpers (exe names, liveness, focusing)
-    src/rerun.rs           Rerun: how to start a failed command again, per shell
-    src/ports.rs           port-watcher worker
-    src/media.rs           media session watcher + album art
-    src/privacy.rs         camera / microphone in-use watcher
-    src/mic.rs             global microphone mute, speaker volume and mute
-    src/hog.rs             resource-hog alert (CPU / memory sampling and the "how long" rule)
-    src/downloads.rs       browser downloads as tasks (folder change notifications)
-    src/calendar.rs        heads-up before the next calendar event
-    src/power.rs           battery and power mode
-    src/tabs.rs            Windows Terminal tab tracking (UI Automation)
-    src/shelf.rs           shelf items, persistence, thumbnails
-    src/drop.rs            Drop Vault job queue and worker pool
-    src/transforms.rs      Drop Vault actions (image clean, JSON/YAML, OCR, ...)
-    src/convert.rs         "Compress under 5 MB" and the hand-written PDF writer
-    src/timer.rs           Timer / Focus / Break state, persistence, alarm, local clock
-    src/fullscreen.rs      fullscreen suppression decision
-    src/tray.rs            tray icon (follows the taskbar theme) and its menu
-    src/config.rs          config.toml, autostart, Start Menu shortcut
-    src/setup.rs           PATH and shell-profile setup, migration of old notch hooks
-    src/agents.rs          hytte setup agents: hooks for Claude Code, Codex, Gemini, Antigravity, Cursor
-    src/agent_plugin.js    the OpenCode plugin agents.rs writes (embedded)
-    src/update.rs          update check against GitHub Releases, signature check and in-place self-replace
-    src/logging.rs         log file, panic hook and crash relaunch
-    src/secrets.rs         hides tokens and passwords in text the pill draws
-    src/perf.rs            optional frame-time telemetry (HYTTE_PERF=1)
-    src/single_instance.rs named mutex so only one daemon runs
-    src/winrt.rs           tiny blocking driver for WinRT async calls
-    src/cli/mod.rs         the CLI: command dispatch, the pipe client, hytte run, hytte set, hytte notify, hytte shelf, hytte setup
-    src/cli/doctor.rs      hytte doctor
-    src/cli/agent.rs       hytte agent ...
-    src/cli/hook.rs        hytte hook ... and hytte init ...
-    src/cli/portscmd.rs    hytte ports / hytte kill
-    src/cli/progress.rs    finds progress (OSC 9;4, NN%) in hytte run's output
-    src/cli/shell/*.ps1|bash|zsh|nu   shell integration scripts, embedded into hytte.exe
-docs/                      this documentation and screenshots (docs/img)
-manifests/winget/          winget package manifest template
-.github/workflows/         ci.yml (fmt, clippy, tests on every push) and release.yml (on a version tag)
-.gitattributes             keeps the embedded shell scripts LF in Windows checkouts
+Cargo.toml, rust-toolchain.toml   workspace, shared dependency versions, pinned toolchain
+scripts/                          release.ps1, version.ps1 (version and winget hash in step)
+crates/proto/                     hytte-proto: pipe protocol (lib.rs), port discovery (ports.rs), process-tree helpers (sys.rs)
+crates/hytte/                     builds hytte.exe
+  build.rs, hytte.rc, app.manifest   icons, version info, DPI / UTF-8 / console policy
+  assets/                            logo and generated .ico files
+  src/main.rs                        entry: CLI dispatch, console handling, daemon
+  src/window.rs + window/            Win32 window, message loop, input, timers, drag and drop
+  src/render.rs + render/            Direct2D / DirectWrite drawing, one file per pane
+  src/settings_win.rs                the big settings window
+  src/gpu.rs                         D3D11 + DirectComposition swap chain
+  src/ui_state.rs, animation.rs      pure UI model, spring physics
+  src/pipe_server.rs, tasks.rs       pipe listener, task registry
+  src/ports, media, privacy, mic, hog, downloads, calendar, power, tabs .rs   background workers
+  src/shelf, drop, transforms, convert .rs   shelf and Drop Vault
+  src/timer, fullscreen, tray, config, setup, agents, update .rs
+  src/logging, secrets, perf, single_instance, winrt, proc, rerun .rs   support
+  src/cli/                           command dispatch, doctor, agent, hook/init, ports, progress, shell scripts
+docs/                             these docs and screenshots (docs/img)
+manifests/winget/                 winget manifest template
+.github/workflows/                ci.yml (fmt, clippy, tests), release.yml (on a version tag)
 ```
 
-## Dependencies, and why there are so few
+## Dependencies
 
 | Crate | Used for |
 |---|---|
 | `windows`, `windows-core`, `windows-numerics` | Every OS call: Win32, COM, Direct2D, DirectWrite, WinRT. |
-| `serde`, `serde_json` | The pipe protocol, `shelf.json`, `timer.json`, JSON formatting in the Drop Vault. |
-| `toml` | `config.toml`. |
-| `toml_edit` | Changing one key in `config.toml` (the settings pane and window, the tray's autostart toggle) without losing the user's comments. |
-| `crossbeam-channel` | Channels between threads, including `select!`. |
-| `image` | Decoding and encoding images for the Drop Vault and album art. Only PNG, JPEG, WebP and BMP are enabled. The snapshot test writes its pictures as PNG. |
-| `miniz_oxide` | zlib compression for PDF image streams. |
-| `minisign-verify` | Checking an update's signature against the public key built into Hytte ([section 15](15-updates.md)). A small pure-Rust crate. |
-| `qrcodegen` | The shelf's QR code for a text snippet. No dependencies of its own. |
-| `embed-resource` (build only) | Compiling `hytte.rc` (icons, manifest, version info) into the exe. |
-| `minisign` (tests only) | Signing in the updater's tests, so good and tampered signatures are really checked. |
+| `serde`, `serde_json` | Pipe protocol, `shelf.json`, `timer.json`, JSON formatting. |
+| `toml`, `toml_edit` | Reading `config.toml`; changing one key without losing comments. |
+| `crossbeam-channel` | Thread channels, including `select!`. |
+| `image` | Image decode/encode (PNG, JPEG, WebP, BMP only). |
+| `miniz_oxide` | zlib for PDF image streams. |
+| `qrcodegen` | The shelf's QR code. |
+| `embed-resource` (build) | Compiling `hytte.rc`. |
 
-There is deliberately **no async runtime** (no tokio), no GUI framework and no web view. Everything is plain threads, channels and direct Windows API calls. When you add a dependency, it should be because the alternative is clearly worse, and it should keep the CLI fast to start (shell hooks run `hytte` on every command).
+There is deliberately **no async runtime**, GUI framework or web view: plain threads, channels and direct Windows calls. Add a dependency only when the alternative is clearly worse and it keeps CLI startup fast (shell hooks run `hytte` on every command).
 
 Next: [2. Getting started](02-getting-started.md)

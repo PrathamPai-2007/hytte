@@ -1,8 +1,8 @@
 # 10. Shelf and Drop Vault
 
-The **shelf** holds files and text snippets the user drops on the pill, so they can be dragged out again later. The **Drop Vault** is the set of one-click actions offered for a selected shelf item.
+The **shelf** holds files and text snippets dropped on the pill so they can be dragged out later. The **Drop Vault** is the set of one-click actions for a selected shelf item.
 
-Code: `crates/hytte/src/shelf.rs`, `drop.rs`, `transforms.rs`, `convert.rs`. The drag-and-drop plumbing itself is in `window.rs` ([section 7](07-window-and-input.md#drag-and-drop)).
+Code: `crates/hytte/src/shelf.rs`, `drop.rs`, `transforms.rs`, `convert.rs`; drag-and-drop plumbing is in `window.rs` ([section 7](07-window-and-input.md#drag-and-drop)).
 
 ## Shelf items
 
@@ -16,20 +16,18 @@ pub struct ShelfItem {
 }
 ```
 
-The shelf is `Model::shelf: Vec<ShelfItem>`, newest last, at most `[shelf] max_items` (12). The expanded panel shows 5 tiles at a time (`SHELF_VISIBLE`); past that, arrows at the ends or the mouse wheel over the row scroll it a tile at a time (`Model::scroll_shelf`).
-
-### Two modes
+`Model::shelf: Vec<ShelfItem>`, newest last, at most `[shelf] max_items` (12). The panel shows 5 tiles (`SHELF_VISIBLE`); arrows or the wheel over the row scroll a tile at a time (`Model::scroll_shelf`).
 
 | `[shelf] mode` | A dropped file becomes | Removing the tile |
 |---|---|---|
-| `"reference"` (default) | A tile pointing at the **original** path | Never touches the file. |
-| `"copy"` | A tile pointing at a **copy** in `%APPDATA%\Hytte\shelf` (`owned = true`) | Deletes the copy. |
+| `"reference"` (default) | A tile for the **original** path | Never touches the file. |
+| `"copy"` | A tile for a **copy** in `%APPDATA%\Hytte\shelf` (`owned = true`) | Deletes the copy. |
 
-Dropped **text** is always written to a `.txt` snippet in the shelf folder (`owned = true`). Its name comes from the first 24 letters, digits and spaces of the text, so it can be dragged out like any file.
+Dropped **text** is always written to a `.txt` snippet in the shelf folder (`owned = true`), named from its first 24 letters, digits and spaces, so it drags out like a file.
 
 ## Adding items: stage, then insert
 
-Adding can mean copying gigabytes, so it is split into two steps that run on different threads:
+Adding can mean copying gigabytes, so it is split across threads:
 
 ```text
 OLE Drop ──► UiEvent::ShelfAdd(DropJob) ──► UI thread: snapshot cfg, existing paths, free room
@@ -41,97 +39,81 @@ OLE Drop ──► UiEvent::ShelfAdd(DropJob) ──► UI thread: snapshot cfg,
               UI thread: UiEvent::ShelfStaged(items) ──► shelf::insert(...) → save, peek Shelf 5 s
 ```
 
-- **`shelf::stage(cfg, paths, text, existing, room)`** does all the file I/O. It skips missing paths and paths already on the shelf, and stops at `room` items. In copy mode it copies into a unique name (`name.ext`, `name-1.ext`, ...), recursively for folders, and removes a half-finished copy if copying fails. A process-wide mutex serialises "pick a free name + create it", so two drops at once can't collide. It returns items with `id = 0`.
-- Copying has guards (`copy_recursive`): a symlink or junction inside a folder is skipped, never followed (a junction that points back up would never end), and one drop copies at most 500 MB (`COPY_LIMIT`). Over that, the half-made copy is removed and a card says "Too big to copy to the shelf".
-- **`shelf::insert(cfg, items, staged)`** runs on the UI thread. The shelf may have changed while staging ran, so it checks the limit and duplicates again. An owned copy that no longer fits is deleted rather than leaked. It assigns ids and appends.
+- **`shelf::stage(cfg, paths, text, existing, room)`** does all file I/O: skips missing and already-shelved paths, stops at `room` items; in copy mode copies to a unique name (`name.ext`, `name-1.ext`, …), recursively for folders, removing a half-finished copy on failure. A process-wide mutex serialises "pick a free name + create it". Items come back with `id = 0`.
+- `copy_recursive` guards: symlinks and junctions inside a folder are skipped, never followed; one drop copies at most 500 MB (`COPY_LIMIT`), over which the half copy is removed and a card says "Too big to copy to the shelf".
+- **`shelf::insert(cfg, items, staged)`** runs on the UI thread. The shelf may have changed meanwhile, so it re-checks the limit and duplicates, deletes an owned copy that no longer fits (no leak), assigns ids and appends.
 
-`add_paths` and `add_text` are blocking stage-and-insert wrappers, kept for tests.
+`add_paths` / `add_text` are blocking wrappers kept for tests.
 
 ### Persistence
 
-With `[shelf] persist = true`, the list is saved as JSON to `%APPDATA%\Hytte\shelf.json` after every change and loaded at startup. On load, entries whose file has disappeared are dropped. After a tile is dragged out, the shelf also prunes items whose path no longer exists, since a "move" drop moves the real file.
+With `[shelf] persist = true` the list is saved as JSON to `%APPDATA%\Hytte\shelf.json` after every change and loaded at startup (missing files dropped). After a drag-out the shelf also prunes items whose path vanished (a "move" drop moves the real file). Startup also deletes shelf-folder files no item points to (left by a crash between copying and saving), only when `shelf.json` was read and parsed cleanly. `shelf.json` and `timer.json` are written via temp file and rename (`setup::write_file`). `shelf::remove` deletes the file or folder only when `owned`; `shelf::remove_keep_file` removes just the entry (after a successful drag-out with `remove_after_drag`).
 
 ### Screenshots
 
-With `[shelf] screenshots` on, a screenshot the Snipping Tool copies (Win+Shift+S) goes on the shelf as a PNG in the shelf folder. `Ui::on_clipboard` runs on `WM_CLIPBOARDUPDATE`: it only acts when the clipboard owner is `SnippingTool.exe` or `ScreenClippingHost.exe` and a bitmap (`CF_DIB`) is there, skips an image it has already shelved (a hash of the bytes), and does nothing in game mode or while paused. A worker converts it (`shelf::stage_dib`) and sends `UiEvent::Screenshot`, which is inserted like any staged item and then tracked by `Ui::track_shot`:
+With `[shelf] screenshots` on, a Snipping Tool screenshot (Win+Shift+S) goes on the shelf as a PNG in the shelf folder. `Ui::on_clipboard` (on `WM_CLIPBOARDUPDATE`) acts only when the clipboard owner is `SnippingTool.exe` or `ScreenClippingHost.exe` and a bitmap (`CF_DIB`) is there, skips an already-shelved image (hash of the bytes) and does nothing in game mode or paused. A worker converts it (`shelf::stage_dib`) and sends `UiEvent::Screenshot`, inserted like any staged item and tracked by `Ui::track_shot`:
 
-- **Short stay.** After `[shelf] screenshot_secs` (60; `0` keeps it) the tile is removed and its PNG deleted (`T_SHOT`, `Ui::tick_shots`). Only screenshots shelved while Hytte is running are tracked, so ones left from before a restart stay until removed.
-- **Delete after paste.** With `[shelf] delete_after_paste` on (the default), the newest screenshot is watched for a Ctrl+V (`GetAsyncKeyState`, polled every 60 ms, for at most 10 minutes). The watch is dropped when anything else is copied (the clipboard sequence number changes; the Snipping Tool touching the clipboard again with the same picture moves the number it compares with). A Ctrl+V that was already held when the screenshot arrived doesn't count until it has been released and pressed again. The decision itself is `paste_step`, a plain function with its own tests. About two seconds after a paste (so the target app can read the image) the tile is removed and its PNG deleted. Only a tile still on the shelf is deleted, so a screenshot dragged out meanwhile is never touched, and only Hytte's own copy is deleted, never the Snipping Tool's own saved file.
-
-### Removing
-
-At startup `shelf::load` also deletes files in the shelf folder that no item points to (a crash between copying and saving leaves them). It only does so when `shelf.json` was read and parsed cleanly, never when it is missing or damaged. `shelf.json` is written through a temp file and rename (`setup::write_file`), like `timer.json`, so a crash cannot leave half a file. `shelf::remove` deletes the file or folder only when `owned`. `shelf::remove_keep_file` removes just the entry; it is used after a successful drag-out with `remove_after_drag`.
+- **Short stay.** After `screenshot_secs` (60; `0` keeps it) the tile is removed and the PNG deleted (`T_SHOT`, `Ui::tick_shots`). Only screenshots shelved while Hytte runs are tracked.
+- **Delete after paste.** With `delete_after_paste` (default on), the newest screenshot is watched for Ctrl+V (`GetAsyncKeyState` every 60 ms, ≤ 10 minutes). The watch is dropped when anything else is copied (clipboard sequence number changes; the Snipping Tool re-touching the clipboard with the same picture moves the number it compares with). A Ctrl+V already held when the screenshot arrived doesn't count until released and pressed again (`paste_step`, a plain function with tests). About two seconds after a paste the tile is removed and its PNG deleted. Only a tile still on the shelf is deleted, so one dragged out meanwhile is safe, and only Hytte's own copy, never the Snipping Tool's saved file.
 
 ## The Drop Vault
 
-### Which actions are offered
-
-`transforms::chips_for(path)` maps a file extension to buttons:
+`transforms::chips_for(path)` maps an extension to buttons:
 
 | Extension | Buttons |
 |---|---|
 | `png`, `jpg`, `jpeg` | **Compress** · **To PDF** · **Remove metadata** · **Read text** · **Copy as base64** · **Copy as Markdown** |
-| `webp`, `bmp` | **Compress** · **To PDF** · **Read text** · **Copy as base64** · **Copy as Markdown** |
+| `webp`, `bmp` | the same without **Remove metadata** |
 | `json`, `yaml`, `yml` | **Format** |
-| `txt` | A decode action when the snippet is one (see below) · **Copy text** · **QR code** |
+| `txt` | a decode action when the snippet is one · **Copy text** · **QR code** |
 | `md` | **Copy text** |
 | anything else | **Copy path** |
 
-Each button carries a `Conv` value: `Under(5)`, `Pdf`, `Clean`, `Ocr`, `Decode`, `Qr`, `Base64`, `Markdown` or `Auto` (the per-type default). An item with more actions than fit one line (an image has six) wraps its buttons onto a second line (`transforms::chip_lines`), and the pane grows by 32 px for it.
+Each button carries a `Conv`: `Under(5)`, `Pdf`, `Clean`, `Ocr`, `Decode`, `Qr`, `Base64`, `Markdown` or `Auto`. An item with more actions than fit a line (an image has six) wraps onto a second line (`transforms::chip_lines`), growing the pane by 32 px.
 
-- **QR code** (`transforms::qr_png`, the `qrcodegen` crate) turns a text snippet (a link, a Wi-Fi code, a note) into a black-on-white PNG, 8 px per module with the 4-module quiet zone scanners need, saved beside the snippet (or in `output_folder`) with an **Open** button. Text too long for a QR code (about 2,300 characters) gets "Too long for a QR code".
-- **Copy as base64** puts a `data:image/png;base64,...` URI on the clipboard, ready for HTML, CSS or JSON. It is only offered for files up to 2 MB (`BASE64_MAX_BYTES`).
-- **Copy as Markdown** puts `![name](C:/path/to/name.png)` on the clipboard: forward slashes, with spaces and brackets escaped.
+- **QR code** (`transforms::qr_png`, `qrcodegen`): a text snippet becomes a black-on-white PNG, 8 px per module with a 4-module quiet zone, saved beside the snippet (or in `output_folder`) with **Open**. Over ~2,300 characters: "Too long for a QR code".
+- **Copy as base64** puts a `data:image/png;base64,...` URI on the clipboard; only files ≤ 2 MB (`BASE64_MAX_BYTES`).
+- **Copy as Markdown** puts `![name](C:/path/to/name.png)` (forward slashes; spaces and brackets escaped).
 
 ### How a job runs
 
-1. Clicking a button runs `Action::ShelfOp(id, conv)`. The UI shows a "Working…" chip and sends a `DropJob { paths, text, op }` to the Drop Vault channel.
-2. One of the **two worker threads** (`drop::spawn_workers`) picks it up and calls `handle_job`, which calls `transforms::run(op, path)` for each path.
-3. The worker sends `UiEvent::SetClipboard` if the result has text to copy, then `UiEvent::DropDone`. The UI replaces the chip with the result: a summary plus **Open** / **Copy** / **Dismiss** buttons. The chip disappears after 10 s.
+1. A click runs `Action::ShelfOp(id, conv)`; the UI shows "Working…" and sends a `DropJob { paths, text, op }` to the Drop Vault channel.
+2. One of **two worker threads** (`drop::spawn_workers`) calls `handle_job`, which calls `transforms::run(op, path)` per path.
+3. It sends `UiEvent::SetClipboard` if the result has text, then `UiEvent::DropDone`; the UI replaces the chip with a summary plus **Open** / **Copy** / **Dismiss** (gone after 10 s).
 
-### Where results go
-
-`transforms::place(src, suffix, ext)` builds the output path in `[general] output_folder` if that folder exists, otherwise **next to the source**. It never overwrites: an existing name gets `-1`, `-2`, ... appended. Dropped files are never executed.
+`transforms::place(src, suffix, ext)` writes into `[general] output_folder` if it exists, else **next to the source**, never overwriting (`-1`, `-2`, … appended). Dropped files are never executed.
 
 ### The actions
 
 | Action | Implementation | Output |
 |---|---|---|
-| **Compress** (`Conv::Under(5)`) | `convert::compress` | `name-5mb.jpg`. Skipped with "Already under 5 MB" if the file is small enough. |
-| **To PDF** (`Conv::Pdf`) | `convert::to_pdf` | `name.pdf`, one image per page. |
-| **Remove metadata** (`Conv::Clean`) | `transforms::clean_image` | `name.clean.png` or `.jpg`. Decoding and re-encoding drops EXIF and GPS. |
-| **Read text** (`Conv::Ocr`) | `transforms::ocr_image` | Text copied to the clipboard. |
-| **Format** (JSON) | `toggle_json` | `name.pretty.json` if it was one line, `name.min.json` if it was already formatted; text also copied. |
-| **Format** (YAML) | `normalize_yaml` | `name.pretty.yaml` with trailing spaces trimmed, tabs expanded and blank-line runs collapsed. There is no YAML parser, so this is whitespace-only. |
-| **Decode JWT** · **To date** · **URL decode** · **Base64 decode** · **To RGB** (`Conv::Decode`) | `transforms::decode` | Offered for a `.txt` snippet (64 KB at most) that is a JWT, a 10- or 13-digit Unix time (2001-2100), text with `%XX` escapes, base64 that decodes to readable UTF-8, or a `#rgb` / `#rrggbb` / `#rrggbbaa` colour. The result (JWT header and payload as pretty JSON, local date-time, `rgb(...)`) is copied; a JWT's card says when it expires or expired. |
-| **Copy text** | `transform_text` | The file's contents copied, formatting JSON on the way. |
-| **Copy path** | `transform_file` | The path copied, and Explorer opens with the file selected. |
+| **Compress** (`Under(5)`) | `convert::compress` | `name-5mb.jpg`; "Already under 5 MB" if small enough. |
+| **To PDF** (`Pdf`) | `convert::to_pdf` | `name.pdf`, one image per page. |
+| **Remove metadata** (`Clean`) | `transforms::clean_image` | `name.clean.png` / `.jpg`; re-encoding drops EXIF and GPS. |
+| **Read text** (`Ocr`) | `transforms::ocr_image` | Text copied. |
+| **Format** (JSON) | `toggle_json` | `name.pretty.json` if one line, `name.min.json` if already formatted; text also copied. |
+| **Format** (YAML) | `normalize_yaml` | `name.pretty.yaml`: trailing spaces trimmed, tabs expanded, blank-line runs collapsed (whitespace only; no YAML parser). |
+| **Decode JWT** · **To date** · **URL decode** · **Base64 decode** · **To RGB** (`Decode`) | `transforms::decode` | Offered for a `.txt` snippet (≤ 64 KB) that is a JWT, a 10- or 13-digit Unix time (2001–2100), text with `%XX` escapes, base64 that decodes to readable UTF-8, or a `#rgb` / `#rrggbb` / `#rrggbbaa` colour. The result (pretty JWT header and payload, local date-time, `rgb(...)`) is copied; a JWT's card says when it expires or expired. |
+| **Copy text** | `transform_text` | File contents copied, JSON formatted on the way. |
+| **Copy path** | `transform_file` | Path copied; Explorer opens with the file selected. |
 
 ## Compress: "make it under N MB" (`convert.rs`)
 
-1. **Refuse huge images** before decoding: more than 60 megapixels (`MAX_PIXELS`) would need hundreds of MB of RAM.
-2. **Flatten** onto white (`flatten`), so transparent PNGs don't turn black as JPEG. Opaque images convert directly, and RGBA8 images are read in place, so no extra full-size copy is made. The decoded original is then freed before encoding.
-3. **Quality search** (`best_quality`): try quality 90. If it is still too big, try 45. If 45 fits, binary-search the highest quality in between that fits (at most about 6 encodes).
-4. **Downscale** (`fit_jpeg`): if even quality 45 is too big, scale the image by `sqrt(target / size) × 0.95` (the area ratio, with headroom) and repeat. Up to 4 rounds.
+1. **Refuse huge images** before decoding: over 60 megapixels (`MAX_PIXELS`) would need hundreds of MB.
+2. **Flatten** onto white (`flatten`) so transparent PNGs don't turn black as JPEG; opaque images convert directly, RGBA8 is read in place (no extra full-size copy), and the decoded original is freed before encoding.
+3. **Quality search** (`best_quality`): try 90; if too big try 45; if 45 fits, binary-search the highest fitting quality (≤ ~6 encodes).
+4. **Downscale** (`fit_jpeg`): if even 45 is too big, scale by `sqrt(target / size) × 0.95` and repeat, up to 4 rounds.
 
-## To PDF: a hand-written PDF writer (`convert.rs`)
+## To PDF: a hand-written writer (`convert.rs`)
 
-Hytte writes PDFs itself (`pdf_from_pages`) rather than pulling in a PDF library. A PDF with one image per page is a small amount of text plus byte offsets:
-
-- Objects: 1 catalog, 1 page tree, then a page, a content stream and an image XObject per image.
-- Each page is A4, rotated to landscape for wide images, with the image fitted inside a 24 pt margin and centred (`place`).
-- **JPEG** files are embedded **as-is** (`/DCTDecode`): no recompression and no quality loss. Only the header is read, for the size and colour type (`jpeg_header`).
-- **Other images** are flattened to RGB and zlib-compressed with `miniz_oxide` (`/FlateDecode`).
-- The cross-reference table records each object's byte offset. The test `pdf_structure_and_xref_offsets_resolve` checks every offset points at the right object.
+`pdf_from_pages` writes PDFs itself rather than pulling in a library: objects are 1 catalog, 1 page tree, then a page, a content stream and an image XObject per image. Each page is A4 (landscape for wide images) with the image fitted in a 24 pt margin and centred (`place`). **JPEG** files are embedded **as-is** (`/DCTDecode`: no recompression; only the header is read, `jpeg_header`); **other images** are flattened to RGB and zlib-compressed with `miniz_oxide` (`/FlateDecode`). The cross-reference table records each object's byte offset; `pdf_structure_and_xref_offsets_resolve` checks every offset.
 
 ## Read text: OCR (`transforms::ocr_windows`)
 
-Uses the built-in `Windows.Media.Ocr` engine with the user's profile languages. There is no bundled model, so it needs an OCR-capable language pack, or it reports "OCR unavailable". It opens the file as a `StorageFile`, decodes it with `BitmapDecoder`, refuses images larger than the engine's `MaxImageDimension`, and runs `RecognizeAsync`. Every step is wrapped in `winrt::block_on` with a 15 s timeout.
+Uses the built-in `Windows.Media.Ocr` engine with the user's profile languages: no bundled model, so it needs an OCR-capable language pack or reports "OCR unavailable". It opens the file as a `StorageFile`, decodes it with `BitmapDecoder`, refuses images over the engine's `MaxImageDimension`, and runs `RecognizeAsync`, every step in `winrt::block_on` with a 15 s timeout.
 
 ## Known limits
 
-- Lossless WebP output only (the `image` crate's encoder); lossy WebP and AVIF are not supported.
-- YAML formatting is whitespace normalisation only.
-- Images dragged from a browser (image data rather than a file) are not accepted.
+Lossless WebP output only (`image` crate); no lossy WebP or AVIF. YAML formatting is whitespace-only. Images dragged from a browser (image data, not a file) are not accepted.
 
 Next: [11. Configuration and files on disk](11-configuration-and-files.md)

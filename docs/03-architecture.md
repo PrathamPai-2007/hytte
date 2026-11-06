@@ -1,6 +1,6 @@
 # 3. Architecture
 
-This section explains how the pieces fit together at runtime. Later sections zoom into each piece.
+How the pieces fit at runtime. Later sections zoom into each.
 
 ## The big picture
 
@@ -24,132 +24,89 @@ This section explains how the pieces fit together at runtime. Later sections zoo
                                                     │  kick(): wake the frame clock
                                                     ▼
                                 ticker thread ── PostMessage(WM_TICK) ──► Ui::frame
-                                                    │
                                                     ▼
                          Renderer: Direct2D → swap chain → DirectComposition → screen
 ```
 
 Two rules hold everywhere:
 
-1. **Only the UI thread touches UI state and the window.** Every other thread communicates by sending a message.
-2. **Nothing polls when Windows can notify.** Threads block on channels, events or OS notifications. The few deliberate polls are listed in [section 12](12-performance.md).
+1. **Only the UI thread touches UI state and the window.** Other threads send messages.
+2. **Nothing polls when Windows can notify.** Threads block on channels, events or OS notifications. The deliberate polls are in [section 12](12-performance.md).
 
-## Startup sequence
+## Startup
 
-`crates/hytte/src/main.rs`, in order:
+`main.rs`, in order:
 
-0. If there are any arguments, `cli::run` handles them and the process ends: that is CLI mode ([section 5](05-cli.md)). Otherwise `detach_console` makes sure the daemon holds no console ([section 1](01-overview.md#one-program-two-modes)).
-1. `logging::init()` installs the panic hook that writes to `hytte.log`.
-2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex, retrying for up to 5 s. The retry lets a freshly updated exe wait while the old one finishes quitting. If another daemon still holds the mutex, this process exits with code 0. `update::cleanup` then deletes a `hytte.exe.old` left by an update.
-3. `config::load()` reads `config.toml`, creating it with defaults if it is missing. Then `ensure_autostart` writes or removes the `Run` registry value, and `ensure_start_menu` (on its own thread) refreshes the Start Menu shortcut.
-4. Two channels for the task pipeline are created: `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI).
-5. A `UiEvent` channel is created. Then `pipe_server::spawn_listener` and `tasks::spawn_registry` start. The listener gets the task channel and a `UiEvent` sender, which it needs for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer).
-6. The `UiEvent` sender is handed to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. `update::spawn_checker` starts the daily update check (each check skipped while `check_updates = false`). A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), then `setup::migrate_profiles`, which rewrites shell hooks that still call the old `notch` command, then `agents::repair`, which re-points agent hooks whose exe has moved.
-7. The Drop Vault job channel is created and `drop::spawn_workers` starts two workers.
-8. `window::run` takes over the main thread and never returns until Quit.
+0. With arguments, `cli::run` handles them and exits ([section 5](05-cli.md)). Otherwise `detach_console` ([section 1](01-overview.md#one-program-two-modes)).
+1. `logging::init()` installs the panic hook that writes `hytte.log`.
+2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex, retrying up to 5 s (so a freshly updated exe waits for the old one to quit). If another daemon holds it, exit 0. `update::cleanup` deletes a leftover `hytte.exe.old`.
+3. `config::load()` reads (or creates) `config.toml`; `ensure_autostart` writes or removes the `Run` value; `ensure_start_menu` refreshes the shortcut on its own thread.
+4. Create the `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI) channels, then the `UiEvent` channel; start `pipe_server::spawn_listener` and `tasks::spawn_registry` (the listener also gets a `UiEvent` sender for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer)).
+5. Hand the `UiEvent` sender to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. Start `update::spawn_checker`. A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), `setup::migrate_profiles` (old `notch` hooks) and `agents::repair` (re-points hooks whose exe moved).
+6. Start two Drop Vault workers (`drop::spawn_workers`).
+7. `window::run` takes over the main thread until Quit.
 
-On Quit (tray menu, or `window::quit()` after an update), the window is destroyed and the message loop ends. The UI thread then **drops `Ui` itself**, before removing the tray icon and returning. `Ui` owns the GPU renderer's D3D11 / DXGI / DirectComposition objects. The settings window, if it is open, is closed first (`settings_win::close`) for the same reason: it has a renderer of its own. Left to the thread-local destructor, they would be released during `ExitProcess` under the loader lock, where GPU drivers can deadlock. The process would then never exit and would keep the single-instance mutex until a reboot.
+`window::win::run_windows` then: creates `Shared` (below) in a global `OnceLock`; calls `OleInitialize` (the UI thread is an STA, needed for OLE drag and drop); creates the topmost, tool, no-activate popup window with its renderer (`WS_EX_NOREDIRECTIONBITMAP`, Direct2D + DirectComposition; if the renderer can't start the reason goes to the log and Hytte exits); builds `Ui` (model, animation, config, shelf, restored timer) and draws the first frame; registers the OLE drop target, power notifications, `TaskbarCreated`, the clipboard listener (screenshots), two WinEvent hooks (foreground change and location) and a low-level mouse hook (arms the drop zone during drags); adds the tray icon; starts the **bridge** and **ticker** threads; runs the `GetMessageW` loop.
 
-`window::win::run_windows` then:
+**On Quit** the UI thread closes the settings window (it has its own renderer), then **drops `Ui` itself** before removing the tray icon. `Ui` owns D3D11 / DXGI / DirectComposition objects; left to the thread-local destructor they would be released during `ExitProcess` under the loader lock, where GPU drivers can deadlock, and the process would never exit or release the single-instance mutex.
 
-1. Creates the `Shared` struct (see below) and stores it in a global `OnceLock`.
-2. Calls `OleInitialize` (the UI thread is a COM single-threaded apartment, which OLE drag and drop requires).
-3. Registers the window class, then creates the topmost, tool, no-activate popup window together with its renderer: a `WS_EX_NOREDIRECTIONBITMAP` window drawn through Direct2D and DirectComposition. If the renderer can't start, the reason goes to `hytte.log` and Hytte exits.
-4. Builds the `Ui` struct: model, animation state, config, shelf loaded from disk, saved timer restored. It then sizes everything for the monitor's DPI and draws the first frame.
-5. Registers the OLE drop target, power-setting notifications (`WM_POWERBROADCAST`), the `TaskbarCreated` message (to re-add the tray icon and re-check fullscreen if Explorer restarts), the clipboard format listener (`AddClipboardFormatListener`, for screenshots), two WinEvent hooks (foreground change and foreground location change) and a low-level mouse hook (to arm the drop zone during drags).
-6. Adds the tray icon.
-7. Starts the **bridge** thread and the **ticker** (frame clock) thread.
-8. Runs the standard `GetMessageW` / `DispatchMessageW` loop.
+## Threads
 
-## Every thread
+| Thread | Blocks on |
+|---|---|
+| **UI** (main) | the Win32 message queue |
+| Pipe listener / one pipe client per connection | `ConnectNamedPipe` / `ReadFile` |
+| Task registry | messages; a 5 s tick only while tasks exist |
+| Bridge | both worker channels (`select!`) |
+| Ticker (frame clock) | `park()` while idle; `DwmFlush` or a 33 ms sleep while animating |
+| Media watcher | WinRT change events (30 s safety timeout) |
+| Privacy watcher | registry change notifications (10 s safety timeout) |
+| Mic watcher | a channel fed by endpoint-volume and device callbacks (60 s timeout) |
+| Power watcher | a channel fed by `power::poke` (5 min timeout) |
+| Config watcher | `FindFirstChangeNotificationW` on the data folder; applies `config.toml` edits live |
+| Port watcher | a condvar: woken on demand, otherwise every `poll_secs`; the resource-hog sampler (`hog.rs`) shares its tick |
+| Downloads watcher | `ReadDirectoryChangesW` on Downloads (off with `[downloads] enabled = false`) |
+| Calendar watcher | a store-changed channel, timing out when the next event is due (only with `[calendar] enabled`) |
+| Drop Vault workers (2), terminal tabs | their job / command channels |
+| Short-lived | media command, thumbnail loader, shelf staging, Start Menu shortcut, PATH setup, update install, manual update check, terminal setup |
+| Update checker | a 60 s sleep, then one check a day (`check_updates`) |
 
-| Thread | Started in | Lifetime | Blocks on |
-|---|---|---|---|
-| **UI thread** (the main thread) | `main` | whole process | the Win32 message queue |
-| Pipe listener | `pipe_server::spawn_listener` | whole process | `ConnectNamedPipe` |
-| Pipe client | the listener, one per connection | one connection | `ReadFile` on the pipe |
-| Task registry | `tasks::spawn_registry` | whole process | messages; a 5 s tick only while tasks exist |
-| Bridge | `run_windows` | whole process | both worker channels (`select!`) |
-| Ticker (frame clock) | `run_windows` | whole process | `park()` while idle, `DwmFlush` or a 33 ms sleep while animating |
-| Media watcher | `media::spawn_watcher` | whole process | WinRT change events (30 s safety timeout) |
-| Media command | `media::control` | one button press | the WinRT call |
-| Privacy watcher | `privacy::spawn_watcher` | whole process | registry change notifications (10 s safety timeout) |
-| Mic watcher | `mic::spawn_watcher` | whole process | a channel fed by endpoint-volume and device callbacks (60 s safety timeout) |
-| Power watcher | `power::spawn_watcher` | whole process | a channel fed by `power::poke` (power broadcasts and mode callback; 5 min safety timeout) |
-| Config watcher | `config::spawn_watcher` | whole process | `FindFirstChangeNotificationW` on the data folder; applies edits to `config.toml` live |
-| Port watcher | `ports::spawn_watcher` | whole process | a condvar: woken early on demand, otherwise every `poll_secs`. The resource-hog sampler (`hog.rs`) rides this same tick. |
-| Downloads watcher | `downloads::spawn_watcher` | whole process | `ReadDirectoryChangesW` on the Downloads folder (off with `[downloads] enabled = false`) |
-| Calendar watcher | `calendar::spawn_watcher` | whole process | a store-changed channel, timing out when the next event is due (only with `[calendar] enabled`) |
-| Drop Vault workers (2) | `drop::spawn_workers` | whole process | the job channel |
-| Terminal tabs | `tabs::spawn` | whole process | its command channel |
-| Thumbnail loader | `Ui::request_thumbs` | one thumbnail | the shell thumbnail call |
-| Shelf staging | `Ui::handle_events` (`ShelfAdd`) | one drop | file copies |
-| Start Menu shortcut | `config::ensure_start_menu` | a moment at startup | COM shell link calls |
-| PATH setup | `setup::ensure_on_path`, then `setup::migrate_profiles` | a moment at startup | one registry read and, if needed, write (`[general] add_to_path`); profile reads |
-| Update checker | `update::spawn_checker` | whole process | a 60 s sleep, then one check a day (`[general] check_updates`) |
-| Update install | `update::install_pending` | one click on **Update** | `curl.exe`, the signature check, `--version` |
-| Manual update check | `update::check_now` | one tray click | `curl.exe`, then a card on the pill |
-| Terminal setup | `setup::tray_setup` | one tray click | profile file writes and message boxes |
+## Talking to the UI thread
 
-## How threads talk to the UI thread
-
-### The `Shared` struct
-
-`window.rs` keeps exactly one piece of cross-thread state, `Shared`:
+`window.rs` keeps one piece of cross-thread state, `Shared`:
 
 | Field | Purpose |
 |---|---|
 | `pending: Mutex<Vec<UiEvent>>` | Events waiting for the UI thread. |
-| `animating: AtomicBool` | True while the frame clock should run. |
-| `fast: AtomicBool` | True while springs are moving: pace frames on vblank rather than at ~30 fps. |
-| `tick_pending: AtomicBool` | Prevents piling up more than one `WM_TICK` in the queue. |
-| `ticker: OnceLock<Thread>` | Handle used to `unpark` the frame clock. |
+| `animating`, `fast`, `tick_pending` | Frame clock running / springs moving (pace on vblank, not ~30 fps) / at most one `WM_TICK` queued. |
+| `ticker: OnceLock<Thread>` | Handle to `unpark` the frame clock. |
 | `drop_tx` | Sender for Drop Vault jobs. |
 
-A few lock-free statics sit beside it, because the low-level mouse hook and WinEvent callbacks run without access to `Ui`: `HWND_ADDR`, the drop-zone rectangle (`ZONE_L/R/B`), the mouse-button and drag-armed flags (`LBTN`, `ARMED`), DWM vblank timing (`VBLANK`, `VPERIOD`, `REFRESH_S`) and `TASKBAR_CREATED`.
+A few lock-free statics sit beside it because the mouse hook and WinEvent callbacks can't reach `Ui`: `HWND_ADDR`, the drop-zone rectangle (`ZONE_L/R/B`), `LBTN`, `ARMED`, DWM timing (`VBLANK`, `VPERIOD`, `REFRESH_S`) and `TASKBAR_CREATED`.
 
-### The delivery path
+**Delivery:** a worker sends `UiEvent`; the bridge thread appends it to `Shared.pending` and posts `WM_UI`; `wndproc` calls `Ui::handle_events`, which drains *all* pending events at once (a burst costs one wake-up), applies each to the model, then runs `after_model_change` (re-arm timers, pick the target scene and sizes via `layout`, `kick()` the frame clock). Thumbnail results, shelf staging results and OLE `DragEnter` / `DragLeave` / drop events skip the channel and go straight into `pending`.
 
-1. A worker calls `ui_tx.send(UiEvent::...)`. Task updates come from the registry on their own channel.
-2. The **bridge** thread receives from both channels and calls `push_event`, which appends to `Shared.pending` and posts `WM_UI` to the window.
-3. The window procedure handles `WM_UI` by calling `Ui::handle_events`, which drains *all* pending events at once (so a burst costs one wake-up), applies each one to the model, then calls `after_model_change`.
-4. `after_model_change` re-arms timers, works out the target scene and sizes (`layout`), and calls `kick()` to start the frame clock.
-
-Some events are pushed straight into `Shared.pending` without going through a channel: thumbnail results, shelf staging results, and the OLE drop target's `DragEnter` / `DragLeave` / drop events.
-
-### The frame clock
-
-The ticker thread is the heartbeat:
-
-- While `animating` is false, it is **parked** and costs nothing.
-- `Ui::kick()` sets `animating`, unparks it, and posts one `WM_TICK` immediately.
-- While animating, it posts `WM_TICK` (at most one outstanding, thanks to `tick_pending`), then waits: on `DwmFlush()` (the next vblank) when springs are moving, or about 33 ms for ambient-only animation.
-- Each `WM_TICK` runs `Ui::frame`, which steps the springs, draws, presents, and then decides whether to keep animating. When nothing moves, it clears `animating` and the ticker parks again.
-
-[Section 8](08-rendering-and-animation.md) covers the frame in detail.
+**Frame clock:** the ticker is parked (free) while `animating` is false. `Ui::kick()` sets it, unparks the ticker and posts one `WM_TICK`. While animating it posts `WM_TICK`, then waits on `DwmFlush()` (springs moving) or ~33 ms (ambient only). `Ui::frame` steps springs, draws, presents and clears `animating` when nothing moves. Details in [section 8](08-rendering-and-animation.md).
 
 ## Ownership and re-entrancy
 
-`Ui` lives in a thread-local `RefCell<Option<Ui>>`, accessed only through `with_ui`, which uses `try_borrow_mut`. This matters because some Windows calls **pump messages**: `DoDragDrop` (dragging a tile out of the shelf) runs a modal loop that dispatches `WM_TICK` and others back into `wndproc`. If `Ui` were still borrowed at that point, every frame during the drag would be dropped. So the drag is started *after* the borrow ends, and `with_ui` quietly skips a call if it ever finds the cell already borrowed, instead of panicking.
-
-When you add code that calls into COM or shows UI from the UI thread, ask whether it can pump messages, and if so, call it outside `with_ui`.
+`Ui` lives in a thread-local `RefCell<Option<Ui>>`, reached only through `with_ui` (`try_borrow_mut`). Some Windows calls **pump messages**: `DoDragDrop` (dragging a tile off the shelf) runs a modal loop that dispatches `WM_TICK` back into `wndproc`. If `Ui` were still borrowed, every frame of the drag would drop. So the drag starts *after* the borrow ends, and `with_ui` skips a call that finds the cell borrowed instead of panicking. When adding COM or UI code on the UI thread, ask whether it can pump messages; if so, call it outside `with_ui`.
 
 ## COM apartments
 
 | Thread | Apartment | Why |
 |---|---|---|
-| UI thread | STA, via `OleInitialize` | OLE drag and drop, the drop target, the virtual desktop manager. |
-| Mic watcher | MTA | Audio endpoint APIs (microphones and the default speaker); the device-change callback arrives on a system thread. |
-| Terminal tabs | MTA | UI Automation calls into other processes. |
-| Start Menu shortcut | STA, for its short life | `IShellLinkW`. |
+| UI | STA (`OleInitialize`) | OLE drag and drop, drop target, virtual desktop manager. |
+| Mic watcher | MTA | Audio endpoint APIs; callbacks arrive on a system thread. |
+| Terminal tabs | MTA | UI Automation into other processes. |
+| Start Menu shortcut | STA (short-lived) | `IShellLinkW`. |
 
-## Error handling philosophy
+## Error handling
 
-Hytte is ambient. A failure in one feature must never take down the pill or block the user:
+Hytte is ambient: a failure in one feature must never take down the pill or block the user.
 
-- OS calls that may fail return `Option` / `Result` and are mostly ignored with `let _ =` or a fallback value (for example, no battery → there is no Power pane).
-- Workers retry or fall back to a slow safety poll instead of exiting.
-- The CLI never fails a shell prompt: if the daemon is down, messages are dropped silently (shell hooks) or with a one-line note (`hytte set`, `hytte agent`), and `hytte run` still runs the command.
-- Panics in a worker thread end only that thread; the panic message goes to `hytte.log`.
+- OS calls that may fail return `Option` / `Result` and are mostly ignored or given a fallback (no battery means no Power pane).
+- Workers retry or fall back to a slow safety poll instead of exiting; a worker panic ends only that thread and is logged.
+- The CLI never fails a shell prompt: with the daemon down, hook messages drop silently, `hytte set` / `hytte agent` print one line, and `hytte run` still runs the command.
 
 Next: [4. IPC protocol and task lifecycle](04-ipc-protocol.md)
