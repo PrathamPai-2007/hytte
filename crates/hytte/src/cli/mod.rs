@@ -29,6 +29,8 @@ usage:
   hytte init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s
   hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
   hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
+  hytte notify \"text\"                    # show a card on the pill (for your own scripts)
+  hytte shelf add <file>... | (text on stdin)   # put files or text on the shelf
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
   hytte kill :PORT [--force]             # stop whatever listens on PORT
@@ -187,6 +189,78 @@ pub(crate) fn fit_label(s: &str) -> String {
         cut -= 1;
     }
     format!("{}…", &s[..cut])
+}
+
+/// Send a script request (`notify`, `shelf_add`). False when it didn't get through.
+fn send_cmd(c: &hytte_proto::Cmd) -> bool {
+    c.to_line().is_ok_and(|l| {
+        open_pipe(false)
+            .and_then(|mut f| f.write_all(l.as_bytes()))
+            .is_ok()
+    })
+}
+
+fn cmd_notify(args: &[String]) {
+    let mut text = args.join(" ");
+    if text.trim().is_empty() {
+        usage();
+    }
+    hytte_proto::cut(&mut text, 1024);
+    if !send_cmd(&hytte_proto::Cmd::notify(text)) {
+        eprintln!("hytte: daemon not running (message dropped)");
+        std::process::exit(1);
+    }
+}
+
+/// `hytte shelf add <file>...`, or text piped in: put them on the pill's shelf.
+fn cmd_shelf(args: &[String]) {
+    use std::io::{IsTerminal, Read};
+    let [add, files @ ..] = args else { usage() };
+    if add != "add" {
+        usage();
+    }
+    let mut cmds = vec![];
+    if files.is_empty() {
+        let mut stdin = std::io::stdin();
+        if stdin.is_terminal() {
+            usage();
+        }
+        let mut text = String::new();
+        let n = stdin
+            .by_ref()
+            .take(hytte_proto::MAX_SNIPPET_BYTES as u64 + 1)
+            .read_to_string(&mut text)
+            .unwrap_or(0);
+        if n == 0 || text.trim().is_empty() {
+            eprintln!("hytte: nothing to add (no input)");
+            std::process::exit(2);
+        }
+        if text.len() > hytte_proto::MAX_SNIPPET_BYTES {
+            eprintln!(
+                "hytte: text is over {} KB; put it in a file and add the file",
+                hytte_proto::MAX_SNIPPET_BYTES / 1024
+            );
+            std::process::exit(2);
+        }
+        cmds.push(hytte_proto::Cmd::shelve_text(text));
+    }
+    for f in files {
+        // Absolute, and without the `\?\` prefix canonicalize adds.
+        let path = std::fs::canonicalize(f).map(|p| p.display().to_string());
+        let Ok(path) = path else {
+            eprintln!("hytte: no such file: {f}");
+            std::process::exit(2);
+        };
+        // canonicalize returns the `\\?\` form; the daemon wants a plain path.
+        let path = path.strip_prefix(r"\\?\").unwrap_or(&path).to_string();
+        cmds.push(hytte_proto::Cmd::shelve_path(path));
+    }
+    for c in &cmds {
+        if !send_cmd(c) {
+            eprintln!("hytte: daemon not running (nothing added)");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Rust's spawn only finds `.exe` on PATH, so `npm` (really `npm.cmd`) fails. For a bare name,
@@ -465,6 +539,8 @@ pub fn run(args: &[String]) {
         "kill" => portscmd::kill_cmd(&args[1..]),
         "setup" => cmd_setup(&args[1..]),
         "doctor" => doctor::run(),
+        "notify" => cmd_notify(&args[1..]),
+        "shelf" => cmd_shelf(&args[1..]),
         #[cfg(debug_assertions)]
         "__update" => crate::update::debug_install(),
         _ => usage(),

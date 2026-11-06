@@ -153,7 +153,7 @@ impl HytteMessage {
 }
 
 /// Truncate to at most `max` bytes without splitting a character.
-fn cut(s: &mut String, max: usize) {
+pub fn cut(s: &mut String, max: usize) {
     if s.len() > max {
         let mut n = max;
         while !s.is_char_boundary(n) {
@@ -186,6 +186,85 @@ impl Ask {
             && self.name.len() <= 128
             && !self.text.is_empty()
             && self.text.len() <= 1024
+    }
+}
+
+/// A one-way request from a script (`hytte notify`, `hytte shelf add`): show a card, or put a
+/// file or text on the shelf. Never parses as a [`HytteMessage`] (no `task_id`) or an [`Ask`]
+/// (no `name`), so an older daemon ignores it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Cmd {
+    pub v: u32,
+    /// `"notify"` or `"shelf_add"`.
+    pub cmd: String,
+    /// The card text (`notify`) or the snippet to shelve (`shelf_add`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// An absolute path to shelve (`shelf_add`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Longest snippet `shelf_add` carries.
+pub const MAX_SNIPPET_BYTES: usize = 16 * 1024;
+
+impl Cmd {
+    pub fn notify(text: impl Into<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "notify".into(),
+            text: Some(text.into()),
+            path: None,
+        }
+    }
+
+    pub fn shelve_path(path: impl Into<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "shelf_add".into(),
+            text: None,
+            path: Some(path.into()),
+        }
+    }
+
+    pub fn shelve_text(text: impl Into<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "shelf_add".into(),
+            text: Some(text.into()),
+            path: None,
+        }
+    }
+
+    /// Untrusted input: the version, a known command, and sane lengths.
+    pub fn validate(&self) -> bool {
+        if self.v != PROTOCOL_VERSION {
+            return false;
+        }
+        let text = self.text.as_deref().map(str::len);
+        let path = self.path.as_deref().map(str::len);
+        match self.cmd.as_str() {
+            "notify" => self.path.is_none() && text.is_some_and(|n| n > 0 && n <= 1024),
+            "shelf_add" => match (text, path) {
+                (Some(n), None) => n > 0 && n <= MAX_SNIPPET_BYTES,
+                (None, Some(n)) => n > 0 && n <= 1024 && self.path_is_absolute(),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    fn path_is_absolute(&self) -> bool {
+        self.path
+            .as_deref()
+            .is_some_and(|p| std::path::Path::new(p).is_absolute())
+    }
+
+    /// Encode as a single NDJSON line.
+    pub fn to_line(&self) -> anyhow_string::Result<String> {
+        let mut s = serde_json::to_string(self)?;
+        s.push('\n');
+        Ok(s)
     }
 }
 
@@ -276,6 +355,40 @@ mod tests {
         assert!(name.starts_with(PIPE_PREFIX));
         #[cfg(windows)]
         assert!(name.contains("-S-1-"), "{name}");
+    }
+
+    #[test]
+    fn commands_are_validated_and_never_mistaken_for_other_messages() {
+        let n = Cmd::notify("build finished");
+        assert!(n.validate());
+        let line = n.to_line().unwrap();
+        assert!(serde_json::from_str::<HytteMessage>(line.trim()).is_err());
+        assert!(serde_json::from_str::<Ask>(line.trim()).is_err());
+        assert!(!Cmd::notify("").validate());
+        assert!(!Cmd::notify("x".repeat(2000)).validate());
+        assert!(Cmd::shelve_text("hello").validate());
+        assert!(!Cmd::shelve_text("x".repeat(MAX_SNIPPET_BYTES + 1)).validate());
+        assert!(!Cmd::shelve_path("relative/file.txt").validate());
+        #[cfg(windows)]
+        assert!(Cmd::shelve_path(r"C:\Users\me\a.txt").validate());
+        let mut both = Cmd::shelve_text("t");
+        both.path = Some("C:/x".into());
+        assert!(!both.validate());
+        let mut other = Cmd::notify("x");
+        other.cmd = "format_disk".into();
+        assert!(!other.validate());
+        // Neither of the old messages parses as a command.
+        let ask = serde_json::to_string(&Ask {
+            v: PROTOCOL_VERSION,
+            name: "a".into(),
+            pid: None,
+            text: "t".into(),
+        })
+        .unwrap();
+        assert!(serde_json::from_str::<Cmd>(&ask).is_err());
+        assert!(
+            serde_json::from_str::<Cmd>(&HytteMessage::start("t", "x").to_line().unwrap()).is_err()
+        );
     }
 
     #[test]

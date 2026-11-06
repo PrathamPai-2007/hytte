@@ -150,6 +150,12 @@ fn serve_connection(
                         msg.event, msg.task_id
                     ));
                 }
+            } else if let Ok(cmd) = serde_json::from_str::<hytte_proto::Cmd>(trimmed) {
+                if cmd.validate() {
+                    let _ = ui_tx.send(UiEvent::Cmd(cmd));
+                } else {
+                    crate::logging::line(&format!("pipe: rejected {:?} command", cmd.cmd));
+                }
             } else if let Ok(ask) = serde_json::from_str::<hytte_proto::Ask>(trimmed) {
                 if ask.validate() {
                     answer(h, ask, tx, ui_tx);

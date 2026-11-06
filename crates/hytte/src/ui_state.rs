@@ -88,6 +88,8 @@ pub enum UiEvent {
         summary: String,
         reply: crossbeam_channel::Sender<bool>,
     },
+    /// A script asked for a card or a shelf item (`hytte notify`, `hytte shelf add`).
+    Cmd(hytte_proto::Cmd),
     /// A newer version exists: its tag and the first line of its notes.
     UpdateOffer {
         tag: String,

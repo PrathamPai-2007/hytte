@@ -911,6 +911,7 @@ mod win {
                         c.open = Some(crate::config::config_path());
                         self.model.chip = Some(c);
                     }
+                    UiEvent::Cmd(c) => self.run_cmd(c, now),
                     UiEvent::UpdateOffer { tag, note } => {
                         self.update_offer = Some((tag, note));
                         self.show_update(now);
@@ -1840,6 +1841,26 @@ mod win {
                     self.show_ask(Instant::now());
                 }
             }
+        }
+
+        /// A script's request (`hytte notify`, `hytte shelf add`). Paused or in a game nothing
+        /// may pop up, and a card never covers another one.
+        fn run_cmd(&mut self, c: hytte_proto::Cmd, now: Instant) {
+            if self.paused || self.gaming {
+                return;
+            }
+            if c.cmd == "notify" {
+                if self.model.chip.is_none() {
+                    self.model.chip = Some(Chip::new(c.text.unwrap_or_default(), now));
+                }
+                return;
+            }
+            let job = DropJob {
+                paths: c.path.into_iter().map(Into::into).collect(),
+                text: c.text,
+                op: None,
+            };
+            push_event(&self.shared, UiEvent::ShelfAdd(job));
         }
 
         /// Put a waiting update offer on the chip, if nothing else is there and nothing is in
