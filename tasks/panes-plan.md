@@ -80,53 +80,53 @@ Every new surface must meet this before its checkpoint.
 ## Task list
 
 ### Phase 1: Risky parts first
-- [ ] 1. Do Not Disturb test
-- [ ] 2. Text editing logic
-- [ ] 3. Typing focus
-- [ ] 4. Text field drawing
-- [ ] 5. New panes and Settings switches
+- [x] 1. Do Not Disturb test
+- [x] 2. Text editing logic
+- [x] 3. Typing focus
+- [x] 4. Text field drawing
+- [x] 5. New panes and Settings switches
 
 **Checkpoint A:** type, paste and use an IME in a throwaway field on a dev build; focus returns correctly.
 
 ### Phase 2: Notes and To-do
-- [ ] 6. Saved notes and to-dos
-- [ ] 7. Notes pane
-- [ ] 8. To-do pane
-- [ ] 9. Note hotkey
+- [x] 6. Saved notes and to-dos
+- [x] 7. Notes pane
+- [x] 8. To-do pane
+- [x] 9. Note hotkey
 
 **Checkpoint B:** snapshot page, user review.
 
 ### Phase 3: Weather
-- [ ] 10. Shared fetch helper
-- [ ] 11. Location search with suggestions
-- [ ] 12. Forecast
-- [ ] 13. Weather pane
+- [x] 10. Shared fetch helper
+- [x] 11. Location search with suggestions
+- [x] 12. Forecast
+- [x] 13. Weather pane
 
 **Checkpoint C:** snapshot page, user review.
 
 ### Phase 4: Focus and breaks
-- [ ] 14. Do Not Disturb during Focus
-- [ ] 15. Hold alerts and the summary
-- [ ] 16. Quiet hairline
-- [ ] 17. Break schedule
-- [ ] 18. Nudge card
+- [x] 14. Do Not Disturb during Focus
+- [x] 15. Hold alerts and the summary
+- [x] 16. Quiet hairline
+- [x] 17. Break schedule
+- [x] 18. Nudge card
 
 **Checkpoint D:** a full focus session on a dev build, then snapshot page, user review.
 
 ### Phase 5: Media
-- [ ] 19. Sleep timer
-- [ ] 20. Sleep fade-out
-- [ ] 21. Finding lyrics
-- [ ] 22. Lyrics page
+- [x] 19. Sleep timer
+- [x] 20. Sleep fade-out
+- [x] 21. Finding lyrics
+- [x] 22. Lyrics page
 
 **Checkpoint E:** snapshot page, user review, tried with Spotify and a browser.
 
 ### Phase 6: Look and finish
-- [ ] 23. Colour skins
-- [ ] 24. Show the pill in screenshots
-- [ ] 25. Performance pass
-- [ ] 26. Docs and manual
-- [ ] 27. Version 1.7.0
+- [x] 23. Colour skins
+- [x] 24. Show the pill in screenshots
+- [x] 25. Performance pass
+- [x] 26. Docs and manual
+- [x] 27. Version 1.7.0
 
 **Checkpoint F:** full checks, idle budgets met, user sign-off. Publishing is a separate go-ahead.
 
@@ -149,3 +149,15 @@ Every new surface must meet this before its checkpoint.
 A pet or idle animation, hiding the taskbar or desktop icons, line-only pill in Focus, background
 rain alerts, temperature on the idle pill, to-do due dates and reordering, note sync, a `hytte note`
 command, shuffle and repeat, sleeping the PC.
+
+## Built, and where it differs from the plan
+
+All 27 tasks are built and committed on `panes`. Differences:
+
+- **Place storage:** the chosen place is in `place.json`, not `[weather]` in `config.toml` (the config writer only takes fixed strings); `[weather]` has only `units`.
+- **Text field:** click places the caret; dragging to select is not built (Shift+arrows, Ctrl+A, double-use of the keyboard are). An IME composition window appears where Windows puts it, not beside the caret.
+- **Nudge card:** Snooze and Skip are always visible (not on hover), and the card is 360 wide.
+- **Skins:** chosen by name in Settings; there are no colour swatches.
+- **Lyrics:** a near-miss recording shows the words untimed (3 s for timed, 10 s for words), found while testing a real song.
+- **Do Not Disturb:** the write, read-back, restore and crash recovery are verified on this PC. That Windows then actually suppresses toast banners is not verified (the screenshot control failed); the user confirms by eye.
+- **Not measured:** idle cost with the pill collapsed on a screen with a *different* DPI or refresh rate.

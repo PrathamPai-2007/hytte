@@ -9,6 +9,10 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `%APPDATA%\Hytte\config.toml` | `config.rs` | Settings (below), created with defaults on first run. |
 | `…\shelf.json`, `…\shelf\` | `shelf.rs` | The shelf list (`[shelf] persist`); copies (`mode = "copy"`) and text snippets. |
 | `…\timer.json` | `timer::save` | The running timer, so it survives a restart; deleted when it stops or finishes. |
+| `…\jot.json` | `jot::Store::save` | Notes and to-dos (`jot.json.bad` is a damaged file set aside). |
+| `…\place.json` | `weather::Place::save` | The Weather pane's chosen place and coordinates. |
+| `…\dnd-restore.txt` | `dnd.rs` | Only while a Focus session has Do Not Disturb on: the earlier value, restored at the next start if Hytte died. |
+| `…\sleep-restore.txt` | `sleep.rs` | Only during a sleep fade: the player and its volume, restored at the next start if Hytte died. |
 | `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; frame telemetry with `HYTTE_PERF=1`. Rolls over at 1 MB. |
 | `…\panel.txt` | `Ui::remember_panel` | With `remember_panel`, the panel the pill last collapsed on. |
 | `…\update-skip` | `update.rs` | The release tag the user chose **Later** for (a newer one is still offered). |
@@ -38,6 +42,11 @@ Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChang
 | `autostart` | `ensure_autostart` updates the `Run` value. |
 | `hotkey`, `monitor_hotkey` | Old chord unregistered, new one registered. |
 | `hide_from_capture` | `SetWindowDisplayAffinity` again. |
+| `[panes]` | `Model::apply_panes`; a hidden pane that was selected falls back to Home. |
+| `skin` | Read each frame. |
+| `note_hotkey` | Old chord unregistered, new one registered (hotkey id 3). |
+| `[breaks]` | `Breaks::configure`: unchanged intervals keep their clocks, newly enabled ones start now. |
+| `[weather] units`, `[media] lyrics` | Read at the point of use. |
 | `monitor`, `pill_scale` | `refresh_monitor` moves the pill and recomputes scale. |
 | `theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `remember_panel`, `pin_button`, `quiet_hours`, `task_rows` | Re-read; next frame uses them. Switching `pin_button` off un-pins. |
 | `[timer] rounds` | The running Focus cycle shows the new dot count. |
@@ -79,7 +88,9 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `fullscreen` | `"line"` | Over a maximised window or fullscreen browser / player: `"line"` (3 px bar), `"hide"` (fade out), `"off"`. Games always hide fully unless `"off"` ([section 7](07-window-and-input.md#fullscreen-suppression)). Pre-1.2.2 `suppress_fullscreen = false` / `fullscreen_mode = "hide"` read as `"off"` / `"hide"`. |
 | `finish_peek_secs` | `3` | How long the pill opens for a finished or failed task; `0` = stays closed. |
 | `check_updates` | `true` | Daily update check, first 60 s after start ([section 15](15-updates.md)). The tray item works either way. Live. |
-| `hide_from_capture` | `true` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. |
+| `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 1.7; a file that says `true` keeps it. |
+| `note_hotkey` | `""` | Global chord that opens Notes with the cursor ready, e.g. `"Win+Alt+J"`. Empty = off. Live. |
+| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"` or `"dusk"`; anything else is graphite. Live. |
 | `output_folder` | none | Drop Vault results folder; unset or missing = next to the source. |
 | `allow_list` / `deny_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"` / always get game mode while in front. |
 
@@ -114,6 +125,11 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[downloads] enabled` / `folder` | `true` / none | Show browser downloads as tasks (switching on starts the watcher; off hides its tasks until restart) / folder to watch (default Downloads; read at startup). |
 | `[calendar] enabled` / `lead_min` | `false` / `10` | Heads-up before the next event (off by default: titles are private; switching on starts reading; off drops heads-ups until restart) / minutes before the start. |
 | `[timer] sound` | `true` | Ring when a timer ends until **Stop alarm** (2 min max). |
+| `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
+| `[panes] notes` / `todo` / `weather` | `true` | Show that pane's tab. |
+| `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
+| `[media] lyrics` | `false` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
+| `[breaks] eyes_min` / `stretch_min` / `water_min` | `0` / `0` / `0` | Minutes between each reminder; 0 = off. |
 | `[timer] break_min` / `long_break_min` / `rounds` | `5` / `15` / `2` | Short and long break lengths; every `rounds`-th Focus is followed by a long break, and a Focus or Break timer shows that many round dots. |
 
 ## The timer's persistence

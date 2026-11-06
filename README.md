@@ -25,12 +25,16 @@ It never steals focus, idles at almost no CPU, and uses under 20 MB of RAM. It i
 - **Shows dev servers.** Anything on `localhost:3000`, `5173`, `8080` and friends appears with **Open**, **Stop** and, for servers started from a tracked command, **Restart**.
 - **Holds files (the shelf).** Drop files or text on the pill, switch windows, drag them back out. Win+Shift+S screenshots land there too.
 - **Quick file actions.** Shrink an image, make a PDF, strip location data, OCR, tidy JSON, decode a JWT, timestamp, base64, URL or hex colour, make a QR code.
-- **Controls music**, with a draggable timeline.
+- **Controls music**, with a draggable timeline, lyrics and a sleep timer ("stop playing in 30 min") that fades the volume out.
 - **Quick controls.** Mute all microphones (red lock on the pill), mute speakers, keep the PC awake, per-app volume.
-- **Timer and focus sessions.** Countdown or Pomodoro; collapsed, it burns down as a thin fuse along the pill.
+- **Timer and focus sessions.** Countdown or Pomodoro. A focus session turns on Windows Do Not Disturb, holds Hytte's own alerts and tells you what you missed in one line; collapsed, it shows as a thin line along the pill.
+- **Notes and a to-do list.** Type something and press Enter; a note lasts 24 hours or is kept. A hotkey opens Notes with the cursor ready.
+- **Weather.** Pick a town (suggestions as you type) and see now plus the next hours. Nothing is fetched while the pane is closed.
+- **Break reminders.** Eyes (20-20-20), stretch and water nudges as a small card on the pill, never a popup, and never in a meeting, a game or a focus session.
+- **Skins.** Five colour themes for the pill.
 - **Alerts.** Browser downloads, runaway CPU or memory hogs (**Kill** / **Ignore**), your next meeting (optional, **Join** button), camera and mic dots, battery and power mode on laptops.
 - **Gets out of the way.** A game or fullscreen app makes it vanish and stop touching input (no FPS cost). A maximised or snapped window, or fullscreen video, shrinks it to a hairline.
-- **Safe to share.** It can stay out of screenshots, recordings and calls, and tokens or passwords in a command show as `•••`.
+- **Safe to share.** One setting (`hide_from_capture`) keeps it out of screenshots, recordings and calls, and tokens or passwords in a command show as `•••`. New installs show the pill in screenshots; installs from before 1.7 keep whatever they had.
 - **Updates itself** in place, and **`hytte doctor`** tells you what's set up and how to fix what isn't.
 
 ## Install
@@ -183,8 +187,10 @@ monitor = "primary"       # "primary", "active", "cursor" or a number
 hotkey = ""               # e.g. "Win+Alt+N": opens the pill for keyboard use
 open_on = "hover"         # or "click"
 fullscreen = "line"       # "line", "hide" or "off" (games always hide)
-hide_from_capture = true  # keep the pill out of screenshots and screen share
+hide_from_capture = false # true keeps the pill out of screenshots and screen share
 quiet_hours = ""          # no sounds, e.g. "22:00-07:00"
+note_hotkey = ""          # e.g. "Win+Alt+J": opens Notes with the cursor ready
+skin = "graphite"         # "graphite", "aurora", "ember", "moss" or "dusk"
 allow_list = []           # apps that never make Hytte back off
 deny_list = []            # apps that always get game mode
 
@@ -197,6 +203,25 @@ show_all = false
 
 [calendar]
 enabled = false           # off by default: event titles are private
+
+[panes]
+notes = true              # tabs in the pill; switch any off
+todo = true
+weather = true
+
+[weather]
+units = "auto"            # "auto" (follow Windows), "metric" or "imperial"
+
+[media]
+lyrics = false            # looks songs up on lrclib.net (sends title and artist)
+
+[breaks]
+eyes_min = 0              # minutes between reminders; 0 = off
+stretch_min = 0
+water_min = 0
+
+[timer]
+focus_dnd = true          # a focus session turns on Windows Do Not Disturb
 ```
 
 **Keyboard:** set `hotkey`, press it, then **Left / Right** switch panes, **Tab** highlights buttons, **Enter** presses, **Esc** closes and returns focus.

@@ -57,7 +57,8 @@ Key methods: `layout()` (scene from the model; sets every spring target); `kick(
 | `WM_MOUSEMOVE` | While scrubbing: sets volume or timeline knob (`scrub_to`) and nothing else. Otherwise updates the pointer, starts leave-tracking, starts or cancels hover timers (`hover_delay_ms` 0 opens at once; `open_on = "click"` never starts them), starts a tile drag past 4 px, and redraws for hover effects. |
 | `WM_MOUSELEAVE` | Clears the pointer and arms the collapse timer. |
 | `WM_HOTKEY` | `hotkey`: enter or leave [keyboard mode](#keyboard). `monitor_hotkey` (id 2): `Ui::next_monitor`. |
-| `WM_KEYDOWN` / `WM_KILLFOCUS` | Keyboard mode keys (Esc, Left/Right, Tab, Enter/Space) / ends keyboard mode without taking focus back. |
+| `WM_KEYDOWN` / `WM_KILLFOCUS` | Keyboard mode keys (Esc, Left/Right, Tab, Enter/Space) / ends keyboard mode (and typing) without taking focus back. While a text field has focus, `WM_KEYDOWN` goes to `Ui::typing_key` instead. |
+| `WM_CHAR` | A typed character (UTF-16 unit; an emoji arrives as two) into the focused text field, via `Ui::type_char`. |
 | `WM_MOUSEWHEEL` | Over the volume bar or **Sound** tile: volume, 2 % a notch. Over an app's bar: that app. Over the shelf row: scrolls a tile per notch. Over a task list with more rows than `task_rows`: a row per notch (at either end the wheel pages again). On the timer card: minutes. Otherwise a mouse wheel (whole 120 notches) pages the panes (down = next), not while the settings pane is open. A precision touchpad's vertical scroll (fractional deltas, as do free-spin wheels) does nothing there, so a two-finger scroll can't flip panes. |
 | `WM_MOUSEHWHEEL` | Touchpad swipe or tilt wheel: next pane right, previous left, one per swipe; a collapsed pill peeks 3 s. |
 | `WM_SETCURSOR` | Hand cursor over clickable regions. |
@@ -93,6 +94,8 @@ All are one-shot Win32 timers (the handler kills the timer first).
 | `T_FS` | 150 ms | Foreground change or move | Follows the monitor, re-evaluates fullscreen, re-asserts topmost (not over a game), follows the virtual desktop. |
 | `T_TRIM` | 30 s | A frame finds nothing moving | If still settled, trims the working set ([section 12](12-performance.md)). |
 | `T_GPU` | 1 s doubling to 30 s | GPU rebuild failed | Retries `rebuild_gpu` ([section 8](08-rendering-and-animation.md#the-gpu-renderer)). |
+| `T_CARET` | 530 ms | A text field takes focus, and after every blink | Toggles the caret and re-arms, while a field has focus; otherwise leaves it shown and stops. |
+| `T_PLACE` | 250 ms | The weather place field changed | Runs the place search for what is typed (`Ui::place_search`). |
 | `T_SHOT` | 60 ms while a screenshot awaits Ctrl+V (`delete_after_paste`, ≤ 10 min), else 1 s while screenshots are on the shelf and `screenshot_secs` ≠ 0 | A screenshot was shelved | `Ui::tick_shots`: removes expired and pasted screenshots; re-arms while any is pending. |
 
 ## Clicks and actions
@@ -112,6 +115,10 @@ While drawing, the renderer records **hit regions** (`Hit { rect, action }`, [se
 | `ShelfTile`, `RemoveShelf`, `ShelfOp` | Select / remove a tile / queue a Drop Vault job ("Working…"). |
 | `TimerMinutes`, `TimerNudge`, `TimerStart`, `TimerBreak`, `TimerAdd`, `TimerPause`, `TimerStop`, `TimerDismiss` | Timer controls (preset, − / +, start timer or focus, offered break, **+5** (on the finished card, a new 5 min timer), ring pause/resume, Stop, Stop alarm / Dismiss). Changes to a running timer save to `timer.json`. |
 | `SetPowerMode` | Sets the Windows power mode. |
+| `Field(f)`, `NoteKeep`, `ToggleJot`, `EditJot`, `KeepJot`, `DeleteJot`, `UndoJot` | Focus a text field and place the caret / the 24 h / Keep switch / tick a to-do / edit an item in the field / keep a temporary note / delete (Undo for 6 s). |
+| `PickPlace`, `ChangePlace`, `CancelPlace`, `RetryWeather` | Weather: choose a suggestion, open the chooser, close it, fetch again. |
+| `NudgeSnooze`, `NudgeSkip` | Break reminder: ten minutes later / done. |
+| `SleepMenu`, `SleepSet`, `SleepCancel`, `LyricsOpen`, `LyricsClose`, `LyricsRetry` | The Media pane's sleep timer chips and lyrics page. |
 
 Every action ends with `after_model_change`.
 
@@ -135,6 +142,22 @@ The hotkey enters **keyboard mode** (`Ui::toggle_keyboard`): the pill remembers 
 | Esc, or the hotkey | Closes the pill and returns focus. |
 
 Clicking another window ends keyboard mode without taking focus back (`WM_KILLFOCUS`). The ring is drawn by `Renderer::hit` for the region whose index equals `Frame::focus`, only in the live scene.
+
+## Typing
+
+A text field (Notes, To-do, the weather place) is drawn by Hytte, since a native edit control can't draw into the composition surface. Clicking it (`Action::Field`) or pressing `[general] note_hotkey` (hotkey id 3, which opens Notes) calls `Ui::begin_typing`: the foreground window is remembered in `kb`, the pill is held open and takes focus, exactly as keyboard mode does, and a click places the caret (`Renderer::field_byte_at`). Esc, a click elsewhere or leaving the pane ends it and hands focus back (`end_keyboard`).
+
+| Key | Does |
+|---|---|
+| Characters | Typed in (`WM_CHAR`); control characters are ignored. |
+| Left / Right / Home / End | Move the caret; Shift extends the selection, Ctrl jumps by word. |
+| Backspace / Delete | Delete (Ctrl: by word). |
+| Ctrl+A / C / X / V | Select all / copy / cut / paste (line breaks become spaces). |
+| Up / Down | In the place field: move the highlighted suggestion. |
+| Enter | Save the note or to-do; in the place field take the highlighted place. |
+| Esc | Stop typing, give focus back. |
+
+Limit: an IME's composition window appears where Windows puts it by default, not beside the caret.
 
 ## Drag and drop
 

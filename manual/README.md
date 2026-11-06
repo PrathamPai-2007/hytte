@@ -11,7 +11,7 @@ New here? Read the first two pages, then pick what you need.
 | [3. Your terminal](03-terminal.md) | Seeing long commands on the pill. |
 | [4. AI agents](04-ai-agents.md) | Following Claude Code, Codex and others, and answering their prompts. |
 | [5. Shelf and file actions](05-shelf.md) | Parking files, and one-click image, text and PDF tools. |
-| [6. Everyday tools](06-everyday-tools.md) | Music, quick controls, timer, dev servers and alerts. |
+| [6. Everyday tools](06-everyday-tools.md) | Music and lyrics, quick controls, timer and focus mode, notes, to-dos, weather, break reminders, dev servers and alerts. |
 | [7. Settings](07-settings.md) | Changing how Hytte looks and behaves. |
 | [8. Updates and troubleshooting](08-updates-and-troubleshooting.md) | Staying current, fixing problems, and uninstalling. |
 

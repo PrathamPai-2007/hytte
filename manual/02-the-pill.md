@@ -1,6 +1,6 @@
 # 2. The pill
 
-Hytte never takes keyboard focus on its own, so it won't interrupt your typing.
+Hytte never takes keyboard focus on its own, so it won't interrupt your typing. The one exception is when you click a text field (Notes, To-do, the weather search) or press the Notes hotkey: then you can type, and **Esc** (or a click elsewhere) hands focus back to the window you were in.
 
 ## Opening and closing
 
@@ -17,6 +17,7 @@ The icons along the bottom switch between panes. Only panes with something to sh
 | **Shelf** | Files you've parked. |
 | **Media** | What's playing. |
 | **Home** | Quick controls. Always there. |
+| **Notes**, **To-do**, **Weather** | Things you type, and the forecast. See [Everyday tools](06-everyday-tools.md). You can hide any of them in [Settings](07-settings.md). |
 | **Tasks** | Running commands, agents and dev servers. |
 | **Timer** | A running timer. |
 | **Power** | Battery and power mode, on laptops. |
@@ -44,6 +45,8 @@ Right-clicking the pill opens the timer card.
 | Blue `i` card | Your next meeting. |
 | Battery that fills / drains | You plugged in / unplugged the charger. |
 | Green bell card | A timer finished. |
+| Small card with a ring, drop or figure | A break reminder: look away, drink, stretch. |
+| Thin pale line along the pill | A focus session is running. |
 | Thin grey line | A window is covering the pill's spot. Point at the line to bring it back. |
 
 | Idle | Quick controls | Music | Timer |
@@ -58,7 +61,7 @@ Right-clicking the pill opens the timer card.
 | A maximised or snapped window | Shrinks to the thin line. |
 | Fullscreen video | Shrinks to the thin line, so the controls around it stay clickable. |
 
-The pill also stays out of screenshots, recordings and screen shares by default, and tokens or passwords in a command show as `•••`.
+New installs show the pill in screenshots. If you'd rather keep it out of screenshots, recordings and screen shares, switch on `hide_from_capture` ([Settings](07-settings.md#editing-configtoml)); installs from before 1.7 already have it on. Tokens or passwords in a command show as `•••` either way.
 
 If a game isn't detected, or an app makes Hytte back off when it shouldn't, see [Settings](07-settings.md#fullscreen-apps-and-games).
 

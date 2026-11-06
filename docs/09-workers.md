@@ -19,6 +19,9 @@ Each worker watches one part of the system and reports changes to the UI thread 
 | Config | `config.rs` | Directory change notification | `Config` ([section 11](11-configuration-and-files.md#live-reload)) |
 | Terminal tabs | `tabs.rs` | Command channel | none (answers commands) |
 | Thumbnails | `shelf.rs` | One short-lived thread per tile | `Thumb` |
+| Place search, forecast | `weather.rs` | One short-lived thread per request, only while the Weather pane is showing | `Places`, `Forecast` |
+| Lyrics | `lyrics.rs` | One short-lived thread per song, only with the lyrics page open | `Lyrics` |
+| Sleep fade | `sleep.rs` | One thread from the fade's start to the pause (≤ 20 s) | none |
 
 Drop Vault workers and shelf staging are in [section 10](10-shelf-and-drop-vault.md). Also event-driven: the window listens for clipboard changes (`AddClipboardFormatListener` → `WM_CLIPBOARDUPDATE`) to shelve Snipping Tool screenshots, whose short stay and delete-after-paste run on `T_SHOT` ([section 7](07-window-and-input.md#timers)).
 
@@ -113,6 +116,20 @@ UIA calls are cross-process and slow, so they run on this dedicated thread. At m
 ## Shelf thumbnails
 
 For each visible shelf tile without one, `Ui::request_thumbs` starts a short-lived thread calling `shelf::thumbnail(path)`: the shell's `IShellItemImageFactory` (Explorer's thumbnails or the file-type icon) at 64 × 64, fixing bitmaps with no alpha and centring in the tile, then `UiEvent::Thumb`. Each item is requested at most once.
+
+## Weather, lyrics and fetching (`net.rs`)
+
+`net::fetch(url, out, secs, max_bytes)` runs System32's `curl.exe` by absolute path (no HTTP stack is linked), HTTPS only in release builds, with a User-Agent of `hytte/<version>`; the updater, the weather and the lyrics all use it. `net::encode` percent-encodes query values as UTF-8.
+
+**Weather** uses Open-Meteo's geocoding and forecast endpoints (free for non-commercial use, CC BY 4.0, which is why the pane credits it). Nothing runs while the pane is closed. **Lyrics** use lrclib.net: `/api/get` with title, artist, album and length, then with title and artist alone, then `/api/search`. A 404 is "no such song"; any other failure is "can't reach".
+
+## The sleep fade (`sleep.rs`)
+
+The thread initialises COM, finds the player's audio session (`pick_exe` over `mic::apps`), reads its volume with `mic::app_volume`, writes `sleep-restore.txt`, steps the volume down once a second, pauses the player (`media::Cmd::Pause`, `TryPauseAsync`: it never starts playback), waits a moment and puts the volume back. `sleep::cancel` stops it and restores the volume at once. The ignored tests `manual_sessions` and `manual_fade` try it on a real player.
+
+## Do Not Disturb (`dnd.rs`)
+
+A Focus session writes `NOC_GLOBAL_SETTING_TOASTS_ENABLED = 0` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings` and reads it back. Microsoft's own `FocusSessionManager.TryStartFocusSession` needs a Limited Access Feature token, so it isn't used. The value is undocumented; tested on Windows 11 26H2, where it writes, reads back and restores, but a screenshot test could not show a toast banner being suppressed (the control run with the switch off showed none either), so the visible effect is confirmed by hand. `dnd-restore.txt` holds the earlier value while a session runs.
 
 ## Adding a worker
 

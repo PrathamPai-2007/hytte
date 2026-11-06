@@ -31,8 +31,10 @@ hotkey = ""               # e.g. "Win+Alt+N": opens the pill for keyboard use
 monitor_hotkey = ""       # e.g. "Win+Alt+M": moves the pill to the next monitor
 open_on = "hover"         # or "click"
 fullscreen = "line"       # "line", "hide" or "off" (games always hide unless "off")
-hide_from_capture = true  # keep the pill out of screenshots and screen share
+hide_from_capture = false # true keeps the pill out of screenshots and screen share
 quiet_hours = ""          # no sounds, e.g. "22:00-07:00"
+note_hotkey = ""          # e.g. "Win+Alt+J": opens Notes with the cursor ready
+skin = "graphite"         # "graphite", "aurora", "ember", "moss" or "dusk"
 output_folder = 'C:\Users\you\Hytte output'  # where file actions save; leave out to save next to the file
 allow_list = []           # apps that never make Hytte back off
 deny_list = []            # apps that always count as a game
@@ -49,6 +51,25 @@ show_all = false
 
 [calendar]
 enabled = false           # off by default: event titles are private
+
+[panes]
+notes = true              # switch a pane's tab off here
+todo = true
+weather = true
+
+[weather]
+units = "auto"            # "auto" (follow Windows), "metric" or "imperial"
+
+[media]
+lyrics = false            # looks songs up on lrclib.net
+
+[breaks]
+eyes_min = 0              # minutes between reminders; 0 = off
+stretch_min = 0
+water_min = 0
+
+[timer]
+focus_dnd = true          # a focus session turns on Windows Do Not Disturb
 ```
 
 A hotkey needs at least one of `Win`, `Ctrl`, `Alt` or `Shift`, plus one key.
