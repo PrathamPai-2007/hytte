@@ -19,12 +19,29 @@ pub enum Conv {
     Decode,
     /// Turn a text snippet (a link, a Wi-Fi code, a note) into a QR code image to scan.
     Qr,
+    /// Copy an image as a `data:` URI (base64), to paste into HTML, CSS or JSON.
+    Base64,
+    /// Copy an image as a Markdown image link to its file.
+    Markdown,
     /// The per-type default (prettify JSON, copy text, reveal path...).
     Auto,
 }
 
 /// Size target of the "Make under N MB" chip.
 pub const TARGET_MB: u64 = 5;
+
+/// Images bigger than this don't offer "Copy as base64": the text would be unwieldy.
+pub const BASE64_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+/// The "copy as" chips for an image file: base64 only when it is small enough.
+fn copy_as(path: &Path) -> Vec<(&'static str, Conv)> {
+    let mut v = vec![];
+    if std::fs::metadata(path).is_ok_and(|m| m.len() <= BASE64_MAX_BYTES) {
+        v.push(("Copy as base64", Conv::Base64));
+    }
+    v.push(("Copy as Markdown", Conv::Markdown));
+    v
+}
 
 /// Chips offered for a shelf item, in order.
 pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
@@ -34,17 +51,25 @@ pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
         .unwrap_or("")
         .to_ascii_lowercase();
     match ext.as_str() {
-        "png" | "jpg" | "jpeg" => vec![
-            ("Compress", Conv::Under(TARGET_MB)),
-            ("To PDF", Conv::Pdf),
-            ("Remove metadata", Conv::Clean),
-            ("Read text", Conv::Ocr),
-        ],
-        "webp" | "bmp" => vec![
-            ("Compress", Conv::Under(TARGET_MB)),
-            ("To PDF", Conv::Pdf),
-            ("Read text", Conv::Ocr),
-        ],
+        "png" | "jpg" | "jpeg" => [
+            vec![
+                ("Compress", Conv::Under(TARGET_MB)),
+                ("To PDF", Conv::Pdf),
+                ("Remove metadata", Conv::Clean),
+                ("Read text", Conv::Ocr),
+            ],
+            copy_as(path),
+        ]
+        .concat(),
+        "webp" | "bmp" => [
+            vec![
+                ("Compress", Conv::Under(TARGET_MB)),
+                ("To PDF", Conv::Pdf),
+                ("Read text", Conv::Ocr),
+            ],
+            copy_as(path),
+        ]
+        .concat(),
         "json" | "yaml" | "yml" => vec![("Format", Conv::Auto)],
         "txt" => match decode_label(path) {
             Some(l) => vec![
@@ -101,6 +126,23 @@ pub fn run(op: Conv, src: &Path) -> Outcome {
             },
             None => Outcome::msg("Nothing to decode"),
         },
+        Conv::Base64 => match std::fs::read(src) {
+            Ok(b) if b.len() as u64 <= BASE64_MAX_BYTES => Outcome {
+                summary: format!(
+                    "Copied as a data URI ({})",
+                    crate::convert::fmt_size(b.len() as u64)
+                ),
+                open: None,
+                copy: Some(format!("data:{};base64,{}", mime_of(src), base64(&b))),
+            },
+            Ok(_) => Outcome::msg("Too big to copy as base64 (over 2 MB)"),
+            Err(e) => Outcome::msg(format!("Can't read the file: {e}")),
+        },
+        Conv::Markdown => Outcome {
+            summary: "Copied as a Markdown image".into(),
+            open: None,
+            copy: Some(markdown_image(src)),
+        },
         Conv::Qr => match std::fs::read_to_string(src) {
             Ok(text) => match qr_png(text.trim()) {
                 Ok(img) => {
@@ -120,6 +162,60 @@ pub fn run(op: Conv, src: &Path) -> Outcome {
         },
         Conv::Auto => transform_file(src),
     }
+}
+
+/// Standard base64 (RFC 4648, padded).
+pub fn base64(bytes: &[u8]) -> String {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            out.push(if i <= c.len() {
+                B64[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
+
+fn mime_of(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    }
+}
+
+/// `![name](C:/path/to/name.png)`: forward slashes, spaces escaped, so it pastes into most
+/// Markdown editors.
+pub fn markdown_image(path: &Path) -> String {
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image")
+        .replace(['[', ']'], "");
+    let link = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace(' ', "%20")
+        .replace('[', "%5B")
+        .replace(']', "%5D")
+        .replace('(', "%28")
+        .replace(')', "%29");
+    format!("![{name}]({link})")
 }
 
 /// A QR code for `text` as a black-on-white image: 8 px per module with the 4-module quiet
@@ -783,7 +879,13 @@ mod tests {
         };
         assert_eq!(
             labels("a.JPG"),
-            ["Compress", "To PDF", "Remove metadata", "Read text"]
+            [
+                "Compress",
+                "To PDF",
+                "Remove metadata",
+                "Read text",
+                "Copy as Markdown" // no such file, so no base64 offer
+            ]
         );
         assert_eq!(labels("a.json"), ["Format"]);
         assert_eq!(labels("a.zip"), ["Copy path"]);
@@ -815,5 +917,35 @@ mod tests {
         assert!(chips_for(Path::new("a.txt"))
             .iter()
             .any(|c| c.0 == "QR code"));
+    }
+
+    #[test]
+    fn images_copy_as_base64_and_markdown() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(
+            markdown_image(Path::new(r"C:\My Pics\cat [1].png")),
+            "![cat 1](C:/My%20Pics/cat%20%5B1%5D.png)"
+        );
+        let dir = std::env::temp_dir().join(format!("hytte-copyas-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let small = dir.join("s.png");
+        std::fs::write(&small, b"png-bytes").unwrap();
+        let o = run(Conv::Base64, &small);
+        assert_eq!(
+            o.copy.as_deref(),
+            Some("data:image/png;base64,cG5nLWJ5dGVz")
+        );
+        let big = dir.join("big.jpg");
+        std::fs::write(&big, vec![0u8; BASE64_MAX_BYTES as usize + 1]).unwrap();
+        let labels = |p: &Path| chips_for(p).iter().map(|c| c.0).collect::<Vec<_>>();
+        assert!(labels(&small).contains(&"Copy as base64"));
+        assert!(!labels(&big).contains(&"Copy as base64"));
+        assert!(labels(&big).contains(&"Copy as Markdown"));
+        assert!(run(Conv::Base64, &big).copy.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
