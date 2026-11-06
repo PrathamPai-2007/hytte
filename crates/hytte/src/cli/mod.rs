@@ -137,6 +137,30 @@ fn start_daemon() -> bool {
     false
 }
 
+/// Rust's spawn only finds `.exe` on PATH, so `npm` (really `npm.cmd`) fails. For a bare name,
+/// look through PATH with PATHEXT; the full path then goes to `Command`, which escapes
+/// arguments for batch files itself. Anything else is passed through unchanged.
+fn find_program(name: &str) -> std::path::PathBuf {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    find_in(name, &path, &exts).unwrap_or_else(|| name.into())
+}
+
+fn find_in(name: &str, path: &std::ffi::OsStr, pathext: &str) -> Option<std::path::PathBuf> {
+    if name.contains(['\\', '/', ':', '.']) {
+        return None;
+    }
+    for dir in std::env::split_paths(path) {
+        for ext in pathext.split(';').filter(|e| !e.is_empty()) {
+            let full = dir.join(format!("{name}{ext}"));
+            if full.is_file() {
+                return Some(full);
+            }
+        }
+    }
+    None
+}
+
 fn cmd_run(args: &[String]) {
     // Split at `--`.
     let dash = args.iter().position(|a| a == "--");
@@ -182,7 +206,7 @@ fn cmd_run(args: &[String]) {
     // capture only on failure via a second lightweight approach:
     // instead, run with piped stderr + passthrough via tee in-thread.
     // Simplest honest approach: inherit stdout, pipe stderr, forward it.
-    let mut child = Command::new(&cmd_args[0])
+    let mut child = Command::new(find_program(&cmd_args[0]))
         .args(&cmd_args[1..])
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -190,9 +214,14 @@ fn cmd_run(args: &[String]) {
             let mut fail = tag(HytteMessage::start(id.clone(), truncated.clone()));
             fail.event = TaskEvent::Failed;
             fail.duration_ms = Some(t0.elapsed().as_millis() as u64);
-            fail.stderr_tail = Some(format!("spawn failed: {e}"));
+            let why = if e.kind() == std::io::ErrorKind::InvalidInput {
+                format!("{e} (an argument can't be passed safely to a .cmd/.bat file)")
+            } else {
+                e.to_string()
+            };
+            fail.stderr_tail = Some(format!("spawn failed: {why}"));
             let _ = send_msg(&fail);
-            eprintln!("hytte: spawn failed: {e}");
+            eprintln!("hytte: spawn failed: {why}");
             std::process::exit(127);
         });
 
@@ -385,5 +414,28 @@ pub fn run(args: &[String]) {
         "kill" => portscmd::kill_cmd(&args[1..]),
         "setup" => cmd_setup(&args[1..]),
         _ => usage(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_in;
+
+    #[test]
+    fn finds_cmd_through_pathext_but_leaves_paths_alone() {
+        let dir = std::env::temp_dir().join(format!("hytte-find-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("fakenpm.cmd"), "").unwrap();
+        let path = std::env::join_paths([&dir]).unwrap();
+        // The extension keeps PATHEXT's case; Windows file names don't care.
+        let found = find_in("fakenpm", &path, ".COM;.EXE;.BAT;.CMD").unwrap();
+        assert!(found
+            .to_string_lossy()
+            .to_lowercase()
+            .ends_with("fakenpm.cmd"));
+        assert_eq!(find_in("missing", &path, ".CMD"), None);
+        assert_eq!(find_in("fakenpm.cmd", &path, ".CMD"), None);
+        assert_eq!(find_in(r"C:\tools\x", &path, ".CMD"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
