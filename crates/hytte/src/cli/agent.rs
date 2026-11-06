@@ -113,6 +113,20 @@ pub fn ask_text(payload: &serde_json::Value) -> Option<String> {
     Some(format!("{flag}{text}"))
 }
 
+/// The text of an `AskUserQuestion` request, if that is what the payload is.
+fn question_text(payload: &serde_json::Value) -> Option<String> {
+    if payload.get("tool_name")?.as_str()? != "AskUserQuestion" {
+        return None;
+    }
+    let q = payload
+        .get("tool_input")?
+        .get("questions")?
+        .get(0)?
+        .get("question")?
+        .as_str()?;
+    Some(q.chars().take(300).collect())
+}
+
 /// `PermissionRequest` hook output (Claude Code, Codex) for an answer given on the pill.
 /// `message` is only read with a deny: it tells the agent why.
 pub fn decision_json(allow: bool) -> serde_json::Value {
@@ -135,20 +149,43 @@ pub fn describe_tool(payload: &serde_json::Value) -> Option<String> {
     let file = || {
         field("file_path")
             .or_else(|| field("notebook_path"))
-            .map(|p| p.rsplit(['\\', '/']).next().unwrap_or(p).to_string())
+            .map(|p| {
+                // Folder and name: "src/render.rs", so two files with one name can be told apart.
+                let mut parts = p.rsplit(['\\', '/']).filter(|s| !s.is_empty());
+                let name = parts.next().unwrap_or(p);
+                parts
+                    .next()
+                    .map_or(name.into(), |dir| format!("{dir}/{name}"))
+            })
     };
     let text = match tool {
         "Edit" | "MultiEdit" | "NotebookEdit" => format!("Editing {}", file()?),
         "Write" => format!("Writing {}", file()?),
         "Read" => format!("Reading {}", file()?),
-        "Bash" => format!("Running: {}", field("command")?.lines().next()?.trim()),
+        "Bash" => {
+            // The first line with something on it: a command can start with blank lines.
+            let first = field("command")?
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())?;
+            format!("Running: {first}")
+        }
         "Grep" => format!("Searching: {}", field("pattern")?),
         "Glob" => format!("Finding {}", field("pattern")?),
         "WebFetch" => format!("Fetching {}", field("url")?),
         "WebSearch" => "Searching the web".to_string(),
         "Task" | "Agent" => format!("Subagent: {}", field("description").unwrap_or("working")),
-        // MCP tools are named mcp__server__tool.
-        other => format!("Using {}", other.rsplit("__").next().unwrap_or(other)),
+        // MCP tools are named mcp__server__tool; show who runs it and a short view of the input.
+        other => match other.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
+            Some((server, tool)) => {
+                let args = input
+                    .filter(|i| i.as_object().is_some_and(|o| !o.is_empty()))
+                    .map(|i| format!(" {}", i.to_string().chars().take(60).collect::<String>()))
+                    .unwrap_or_default();
+                format!("Using {server}: {tool}{args}")
+            }
+            None => format!("Using {other}"),
+        },
     };
     let text: String = text.chars().take(120).collect();
     (!text.trim().is_empty()).then_some(text)
@@ -244,8 +281,16 @@ fn report(
     ask: impl Fn(&Ask) -> Option<bool>,
 ) {
     if sub == "ask" {
+        let payload = payload_from_stdin();
+        // A question for the human is not a yes/no: Allow would answer nothing. Show it as
+        // waiting; clicking the row goes to the terminal, where it is answered.
+        if let Some(q) = payload.as_ref().and_then(question_text) {
+            o.message = Some(q);
+            let _ = send(&build(TaskEvent::NeedsInput, &o));
+            return;
+        }
         // No answer (no daemon, timeout, dismissed): print nothing, so Claude asks in the terminal.
-        let Some(text) = payload_from_stdin().as_ref().and_then(ask_text) else {
+        let Some(text) = payload.as_ref().and_then(ask_text) else {
             return;
         };
         let q = Ask {
@@ -355,13 +400,13 @@ mod tests {
             say(
                 serde_json::json!({"tool_name": "Edit", "tool_input": {"file_path": r"C:\src\render.rs"}})
             ),
-            Some("Editing render.rs".into())
+            Some("Editing src/render.rs".into())
         );
         assert_eq!(
             say(
                 serde_json::json!({"tool_name": "Read", "tool_input": {"file_path": "/home/me/lib.rs"}})
             ),
-            Some("Reading lib.rs".into())
+            Some("Reading me/lib.rs".into())
         );
         assert_eq!(
             say(
@@ -375,7 +420,30 @@ mod tests {
         );
         assert_eq!(
             say(serde_json::json!({"tool_name": "mcp__github__create_issue", "tool_input": {}})),
-            Some("Using create_issue".into())
+            Some("Using github: create_issue".into())
+        );
+        assert_eq!(
+            say(
+                serde_json::json!({"tool_name": "mcp__github__create_issue", "tool_input": {"title": "x"}})
+            ),
+            Some(r#"Using github: create_issue {"title":"x"}"#.into())
+        );
+        // Leading blank lines don't hide the command.
+        assert_eq!(
+            say(
+                serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "\n\n  git push\n"}})
+            ),
+            Some("Running: git push".into())
+        );
+        assert_eq!(
+            question_text(
+                &serde_json::json!({"tool_name": "AskUserQuestion", "tool_input": {"questions": [{"question": "Which one?"}]}})
+            ),
+            Some("Which one?".into())
+        );
+        assert_eq!(
+            question_text(&serde_json::json!({"tool_name": "Bash"})),
+            None
         );
         // A tool we describe by its input, but the input is missing: say nothing rather than guess.
         assert_eq!(
