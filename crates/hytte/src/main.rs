@@ -78,6 +78,11 @@ fn main() {
         std::process::exit(0);
     };
     update::cleanup();
+    // Debug builds only: a crash on every start, to see the relaunch limit work.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("HYTTE_TEST_PANIC").is_some() {
+        panic!("HYTTE_TEST_PANIC");
+    }
 
     let cfg = config::load();
     // A mistake in the file is said once the window is up, and written to the log now.
