@@ -51,8 +51,7 @@ Two workflows in `.github/workflows/`, both on `windows-latest` with a Rust cach
   1. `version.ps1 check <tag>` (a mismatching tag fails before building), then the same three checks;
   2. `cargo build --release --workspace`; check `hytte.exe --version` says the tag's version;
   3. zip `hytte.exe` into `hytte-<version>-x64.zip`;
-  4. sign `hytte.exe` with `MINISIGN_SECRET_KEY` into `hytte.exe.minisig` (needed only because 1.6.0 installs refuse a release without it; [section 15](15-updates.md#signing));
-  5. create the GitHub release "Hytte v<version>" with three assets: the zip, for people, and the bare **`hytte.exe`** plus its **`hytte.exe.minisig`**, which the in-app updater downloads. Release notes are generated from the commits.
+  4. create the GitHub release "Hytte v<version>" with two assets: the zip, for people, and the bare **`hytte.exe`**, which the in-app updater downloads. Release notes are generated from the commits.
 
 A **dry run** (*dry_run* ticked) does everything except publishing and committing.
 

@@ -5,6 +5,7 @@ What changed in each version, newest first. Each version ends with a short note 
 ## Unreleased
 
 - **A user manual**, in [`manual/`](../manual/README.md). The tray's new **Help** item opens it.
+- **Releases are no longer signed.** Hytte 1.6.0 needs a manual download to move on from it ([section 15](15-updates.md#signing)).
 
 ## 1.6.1
 

@@ -31,18 +31,9 @@ Windows 10 1803+ ships `curl.exe` in `System32`. Using it by absolute path from 
 
 ## Signing
 
-Hytte is **not** code-signed (no Authenticode certificate), so SmartScreen may warn about a freshly downloaded `hytte.exe`. Updates are also **not** signature-checked by current versions. Version 1.6.0 verifies a minisign signature (`hytte.exe.minisig`) against a key compiled into it, so the release job **keeps signing** every release with `MINISIGN_SECRET_KEY` (public key `RWRhYIiFU0f4WrWEqRoBmoQycFtz0quv7vxbJLiej9Q6XuKDS/hCx/ZP`): without that asset a 1.6.0 install refuses the update. Trust otherwise rests on HTTPS to GitHub and the `--version` check.
+Hytte is **not** code-signed (no Authenticode certificate), so SmartScreen may warn about a freshly downloaded `hytte.exe`. Updates are not signature-checked: trust rests on HTTPS to GitHub and the `--version` check.
 
-### Dropping the signature
-
-A release without `hytte.exe.minisig` strands every install still on 1.6.0: `latest` fails its check, so the daily check stays silent and only a manual download gets it moving. Only 1.6.0 downloads that asset, so its count shows how many installs have moved on. Add the counts for every release after 1.6.0 and compare them with the 1.6.0 downloads:
-
-```powershell
-gh release view v1.6.1 --json assets --jq '.assets[] | select(.name == "hytte.exe.minisig") | .downloadCount'
-gh release view v1.6.0 --json assets --jq '.assets[] | "\(.name) \(.downloadCount)"'
-```
-
-The `drop-signing` branch removes the signing step. When the numbers look right, merge it before tagging. After that release is out, run `gh secret delete MINISIGN_SECRET_KEY`. That can't be undone unless the key file still exists, and without the key nothing can reach a 1.6.0 install automatically.
+Version 1.6.0 was the exception. It required a minisign signature, so releases up to this one carried `hytte.exe.minisig`. Releases no longer do, so a 1.6.0 install can't update itself and needs a manual download.
 
 ## Releasing so the updater can see it
 

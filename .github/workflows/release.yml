@@ -38,25 +38,6 @@ jobs:
           if ($got -ne "hytte $v") { throw "tag v$v but the exe reports '$got'; bump crates/hytte/Cargo.toml" }
           Compress-Archive target\release\hytte.exe "hytte-$v-x64.zip"
           Copy-Item target\release\hytte.exe hytte.exe
-      # 1.6.0 installs only run a download whose minisign signature checks out against the
-      # public key built into the exe; later versions don't check, but must still be signable. The secret key lives only in this repository's secrets.
-      - name: Sign hytte.exe
-        shell: pwsh
-        env:
-          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
-        run: |
-          if (-not $env:MINISIGN_SECRET_KEY) { throw "the MINISIGN_SECRET_KEY secret is not set" }
-          cargo install rsign2 --version 0.6.7 --locked
-          $key = Join-Path $env:RUNNER_TEMP "hytte.key"
-          Set-Content -Path $key -Value $env:MINISIGN_SECRET_KEY -Encoding ascii
-          rsign sign -W -s $key -x hytte.exe.minisig -t "hytte.exe" hytte.exe
-          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
-          Remove-Item $key
-          # What was just signed must verify with the key that is compiled into the exe.
-          # The key every 1.6.0 install trusts. Keep signing: 1.6.0 refuses a release without hytte.exe.minisig.
-          $pub = "RWRhYIiFU0f4WrWEqRoBmoQycFtz0quv7vxbJLiej9Q6XuKDS/hCx/ZP"
-          rsign verify hytte.exe -x hytte.exe.minisig -P $pub
-          if ($LASTEXITCODE -ne 0) { throw "the signature doesn't verify with the 1.6.0 public key" }
       # hytte.exe on its own is what the in-app updater downloads; the zip is for people.
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         if: ${{ !inputs.dry_run }}
@@ -66,7 +47,6 @@ jobs:
           files: |
             hytte-*-x64.zip
             hytte.exe
-            hytte.exe.minisig
           generate_release_notes: true
 
   # The winget manifest needs the SHA-256 of the zip that was just published. Take it from the
