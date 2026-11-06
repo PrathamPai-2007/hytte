@@ -177,6 +177,11 @@ impl Ui {
                     self.update_offer = Some((tag, note));
                     self.show_update(now);
                 }
+                UiEvent::Forecast(r) => self.model.forecast_result(r, now),
+                UiEvent::Places(seq, q, r) if seq == self.place_seq => {
+                    self.model.places_result(q, r)
+                }
+                UiEvent::Places(..) => {}
                 UiEvent::Notice(text, tone) => {
                     let mut c = Chip::new(text, now);
                     c.tone = tone;
@@ -245,6 +250,7 @@ impl Ui {
         }
         self.model.rounds = new.timer.rounds;
         self.model.apply_panes(&new.panes);
+        self.model.imperial = crate::weather::imperial(&new.weather.units);
         let monitor_changed = new.general.monitor != self.cfg.general.monitor
             || new.general.pill_scale != self.cfg.general.pill_scale;
         let general = new.general != self.cfg.general;

@@ -27,6 +27,7 @@ mod jot;
 mod logging;
 mod media;
 mod mic;
+mod net;
 mod perf;
 mod pipe_server;
 mod ports;
@@ -52,6 +53,7 @@ mod transforms;
 mod tray;
 mod ui_state;
 mod update;
+mod weather;
 mod window;
 #[cfg(windows)]
 mod winrt;

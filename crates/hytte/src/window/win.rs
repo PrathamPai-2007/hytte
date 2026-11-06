@@ -33,6 +33,7 @@ mod actions;
 mod controls;
 mod dnd;
 mod events;
+mod forecast;
 mod frame;
 mod input;
 mod shots;
@@ -61,6 +62,7 @@ const T_TRIM: usize = 6;
 const T_GPU: usize = 7;
 const T_SHOT: usize = 8;
 const T_CARET: usize = 9;
+const T_PLACE: usize = 10;
 /// Idle this long (no frames) before the working set is trimmed.
 const TRIM_MS: u32 = 30_000;
 
@@ -305,6 +307,8 @@ struct Ui {
     caret_on: bool,
     /// The first half of a typed emoji, waiting for its second.
     high: Option<u16>,
+    /// Counts place-field edits; a search result for an older one is ignored.
+    place_seq: u64,
     /// Hash of the last screenshot shelved from the clipboard: the Snipping Tool can
     /// announce one image more than once.
     last_snip: u64,
@@ -606,6 +610,7 @@ pub fn run_windows(
             ringing: false,
             caret_on: true,
             high: None,
+            place_seq: 0,
             last_snip: 0,
             dim: 1.0,
             snip_seq: 0,
@@ -624,6 +629,8 @@ pub fn run_windows(
         ui.model.task_rows = ui.cfg.general.task_rows;
         ui.model.pin_button = ui.cfg.general.pin_button;
         ui.model.init_jot(&crate::jot::path());
+        ui.model.weather_place = crate::weather::Place::load();
+        ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
         ui.model.apply_panes(&ui.cfg.panes.clone());
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())

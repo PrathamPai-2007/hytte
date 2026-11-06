@@ -51,6 +51,13 @@ impl Ui {
             }
             Action::DeleteJot(id) => self.model.delete_jot(id, Instant::now()),
             Action::UndoJot => self.model.undo_jot(),
+            Action::PickPlace(i) => self.pick_place(hwnd, i),
+            Action::ChangePlace => self.change_place(hwnd),
+            Action::CancelPlace => {
+                self.model.choosing = false;
+                self.end_keyboard(true);
+            }
+            Action::RetryWeather => self.model.weather_retry = None,
             Action::ToggleMic => self.toggle_mic(),
             Action::ToggleSpeaker => {
                 if let Some(s) = crate::mic::toggle_speaker() {

@@ -93,37 +93,9 @@ fn release_from_json(body: &[u8]) -> Result<Release, String> {
     })
 }
 
-/// Runs System32's curl.exe without a window. `out` = save to this file, else return the body.
+/// Downloads with `net::fetch`. `out` = save to this file, else return the body.
 fn curl(url: &str, out: Option<&Path>) -> Result<Vec<u8>, String> {
-    let exe = std::env::var_os("SystemRoot")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
-        .join(r"System32\curl.exe");
-    let mut cmd = Command::new(exe);
-    cmd.args(["-fsSL", "--max-time", "120", "--max-filesize", "67108864"]);
-    if !cfg!(debug_assertions) {
-        // HTTPS only, including after a redirect.
-        cmd.args(["--proto", "=https", "--proto-redir", "=https"]);
-    }
-    cmd.arg("-H")
-        .arg(format!("User-Agent: hytte/{CURRENT}"))
-        .arg(url);
-    if let Some(p) = out {
-        cmd.arg("-o").arg(p);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let o = cmd
-        .output()
-        .map_err(|e| format!("couldn't run curl.exe: {e}"))?;
-    if !o.status.success() {
-        let err = String::from_utf8_lossy(&o.stderr);
-        return Err(format!("download failed: {}", err.trim()));
-    }
-    Ok(o.stdout)
+    crate::net::fetch(url, out, 120, 67_108_864)
 }
 
 fn latest() -> Result<Release, String> {

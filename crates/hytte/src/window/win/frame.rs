@@ -100,6 +100,7 @@ impl Ui {
         // `nav` only applies to the layout it was set for.
         self.anim.nav = 0.0;
         self.kick();
+        self.weather_refresh();
     }
 
     pub(super) fn frame(&mut self, hwnd: HWND) {

@@ -365,17 +365,4 @@ impl Renderer {
             );
         }
     }
-
-    /// Placeholder until the forecast is wired up.
-    pub(super) fn exp_weather(&self, _fr: &Frame, w: f32, _h: f32) {
-        self.text(
-            "Weather",
-            &self.f.center,
-            0.0,
-            12.0,
-            w,
-            34.0,
-            self.cc(self.fg(), 0.9),
-        );
-    }
 }

@@ -836,3 +836,108 @@ fn jot_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// Weather: the place chooser in each state, then every sky, loading, offline and stale.
+#[test]
+#[ignore]
+fn weather_snapshots() {
+    use crate::ui_state::Field;
+    use crate::weather::{Forecast, Hour, Place};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    let place = |n: &str, reg: &str| Place {
+        name: n.into(),
+        region: reg.into(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+    let bergen = place("Bergen", "Vestland, Norway");
+    let fc = |code: u8, day: bool, codes: [u8; 5], age_min: u64| Forecast {
+        place: bergen.clone(),
+        fetched_ms: wall - age_min * 60_000,
+        now: Hour {
+            hour: 14,
+            temp: 11.4,
+            code,
+            day,
+        },
+        hi: 14.2,
+        lo: 7.6,
+        next: (0..5)
+            .map(|i| Hour {
+                hour: 15 + i as u8,
+                temp: 12.0 + (i as f32) * 0.4 - if i > 3 { 2.5 } else { 0.0 },
+                code: codes[i],
+                day: i < 3,
+            })
+            .collect(),
+    };
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(Instant::now());
+        m.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+        let s = |r: &mut Renderer, n: &str, m: &Model| {
+            shoot(r, &dir, &format!("{n}{sfx}"), m, Scene::ExpWeather, light)
+        };
+        // Place chooser: nothing typed, typing, matches, no match, searching, offline.
+        s(&mut r, "weather-ask", &m);
+        m.typing = Some(Field::Place);
+        m.place_edit.set("b");
+        s(&mut r, "weather-ask-short", &m);
+        m.place_edit.set("ber");
+        m.places = vec![
+            place("Berlin", "State of Berlin, Germany"),
+            place("Bergen", "Vestland, Norway"),
+            place("Bern", "Switzerland"),
+            place("Bergamo", "Lombardy, Italy"),
+        ];
+        m.places_for = "ber".into();
+        m.place_sel = 1;
+        s(&mut r, "weather-ask-matches", &m);
+        m.places.clear();
+        m.place_edit.set("zzzz");
+        m.places_for = "zzzz".into();
+        s(&mut r, "weather-ask-none", &m);
+        m.places_busy = true;
+        s(&mut r, "weather-ask-searching", &m);
+        m.places_busy = false;
+        m.places_err = true;
+        s(&mut r, "weather-ask-offline", &m);
+        // A place is chosen.
+        let mut m = model();
+        m.now = Some(Instant::now());
+        m.weather_place = Some(bergen.clone());
+        s(&mut r, "weather-loading", &m);
+        m.weather_err = true;
+        s(&mut r, "weather-failed", &m);
+        m.weather_err = false;
+        for (name, code, day, codes) in [
+            ("rain", 61u8, true, [61, 3, 3, 2, 1]),
+            ("sunny", 0, true, [0, 0, 1, 2, 1]),
+            ("night", 0, false, [0, 0, 1, 2, 3]),
+            ("partly-night", 2, false, [2, 2, 3, 3, 0]),
+            ("cloud", 3, true, [3, 3, 45, 3, 3]),
+            ("snow", 73, true, [73, 71, 3, 3, 0]),
+            ("thunder", 95, true, [95, 80, 61, 3, 2]),
+            ("fog", 45, true, [45, 45, 3, 2, 0]),
+        ] {
+            m.forecast = Some(fc(code, day, codes, 5));
+            s(&mut r, &format!("weather-{name}"), &m);
+        }
+        m.forecast = Some(fc(61, true, [61, 3, 3, 2, 1], 95));
+        s(&mut r, "weather-stale", &m);
+        m.weather_err = true;
+        s(&mut r, "weather-stale-offline", &m);
+        m.weather_err = false;
+        m.imperial = true;
+        m.forecast = Some(fc(61, true, [61, 3, 3, 2, 1], 5));
+        s(&mut r, "weather-fahrenheit", &m);
+        // Changing the place keeps the old one to fall back on.
+        m.choosing = true;
+        s(&mut r, "weather-change", &m);
+    }
+    contact_sheet(&dir);
+}

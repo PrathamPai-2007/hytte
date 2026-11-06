@@ -355,22 +355,16 @@ impl Default for Panes {
     }
 }
 
-/// The Weather pane's place. `place`, `lat` and `lon` are set from the pane itself.
+/// The Weather pane. The place itself is chosen in the pane and kept in `place.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Weather {
-    pub place: String,
-    pub lat: f64,
-    pub lon: f64,
     /// "auto" (follow Windows), "metric" or "imperial".
     pub units: String,
 }
 impl Default for Weather {
     fn default() -> Self {
         Self {
-            place: String::new(),
-            lat: 0.0,
-            lon: 0.0,
             units: "auto".into(),
         }
     }

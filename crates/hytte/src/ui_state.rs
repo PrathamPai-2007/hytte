@@ -47,6 +47,10 @@ pub const CHARGE_HOLD: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone)]
 pub enum UiEvent {
     Task(TaskUpdate),
+    /// Place search results for the query typed when search number `0` was current.
+    Places(u64, String, Result<Vec<crate::weather::Place>, String>),
+    /// A forecast arrived (or the fetch failed).
+    Forecast(Result<crate::weather::Forecast, String>),
     Media(Option<MediaInfo>),
     MediaArt(Option<Arc<ArtBitmap>>),
     Privacy(bool, bool, Option<String>),
@@ -526,6 +530,43 @@ pub struct Model {
     pub jot_undo: Option<(crate::jot::Jot, Instant)>,
     /// First list row in view in Notes / To-do when there are more than `JOT_ROWS`.
     pub jot_first: usize,
+    /// The chosen place, and what is known about its weather.
+    pub weather_place: Option<crate::weather::Place>,
+    pub forecast: Option<crate::weather::Forecast>,
+    pub weather_busy: bool,
+    /// The last forecast fetch failed.
+    pub weather_err: bool,
+    /// Don't fetch again before this (after a failure).
+    pub weather_retry: Option<Instant>,
+    /// The place chooser is showing (always, while no place is chosen).
+    pub choosing: bool,
+    pub places: Vec<crate::weather::Place>,
+    pub place_sel: usize,
+    pub places_busy: bool,
+    pub places_err: bool,
+    /// The query `places` answers.
+    pub places_for: String,
+    /// Show Fahrenheit.
+    pub imperial: bool,
+}
+
+/// How long to wait after a failed forecast fetch before trying again.
+pub const WEATHER_RETRY: Duration = Duration::from_secs(60);
+
+/// The glow that follows the sky: warm for a sunny day, indigo for a clear night, blue for rain.
+fn sky_glow(h: crate::weather::Hour) -> ([f32; 3], f32) {
+    use crate::weather::Sky;
+    match (crate::weather::sky(h.code), h.day) {
+        (Sky::Clear, true) => ([1.0, 0.80, 0.40], 0.30),
+        (Sky::Clear, false) => ([0.55, 0.58, 1.0], 0.30),
+        (Sky::Partly, true) => ([0.75, 0.85, 1.0], 0.22),
+        (Sky::Partly, false) => ([0.55, 0.60, 0.90], 0.22),
+        (Sky::Cloud, _) => ([0.70, 0.75, 0.85], 0.20),
+        (Sky::Fog, _) => ([0.80, 0.80, 0.85], 0.18),
+        (Sky::Rain, _) => ([0.35, 0.63, 1.0], 0.38),
+        (Sky::Snow, _) => ([0.85, 0.92, 1.0], 0.35),
+        (Sky::Thunder, _) => ([0.65, 0.54, 0.98], 0.45),
+    }
 }
 
 /// A text field on the pill that can take keyboard focus.
@@ -953,6 +994,110 @@ impl Model {
         self.typing = Some(f);
     }
 
+    /// The Weather pane shows its place chooser (no place yet, or changing it).
+    pub fn choosing_place(&self) -> bool {
+        self.choosing || self.weather_place.is_none()
+    }
+
+    /// Height of the Weather pane without the tab strip.
+    pub fn weather_h(&self) -> f64 {
+        if self.choosing_place() {
+            let rows = self.places.len().max(1) as f64;
+            38.0 + 34.0 + 4.0 + rows * 28.0 + 8.0
+        } else if self.forecast.is_some() {
+            148.0
+        } else {
+            120.0
+        }
+    }
+
+    /// Should the forecast be fetched now? A place is chosen, nothing is in flight, the data is
+    /// old (or missing) and a recent failure isn't being waited out.
+    pub fn want_forecast(&self, wall_ms: u64, now: Instant) -> bool {
+        self.weather_place.is_some()
+            && !self.choosing_place()
+            && !self.weather_busy
+            && self.weather_retry.is_none_or(|t| now >= t)
+            && self.forecast.as_ref().is_none_or(|f| !f.fresh(wall_ms))
+    }
+
+    /// A forecast fetch finished. One for a place that was changed since is dropped.
+    pub fn forecast_result(&mut self, r: Result<crate::weather::Forecast, String>, now: Instant) {
+        self.weather_busy = false;
+        match r {
+            Ok(f) if self.weather_place.as_ref() == Some(&f.place) => {
+                self.forecast = Some(f);
+                self.weather_err = false;
+                self.weather_retry = None;
+            }
+            Ok(_) => {}
+            Err(_) => {
+                self.weather_err = true;
+                self.weather_retry = Some(now + WEATHER_RETRY);
+            }
+        }
+    }
+
+    /// Search results. Ones for text that is no longer in the field are dropped.
+    pub fn places_result(&mut self, query: String, r: Result<Vec<crate::weather::Place>, String>) {
+        if self.place_edit.text().trim() != query {
+            return;
+        }
+        self.places_busy = false;
+        self.places_for = query;
+        match r {
+            Ok(p) => {
+                self.places = p;
+                self.places_err = false;
+                self.place_sel = 0;
+            }
+            Err(_) => {
+                self.places.clear();
+                self.places_err = true;
+            }
+        }
+    }
+
+    /// Move the highlighted suggestion.
+    pub fn place_move(&mut self, by: i32) {
+        if !self.places.is_empty() {
+            self.place_sel =
+                (self.place_sel as i32 + by).clamp(0, self.places.len() as i32 - 1) as usize;
+        }
+    }
+
+    /// Choose suggestion `i`: the chooser closes and the forecast starts over.
+    pub fn pick_place(&mut self, i: usize) -> Option<crate::weather::Place> {
+        let p = self.places.get(i)?.clone();
+        self.weather_place = Some(p.clone());
+        self.forecast = None;
+        self.weather_err = false;
+        self.weather_retry = None;
+        self.close_chooser();
+        Some(p)
+    }
+
+    fn close_chooser(&mut self) {
+        self.choosing = false;
+        self.places.clear();
+        self.places_busy = false;
+        self.places_err = false;
+        self.place_edit.clear();
+    }
+
+    /// Open the chooser to change the place.
+    pub fn start_choosing(&mut self) {
+        self.choosing = true;
+        self.close_chooser_fields();
+    }
+
+    fn close_chooser_fields(&mut self) {
+        self.places.clear();
+        self.places_busy = false;
+        self.places_err = false;
+        self.place_edit.clear();
+    }
+
     /// Typing ended (Esc, clicked away): a half-made edit of an existing item is dropped, a
     /// draft for a new one stays.
     pub fn end_typing(&mut self) {
@@ -960,6 +1105,10 @@ impl Model {
             if let Some(f) = self.typing {
                 self.edit_mut(f).clear();
             }
+        }
+        // Leaving the place field with a place already chosen means "keep it".
+        if self.typing == Some(Field::Place) && self.weather_place.is_some() {
+            self.close_chooser();
         }
         self.typing = None;
     }
@@ -1341,7 +1490,7 @@ impl Model {
             Scene::ExpHome => (380.0, 136.0 + tab + self.apps_h()),
             Scene::ExpPower => (380.0, 112.0 + tab),
             Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
-            Scene::ExpWeather => (380.0, 150.0 + tab),
+            Scene::ExpWeather => (380.0, self.weather_h() + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
             Scene::ExpChip => (380.0, 96.0),
@@ -1413,6 +1562,10 @@ impl Model {
                 _ => ([1.0; 3], 0.10),
             },
             Scene::ExpTasks if self.visible_count() == 0 => ([1.0; 3], 0.10),
+            Scene::ExpWeather if self.forecast.is_some() && !self.choosing_place() => self
+                .forecast
+                .as_ref()
+                .map_or(([1.0; 3], 0.10), |f| sky_glow(f.now)),
             Scene::CompactMedia
             | Scene::ExpMedia
             | Scene::ExpHome

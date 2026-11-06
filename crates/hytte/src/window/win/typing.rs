@@ -8,8 +8,8 @@
 use super::*;
 use crate::ui_state::Field;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT,
-    VK_RETURN, VK_RIGHT, VK_SHIFT,
+    GetKeyState, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME,
+    VK_LEFT, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_UP,
 };
 
 /// Half a caret blink.
@@ -125,7 +125,9 @@ impl Ui {
     /// After the text changed: caret on, redraw, and let the field's owner react.
     fn edited(&mut self, hwnd: HWND, f: Field) {
         self.reset_caret(hwnd);
-        self.field_changed(f);
+        if f == Field::Place {
+            self.place_typed(hwnd);
+        }
         self.after_model_change(hwnd);
     }
 
@@ -148,6 +150,10 @@ impl Ui {
             VK_RETURN => {
                 self.enter_field(hwnd, f);
                 return;
+            }
+            VK_UP | VK_DOWN if f == Field::Place => {
+                self.model
+                    .place_move(if VIRTUAL_KEY(vk) == VK_DOWN { 1 } else { -1 });
             }
             VK_LEFT => self.model.edit_mut(f).left(shift, ctrl),
             VK_RIGHT => self.model.edit_mut(f).right(shift, ctrl),
@@ -186,24 +192,11 @@ impl Ui {
             Field::Note | Field::Todo => {
                 self.model.submit_jot(f);
             }
-            Field::Place => self.place_enter(),
+            Field::Place => self.place_enter(hwnd),
         }
         self.reset_caret(hwnd);
         self.after_model_change(hwnd);
     }
-
-    /// The text of a field changed.
-    fn field_changed(&mut self, f: Field) {
-        if f == Field::Place {
-            self.place_typed();
-        }
-    }
-
-    /// Weather's place field changed: look up suggestions. (Wired up with the forecast.)
-    fn place_typed(&mut self) {}
-
-    /// Enter in the place field. (Wired up with the forecast.)
-    fn place_enter(&mut self) {}
 }
 
 /// Text on the clipboard, if any.

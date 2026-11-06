@@ -41,6 +41,7 @@ mod settings_table;
 mod shelf;
 mod tasks;
 mod timer;
+mod weather;
 
 pub use settings_table::*;
 
@@ -137,6 +138,14 @@ pub enum Action {
     KeepJot(u64),
     DeleteJot(u64),
     UndoJot,
+    /// A suggestion in the Weather place chooser.
+    PickPlace(usize),
+    /// The place name in the Weather pane: choose another place.
+    ChangePlace,
+    /// Close the place chooser and keep the current place.
+    CancelPlace,
+    /// Fetch the forecast again after a failure.
+    RetryWeather,
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.

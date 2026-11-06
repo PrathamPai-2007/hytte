@@ -304,6 +304,7 @@ pub(super) unsafe extern "system" fn wndproc(
                 }
                 T_EXPIRE | T_TIMER => ui.after_model_change(hwnd),
                 T_CARET => ui.caret_tick(hwnd),
+                T_PLACE => ui.place_search(),
                 T_TRIM => {
                     if !ui.shared.animating.load(Ordering::SeqCst) {
                         // Drops cold pages (decoder and COM leftovers); they fault back in on use.
