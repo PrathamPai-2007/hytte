@@ -100,7 +100,7 @@ impl Tray {
         }
     }
 
-    pub fn popup(&self, paused: bool, autostart: bool, terminal: bool, agents: bool) {
+    pub fn popup(&self, paused: bool, autostart: bool, terminal: bool, agents: bool, multi: bool) {
         use windows::core::w;
         use windows::Win32::UI::WindowsAndMessaging::*;
         unsafe {
@@ -119,6 +119,9 @@ impl Tray {
             let _ = AppendMenuW(menu, chk(autostart), 13, w!("Launch at startup"));
             let _ = AppendMenuW(menu, chk(terminal), 14, w!("Set up terminal integration"));
             let _ = AppendMenuW(menu, chk(agents), 16, w!("Connect AI agents"));
+            if multi {
+                let _ = AppendMenuW(menu, MF_STRING, 17, w!("Move to next monitor"));
+            }
             let _ = AppendMenuW(menu, MF_STRING, 11, w!("Open settings folder"));
             let _ = AppendMenuW(menu, MF_STRING, 15, w!("Check for updates…"));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
@@ -142,5 +145,13 @@ impl Tray {
     pub fn add(&mut self) {}
     pub fn refresh(&self) {}
     pub fn remove(&mut self) {}
-    pub fn popup(&self, _paused: bool, _autostart: bool, _terminal: bool, _agents: bool) {}
+    pub fn popup(
+        &self,
+        _paused: bool,
+        _autostart: bool,
+        _terminal: bool,
+        _agents: bool,
+        _multi: bool,
+    ) {
+    }
 }

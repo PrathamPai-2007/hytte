@@ -9,8 +9,9 @@ pub struct General {
     pub autostart: bool,
     /// Put the folder holding `hytte.exe` on the user's PATH at startup.
     pub add_to_path: bool,
-    /// Which monitor the pill hangs from: "primary", "active" (the foreground window's) or
-    /// "cursor" (under the pointer; re-checked when the foreground window changes).
+    /// Which monitor the pill hangs from: "primary", "active" (the foreground window's),
+    /// "cursor" (under the pointer; re-checked when the foreground window changes) or a number
+    /// ("1", "2", ...: the monitors from left to right). "Next monitor" sets the number.
     pub monitor: String,
     /// Tint the media glow with the album art's dominant colour.
     pub adaptive_glow: bool,
@@ -43,6 +44,8 @@ pub struct General {
     pub task_rows: usize,
     /// Global hotkey that opens the pill for keyboard use, e.g. "Win+Alt+N". Empty = off.
     pub hotkey: String,
+    /// Global hotkey that sends the pill to the next monitor, e.g. "Win+Alt+M". Empty = off.
+    pub monitor_hotkey: String,
     /// "dark" (default), "light", or "auto" (follow the Windows app theme).
     pub theme: String,
     /// Over a maximised window or a fullscreen video: "line" (shrink to a hairline), "hide",
@@ -140,6 +143,7 @@ impl Default for General {
             quiet_hours: String::new(),
             task_rows: 4,
             hotkey: String::new(),
+            monitor_hotkey: String::new(),
             theme: "auto".into(),
             fullscreen: "line".into(),
             output_folder: None,

@@ -88,6 +88,7 @@ mod win {
     const WM_DRAG_ARM: u32 = 0x8005;
     const WM_DRAG_END: u32 = 0x8006;
     const HOTKEY_ID: i32 = 1;
+    const MONITOR_HOTKEY_ID: i32 = 2;
 
     const T_DWELL: usize = 1;
     const T_COLLAPSE: usize = 2;
@@ -693,9 +694,31 @@ mod win {
                             primary
                         }
                     }
-                    _ => primary,
+                    n => match n.parse::<usize>() {
+                        Ok(i) if i >= 1 => monitors().get(i - 1).copied().unwrap_or(primary),
+                        _ => primary,
+                    },
                 }
             }
+        }
+
+        /// "Next monitor": hang the pill from the next monitor (left to right, then round to the
+        /// first), and keep that choice in `config.toml` so it survives a restart.
+        fn next_monitor(&mut self) {
+            const INDEX: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
+            let all = monitors();
+            if all.len() < 2 {
+                return;
+            }
+            let here = all
+                .iter()
+                .position(|m| m.0 as isize == self.hmon)
+                .unwrap_or(0);
+            let next = (here + 1) % all.len().min(INDEX.len());
+            self.cfg.general.monitor = INDEX[next].into();
+            let _ = crate::config::set("general.monitor", crate::config::Val::S(INDEX[next]));
+            self.refresh_monitor();
+            self.kick();
         }
 
         /// Move the pill to another monitor when `[general] monitor` says it should follow.
@@ -944,7 +967,8 @@ mod win {
         /// state derived from the config needs refreshing. Lowering `[shelf] max_items` keeps
         /// the tiles already there and only limits new ones.
         fn apply_config(&mut self, new: Config) {
-            let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey;
+            let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey
+                || new.general.monitor_hotkey != self.cfg.general.monitor_hotkey;
             if new.general.hide_from_capture != self.cfg.general.hide_from_capture {
                 set_capture_hidden(
                     HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _),
@@ -1171,29 +1195,33 @@ mod win {
             use windows::Win32::UI::Input::KeyboardAndMouse::{
                 RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT,
             };
-            unsafe {
-                let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
-                let spec = &self.cfg.general.hotkey;
-                // A game may want the same chord: give it back while one is in front.
-                if spec.is_empty() || self.gaming {
-                    return;
-                }
-                match crate::config::parse_hotkey(spec) {
-                    Some((mods, vk)) => {
-                        if RegisterHotKey(
-                            Some(hwnd),
-                            HOTKEY_ID,
-                            HOT_KEY_MODIFIERS(mods) | MOD_NOREPEAT,
-                            vk,
-                        )
-                        .is_err()
-                        {
-                            crate::logging::line(&format!(
-                                "hotkey {spec}: already taken by another app"
-                            ));
-                        }
+            for (id, spec) in [
+                (HOTKEY_ID, &self.cfg.general.hotkey),
+                (MONITOR_HOTKEY_ID, &self.cfg.general.monitor_hotkey),
+            ] {
+                unsafe {
+                    let _ = UnregisterHotKey(Some(hwnd), id);
+                    // A game may want the same chord: give it back while one is in front.
+                    if spec.is_empty() || self.gaming {
+                        continue;
                     }
-                    None => crate::logging::line(&format!("hotkey {spec}: not understood")),
+                    match crate::config::parse_hotkey(spec) {
+                        Some((mods, vk)) => {
+                            if RegisterHotKey(
+                                Some(hwnd),
+                                id,
+                                HOT_KEY_MODIFIERS(mods) | MOD_NOREPEAT,
+                                vk,
+                            )
+                            .is_err()
+                            {
+                                crate::logging::line(&format!(
+                                    "hotkey {spec}: already taken by another app"
+                                ));
+                            }
+                        }
+                        None => crate::logging::line(&format!("hotkey {spec}: not understood")),
+                    }
                 }
             }
         }
@@ -2591,6 +2619,40 @@ mod win {
         }
     }
 
+    /// The monitors, left to right (then top to bottom): "monitor 2" means the same one each time.
+    fn monitors() -> Vec<HMONITOR> {
+        use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC};
+        unsafe extern "system" fn each(
+            m: HMONITOR,
+            _: HDC,
+            _: *mut RECT,
+            list: LPARAM,
+        ) -> windows::core::BOOL {
+            // SAFETY: `list` is the Vec passed to EnumDisplayMonitors below.
+            unsafe { (*(list.0 as *mut Vec<HMONITOR>)).push(m) };
+            true.into()
+        }
+        let mut list: Vec<HMONITOR> = vec![];
+        // SAFETY: the callback runs inside this call, while `list` is alive.
+        unsafe {
+            let _ =
+                EnumDisplayMonitors(None, None, Some(each), LPARAM(&mut list as *mut _ as isize));
+        }
+        let origin = |m: &HMONITOR| {
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            // SAFETY: mi is a correctly sized out-struct.
+            unsafe {
+                let _ = GetMonitorInfoW(*m, &mut mi);
+            }
+            (mi.rcMonitor.left, mi.rcMonitor.top)
+        };
+        list.sort_by_key(origin);
+        list
+    }
+
     fn reduce_motion() -> bool {
         unsafe {
             let mut on = windows::core::BOOL(1);
@@ -3244,7 +3306,11 @@ mod win {
                 return LRESULT(0);
             }
             0x0312 /* WM_HOTKEY */ => {
-                with_ui(|ui| ui.toggle_keyboard(hwnd));
+                if wparam.0 as i32 == MONITOR_HOTKEY_ID {
+                    with_ui(|ui| ui.next_monitor());
+                } else {
+                    with_ui(|ui| ui.toggle_keyboard(hwnd));
+                }
                 return LRESULT(0);
             }
             WM_KEYDOWN => {
@@ -3291,7 +3357,13 @@ mod win {
                         .unwrap_or((false, false));
                     let terminal = crate::setup::is_set_up();
                     let agents = crate::agents::is_connected();
-                    crate::tray::Tray::new(hwnd).popup(paused, auto, terminal, agents);
+                    crate::tray::Tray::new(hwnd).popup(
+                        paused,
+                        auto,
+                        terminal,
+                        agents,
+                        monitors().len() > 1,
+                    );
                 }
                 return LRESULT(0);
             }
@@ -3320,6 +3392,9 @@ mod win {
                     14 => crate::setup::tray_setup(),
                     16 => crate::agents::tray(),
                     15 => crate::update::check_now(),
+                    17 => {
+                        with_ui(|ui| ui.next_monitor());
+                    }
                     13 => {
                         with_ui(|ui| {
                             let g = &mut ui.cfg.general;
