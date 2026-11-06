@@ -75,7 +75,7 @@ Three methods do most of the work:
 | `WM_DRAG_ARM` / `WM_DRAG_END` (custom) | A drag entered the top-edge zone / the button was released. |
 | `WM_MOUSEMOVE` | While the volume bar or timeline is dragged, sets the volume or moves the timeline knob (`scrub_to`) and nothing else. Otherwise updates the pointer, starts leave-tracking, starts or cancels the hover timers (`hover_delay_ms` 0 opens at once, `open_on = "click"` never starts them), starts a tile drag past 4 px, and redraws so hover effects follow the pointer. |
 | `WM_MOUSELEAVE` | The pointer left the window: clears it and arms the collapse timer. |
-| `WM_HOTKEY` | The `[general] hotkey` was pressed: enters or leaves [keyboard mode](#keyboard). |
+| `WM_HOTKEY` | The `[general] hotkey` was pressed: enters or leaves [keyboard mode](#keyboard). The `monitor_hotkey` (id 2) calls `Ui::next_monitor`. |
 | `WM_KEYDOWN` | In keyboard mode: Esc, Left/Right, Tab / Shift+Tab, Enter / Space. |
 | `WM_KILLFOCUS` | Ends keyboard mode without taking focus back. |
 | `WM_MOUSEWHEEL` | Over the volume bar or the **Sound** tile: the volume, 2 % per notch. Over an app's bar in the per-app list: that app, 2 % per notch. Over the shelf row: scrolls it a tile per notch (`Model::scroll_shelf`). Over the task list when it has more rows than fit (`[general] task_rows`, 4): scrolls it a row per notch; at either end the wheel pages the panes again. On the timer setup card: the minutes. Otherwise a mouse wheel (a delta in whole notches of 120) pages the panes, one per notch, down = next, as `WM_MOUSEHWHEEL` does; not while the settings pane is open. A precision touchpad's vertical scroll (fractional deltas) does nothing there, so a two-finger scroll can't flip panes by accident. Free-spin wheels that send fractions count as touchpads. |
@@ -89,7 +89,7 @@ Three methods do most of the work:
 | `WM_DISPLAYCHANGE`, `WM_DPICHANGED` | `refresh_monitor`, then re-evaluate fullscreen. |
 | `WM_SETTINGCHANGE` | Re-reads the Windows "Animation effects" setting (`reduce_motion`). |
 | `WM_TRAY` (custom) | Right-click on the tray icon: shows the menu. |
-| `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, which works on its own thread and reports in a message box), 15 Check for updates (`update::check_now`), 16 Connect AI agents (`agents::tray`, likewise). |
+| `WM_COMMAND` | Tray menu items: 10 Pause, 11 Open settings folder, 12 Quit, 13 Launch at startup, 14 Set up terminal integration (`setup::tray_setup`, which works on its own thread and reports in a message box), 15 Check for updates (`update::check_now`), 17 Move to next monitor (`Ui::next_monitor`, only listed with two or more monitors), 16 Connect AI agents (`agents::tray`, likewise). |
 | `TaskbarCreated` (registered) | Explorer restarted: re-adds the tray icon and posts `WM_FG` to re-check fullscreen. |
 | `WM_POWERBROADCAST` | Power source, charge level or resume changed: wakes the power worker (`power::poke`). On resume (`PBT_APMRESUMEAUTOMATIC`) it also posts `WM_FG`. |
 | `WM_DESTROY` | Ends the message loop (unless the window was torn down during startup). |

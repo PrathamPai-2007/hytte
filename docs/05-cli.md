@@ -11,7 +11,11 @@
 
 ## How a message is sent
 
-`send_msg` serialises a `HytteMessage` with `to_line()` (JSON plus `\n`) and opens `\\.\pipe\hytte` as a file for writing with `FILE_FLAG_WRITE_THROUGH`. It writes the line and closes the pipe. If the open fails (no daemon), it returns `false`. There is no retry and no wait, apart from `hytte run`'s auto-start described below.
+`send_msg` (through `try_send`) serialises a `HytteMessage` with `to_line()` (JSON plus `\n`, over-long text trimmed to the protocol limits) and opens this user's pipe (`\\.\pipe\hytte-<SID>`, [section 4](04-ipc-protocol.md#the-pipe)) as a file for writing with `FILE_FLAG_WRITE_THROUGH`. It writes the line and closes the pipe. The open (`open_pipe`) does three things beyond that:
+
+- **A busy pipe is retried**, every 20 ms for up to about 200 ms, so a burst of hooks doesn't drop messages. A missing pipe (no daemon) fails at once and `send_msg` returns `false`.
+- **The server must be you.** It refuses a pipe whose server process runs as another user.
+- **Busy is not missing.** `hytte run` starts a daemon (described below) only when the pipe is missing, and keeps sending progress through a busy spell.
 
 ## Subcommands
 
@@ -19,11 +23,11 @@ Dispatch is in `cli/mod.rs::run`. `hytte help` (also `-h`, `--help`) prints the 
 
 ### `hytte run [--no-progress] -- <cmd> [args...]` (`cmd_run`)
 
-1. Creates a task id (`<pid>-<unix ms>`) and a label (the command line, truncated to 128 characters).
+1. Creates a task id (`<pid>-<unix ms>`) and a label: the command line with every argument quoted the way PowerShell wants it (`quote_arg`: `git commit -m 'fix the bug'`), because **Rerun** runs the label through PowerShell. A label over 1000 bytes is cut on a character boundary and ends in `…` (`fit_label`); the pill offers no Rerun for a cut one.
 2. Sends `Start` with `pid` = the CLI process's own pid. If that fails, it starts the daemon: this same exe with no arguments, detached (`DETACHED_PROCESS | CREATE_NO_WINDOW`) and with **null stdio**, so a pipe the caller reads from (`hytte run -- x | tee`) isn't held open by the daemon. It waits up to 3 s for the pipe to appear, then sends `Start` again.
-3. Spawns the command with **stdin and stdout inherited** (the terminal behaves exactly as normal) and **stderr piped**.
+3. Looks the program up (`find_program`): a bare name like `npm` is searched on `PATH` with `PATHEXT`, so `npm`, `yarn` and other `.cmd` / `.bat` programs work (Rust's own lookup only finds `.exe`). The full path then goes to `Command`, which escapes arguments for batch files itself; an argument it refuses gives "an argument can't be passed safely to a .cmd/.bat file". Names with a path, a drive or an extension are passed through unchanged. Then it spawns the command with **stdin and stdout inherited** (the terminal behaves exactly as normal) and **stderr piped**.
 4. Copies stderr to its own stderr as **raw bytes**, as they arrive, so `\r`-redrawn progress bars draw live and output that isn't UTF-8 passes through. Alongside, it keeps the last 5 lines in a ring buffer; for a redrawn line, only the text after its last `\r`, which is what the terminal showed.
-   - Unless `--no-progress` is given, each chunk also goes through `progress::Scanner`, which reports the newest percentage it finds. It understands **OSC 9;4** sequences (`ESC ] 9 ; 4 ; 1 ; <pct>`, the ones Windows Terminal shows as a tab progress bar) and plain **`NN%`** text (1–3 digits, optional fraction, at most 100) in the current line. A new value is sent as a `Progress` message, at most every 250 ms and only when it changed. Sending stops for the rest of the run if the daemon is gone. The scanner's buffers are capped (512-byte line, 32-byte OSC body).
+   - Unless `--no-progress` is given, each chunk also goes through `progress::Scanner`, which reports the newest percentage it finds. It understands **OSC 9;4** sequences (`ESC ] 9 ; 4 ; 1 ; <pct>`, the ones Windows Terminal shows as a tab progress bar) plain **`NN%`** text (1–3 digits, optional fraction, at most 100) in the current line, and **bracketed counts** such as `[12/345]` (ninja, cmake) or `(3/25)`: N of M steps, as a percentage. Only the bracketed form counts, so a date (`12/25/2026`) or a path (`src/1/2`) never moves the bar, and there are no time estimates: a command that prints no numbers keeps its spinner. A new value is sent as a `Progress` message, at most every 250 ms and only when it changed. Sending stops for the rest of the run if the daemon is gone. The scanner's buffers are capped (512-byte line, 32-byte OSC body).
    - Whatever the setting, the newest thing the command printed is sent too, as the message's `line`: the line being drawn, else the last whole one, run through `progress::clean_line` (only the text after the last `\r`, escape sequences and control characters removed, capped at 120 characters). It goes at most every 250 ms (together with a percentage when both changed) and only when it differs from the last one sent. The expanded task row shows it live under the label, so you can see `Compiling foo v0.3.1` without opening the terminal. Only stderr is captured, as before.
    - Trade-off: a percentage in an ordinary log line (`coverage: 73%`) also moves the bar; `--no-progress` opts out. Tools that hide progress when stderr isn't a terminal need their own flag, such as `git clone --progress`. Running the child in a pseudo-console (ConPTY) would remove that limit.
 5. On exit, sends `Done` (exit code 0) or `Failed` with the exit code, the duration and the stderr tail.
@@ -31,9 +35,9 @@ Dispatch is in `cli/mod.rs::run`. `hytte help` (also `-h`, `--help`) prints the 
 
 Because the task's `pid` is the `hytte run` process, closing the terminal turns the task "lost" (see [section 4](04-ipc-protocol.md)), and clicking the row focuses the terminal hosting it.
 
-### `hytte set --progress N --label L [--task ID]` (`cmd_set`)
+### `hytte set (--progress N | --done | --fail) --label L [--task ID]` (`cmd_set`)
 
-Sends one `Progress` message with `progress = N` (0–100). Use the same `--task` on every call to update one entry; without it, every call creates a new task. No `pid` is sent, so the 30 s silence rule applies.
+With `--progress N`, sends one `Progress` message with `progress = N` (0–100). With `--done` or `--fail` (instead of `--progress`) it finishes the row: green, or red with exit code 1. A script can then end what it started with the same `--task`. Use the same `--task` on every call to update one entry; without it, every call creates a new task. No `pid` is sent, so the 30 s silence rule applies.
 
 ### `hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> [--name N] [--pid P] [--message M] [--detail D] [--ack]` (`cli/agent.rs`)
 
@@ -51,7 +55,7 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 - `needs-input` without `--message` reads **stdin** when it isn't a terminal (up to 64 KiB), parses it as JSON, and uses its `message` field (first 300 characters). That is the payload Claude Code's and Gemini CLI's `Notification` hooks pipe in.
 - `--ack` prints `{}` once the subcommand is done. Gemini CLI, Antigravity and Cursor read a hook's stdout as JSON, so their hooks pass it; Claude Code and Codex don't need it.
 
-`hytte agent tool` reports what the agent is doing *right now*, as a `Progress` update whose `line` is a short phrase. With `--detail "text"` the text is used as is; with no `--detail` it reads a Claude Code `PreToolUse` payload (`{"tool_name": ..., "tool_input": ...}`) from stdin and `describe_tool` turns it into a phrase: `Editing render.rs`, `Reading lib.rs`, `Running: cargo build`, `Searching: fn main`, `Subagent: ...`, `Using create_issue` (MCP tools), capped at 120 characters. If neither is available it sends nothing. Each agent keeps its own row (the task id is `agent:<name>:<pid>`), so two agents show two rows with their own step and elapsed time.
+`hytte agent tool` reports what the agent is doing *right now*, as a `Progress` update whose `line` is a short phrase. With `--detail "text"` the text is used as is; with no `--detail` it reads a Claude Code `PreToolUse` payload (`{"tool_name": ..., "tool_input": ...}`) from stdin and `describe_tool` turns it into a phrase: `Editing render.rs`, `Reading lib.rs`, `Running: cargo build`, `Searching: fn main`, `Subagent: ...`, `Using github: create_issue {"title":"x"}` (MCP tools: the server, the tool and a short view of the input), capped at 120 characters. A file is named with its folder (`Editing src/render.rs`), and a command's first non-blank line is shown. If neither is available it sends nothing. Each agent keeps its own row (the task id is `agent:<name>:<pid>`), so two agents show two rows with their own step and elapsed time.
 
 `hytte agent hooks claude` prints the Claude Code hooks block that `hytte setup agents` installs (`agents::claude_hooks`), with this exe's full path, for people who'd rather paste it in themselves. The pre-1.1 `--tools` and `--approve` flags are still accepted and do nothing: both hooks are always in now.
 
@@ -59,10 +63,10 @@ Sends one `Progress` message with `progress = N` (0–100). Use the same `--task
 
 `hytte agent ask` answers an agent's permission prompt from the pill. Claude Code and Codex call it from their `PermissionRequest` hook; the OpenCode plugin calls it from `permission.ask` with the same payload shape.
 
-1. It reads the `PermissionRequest` payload from stdin. `ask_text` turns the payload into one line: the `describe_tool` phrase, or `Using <tool>`.
+1. It reads the `PermissionRequest` payload from stdin. `ask_text` turns the payload into one line: the `describe_tool` phrase, or `Using <tool>`. If the request is an `AskUserQuestion` (the agent asking *you* something, not for permission), there is no yes/no to give: it sends a `NeedsInput` with the question instead, so the row shows as waiting (click it to go to the terminal), and prints nothing.
 2. If a Bash command has more than one line, the line starts with `(N lines, see terminal)`. If it is longer than 60 characters, the line starts with `(long, see terminal)`. The chip clips long text at the end, so the warning goes first, where it is always visible.
 3. It sends an [`Ask`](04-ipc-protocol.md#asking-the-human-ask-and-answer) over a read-write pipe connection (`ask_pipe` in `cli/mod.rs`) and waits up to `ASK_WAIT_SECS` + 2 s.
-4. On **Allow** or **Deny** it prints the hook decision:
+4. On **Allow** or **Deny** it prints the hook decision. The pill ignores clicks for 400 ms after an ask appears (`ASK_CLICK_GUARD`), so a double-click meant for something else can't answer it, nor the next queued one:
 
 ```json
 {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}
@@ -100,7 +104,30 @@ The daemon side: an agent's task row is `agent:<name>:<pid>`, where `pid` is the
 These talk to the OS directly through `hytte_proto::ports` and work without the daemon.
 
 - `ports` lists listeners on the default watch list (the same ports as the config default), or every non-system listener with `--all`.
-- `kill` finds the listener on that port (from all listeners), asks `Stop node.exe (pid 1234) listening on :3000? [y/N]` unless `--force` is given, then terminates the process. Pids 0–4 and the CLI's own pid are refused.
+- `kill` finds the listener on that port (from all listeners), asks `Stop node.exe (pid 1234) listening on :3000? [y/N]` unless `--force` is given, then terminates the process. Pids 0–4 and the CLI's own pid are refused, and so is a pid that no longer belongs to the exe that was listed (`ports::kill(pid, exe)`: pids are reused once a process is gone). The pill's Stop and Kill buttons apply the same check.
+
+### `hytte notify "text"` and `hytte shelf add` (`cmd_notify`, `cmd_shelf`)
+
+Two one-way requests for your own scripts, sent as a `Cmd` ([section 4](04-ipc-protocol.md#script-commands-notify-and-shelf-add)); both exit 1 with "daemon not running" when there is no pill.
+
+- `hytte notify "Build finished"` shows a card on the pill (the words after `notify` are joined; over 1024 bytes is cut). Nothing shows while Hytte is paused or a game is in front.
+- `hytte shelf add <file>...` puts files on the shelf (each path made absolute first; a missing file exits 2). With no file arguments and text piped in, the text becomes a snippet: `git diff | hytte shelf add` (up to 16 KiB; more exits 2 and says to use a file).
+
+### `hytte doctor` (`cli/doctor.rs`)
+
+Checks that everything Hytte needs is in place and says how to fix each thing that isn't. It prints one line per check, `ok`, `warn` (a suggestion) or `FAIL`, with a `fix:` line under the last two, and exits 1 if anything failed, else 0:
+
+| Check | Fails when | Fix it suggests |
+|---|---|---|
+| Version and exe path | never (information) | |
+| The pill is running | the pipe is missing, or held by another user's process | run `hytte` |
+| `hytte` on `PATH` | `hytte.exe` isn't found on this terminal's `PATH` | `hytte setup`, then a new terminal |
+| Command tracking per shell | warns when a detected PowerShell / Git Bash profile has no Hytte block | `hytte setup` |
+| PowerShell execution policy | Windows PowerShell has the hook but its policy (`Restricted`, `AllSigned`) won't load profiles | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| Each installed agent | warns when not connected; fails when its hooks point at a `hytte.exe` that is gone | `hytte setup agents` |
+| `config.toml` | `config::problem` finds a mistake or an unknown setting | edit the file |
+
+`render` and `exit_code` are pure functions with tests; `checks` gathers the facts (`setup::shell_status`, `setup::ps51_blocked`, `agents::status`).
 
 ### `hytte setup [--undo]` (`setup.rs`)
 
@@ -122,7 +149,7 @@ Before 1.0 the CLI was a separate `notch.exe`, and profile blocks ran `notch ini
 
 `init` prints a shell integration script (`powershell` and `nushell` work as aliases for `pwsh` and `nu`). The scripts live in `cli/shell/` and are embedded into the binary with `include_str!`, so the installed `hytte.exe` is always in sync with its scripts. `.gitattributes` keeps them LF even in a Windows checkout with `core.autocrlf`, since bash and zsh choke on `\r`.
 
-`hook start --id I --cmd C --pid P [--cwd D]` and `hook end --id I --code N [--duration-ms MS]` are what the bash, zsh and Nushell scripts call. They build `source = "shell"` messages (`end` maps code 0 to `Done` and anything else to `Failed`) and always exit successfully, even if the daemon is down. `--cmd` is truncated to 512 characters.
+`hook start --id I --cmd C --pid P [--cwd D]` and `hook end --id I --code N [--duration-ms MS]` are what the bash, zsh and Nushell scripts call. They build `source = "shell"` messages (`end` maps code 0 to `Done` and anything else to `Failed`) and always exit successfully, even if the daemon is down. `--cmd` is cut by `fit_label` like `hytte run`'s label (1000 bytes, `…` marks a cut one).
 
 ## How the shell integrations work
 
@@ -130,7 +157,7 @@ All four scripts follow the same idea. Send a **start** event when a command is 
 
 | Shell | "Command starts" hook | "Prompt returns" hook | How it sends |
 |---|---|---|---|
-| PowerShell (`init.ps1`) | A PSReadLine **Enter** key handler that reads the buffer, then accepts the line | A wrapped `prompt` function | Writes to the pipe **directly** with `NamedPipeClientStream` (40 ms connect timeout): no process spawn per command |
+| PowerShell (`init.ps1`) | A PSReadLine **Enter** key handler that reads the buffer, then accepts the line. Enter on an unfinished command (an open brace, a pipe at the end, a here-string) only adds a line, so it starts nothing: `__notch_incomplete` asks PowerShell's parser (`IncompleteInput`), and the row starts when the command is whole | A wrapped `prompt` function | Writes to the pipe **directly** with `NamedPipeClientStream` (40 ms connect timeout; the pipe name is `hytte-` plus the user's SID, built once): no process spawn per command |
 | bash (`init.bash`) | `trap … DEBUG` (first command of each line only; skips completion and its own functions) | `PROMPT_COMMAND` | `hytte hook …` in a background subshell |
 | zsh (`init.zsh`) | `preexec` via `add-zsh-hook` | `precmd` | `hytte hook …` in a background subshell |
 | Nushell (`init.nu`) | `hooks.pre_execution` | `hooks.pre_prompt` | `hytte hook …` via `job spawn` |
@@ -140,7 +167,8 @@ Details worth knowing:
 - Each script guards itself (`__notch_loaded`, `$global:__notch`) so sourcing it twice does nothing.
 - Under Git Bash / MSYS, `$$` is not the Windows pid. The bash and zsh scripts read `/proc/$$/winpid` so click-to-focus and liveness use the real Windows process.
 - PowerShell computes the exit code from `$?` and `$LASTEXITCODE`, and the duration with a `Stopwatch`. Two details keep it honest. A command that PowerShell recorded as **Stopped** in its history (`Get-History -Count 1`'s `ExecutionStatus`, which is what Ctrl+C leaves, for a cmdlet and for a program alike; a failing program is `Completed` and a `throw` is `Failed`) reports exit code 130, which the daemon takes as "stopped by the user" and shows nothing for. And when a cmdlet fails (a new record in `$Error`), the code is 1, not whatever `$LASTEXITCODE` the last program left. bash and zsh use whole seconds. Nushell uses `CMD_DURATION_MS`.
-- The PowerShell integration replaces any existing custom **Enter** binding.
+- The PowerShell integration replaces any existing custom **Enter** binding. Its label is cut at 250 characters (and marked `…`), the worst case of four bytes each still fitting the 1024-byte limit.
+- Terminals opened before an update keep the old script, which talks to the old pipe name: open a new terminal after updating to 1.6.0.
 - Shell tasks have no stderr tail (the shell owns the command's streams), so failures show `exit N`.
 
 ## Changing the CLI

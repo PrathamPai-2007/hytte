@@ -8,18 +8,20 @@ Code: `crates/proto/src/lib.rs` (the message type), `crates/hytte/src/pipe_serve
 
 | Property | Value | Why |
 |---|---|---|
-| Name | `\\.\pipe\hytte` (`hytte_proto::PIPE_NAME`) | One well-known name for every client. |
+| Name | `\\.\pipe\hytte-<your user's SID>` (`hytte_proto::pipe_name()`, e.g. `hytte-S-1-5-21-...-1001`) | One pipe per Windows user: two accounts can each run Hytte, and a stranger who creates the plain `hytte` name catches nothing. Before 1.6.0 the name was just `\\.\pipe\hytte`. |
 | Direction | Duplex (`PIPE_ACCESS_DUPLEX`) | Task messages are fire-and-forget; only an [`Ask`](#asking-the-human-ask-and-answer) gets a reply line back. |
 | Mode | Message mode, blocking | Simple reads; one `ReadFile` per client write. |
 | Access control | DACL `D:(A;;GA;;;OW)`: only the owner (your user account) | Other users on the machine can't inject tasks. |
 | Remote clients | Rejected (`PIPE_REJECT_REMOTE_CLIENTS`) | Nothing from the network. |
 | First instance | Created with `FILE_FLAG_FIRST_PIPE_INSTANCE` | Another process can't squat the name before Hytte starts. |
-| Instances | Up to 8 at once | Several clients can connect at the same moment. |
+| Instances | Unlimited (`PIPE_UNLIMITED_INSTANCES`) | Several clients can connect at the same moment, and pending [asks](#asking-the-human-ask-and-answer), which hold a connection for up to 30 s, can't use them all up. |
 | Max message | 64 KiB (`MAX_MESSAGE_BYTES`) | Bounded memory per connection. |
 
 The listener loop (`run_windows_loop`) creates a pipe instance, waits in `ConnectNamedPipe`, and hands each connected instance to a **new thread** that reads it until the client disconnects. It then immediately creates the next instance. One slow client can never block another.
 
-Each connection thread (`serve_connection`) reads chunks into a buffer, splits it on `\n`, and parses each non-empty line as JSON. If a single line grows past 64 KiB, the connection is dropped. A line is parsed as a `HytteMessage` first and, if that fails, as an `Ask`. A line that fails to parse or validate is ignored without a reply.
+Each connection thread (`serve_connection`) reads chunks into a buffer, splits it on `\n`, and parses each non-empty line as JSON. If a single line grows past 64 KiB, the connection is dropped. A line is parsed as a `HytteMessage` first, then as an `Ask`, then as a `Cmd` ([below](#script-commands-notify-and-shelf-add)). A line that fails to parse is ignored without a reply. A `HytteMessage` or `Cmd` that parses but fails validation (a wrong version, a text over its limit) is dropped and a line goes to `hytte.log`.
+
+**Clients check who they are talking to.** The `hytte` CLI opens the pipe through `open_pipe`, which asks Windows who runs the server (`GetNamedPipeServerProcessId`, then that process's token) and refuses the pipe unless it is the same user (`hytte_proto::sys::pipe_server_is_current_user`). So a look-alike pipe made by another account can't read commands or answer a permission request. A busy pipe (every instance taken for a moment, as in a burst of shell hooks) is retried for up to about 200 ms instead of dropping the message; a missing pipe fails at once. `hytte run` starts a daemon only when the pipe is missing, never when it is merely busy.
 
 ## Message format
 
@@ -35,7 +37,7 @@ Newline-delimited JSON: one object per line, UTF-8. A client may send several li
 | `v` | number | yes | must equal `1` | Protocol version (`PROTOCOL_VERSION`). |
 | `task_id` | string | yes | 1–128 bytes | Identifies the task; later messages with the same id update it. |
 | `event` | string | yes | see below | What happened. |
-| `label` | string | no (defaults to `""`) | ≤ 1024 bytes | Text shown in the pill. An empty label on an update keeps the previous one. |
+| `label` | string | no (defaults to `""`) | ≤ 1024 bytes | Text shown in the pill. An empty label on an update keeps the previous one. A label ending in `…` was cut by the sender: the pill doesn't offer Rerun for it. |
 | `progress` | 0–100 | no | ≤ 100 | Determinate progress. Without it the bar shimmers. |
 | `exit_code` | integer | no | | Shown as `exit N` for failed tasks without stderr. |
 | `duration_ms` | integer | no | | Shown on finished tasks. |
@@ -46,6 +48,8 @@ Newline-delimited JSON: one object per line, UTF-8. A client may send several li
 | `message` | string | no | ≤ 1024 bytes | Free text, shown in amber while `NeedsInput`. |
 | `cwd` | string | no | ≤ 1024 bytes | The working directory: where **Rerun** starts the command again. `hytte run` and every shell hook send it. |
 | `line` | string | no | ≤ 512 bytes | The command's latest output line (`hytte run` sends it), shown in mono under a running task in the expanded list. Additive: older daemons ignore it. |
+
+**Limits are applied when sending.** `HytteMessage::to_line` first trims every text field to its limit, on a character boundary (`proto::cut`), so a long agent reply, a 20 KB error tail or a long non-English command arrives shortened instead of being rejected. The daemon still validates everything it receives.
 
 `event` is one of:
 
@@ -170,12 +174,31 @@ A client can put a yes/no question on the pill and wait for the answer on the sa
 
 No reply is sent if the time runs out or the chip is dismissed, and none while Hytte is paused or in game mode (the ask is dropped on arrival, and pending ones when a game starts). Asks from several agents queue: the oldest is on the chip, marked `(1/N)` while others wait, and answering or dismissing it shows the next. Each keeps its own `ASK_WAIT_SECS` from arrival, so a queued ask that waited too long is dropped and its agent asks in the terminal. A connection carries one ask: once it is answered or dropped, the daemon flushes and hangs up, so the client learns "no answer" at once instead of waiting out its own timeout. Clients must treat a closed pipe or a timeout as "no answer". The chip is forced visible over a maximised window or fullscreen video, where the pill would otherwise be the thin line. An `Ask` line never parses as a `HytteMessage`, so an older daemon ignores it and the client sees no answer.
 
+## Script commands: `notify` and `shelf add`
+
+A one-way request that is not a task: show a card, or put something on the shelf (`hytte notify`, `hytte shelf add`; [section 5](05-cli.md)). It is a `Cmd` (`hytte_proto::Cmd`):
+
+```json
+{"v":1,"cmd":"notify","text":"Build finished"}
+{"v":1,"cmd":"shelf_add","path":"C:\\Users\\me\\report.pdf"}
+{"v":1,"cmd":"shelf_add","text":"a snippet to keep"}
+```
+
+| Field | Rules |
+|---|---|
+| `cmd` | `"notify"` or `"shelf_add"`; anything else is rejected. |
+| `text` | `notify`: 1–1024 bytes, the card text. `shelf_add`: up to 16 KiB, a snippet. |
+| `path` | `shelf_add` only, an absolute path of at most 1024 bytes; exactly one of `text` and `path`. |
+
+It has no `task_id` and no `name`, so it never parses as a `HytteMessage` or an `Ask`, and an older daemon ignores it. The daemon answers nothing. While Hytte is paused or a game is in front it does nothing (a shelf add would open the pill), a `notify` card never covers another card, and the shelf work goes through the same worker as a drop (`UiEvent::ShelfAdd`).
+
 ## Writing your own client
 
 Any program can talk to the pipe directly; you don't need the `hytte` CLI. In PowerShell:
 
 ```powershell
-$c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'hytte', [System.IO.Pipes.PipeDirection]::Out)
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$c = New-Object System.IO.Pipes.NamedPipeClientStream('.', "hytte-$sid", [System.IO.Pipes.PipeDirection]::Out)
 $c.Connect(100)
 $b = [Text.Encoding]::UTF8.GetBytes('{"v":1,"task_id":"demo","event":"Start","label":"Hello"}' + "`n")
 $c.Write($b, 0, $b.Length); $c.Dispose()

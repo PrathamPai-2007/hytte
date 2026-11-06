@@ -8,7 +8,7 @@ This section explains how the pieces fit together at runtime. Later sections zoo
  terminals / scripts / agent hooks
         │  hytte <command> (one short-lived CLI process per message)
         ▼
- \\.\pipe\hytte ── pipe listener ── per-connection thread ──┐  HytteMessage
+ \\.\pipe\hytte-<SID> ── pipe listener ── per-connection thread ──┐  HytteMessage
                                                             ▼
                                                   task registry thread
                                                             │  TaskUpdate
@@ -87,7 +87,8 @@ On Quit (tray menu, or `window::quit()` after an update), the window is destroye
 | Start Menu shortcut | `config::ensure_start_menu` | a moment at startup | COM shell link calls |
 | PATH setup | `setup::ensure_on_path`, then `setup::migrate_profiles` | a moment at startup | one registry read and, if needed, write (`[general] add_to_path`); profile reads |
 | Update checker | `update::spawn_checker` | whole process | a 60 s sleep, then one check a day (`[general] check_updates`) |
-| Manual update check | `update::check_now` | one tray click | `curl.exe`, then a message box |
+| Update install | `update::install_pending` | one click on **Update** | `curl.exe`, the signature check, `--version` |
+| Manual update check | `update::check_now` | one tray click | `curl.exe`, then a card on the pill |
 | Terminal setup | `setup::tray_setup` | one tray click | profile file writes and message boxes |
 
 ## How threads talk to the UI thread

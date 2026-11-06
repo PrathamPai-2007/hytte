@@ -16,16 +16,16 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 
 | File | Tests cover |
 |---|---|
-| `proto/src/lib.rs` | Message round trip, validation, old messages still parsing, bad progress rejected, an `Ask` is never mistaken for a task message. |
+| `proto/src/lib.rs` | Message round trip, validation, old messages still parsing, bad progress rejected, an `Ask` is never mistaken for a task message; long text is trimmed on a character boundary by `to_line`; a `Cmd` is validated and never mistaken for a task message or an `Ask`; the pipe name is per user. |
 | `proto/src/sys.rs` | Ancestor chains walk up from each pid and stop at pid 0, a loop or the depth limit. |
-| `proto/src/ports.rs` | Port filtering rules (system exes, duplicates, watch list, no lookups for unwatched ports); on Windows, seeing its own listener and refusing to kill itself. |
+| `proto/src/ports.rs` | A reused pid is not the process that was listed (`same_exe`); port filtering rules (system exes, duplicates, watch list, no lookups for unwatched ports); on Windows, seeing its own listener and refusing to kill itself. |
 | `hytte/src/ui_state.rs` | Scene priority, expiry, shell thresholds and ignored commands, attention peeking, panels and paging (a listening port alone brings up the Tasks panel), fullscreen break-through on drops and agent asks, agent CLIs left to their hooks, the timer card, the mic lock, ambient-frame rules, the primary task, scene cross-fades, reduced motion, a command stopped with Ctrl+C is not shown as an error, a failed row goes when its terminal closes (and a running one does not), and the task list scrolls past its row limit. |
 | `hytte/src/animation.rs` | Springs converge, settle and snap; frame-rate independence; velocity kept on retarget; collapse slower than expand and without overshoot. |
 | `hytte/src/convert.rs` | Compress hits its size limit by quality then by scaling; small files are skipped; transparency flattens to white; PDF structure and xref offsets; page fitting; PNG → PDF; JPEG pass-through from the header. |
-| `hytte/src/transforms.rs` | Never overwriting, JSON toggling, YAML normalising, image clean + WebP, chips per file type. |
+| `hytte/src/transforms.rs` | Never overwriting, JSON toggling, YAML normalising, image clean + WebP, chips per file type; QR codes (quiet zone, too long refused); base64 and Markdown copies and the size cap; chips wrapping onto a second line. |
 | `hytte/src/config.rs` | Editing `autostart` keeps comments and other keys, adds a missing key or section, and leaves invalid TOML alone; hotkey parsing; a quiet-hours window that wraps past midnight (and bad values mean never); the note "Custom" puts above a key goes in once; `config::problem` names the line of a mistake and the key of a typo, says nothing about a default file or the old keys older versions wrote, and is clean on this machine's own file (an ignored test). |
 | `hytte/src/setup.rs` | PATH append / remove (case, quotes, trailing slash, `%VAR%`), profile blocks (idempotent, round trip, above Starship), migrating a pre-1.0 `notch` block exactly once, profile encodings. |
-| `hytte/src/update.rs` | Version tags compare numerically (`2.0.10` > `2.0.9`), junk tags are rejected, the release JSON yields the `hytte.exe` asset and a release without one is an error, and the first real line of a release's notes is picked out for the prompt. |
+| `hytte/src/update.rs` | `verify` accepts a good minisign signature and refuses a tampered file, another key's signature and a missing one; a release without `hytte.exe.minisig` is refused; version tags compare numerically (`2.0.10` > `2.0.9`), junk tags are rejected, the release JSON yields the `hytte.exe` asset and a release without one is an error, and the first real line of a release's notes is picked out for the prompt. |
 | `hytte/src/shelf.rs` | Adding, de-duplication, removing (reference never deletes the original; owned copies are deleted), copy-mode staging and the limit re-check on insert. |
 | `hytte/src/timer.rs` | Surviving a sleep gap, pause and resume, extending and formatting, long-break spacing, wheel steps, persistence, the alarm WAV (valid, and soft: well under full scale), focus round dots. |
 | `hytte/src/media.rs` | Album art decoding and premultiplication. |
@@ -38,6 +38,10 @@ Tests are ordinary `#[cfg(test)] mod tests` blocks at the bottom of each file, n
 | `hytte/src/agents.rs` | Merging hooks keeps the user's own hooks and key order and is idempotent, and `--undo` restores the file exactly; a new exe path replaces old entries; Codex and Cursor files come and go; Antigravity's named hook; the OpenCode plugin is written and removed; quoted paths with spaces; files that aren't plain JSON are left alone. |
 | `hytte/src/cli/progress.rs` | OSC 9;4 with BEL and ST terminators, sequences split across reads, `\r` bars, implausible numbers ignored, bounded buffers. |
 | `hytte/src/cli/hook.rs` | Exit code mapping; scripts are embedded and call `hytte`, not the old `notch`. |
+| `hytte/src/cli/mod.rs` | `PATH` / `PATHEXT` lookup (`npm` finds `npm.cmd`), argument quoting for the label, cut labels marked `…`, `hytte set` building progress / `--done` / `--fail`. |
+| `hytte/src/cli/doctor.rs` | The report text, the exit code (warnings don't fail it) and the agent-state lines. |
+| `hytte/src/secrets.rs` | Bearer tokens, `password=`, `--token x`, URL credentials, `mysql -pSECRET` and well-known token formats are hidden; ordinary text is untouched; a fuzz run never panics. |
+| `hytte/src/logging.rs` | At most three relaunches in ten minutes. |
 | `hytte/src/hog.rs` | How long a process must stay over the CPU limit, once-only alerts that re-arm after a dip, memory alerting at once, exemptions. |
 | `hytte/src/downloads.rs` | Partial-file names; Chrome's rename sequence from start to finish; Firefox's `.part`; cancels; sizes. |
 | `hytte/src/calendar.rs` | WinRT time conversion, meeting-link extraction (including lookalike hosts and non-https), picking the next event, sleep timing, summaries. Three ignored manual tests (`calendar_manual_create`, `calendar_manual_dump`, `calendar_manual_delete`) create, list and delete a throw-away calendar. |
@@ -69,13 +73,14 @@ Anything that needs a real desktop: drawing, hover timing, drag and drop in and 
 
 Two workflows live in `.github/workflows/`. Both run on `windows-latest` with a Rust build cache:
 
-- **`ci.yml`** runs on every push and pull request to `main`: `scripts/version.ps1 check` (the version is the same in both `Cargo.toml` files, in `Cargo.lock` and in the winget manifest), `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- **`ci.yml`** runs on every push and pull request to `main`: `scripts/version.ps1 check` (the version is the same in both `Cargo.toml` files, in `Cargo.lock` and in the winget manifest), `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. A separate `audit` job runs `cargo audit` (RustSec advisories). Both workflows are read-only (`contents: read`) except the jobs that publish or push, and every action is pinned by commit SHA (the tag it came from is in a comment): bump them on purpose, not by tag.
 - **`release.yml`** runs when a tag matching `v*` is pushed, or by hand (**Run workflow** with a tag; GitHub creates the tag when the release is published). It:
   1. runs `version.ps1 check <tag>` (so a tag that doesn't match the files fails before anything is built), then the same three checks;
   2. `cargo build --release --workspace`;
   3. checks that `hytte.exe --version` says the tag's version;
   4. zips `hytte.exe` into `hytte-<version>-x64.zip` (the tag without its leading `v`);
-  5. creates the GitHub release "Hytte v<version>" with two assets: the zip, for people, and the bare **`hytte.exe`**, which is what the in-app updater downloads ([section 15](15-updates.md)). Release notes are generated from the commits.
+  5. **signs** `hytte.exe` with the minisign secret key (`MINISIGN_SECRET_KEY`, a repository secret) into `hytte.exe.minisig`, and checks that the signature verifies with the `PUBKEY` compiled into `update.rs` ([section 15](15-updates.md#signing-and-the-key));
+  6. creates the GitHub release "Hytte v<version>" with three assets: the zip, for people, and the bare **`hytte.exe`** and its **`hytte.exe.minisig`**, which is what the in-app updater downloads and checks. Release notes are generated from the commits.
 
 A **dry run** (**Run workflow** with *dry_run* ticked) does all of the above except publishing and committing, to rehearse a release.
 

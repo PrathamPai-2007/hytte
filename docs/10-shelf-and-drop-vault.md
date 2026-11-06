@@ -42,6 +42,7 @@ OLE Drop ──► UiEvent::ShelfAdd(DropJob) ──► UI thread: snapshot cfg,
 ```
 
 - **`shelf::stage(cfg, paths, text, existing, room)`** does all the file I/O. It skips missing paths and paths already on the shelf, and stops at `room` items. In copy mode it copies into a unique name (`name.ext`, `name-1.ext`, ...), recursively for folders, and removes a half-finished copy if copying fails. A process-wide mutex serialises "pick a free name + create it", so two drops at once can't collide. It returns items with `id = 0`.
+- Copying has guards (`copy_recursive`): a symlink or junction inside a folder is skipped, never followed (a junction that points back up would never end), and one drop copies at most 500 MB (`COPY_LIMIT`). Over that, the half-made copy is removed and a card says "Too big to copy to the shelf".
 - **`shelf::insert(cfg, items, staged)`** runs on the UI thread. The shelf may have changed while staging ran, so it checks the limit and duplicates again. An owned copy that no longer fits is deleted rather than leaked. It assigns ids and appends.
 
 `add_paths` and `add_text` are blocking stage-and-insert wrappers, kept for tests.
@@ -59,7 +60,7 @@ With `[shelf] screenshots` on, a screenshot the Snipping Tool copies (Win+Shift+
 
 ### Removing
 
-`shelf::remove` deletes the file or folder only when `owned`. `shelf::remove_keep_file` removes just the entry; it is used after a successful drag-out with `remove_after_drag`.
+At startup `shelf::load` also deletes files in the shelf folder that no item points to (a crash between copying and saving leaves them). It only does so when `shelf.json` was read and parsed cleanly, never when it is missing or damaged. `shelf.json` is written through a temp file and rename (`setup::write_file`), like `timer.json`, so a crash cannot leave half a file. `shelf::remove` deletes the file or folder only when `owned`. `shelf::remove_keep_file` removes just the entry; it is used after a successful drag-out with `remove_after_drag`.
 
 ## The Drop Vault
 
@@ -69,14 +70,18 @@ With `[shelf] screenshots` on, a screenshot the Snipping Tool copies (Win+Shift+
 
 | Extension | Buttons |
 |---|---|
-| `png`, `jpg`, `jpeg` | **Compress** · **To PDF** · **Remove metadata** · **Read text** |
-| `webp`, `bmp` | **Compress** · **To PDF** · **Read text** |
+| `png`, `jpg`, `jpeg` | **Compress** · **To PDF** · **Remove metadata** · **Read text** · **Copy as base64** · **Copy as Markdown** |
+| `webp`, `bmp` | **Compress** · **To PDF** · **Read text** · **Copy as base64** · **Copy as Markdown** |
 | `json`, `yaml`, `yml` | **Format** |
-| `txt` | A decode action when the snippet is one (see below) · **Copy text** |
+| `txt` | A decode action when the snippet is one (see below) · **Copy text** · **QR code** |
 | `md` | **Copy text** |
 | anything else | **Copy path** |
 
-Each button carries a `Conv` value: `Under(5)`, `Pdf`, `Clean`, `Ocr` or `Auto` (the per-type default).
+Each button carries a `Conv` value: `Under(5)`, `Pdf`, `Clean`, `Ocr`, `Decode`, `Qr`, `Base64`, `Markdown` or `Auto` (the per-type default). An item with more actions than fit one line (an image has six) wraps its buttons onto a second line (`transforms::chip_lines`), and the pane grows by 32 px for it.
+
+- **QR code** (`transforms::qr_png`, the `qrcodegen` crate) turns a text snippet (a link, a Wi-Fi code, a note) into a black-on-white PNG, 8 px per module with the 4-module quiet zone scanners need, saved beside the snippet (or in `output_folder`) with an **Open** button. Text too long for a QR code (about 2,300 characters) gets "Too long for a QR code".
+- **Copy as base64** puts a `data:image/png;base64,...` URI on the clipboard, ready for HTML, CSS or JSON. It is only offered for files up to 2 MB (`BASE64_MAX_BYTES`).
+- **Copy as Markdown** puts `![name](C:/path/to/name.png)` on the clipboard: forward slashes, with spaces and brackets escaped.
 
 ### How a job runs
 

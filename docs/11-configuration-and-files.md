@@ -12,7 +12,7 @@ Everything Hytte writes is under the current user's profile. Nothing is installe
 | `%APPDATA%\Hytte\timer.json` | `timer::save` | The running timer, so it survives a restart. Deleted when the timer stops or finishes. |
 | `%APPDATA%\Hytte\hytte.log` | `logging.rs` | Panics; a line whenever the fullscreen decision changes; hotkey registration failures; GPU renderer lost or unavailable; startup failures (window, renderer, Start Menu shortcut, `PATH`); migrated shell profiles; update checks, prompts and installs; frame telemetry when `HYTTE_PERF=1`. |
 | `%APPDATA%\Hytte\panel.txt` | `Ui::remember_panel` | With `[general] remember_panel`, the name of the panel the pill was on when it last collapsed. |
-| `%APPDATA%\Hytte\update-skip` | `update.rs` | The release tag the user answered **No** to, so the daily check doesn't ask about it again. A newer release is still offered. |
+| `%APPDATA%\Hytte\update-skip` | `update.rs` | The release tag the user chose **Later** for, so the daily check doesn't ask about it again. A newer release is still offered. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted path of `hytte.exe`. With autostart off, a copy removes the value only when it points at that copy or at an exe that no longer exists, so a second copy (a dev build) can't switch off the installed one. |
 | `HKCU\Environment`, value `Path` | `setup::ensure_on_path` | The Hytte folder is appended once so `hytte` resolves in new terminals (`[general] add_to_path`). |
 | `%APPDATA%\Hytte\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
@@ -44,6 +44,7 @@ On the UI thread, `Ui::apply_config` replaces `self.cfg` and refreshes what was 
 | `[general] hotkey` | The old hotkey is unregistered and the new one registered. |
 | `[general] hide_from_capture` | `SetWindowDisplayAffinity` is called again. |
 | `[general] monitor`, `pill_scale` | `refresh_monitor` moves the pill and recomputes its scale. |
+| `[general] monitor_hotkey` | The old chord is unregistered and the new one registered (with `hotkey`). |
 | `[general] theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `remember_panel`, `pin_button`, `quiet_hours`, `task_rows` | Re-read; the next frame uses them. Switching `pin_button` off un-pins. |
 | `[timer] rounds` | The running Focus cycle shows the new number of dots. |
 | `[ports]` | `ports::reconfigure` hands the new settings to the port watcher and wakes it for an immediate rescan. |
@@ -65,7 +66,7 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 |---|---|---|
 | `autostart` | `true` | Start Hytte at login (the `Run` registry value). Applied at every startup and when toggled from the tray. |
 | `add_to_path` | `true` | At startup, add the folder holding `hytte.exe` to the user's `PATH` if `hytte` isn't found already. Set to `false` to manage `PATH` yourself. |
-| `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) or `"cursor"` (the monitor under the pointer). `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
+| `monitor` | `"primary"` | Where the pill hangs: `"primary"`, `"active"` (the foreground window's monitor) `"cursor"` (the monitor under the pointer) or a number (`"1"`, `"2"`, …: the monitors from left to right). The tray's **Move to next monitor** (shown with two or more monitors) and `monitor_hotkey` set the number for you, and it is kept across restarts. `active` and `cursor` are re-checked when the foreground window changes ([section 7](07-window-and-input.md#monitor-and-dpi)). |
 | `theme` | `"auto"` | `"dark"`, `"light"`, or `"auto"` (follow the Windows app mode). Applies live. |
 | `glow_strength` | `1.2` | Multiplier for the border glow around the pill: `1.0` is the original look, `0` turns it off, values above `3` are capped. The settings window's slider runs 0 to 1.92 (shown as 0 to 100 %), 20 % past the old "Strong" (1.6). |
 | `pill_opacity` | `0.7` | Opacity of the pill's body, `0.4` to `1.0`. Text and icons stay solid. Applies live. |
@@ -81,6 +82,7 @@ Hytte only writes `config.toml` in four cases: creating it on first run (`config
 | `quiet_hours` | `""` | No sounds (agent alerts, the timer alarm) inside this window, for example `"22:00-07:00"`; it may wrap past midnight. Empty = never. The settings window offers four presets and **Custom**, which writes the key into the file with a note above it and opens it. |
 | `task_rows` | `4` | Task rows shown before the list scrolls (`2` to `8`). |
 | `adaptive_glow` | `true` | Tint the media glow with the dominant colour of the album art (greyscale art keeps the white glow). |
+| `monitor_hotkey` | `""` | A global chord such as `"Win+Alt+M"` that sends the pill to the next monitor (round to the first after the last). Empty = off. Needs a modifier and one key, like `hotkey`. |
 | `hotkey` | `""` | A global chord such as `"Win+Alt+N"` that opens the pill for keyboard use ([section 7](07-window-and-input.md#keyboard)). Empty = off. Needs a modifier and one key. |
 | `fullscreen` | `"line"` | Over a maximised window (whether or not the taskbar auto-hides), or a fullscreen browser / media player: `"line"` shrinks to a 3 px bar, `"hide"` fades out completely, `"off"` stays as usual. Real fullscreen apps (games) always hide fully ([section 7](07-window-and-input.md#fullscreen-suppression)), except with `"off"`. Settings from before 1.2.2 (`suppress_fullscreen = false`, `fullscreen_mode = "hide"`) are read as `"off"` / `"hide"`. |
 | `finish_peek_secs` | `3` | Seconds the pill opens to show a task that finished or failed. `0` keeps it closed. |

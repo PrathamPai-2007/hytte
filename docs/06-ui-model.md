@@ -191,7 +191,7 @@ The window layer arms a single Win32 timer (`T_EXPIRE`) for exactly that instant
 | `hold` | How long it stays (default `CHIP_HOLD`, 10 s). |
 | `tone` | The icon: `Done` (purple tick), `Warn` (amber `!`) or `Info` (blue `i`). |
 
-`ChipAction` is what an extra button does: `OpenUrl` (only `http`/`https` links reach the shell), `Shelve(path)` (puts a file on the shelf through the normal `ShelfAdd` path), `KillPid(pid)` (the first click arms it, the label turns **Kill?** and the button red for 3 s; the second click terminates the process through `hytte_proto::ports::kill`, which refuses pid 0, 4 and itself) and `IgnoreExe(name)` (adds to `hog_ignore`). The features that use cards:
+`ChipAction` is what an extra button does: `OpenUrl` (only `http`/`https` links reach the shell), `Shelve(path)` (puts a file on the shelf through the normal `ShelfAdd` path), `KillPid(pid, exe)` (the first click arms it, the label turns **Kill?** and the button red for 3 s; the second click terminates the process through `hytte_proto::ports::kill`, which refuses pid 0, 4 and itself, and a pid that no longer belongs to `exe`), `IgnoreExe(name)` (adds to `hog_ignore`), `InstallUpdate` and `UpdateLater(tag)` (the update card's **Update** and **Later**, [section 15](15-updates.md)) and `Answer(id, allow)` (an agent ask; clicks within 400 ms of the ask appearing are ignored, `ask_click_ready`). The features that use cards:
 
 | Feature | Card | Buttons |
 |---|---|---|

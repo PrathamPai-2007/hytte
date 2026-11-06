@@ -122,6 +122,10 @@ Example: "Rotate 90°" for images.
 
 The job runs on a Drop Vault worker automatically; you don't need any threading code.
 
+## Tell yourself when a script is done
+
+No code to change: `hytte notify "Backup finished"` shows a card on the pill, `hytte set --progress 40 --label "Uploading" --task up1` fills a row and `hytte set --done --task up1` finishes it (`--fail` for red). `git diff | hytte shelf add` parks text on the shelf. All of them are in [section 5](05-cli.md); to add another script command, give `proto::Cmd` a new `cmd` value, validate it in `Cmd::validate`, handle it in `Ui::run_cmd`, and add a subcommand next to `cmd_notify`.
+
 ## Add a `hytte` subcommand
 
 1. Add a match arm in `cli/mod.rs::run`, ideally dispatching into its own module in `cli/`. The command name must not collide with what `main()` treats as "no arguments" (the daemon).

@@ -2,6 +2,45 @@
 
 What changed in each version, newest first. The first part is for people who use Hytte; each version ends with a short note for people who change it.
 
+## 1.6.0
+
+**Updates**
+
+- **The update offer is a card on the pill** with **Update** and **Later**, instead of a message box that stole focus. It waits while you are in a game or Hytte is paused, and shows when that ends. The tray's **Check for updates…** answers on the pill too.
+- **Updates are checked against a signature.** Each release carries `hytte.exe.minisig`, a [minisign](https://jedisct1.github.io/minisign/) signature made with a key only the release job holds, and Hytte refuses a download that doesn't match the public key built into it. Downloads are HTTPS-only and the version check can't hang. Hytte itself is still not Authenticode-signed, so Windows may warn about a freshly downloaded `hytte.exe`.
+
+**New**
+
+- **`hytte doctor`** checks the pill, `PATH`, the terminal hooks, PowerShell's execution policy, each agent's hooks and `config.toml`, and says how to fix what's wrong.
+- **`hytte notify "text"`** shows a card on the pill, and **`hytte shelf add <file>`** (or text piped in) puts things on the shelf, for your own scripts. **`hytte set --done`** and **`--fail`** finish a row green or red.
+- **Real build progress from step counts:** `[12/345]` and `(3/25)` fill the bar. A command that prints no numbers keeps its spinner; there are no time estimates.
+- **Ports:** a dev server is named after its project folder (when a terminal command Hytte tracks started it), Docker and WSL listeners are named as such, and a server started from a tracked terminal command has a **Restart** button (it stops the server and runs that command again in its folder).
+- **Shelf:** a text snippet has **QR code**; an image has **Copy as base64** (a data URI, files up to 2 MB) and **Copy as Markdown**.
+- **Next monitor:** the tray's **Move to next monitor** (with two or more monitors) and an optional `monitor_hotkey` move the pill; the choice is kept. `monitor` also takes a number now.
+
+**Safer**
+
+- **One pipe per Windows user**, and the `hytte` command refuses a pipe served by another user, so nobody else can answer an agent's permission request. Open terminals need reopening after the update: they talk to the old pipe name.
+- **Secrets are hidden on the pill:** bearer tokens, `password=` / `token=` values, `--token x`, URL credentials, `mysql -pSECRET` and well-known token formats show as `•••` (Rerun and Copy keep the real text).
+- **Allow shows what it approves:** a command that starts with blank lines shows its first real line, a file shows its folder, an MCP tool shows its server and input, and clicks within 400 ms of an ask appearing are ignored. An agent's question (not a permission) shows as waiting; click it to go to the terminal.
+- **Stop / Kill checks the process is still the one listed**, shelf copies skip junctions and symlinks and stop at 500 MB, and `shelf.json` and `timer.json` are written safely.
+- **A crash relaunches Hytte** (at most three times in ten minutes), and panics are logged with their thread.
+
+**Fixes**
+
+- A long agent reply, a long error tail or a long non-English command no longer makes the daemon drop the whole message: text is trimmed to the limits first.
+- **`hytte run -- npm ...`** (and any `.cmd` / `.bat` program) works.
+- **Rerun keeps quoting** (`git commit -m 'fix the bug'` reruns whole) and isn't offered for a command that was cut off.
+- A burst of shell hooks no longer loses messages when the pipe is momentarily busy, and a pending agent ask can't use up every pipe instance.
+- **PowerShell:** a multi-line command (an open brace, a trailing pipe, a here-string) is one row, not a stuck one per line.
+- A download that stalls for five minutes leaves the list. Leftover files in the shelf folder from a crash are cleaned up at startup, `hytte.log` rolls over at 1 MB and a failed update leaves no `hytte.exe.new`.
+
+**For people who change Hytte**
+
+- New files: `secrets.rs` (the masker), `cli/doctor.rs`. New protocol message: `proto::Cmd`. `proto::pipe_name()` replaces the `PIPE_NAME` constant.
+- Release builds ignore `HYTTE_UPDATE_API`; debug builds also read `HYTTE_UPDATE_PUBKEY` and have `hytte __update` ([section 15](15-updates.md)). The release job signs with the `MINISIGN_SECRET_KEY` secret; CI pins actions by commit SHA and runs `cargo audit`.
+- Dependencies added: `minisign-verify` and `qrcodegen` (and `minisign` for tests only).
+
 ## 1.5.0
 
 **Settings**

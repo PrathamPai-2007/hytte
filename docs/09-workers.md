@@ -118,7 +118,7 @@ Browsers write a partial file and rename it when done, so the worker turns folde
 | Firefox | `name.mp4.part` → `name.mp4` | A task, then finished |
 | Either, cancelled | the partial file is deleted | The task leaves quietly (`TaskGone`) |
 
-Recognised suffixes are `.crdownload`, `.part`, `.partial`, `.opdownload` and `.download`. A running download is a task (`source = "download"`) labelled with the name and its current size (`foo.zip · 12.3 MB`), updated at most every 0.9 s, and hidden for its first 1.5 s so a tiny file doesn't flicker. Finishing marks the task done and sends `DownloadDone`, which shows the card with **Open** and **Shelve**.
+Recognised suffixes are `.crdownload`, `.part`, `.partial`, `.opdownload` and `.download`. A running download is a task (`source = "download"`) labelled with the name and its current size (`foo.zip · 12.3 MB`), updated at most every 0.9 s, and hidden for its first 1.5 s so a tiny file doesn't flicker. Finishing marks the task done and sends `DownloadDone`, which shows the card with **Open** and **Shelve**. A partial file whose size hasn't changed for 5 minutes (`DOWNLOAD_STALE`: the browser crashed, or the download was abandoned) leaves the list; if the file starts changing again, the task comes back.
 
 ## Calendar (`calendar.rs`, `[calendar]`)
 
