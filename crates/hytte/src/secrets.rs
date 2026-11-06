@@ -226,4 +226,25 @@ mod tests {
         // Whitespace is kept as typed.
         assert_eq!(m("a  --token   x  b"), "a  --token   •••  b");
     }
+
+    #[test]
+    fn never_panics_on_odd_text() {
+        // Multi-byte characters next to every marker the masker slices on.
+        let bits = [
+            "é", "日本", "😀", "=", ":", "://", "@", "\"", "'", "-", "--", "-p", "password",
+            "token=", "Bearer", " ", "	", "x", "ghp_", "xox", "sk-", "/", "\\",
+        ];
+        let mut state = 12345u64;
+        for _ in 0..20_000 {
+            let mut text = String::new();
+            for _ in 0..12 {
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                text.push_str(bits[(state >> 33) as usize % bits.len()]);
+            }
+            let _ = mask(&text);
+            let _ = mask(&format!("mysql {text}"));
+        }
+    }
 }
