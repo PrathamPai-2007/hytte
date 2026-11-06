@@ -23,7 +23,7 @@ const USAGE: &str = "\
 usage:
   hytte                                  # start the pill (the tray app); no-op if it is running
   hytte run [--no-progress] -- <cmd...>  # run cmd, report it to the pill (progress read from its output)
-  hytte set --progress <0-100> --label \"...\" [--task <id>]
+  hytte set (--progress <0-100> | --done | --fail) --label \"...\" [--task <id>]
   hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> ...   # AI agent / long-task monitor
   hytte init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s
   hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
@@ -353,45 +353,43 @@ fn push_tail(tail: &mut VecDeque<String>, line: &[u8]) {
     }
 }
 
-fn cmd_set(args: &[String]) {
+/// The message for `hytte set`; None when the arguments don't make sense.
+fn build_set(args: &[String]) -> Option<HytteMessage> {
     let mut progress: Option<u8> = None;
     let mut label = String::new();
     let mut task = task_id();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--progress" => {
-                i += 1;
-                if i >= args.len() {
-                    usage();
-                }
-                progress = Some(args[i].parse().unwrap_or_else(|_| usage()));
-            }
-            "--label" => {
-                i += 1;
-                if i >= args.len() {
-                    usage();
-                }
-                label = args[i].clone();
-            }
-            "--task" => {
-                i += 1;
-                if i >= args.len() {
-                    usage();
-                }
-                task = args[i].clone();
-            }
-            _ => usage(),
+    let mut end: Option<TaskEvent> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--progress" => progress = Some(it.next()?.parse().ok()?),
+            "--label" => label = it.next()?.clone(),
+            "--task" => task = it.next()?.clone(),
+            "--done" => end = Some(TaskEvent::Done),
+            "--fail" => end = Some(TaskEvent::Failed),
+            _ => return None,
         }
-        i += 1;
     }
-    let p = match progress {
-        Some(p) if p <= 100 => p,
-        _ => usage(),
-    };
     let mut msg = HytteMessage::start(task, label);
-    msg.event = TaskEvent::Progress;
-    msg.progress = Some(p);
+    match (end, progress) {
+        // Finish the row: green for --done, red for --fail.
+        (Some(ev), None) => {
+            msg.event = ev;
+            if ev == TaskEvent::Failed {
+                msg.exit_code = Some(1);
+            }
+        }
+        (None, Some(p)) if p <= 100 => {
+            msg.event = TaskEvent::Progress;
+            msg.progress = Some(p);
+        }
+        _ => return None,
+    }
+    Some(msg)
+}
+
+fn cmd_set(args: &[String]) {
+    let Some(msg) = build_set(args) else { usage() };
     if !send_msg(&msg) {
         eprintln!("hytte: daemon not running (message dropped)");
     }
@@ -455,7 +453,24 @@ pub fn run(args: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_in, fit_label, quote_arg};
+    use super::{build_set, find_in, fit_label, quote_arg};
+    use hytte_proto::TaskEvent;
+
+    #[test]
+    fn set_builds_progress_done_and_fail() {
+        let a = |v: &[&str]| build_set(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let p = a(&["--progress", "40", "--label", "x", "--task", "t"]).unwrap();
+        assert_eq!(
+            (p.event, p.progress, p.task_id.as_str()),
+            (TaskEvent::Progress, Some(40), "t")
+        );
+        let d = a(&["--done", "--task", "t"]).unwrap();
+        assert_eq!((d.event, d.exit_code), (TaskEvent::Done, None));
+        let f = a(&["--fail", "--task", "t"]).unwrap();
+        assert_eq!((f.event, f.exit_code), (TaskEvent::Failed, Some(1)));
+        assert!(a(&[]).is_none() && a(&["--progress", "101"]).is_none());
+        assert!(a(&["--done", "--progress", "5"]).is_none() && a(&["--bogus"]).is_none());
+    }
 
     #[test]
     fn quoting_keeps_arguments_whole() {
