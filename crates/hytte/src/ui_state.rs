@@ -287,7 +287,7 @@ pub enum ChipAction {
     /// Put a file on the shelf.
     Shelve(PathBuf),
     /// Terminate a process; the first click arms it ("Kill?"), the second confirms.
-    KillPid(u32),
+    KillPid(u32, String),
     /// Stop alerting about a process (by exe name) for this session.
     IgnoreExe(String),
     /// Answer the pending agent ask with this id: allow (true) or deny.

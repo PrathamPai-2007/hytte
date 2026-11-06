@@ -50,7 +50,7 @@ pub fn kill_cmd(args: &[String]) {
             return;
         }
     }
-    match kill(p.pid) {
+    match kill(p.pid, &p.exe) {
         Ok(()) => println!("stopped {} on :{port}", p.exe),
         Err(e) => {
             eprintln!("hytte: {e}");

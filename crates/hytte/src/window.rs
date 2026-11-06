@@ -825,7 +825,7 @@ mod win {
                             c.tone = crate::ui_state::Tone::Warn;
                             c.hold = Duration::from_secs(20);
                             c.extra = vec![
-                                ("Kill".into(), ChipAction::KillPid(a.pid)),
+                                ("Kill".into(), ChipAction::KillPid(a.pid, a.exe.clone())),
                                 ("Ignore".into(), ChipAction::IgnoreExe(a.exe)),
                             ];
                             self.model.chip = Some(c);
@@ -852,6 +852,15 @@ mod win {
                         });
                     }
                     UiEvent::ShelfStaged(staged) => {
+                        if crate::shelf::take_too_big() {
+                            let mb = crate::shelf::COPY_LIMIT / (1024 * 1024);
+                            let mut c = Chip::new(
+                                format!("Too big to copy to the shelf (limit {mb} MB)"),
+                                now,
+                            );
+                            c.tone = crate::ui_state::Tone::Warn;
+                            self.model.chip = Some(c);
+                        }
                         self.add_staged(staged, now);
                     }
                     UiEvent::Screenshot(it) => {
@@ -1730,7 +1739,14 @@ mod win {
                 Action::KillPort(port, pid) => {
                     if self.model.kill_armed.is_some_and(|(p, _)| p == port) {
                         self.model.kill_armed = None;
-                        let msg = match hytte_proto::ports::kill(pid) {
+                        let exe = self
+                            .model
+                            .ports
+                            .iter()
+                            .find(|p| p.port == port && p.pid == pid)
+                            .map(|p| p.exe.clone())
+                            .unwrap_or_default();
+                        let msg = match hytte_proto::ports::kill(pid, &exe) {
                             Ok(()) => format!("Stopped :{port}"),
                             Err(e) => format!("Could not stop :{port} - {e}"),
                         };
@@ -1786,9 +1802,9 @@ mod win {
                     push_event(&self.shared, UiEvent::ShelfAdd(job));
                     self.model.dismiss_chip();
                 }
-                ChipAction::KillPid(pid) => {
+                ChipAction::KillPid(pid, exe) => {
                     if self.model.chip_armed.take().is_some() {
-                        let msg = match hytte_proto::ports::kill(pid) {
+                        let msg = match hytte_proto::ports::kill(pid, &exe) {
                             Ok(()) => format!("Stopped process {pid}"),
                             Err(e) => format!("Could not stop process {pid} - {e}"),
                         };

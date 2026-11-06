@@ -122,6 +122,11 @@ mod win {
         exe_path(pid)?.rsplit('\\').next().map(str::to_owned)
     }
 
+    /// Whether the running process's exe name is the one expected (Windows names ignore case).
+    pub fn same_exe(now: Option<&str>, expected: &str) -> bool {
+        now.is_some_and(|n| n.eq_ignore_ascii_case(expected))
+    }
+
     /// Full path of the executable behind a pid.
     pub fn exe_path(pid: u32) -> Option<String> {
         unsafe {
@@ -144,10 +149,14 @@ mod win {
         filter(&listeners(), watch, show_all, exe_name)
     }
 
-    /// Terminate a listener's process. Refuses pid 0/4 and ourselves.
-    pub fn kill(pid: u32) -> Result<(), String> {
+    /// Terminate a listener's process. Refuses pid 0/4 and ourselves, and a pid that no longer
+    /// belongs to `exe` (the one the user saw: pids get reused once a process is gone).
+    pub fn kill(pid: u32, exe: &str) -> Result<(), String> {
         if pid <= 4 || pid == std::process::id() {
             return Err("refusing to kill a protected process".into());
+        }
+        if !same_exe(exe_name(pid).as_deref(), exe) {
+            return Err("that process has changed since it was listed".into());
         }
         unsafe {
             let h = OpenProcess(PROCESS_TERMINATE, false, pid)
@@ -162,6 +171,13 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reused_pid_is_not_the_process_that_was_listed() {
+        assert!(same_exe(Some("Node.exe"), "node.exe"));
+        assert!(!same_exe(Some("chrome.exe"), "node.exe"));
+        assert!(!same_exe(None, "node.exe"));
+    }
 
     #[test]
     fn filter_rules() {
@@ -206,6 +222,6 @@ mod tests {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         assert!(listeners().contains(&(port, std::process::id())));
-        assert!(kill(std::process::id()).is_err());
+        assert!(kill(std::process::id(), "hytte.exe").is_err());
     }
 }

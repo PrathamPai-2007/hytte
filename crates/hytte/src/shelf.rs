@@ -106,15 +106,48 @@ fn unique_in(dir: &Path, name: &str) -> PathBuf {
     }
 }
 
-fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+/// The most one drop may copy into the shelf folder.
+pub const COPY_LIMIT: u64 = 500 * 1024 * 1024;
+
+/// Set when a copy was refused for size; the window says so once ([`take_too_big`]).
+static TOO_BIG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn take_too_big() -> bool {
+    TOO_BIG.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A symlink or junction: copying must not follow it (a loop, or a way out of the folder).
+fn is_link(p: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const REPARSE_POINT: u32 = 0x400;
+        std::fs::symlink_metadata(p).is_ok_and(|m| m.file_attributes() & REPARSE_POINT != 0)
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
+    }
+}
+
+/// Copy `src` to `dst`, counting bytes against `left`; links inside a folder are skipped.
+fn copy_recursive(src: &Path, dst: &Path, left: &mut u64) -> std::io::Result<()> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)?;
         for e in std::fs::read_dir(src)? {
             let e = e?;
-            copy_recursive(&e.path(), &dst.join(e.file_name()))?;
+            if is_link(&e.path()) {
+                continue;
+            }
+            copy_recursive(&e.path(), &dst.join(e.file_name()), left)?;
         }
         Ok(())
     } else {
+        let size = std::fs::metadata(src)?.len();
+        if size > *left {
+            return Err(std::io::Error::other("too big for the shelf"));
+        }
+        *left -= size;
         std::fs::copy(src, dst).map(|_| ())
     }
 }
@@ -149,7 +182,11 @@ pub fn stage(
             let _store = STORE.lock().unwrap_or_else(|e| e.into_inner());
             let _ = std::fs::create_dir_all(store_dir());
             let dst = unique_in(&store_dir(), &name);
-            if copy_recursive(p, &dst).is_err() {
+            let mut left = COPY_LIMIT;
+            if let Err(e) = copy_recursive(p, &dst, &mut left) {
+                if e.to_string().contains("too big") {
+                    TOO_BIG.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 // Don't leave a half-copied folder behind.
                 let _ = if dst.is_dir() {
                     std::fs::remove_dir_all(&dst)
@@ -410,6 +447,42 @@ mod tests {
             .to_rgb8();
         assert_eq!(dec, img);
         assert!(dib_to_bmp(&[1, 2, 3]).is_none());
+    }
+
+    #[test]
+    fn copying_skips_junctions_and_stops_at_the_size_cap() {
+        let dir = std::env::temp_dir().join(format!("hytte-copy-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+        #[cfg(windows)]
+        {
+            // A junction back to the folder itself: following it would never end.
+            let made = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(src.join("loop"))
+                .arg(&src)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "mklink failed");
+            assert!(is_link(&src.join("loop")) && !is_link(&src.join("a.txt")));
+        }
+        let dst = dir.join("dst");
+        let mut left = 100;
+        copy_recursive(&src, &dst, &mut left).unwrap();
+        assert!(dst.join("a.txt").exists() && !dst.join("loop").exists());
+        assert_eq!(left, 95);
+        // Over the cap: refused with the "too big" error.
+        let mut small = 3;
+        let err = copy_recursive(&src.join("a.txt"), &dir.join("x.txt"), &mut small).unwrap_err();
+        assert!(err.to_string().contains("too big"));
+        #[cfg(windows)]
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "rmdir"])
+            .arg(src.join("loop"))
+            .output();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
