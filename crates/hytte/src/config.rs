@@ -60,6 +60,10 @@ pub struct General {
     pub hide_from_capture: bool,
     /// Look for a newer release on GitHub once a day and offer to install it. Read at startup.
     pub check_updates: bool,
+    /// Global hotkey that opens Notes with the cursor ready, e.g. "Win+Alt+J". Empty = off.
+    pub note_hotkey: String,
+    /// Colour theme of the pill body: "graphite", "aurora", "ember", "moss" or "dusk".
+    pub skin: String,
 }
 
 /// Modifier bits as `RegisterHotKey` wants them.
@@ -152,6 +156,8 @@ impl Default for General {
             finish_peek_secs: 3,
             hide_from_capture: true,
             check_updates: true,
+            note_hotkey: String::new(),
+            skin: "graphite".into(),
         }
     }
 }
@@ -316,6 +322,8 @@ pub struct Timer {
     pub long_break_min: u32,
     /// Focus sessions before a long break.
     pub rounds: u32,
+    /// A Focus session turns on Windows Do Not Disturb (and puts it back afterwards).
+    pub focus_dnd: bool,
 }
 impl Default for Timer {
     fn default() -> Self {
@@ -324,6 +332,71 @@ impl Default for Timer {
             break_min: 5,
             long_break_min: 15,
             rounds: 2,
+            focus_dnd: true,
+        }
+    }
+}
+
+/// Which of the optional panes show in the tab strip.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Panes {
+    pub notes: bool,
+    pub todo: bool,
+    pub weather: bool,
+}
+impl Default for Panes {
+    fn default() -> Self {
+        Self {
+            notes: true,
+            todo: true,
+            weather: true,
+        }
+    }
+}
+
+/// The Weather pane's place. `place`, `lat` and `lon` are set from the pane itself.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Weather {
+    pub place: String,
+    pub lat: f64,
+    pub lon: f64,
+    /// "auto" (follow Windows), "metric" or "imperial".
+    pub units: String,
+}
+impl Default for Weather {
+    fn default() -> Self {
+        Self {
+            place: String::new(),
+            lat: 0.0,
+            lon: 0.0,
+            units: "auto".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Media {
+    /// Look up lyrics (sends the song title and artist to lrclib.net).
+    pub lyrics: bool,
+}
+
+/// Break reminders: each kind has its own interval in minutes (0 = off).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Breaks {
+    pub eyes_min: u32,
+    pub stretch_min: u32,
+    pub water_min: u32,
+}
+impl Default for Breaks {
+    fn default() -> Self {
+        Self {
+            eyes_min: 0,
+            stretch_min: 0,
+            water_min: 0,
         }
     }
 }
@@ -331,6 +404,10 @@ impl Default for Timer {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub panes: Panes,
+    pub weather: Weather,
+    pub media: Media,
+    pub breaks: Breaks,
     pub timer: Timer,
     pub general: General,
     pub shell: Shell,
@@ -474,7 +551,7 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
 }
 
 /// Temp file + rename, so the config watcher never reads a half-written file.
-fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+pub fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p)?;
     }

@@ -23,6 +23,7 @@ mod fullscreen;
 #[cfg(windows)]
 mod gpu;
 mod hog;
+mod jot;
 mod logging;
 mod media;
 mod mic;
