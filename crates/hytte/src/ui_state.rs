@@ -88,6 +88,13 @@ pub enum UiEvent {
         summary: String,
         reply: crossbeam_channel::Sender<bool>,
     },
+    /// A newer version exists: its tag and the first line of its notes.
+    UpdateOffer {
+        tag: String,
+        note: String,
+    },
+    /// A line of news for the user (an update check's result, an install error).
+    Notice(String, Tone),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -285,6 +292,10 @@ pub enum ChipAction {
     IgnoreExe(String),
     /// Answer the pending agent ask with this id: allow (true) or deny.
     Answer(u64, bool),
+    /// Download and install the update that is on offer.
+    InstallUpdate,
+    /// Not now: don't offer this version (tag) again.
+    UpdateLater(String),
 }
 
 /// The look of a chip's icon.

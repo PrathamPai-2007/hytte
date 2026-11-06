@@ -126,7 +126,7 @@ fn main() {
     downloads::spawn_watcher(cfg.downloads.clone(), ui_tx.clone());
     calendar::spawn_watcher(cfg.calendar.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
-    update::spawn_checker(cfg.general.check_updates);
+    update::spawn_checker(cfg.general.check_updates, ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();
     drop::spawn_workers(drop_rx, ui_tx.clone());

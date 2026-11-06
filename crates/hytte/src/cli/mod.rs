@@ -447,6 +447,8 @@ pub fn run(args: &[String]) {
         "ports" => portscmd::list(&args[1..]),
         "kill" => portscmd::kill_cmd(&args[1..]),
         "setup" => cmd_setup(&args[1..]),
+        #[cfg(debug_assertions)]
+        "__update" => crate::update::debug_install(),
         _ => usage(),
     }
 }

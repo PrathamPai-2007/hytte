@@ -1,11 +1,12 @@
 //! Self-update from GitHub Releases.
 //!
 //! A background check (60 s after start, then daily; `[general] check_updates`) and the tray's
-//! "Check for updates…" ask GitHub for the latest release. If it is newer, a message box asks;
-//! on Yes the release's `hytte.exe` asset is downloaded next to this exe, checked (`--version`
-//! must name the release), swapped in by renaming (a running exe can be renamed, not
-//! overwritten), started, and this process quits. The leftover `hytte.exe.old` is removed on the
-//! next start. Declining remembers that version (`update-skip`) so the daily check stays quiet.
+//! "Check for updates…" ask GitHub for the latest release. If it is newer, a chip on the pill
+//! offers Update / Later (no window, no focus change); on Update the release's `hytte.exe`
+//! asset is downloaded next to this exe, verified (signature, then `--version` must name the
+//! release), swapped in by renaming (a running exe can be renamed, not overwritten), started,
+//! and this process quits. The leftover `hytte.exe.old` is removed on the next start. Later
+//! remembers that version (`update-skip`) so the daily check stays quiet.
 //!
 //! Downloads use Windows' own curl.exe (System32, by absolute path), so no HTTP stack is linked,
 //! over HTTPS only. The release also carries `hytte.exe.minisig`, a minisign signature that is
@@ -25,8 +26,24 @@ const SIG_ASSET: &str = "hytte.exe.minisig";
 const PUBKEY: &str = "RWRhYIiFU0f4WrWEqRoBmoQycFtz0quv7vxbJLiej9Q6XuKDS/hCx/ZP";
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
-/// One check at a time: a manual check while the daily one's prompt is open does nothing.
+/// One check at a time.
 static BUSY: AtomicBool = AtomicBool::new(false);
+
+/// Where the pill hears about an update, and the release on offer.
+static UI: std::sync::OnceLock<crossbeam_channel::Sender<crate::ui_state::UiEvent>> =
+    std::sync::OnceLock::new();
+static OFFER: std::sync::Mutex<Option<Release>> = std::sync::Mutex::new(None);
+
+fn tell(e: crate::ui_state::UiEvent) {
+    if let Some(tx) = UI.get() {
+        let _ = tx.send(e);
+    }
+}
+
+fn notice(text: String, tone: crate::ui_state::Tone) {
+    crate::logging::line(&format!("update: {}", text.replace('\n', " ")));
+    tell(crate::ui_state::UiEvent::Notice(text, tone));
+}
 
 /// "v2.0.1" / "2.0.1" / "2.0.1-rc1" → (2, 0, 1). Anything else is not a version.
 fn parse(tag: &str) -> Option<(u32, u32, u32)> {
@@ -240,17 +257,6 @@ pub fn cleanup() {
     }
 }
 
-fn message(text: &str, ask: bool) -> bool {
-    crate::logging::line(&format!("update: {}", text.replace('\n', " ")));
-    #[cfg(windows)]
-    return crate::setup::message(text, ask);
-    #[cfg(not(windows))]
-    {
-        let _ = ask;
-        false
-    }
-}
-
 /// `manual`: from the tray, so also report "up to date" and errors, and ignore a skipped version.
 fn check(manual: bool) {
     if BUSY.swap(true, Ordering::AcqRel) {
@@ -261,11 +267,12 @@ fn check(manual: bool) {
 }
 
 fn run_check(manual: bool) {
+    use crate::ui_state::Tone;
     let r = match latest() {
         Ok(r) => r,
         Err(e) => {
             if manual {
-                message(&format!("Couldn't check for updates: {e}"), false);
+                notice(format!("Couldn't check for updates: {e}"), Tone::Warn);
             } else {
                 crate::logging::line(&format!("update: check failed: {e}"));
             }
@@ -277,50 +284,70 @@ fn run_check(manual: bool) {
     };
     if new <= cur {
         if manual {
-            message(&format!("You're up to date (Hytte {CURRENT})."), false);
+            notice(format!("You're up to date (Hytte {CURRENT})."), Tone::Info);
         }
         return;
     }
-    let skip = skip_file();
-    if !manual && std::fs::read_to_string(&skip).is_ok_and(|s| s.trim() == r.tag) {
+    if !manual && std::fs::read_to_string(skip_file()).is_ok_and(|s| s.trim() == r.tag) {
         return;
     }
-    let shown = r.tag.trim_start_matches('v');
-    let what = if r.note.is_empty() {
-        String::new()
-    } else {
-        format!("New in {shown}: {}\n\n", r.note)
-    };
-    let q = format!(
-        "Hytte {shown} is available (you have {CURRENT}).\n\n{what}Update now? Hytte will restart in the same folder."
-    );
-    if !message(&q, true) {
-        let _ = std::fs::write(&skip, &r.tag);
-        return;
+    let (tag, note) = (r.tag.clone(), r.note.clone());
+    *OFFER.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
+    tell(crate::ui_state::UiEvent::UpdateOffer { tag, note });
+}
+
+/// Debug builds only (`hytte __update`): check, verify and install without the pill, for
+/// testing the whole path against a local fake release. Prints what happened.
+#[cfg(debug_assertions)]
+pub fn debug_install() {
+    match latest().and_then(|r| install(&r).map(|_| r.tag)) {
+        Ok(tag) => println!("installed {tag}"),
+        Err(e) => println!("refused: {e}"),
     }
-    match install(&r) {
-        Ok(exe) => {
-            crate::logging::line(&format!("update: installed {}, restarting", r.tag));
-            #[cfg(windows)]
-            if let Err(e) = crate::spawn_detached(&exe) {
-                message(
-                    &format!("Updated to {shown}, but couldn't restart ({e}). Start Hytte again."),
-                    false,
-                );
+}
+
+/// "Later": remember this version so the daily check stays quiet about it.
+pub fn skip(tag: &str) {
+    let _ = std::fs::write(skip_file(), tag);
+}
+
+/// "Update": install the release on offer, restart into it, or say why not.
+pub fn install_pending() {
+    std::thread::spawn(|| {
+        use crate::ui_state::Tone;
+        let Some(r) = OFFER.lock().unwrap_or_else(|e| e.into_inner()).take() else {
+            return;
+        };
+        let shown = r.tag.trim_start_matches('v').to_string();
+        notice(format!("Updating to {shown}…"), Tone::Info);
+        match install(&r) {
+            Ok(exe) => {
+                crate::logging::line(&format!("update: installed {}, restarting", r.tag));
+                #[cfg(windows)]
+                if let Err(e) = crate::spawn_detached(&exe) {
+                    notice(
+                        format!(
+                            "Updated to {shown}, but couldn't restart ({e}). Start Hytte again."
+                        ),
+                        Tone::Warn,
+                    );
+                    return;
+                }
+                #[cfg(not(windows))]
+                let _ = exe;
+                crate::window::quit();
             }
-            crate::window::quit();
+            Err(e) => notice(format!("The update didn't install: {e}"), Tone::Warn),
         }
-        Err(e) => {
-            message(&format!("The update didn't install: {e}"), false);
-        }
-    }
+    });
 }
 
 /// The daily background check.
 /// `[general] check_updates`, live: the daily check skips while it's off.
 pub static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub fn spawn_checker(enabled: bool) {
+pub fn spawn_checker(enabled: bool, ui: crossbeam_channel::Sender<crate::ui_state::UiEvent>) {
+    let _ = UI.set(ui);
     ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(60));

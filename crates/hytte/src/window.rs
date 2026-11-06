@@ -331,6 +331,8 @@ mod win {
         asks: std::collections::VecDeque<(u64, String, Instant, Sender<bool>)>,
         /// When the current ask appeared on the chip: clicks right after are ignored.
         ask_shown: Option<Instant>,
+        /// A newer version waiting for a free moment on the chip: (tag, note).
+        update_offer: Option<(String, String)>,
         /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
         gpu_retry: u32,
         /// The timer alarm is playing.
@@ -900,6 +902,15 @@ mod win {
                         c.open = Some(crate::config::config_path());
                         self.model.chip = Some(c);
                     }
+                    UiEvent::UpdateOffer { tag, note } => {
+                        self.update_offer = Some((tag, note));
+                        self.show_update(now);
+                    }
+                    UiEvent::Notice(text, tone) => {
+                        let mut c = Chip::new(text, now);
+                        c.tone = tone;
+                        self.model.chip = Some(c);
+                    }
                     // Nowhere to show it: dropping `reply` sends the agent to its terminal prompt now.
                     UiEvent::Ask { .. } if self.paused || self.gaming => {}
                     UiEvent::Ask { id, summary, reply } => {
@@ -1359,6 +1370,10 @@ mod win {
                 self.show_ask(now);
                 next = self.model.expire(now);
             }
+            if self.model.chip.is_none() && self.update_offer.is_some() {
+                self.show_update(now);
+                next = self.model.expire(now);
+            }
             match next {
                 Some(next) => unsafe {
                     let ms = next.saturating_duration_since(now).as_millis() as u32 + 20;
@@ -1787,6 +1802,14 @@ mod win {
                     self.model.hog_ignore.insert(exe.to_ascii_lowercase());
                     self.model.dismiss_chip();
                 }
+                ChipAction::InstallUpdate => {
+                    self.model.dismiss_chip();
+                    crate::update::install_pending();
+                }
+                ChipAction::UpdateLater(tag) => {
+                    crate::update::skip(&tag);
+                    self.model.dismiss_chip();
+                }
                 ChipAction::Answer(id, allow) => {
                     // A click aimed at the previous chip must not answer the next ask.
                     if !crate::ui_state::ask_click_ready(self.ask_shown, Instant::now()) {
@@ -1801,6 +1824,30 @@ mod win {
                     self.show_ask(Instant::now());
                 }
             }
+        }
+
+        /// Put a waiting update offer on the chip, if nothing else is there and nothing is in
+        /// the way (a game, or paused): it stays queued and shows when that ends.
+        fn show_update(&mut self, now: Instant) {
+            if self.paused || self.gaming || self.model.chip.is_some() {
+                return;
+            }
+            let Some((tag, note)) = self.update_offer.take() else {
+                return;
+            };
+            let shown = tag.trim_start_matches('v');
+            let mut text = format!("Hytte {shown} is available");
+            if !note.is_empty() {
+                text = format!("{text}\n{note}");
+            }
+            let mut c = Chip::new(text, now);
+            c.tone = crate::ui_state::Tone::Info;
+            c.hold = Duration::from_secs(45);
+            c.extra = vec![
+                ("Update".into(), ChipAction::InstallUpdate),
+                ("Later".into(), ChipAction::UpdateLater(tag)),
+            ];
+            self.model.chip = Some(c);
         }
 
         /// Put the oldest live agent ask on the chip, "(1/N)" when more wait behind it. Asks
@@ -2112,6 +2159,8 @@ mod win {
             if on {
                 // Pending agent asks go back to their terminals rather than wait unseen.
                 self.asks.clear();
+            } else {
+                self.show_update(Instant::now());
             }
             crate::fullscreen::GAMING.store(on, Ordering::Relaxed);
             input_hooks(!on);
@@ -2273,6 +2322,7 @@ mod win {
                 kb_focus: None,
                 asks: Default::default(),
                 ask_shown: None,
+                update_offer: None,
                 gpu_retry: 0,
                 ringing: false,
                 last_snip: 0,
@@ -3190,6 +3240,7 @@ mod win {
                     10 => {
                         with_ui(|ui| {
                             ui.paused = !ui.paused;
+                            ui.show_update(Instant::now());
                             ui.layout();
                             ui.kick();
                         });
