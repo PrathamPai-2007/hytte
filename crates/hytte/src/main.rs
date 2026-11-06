@@ -12,6 +12,7 @@
 
 mod agents;
 mod animation;
+mod breaks;
 mod calendar;
 mod cli;
 mod config;
@@ -83,6 +84,7 @@ fn main() {
         std::process::exit(0);
     };
     update::cleanup();
+    dnd::recover();
     // Debug builds only: a crash on every start, to see the relaunch limit work.
     #[cfg(debug_assertions)]
     if std::env::var_os("HYTTE_TEST_PANIC").is_some() {

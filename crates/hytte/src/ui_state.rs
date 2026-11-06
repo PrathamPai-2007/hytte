@@ -371,6 +371,8 @@ pub enum Scene {
     ExpShelf,
     ExpHome,
     ExpPower,
+    /// A break reminder (eyes, stretch, water).
+    ExpNudge,
     ExpNotes,
     ExpTodo,
     ExpWeather,
@@ -548,6 +550,10 @@ pub struct Model {
     pub places_for: String,
     /// Show Fahrenheit.
     pub imperial: bool,
+    /// Alerts held back during a Focus session, and what was said about them when it ended.
+    pub held: Held,
+    pub focus_summary: Option<String>,
+    pub nudge: Option<Nudge>,
 }
 
 /// How long to wait after a failed forecast fetch before trying again.
@@ -567,6 +573,43 @@ fn sky_glow(h: crate::weather::Hour) -> ([f32; 3], f32) {
         (Sky::Snow, _) => ([0.85, 0.92, 1.0], 0.35),
         (Sky::Thunder, _) => ([0.65, 0.54, 0.98], 0.45),
     }
+}
+
+/// Alerts held back while a Focus session runs, to be told as one line afterwards.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Held {
+    pub downloads: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub warnings: u32,
+}
+
+impl Held {
+    /// "While you focused: 2 downloads, 1 task failed", or None when nothing was held. Counts
+    /// start over.
+    pub fn take_summary(&mut self) -> Option<String> {
+        let h = std::mem::take(self);
+        let plural = |n: u32, one: &str, many: &str| {
+            (n > 0).then(|| format!("{n} {}", if n == 1 { one } else { many }))
+        };
+        let parts: Vec<String> = [
+            plural(h.downloads, "download", "downloads"),
+            plural(h.done, "task finished", "tasks finished"),
+            plural(h.failed, "task failed", "tasks failed"),
+            plural(h.warnings, "warning", "warnings"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (!parts.is_empty()).then(|| format!("While you focused: {}", parts.join(", ")))
+    }
+}
+
+/// A break reminder on screen.
+#[derive(Debug, Clone, Copy)]
+pub struct Nudge {
+    pub kind: crate::breaks::Kind,
+    pub since: Instant,
 }
 
 /// A text field on the pill that can take keyboard focus.
@@ -637,7 +680,11 @@ impl Model {
         }
         // An agent's turn ended with a reply: its first line on a card for the "Open on
         // finish" time, Copy takes all of it. A pending ask or warning (amber) keeps the card.
-        if s.source == "agent" && s.event == TaskEvent::Done && !self.finish_peek.is_zero() {
+        if s.source == "agent"
+            && s.event == TaskEvent::Done
+            && !self.finish_peek.is_zero()
+            && !self.holding()
+        {
             let msg = s.message.as_deref().map(str::trim).unwrap_or("");
             let first = msg
                 .lines()
@@ -842,6 +889,12 @@ impl Model {
         {
             self.timer_done = None;
         }
+        if self.timer_done.is_none() {
+            self.focus_summary = None;
+        }
+        if self.nudge.is_some_and(|n| now >= n.since + n.kind.hold()) {
+            self.nudge = None;
+        }
         let wall = crate::timer::now_ms();
         if self.jot.expire(wall) {
             self.jot_dirty = true;
@@ -860,6 +913,9 @@ impl Model {
         }
         if let Some((_, t)) = &self.jot_undo {
             keep(*t + UNDO_HOLD);
+        }
+        if let Some(n) = self.nudge {
+            keep(n.since + n.kind.hold());
         }
         for t in &self.tasks {
             match t.event {
@@ -901,6 +957,13 @@ impl Model {
             keep(t);
         }
         next
+    }
+
+    /// A Focus session is running (paused or not): background alerts wait for its end.
+    pub fn holding(&self) -> bool {
+        self.timer
+            .as_ref()
+            .is_some_and(|t| t.kind == crate::timer::TimerKind::Focus)
     }
 
     /// Apply `[panes]`; a hidden pane that was selected falls back to Home (via `panel()`).
@@ -1440,6 +1503,9 @@ impl Model {
         if self.settings.is_some() {
             return Scene::ExpSettings;
         }
+        if self.nudge.is_some() {
+            return Scene::ExpNudge;
+        }
         let peeking = self.now.zip(self.peek_until).is_some_and(|(n, p)| n < p);
         if hover || peeking {
             return match self.panel() {
@@ -1489,11 +1555,13 @@ impl Model {
             Scene::ExpMedia => (380.0, 132.0 + tab),
             Scene::ExpHome => (380.0, 136.0 + tab + self.apps_h()),
             Scene::ExpPower => (380.0, 112.0 + tab),
+            Scene::ExpNudge => (360.0, 56.0),
             Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
             Scene::ExpWeather => (380.0, self.weather_h() + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
             Scene::ExpChip => (380.0, 96.0),
+            Scene::ExpTimerDone if self.focus_summary.is_some() => (380.0, 134.0),
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
             Scene::ExpSettings => (380.0, 216.0),
@@ -1562,6 +1630,11 @@ impl Model {
                 _ => ([1.0; 3], 0.10),
             },
             Scene::ExpTasks if self.visible_count() == 0 => ([1.0; 3], 0.10),
+            Scene::ExpNudge => match self.nudge.map(|n| n.kind) {
+                Some(crate::breaks::Kind::Water) => ([0.45, 0.85, 1.0], 0.35),
+                Some(crate::breaks::Kind::Stretch) => (GREEN, 0.30),
+                _ => (BLUE, 0.35),
+            },
             Scene::ExpWeather if self.forecast.is_some() && !self.choosing_place() => self
                 .forecast
                 .as_ref()
@@ -1598,6 +1671,9 @@ impl Model {
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
             || self.drop_over
             || scene == Scene::ExpCharge
+            // The eye break's ring counts its 20 seconds down.
+            || (scene == Scene::ExpNudge
+                && self.nudge.is_some_and(|n| n.kind == crate::breaks::Kind::Eyes))
             // The bell swings while the alarm rings.
             || scene == Scene::ExpTimerDone
             || (self.media.as_ref().is_some_and(|m| m.playing)
@@ -2148,6 +2224,141 @@ bang"
         assert_eq!(m.tasks[0].changed, t0);
         m.apply_task(st("a", TaskEvent::Resumed, t1), t1);
         assert_eq!(m.tasks[0].changed, t1);
+    }
+
+    fn focus_timer() -> crate::timer::Timer {
+        crate::timer::Timer::start(crate::timer::TimerKind::Focus, 25, crate::timer::now_ms())
+    }
+
+    #[test]
+    fn only_a_focus_timer_holds_alerts() {
+        use crate::timer::{Timer, TimerKind};
+        let mut m = Model::default();
+        assert!(!m.holding());
+        let wall = crate::timer::now_ms();
+        for (kind, holds) in [
+            (TimerKind::Plain, false),
+            (TimerKind::Break, false),
+            (TimerKind::Focus, true),
+        ] {
+            m.timer = Some(Timer::start(kind, 5, wall));
+            assert_eq!(m.holding(), holds, "{kind:?}");
+        }
+        // Paused is still a session.
+        m.timer = Some(focus_timer());
+        m.timer.as_mut().unwrap().paused_ms = Some(60_000);
+        assert!(m.holding());
+    }
+
+    #[test]
+    fn held_alerts_are_told_once_in_one_line() {
+        let mut h = Held::default();
+        assert_eq!(h.take_summary(), None);
+        h.downloads = 2;
+        h.failed = 1;
+        assert_eq!(
+            h.take_summary().as_deref(),
+            Some("While you focused: 2 downloads, 1 task failed")
+        );
+        assert_eq!(h.take_summary(), None, "counts start over");
+        h = Held {
+            downloads: 1,
+            done: 3,
+            failed: 0,
+            warnings: 1,
+        };
+        assert_eq!(
+            h.take_summary().as_deref(),
+            Some("While you focused: 1 download, 3 tasks finished, 1 warning")
+        );
+    }
+
+    #[test]
+    fn an_agent_reply_waits_out_a_focus_session() {
+        let t0 = Instant::now();
+        let mut m = Model {
+            finish_peek: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let reply = || {
+            let mut u = st("agent:Claude Code:1", TaskEvent::Done, t0);
+            if let TaskUpdate::Upsert(s) = &mut u {
+                s.source = "agent".into();
+                s.label = "Claude Code".into();
+                s.message = Some("All done.".into());
+            }
+            u
+        };
+        m.timer = Some(focus_timer());
+        m.apply_task(reply(), t0);
+        assert!(m.chip.is_none(), "no card during focus");
+        m.timer = None;
+        m.apply_task(reply(), t0);
+        assert!(m.chip.is_some(), "and back to normal afterwards");
+    }
+
+    #[test]
+    fn a_break_nudge_sits_below_cards_and_ends_by_itself() {
+        use crate::breaks::Kind;
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.now = Some(t0);
+        m.nudge = Some(Nudge {
+            kind: Kind::Eyes,
+            since: t0,
+        });
+        assert_eq!(m.scene(false, false), Scene::ExpNudge);
+        assert_eq!(
+            m.scene(true, false),
+            Scene::ExpNudge,
+            "hovering doesn't hide it"
+        );
+        // A card, the finished-timer card and the settings pane are never covered by it.
+        m.settings = Some(0);
+        assert_eq!(m.scene(false, false), Scene::ExpSettings);
+        m.settings = None;
+        m.timer_done = Some((crate::timer::TimerKind::Focus, t0));
+        assert_eq!(m.scene(false, false), Scene::ExpTimerDone);
+        m.timer_done = None;
+        m.chip = Some(Chip::new("x", t0));
+        assert_eq!(m.scene(false, false), Scene::ExpChip);
+        m.chip = None;
+        // The eye break animates its ring, and only it; neither outlives its hold.
+        assert!(m.ambient(Scene::ExpNudge, t0));
+        m.nudge = Some(Nudge {
+            kind: Kind::Water,
+            since: t0,
+        });
+        assert!(!m.ambient(Scene::ExpNudge, t0));
+        assert_eq!(m.expire(t0), Some(t0 + Duration::from_secs(10)));
+        assert!(m.nudge.is_some());
+        m.expire(t0 + Duration::from_secs(10));
+        assert!(m.nudge.is_none());
+        assert_eq!(m.scene(false, false), Scene::Idle);
+        m.nudge = Some(Nudge {
+            kind: Kind::Eyes,
+            since: t0,
+        });
+        m.expire(t0 + Duration::from_secs(19));
+        assert!(m.nudge.is_some(), "twenty seconds for the eyes");
+        m.expire(t0 + Duration::from_secs(20));
+        assert!(m.nudge.is_none());
+        assert!(!m.ambient(Scene::ExpNudge, t0), "frames stop with it");
+    }
+
+    #[test]
+    fn the_focus_summary_goes_when_the_finished_card_does() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.timer_done = Some((crate::timer::TimerKind::Focus, t0));
+        m.focus_summary = Some("While you focused: 1 download".into());
+        assert_eq!(m.size(Scene::ExpTimerDone).1, 134.0, "room for the line");
+        m.expire(t0);
+        assert!(m.focus_summary.is_some());
+        m.timer_done = None;
+        m.expire(t0);
+        assert!(m.focus_summary.is_none());
+        assert_eq!(m.size(Scene::ExpTimerDone).1, 114.0);
     }
 
     #[test]

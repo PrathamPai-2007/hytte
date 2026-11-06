@@ -21,6 +21,26 @@ impl Renderer {
         } else {
             BLUE
         };
+        // A Focus session is quiet: a thin pale line that only turns amber in the last minute.
+        if t.kind == crate::timer::TimerKind::Focus {
+            let (x0, y, side) = if centre {
+                (20.0, h / 2.0, 20.0 + lock)
+            } else {
+                (14.0, h - 2.0, 14.0)
+            };
+            let len = (w - x0 - side).max(1.0);
+            let col = if t.remaining_ms(wall) < 60_000 {
+                AMBER
+            } else {
+                self.fg()
+            };
+            unsafe { self.rt.SetTransform(&mat(self.scale, self.ox.get(), 0.0)) };
+            self.line((x0, y), (x0 + len, y), color(self.fg(), 0.07), 1.0);
+            if frac > 0.0 {
+                self.line((x0, y), (x0 + len * frac, y), color(col, 0.55), 1.3);
+            }
+            return;
+        }
         // Collapsed and empty: the fuse replaces the idle grey dash, in the middle of the pill.
         let (x0, y, side) = if centre {
             (20.0, h / 2.0, 20.0 + lock)
@@ -275,7 +295,22 @@ impl Renderer {
                 self.cc(GRAY, 1.0),
             );
         }
-        let (y, h) = (70.0, 30.0);
+        // What was held back during a focus session, said once.
+        let note_y = if let Some(s) = &m.focus_summary {
+            self.text(
+                s,
+                &self.f.small,
+                75.0,
+                56.0,
+                w - 90.0,
+                16.0,
+                self.cc(AMBER, 0.95),
+            );
+            86.0
+        } else {
+            70.0
+        };
+        let (y, h) = (note_y, 30.0);
         let mut x = 16.0;
         match kind {
             Focus => {

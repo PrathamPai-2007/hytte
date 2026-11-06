@@ -181,6 +181,10 @@ pub fn help(key: &str) -> &'static str {
         "general.hide_from_capture" => "Keeps the pill out of screenshots, screen shares and recordings.",
         "general.add_to_path" => "Lets you run the hytte command from any terminal.",
         "general.check_updates" => "Checks GitHub for a new Hytte release and offers to install it.",
+        "timer.focus_dnd" => "Turns on Windows Do Not Disturb during a focus session and puts it back afterwards.",
+        "breaks.eyes_min" => "Every so often, a card asks you to look 20 feet away for 20 seconds.",
+        "breaks.stretch_min" => "A card suggests standing up to stretch.",
+        "breaks.water_min" => "A card reminds you to drink some water.",
         "panes.notes" => "Shows the Notes pane in the tab strip.",
         "panes.todo" => "Shows the To-do pane in the tab strip.",
         "panes.weather" => "Shows the Weather pane in the tab strip.",
@@ -466,6 +470,38 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             ],
         },
         Section {
+            name: "Breaks",
+            rows: vec![
+                (
+                    pick_i(
+                        "Eye break (20-20-20)",
+                        "breaks.eyes_min",
+                        &[("Off", 0), ("20 min", 20), ("30 min", 30)],
+                        c.breaks.eyes_min as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Stretch reminder",
+                        "breaks.stretch_min",
+                        &[("Off", 0), ("30 min", 30), ("60 min", 60), ("90 min", 90)],
+                        c.breaks.stretch_min as i64,
+                    ),
+                    -1,
+                ),
+                (
+                    pick_i(
+                        "Water reminder",
+                        "breaks.water_min",
+                        &[("Off", 0), ("45 min", 45), ("60 min", 60), ("90 min", 90)],
+                        c.breaks.water_min as i64,
+                    ),
+                    -1,
+                ),
+            ],
+        },
+        Section {
             name: "Panes",
             rows: vec![
                 (sw("Notes", "panes.notes", c.panes.notes), -1),
@@ -483,6 +519,14 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                         c.timer.sound,
                     ),
                     1,
+                ),
+                (
+                    sw(
+                        "Do Not Disturb during focus",
+                        "timer.focus_dnd",
+                        c.timer.focus_dnd,
+                    ),
+                    -1,
                 ),
                 (
                     pick_i(

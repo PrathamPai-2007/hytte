@@ -34,6 +34,7 @@ mod compact;
 mod home;
 mod jot;
 mod media;
+mod nudge;
 mod pill;
 mod prims;
 mod settings;
@@ -146,6 +147,10 @@ pub enum Action {
     CancelPlace,
     /// Fetch the forecast again after a failure.
     RetryWeather,
+    /// Break reminder: remind me again in ten minutes.
+    NudgeSnooze,
+    /// Break reminder: done, or not now.
+    NudgeSkip,
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.

@@ -6,7 +6,10 @@ impl Ui {
     pub(super) fn after_model_change(&mut self, hwnd: HWND) {
         let now = Instant::now();
         let wall = crate::timer::now_ms();
-        if self.model.finish_timer(wall, now).is_some() {
+        if let Some(kind) = self.model.finish_timer(wall, now) {
+            if kind == crate::timer::TimerKind::Focus {
+                self.model.focus_summary = self.model.held.take_summary();
+            }
             let t = &self.cfg.timer;
             self.model.timer_break = crate::timer::break_minutes(
                 self.model.focus_done,
@@ -20,10 +23,19 @@ impl Ui {
         // 1 Hz redraw for the fuse, only while a timer runs; no timer = no wake-ups.
         match &self.model.timer {
             Some(t) if t.paused_ms.is_none() => unsafe {
+                // A Focus line on a bare pill moves a pixel every few seconds: no need to redraw
+                // it every one. (A bubble clock or an open pane still wants the second.)
+                let quiet = t.kind == crate::timer::TimerKind::Focus
+                    && matches!(self.anim.scene, Scene::Idle | Scene::Sentinel);
+                let step = if quiet {
+                    (t.total_ms / 100).clamp(1000, 30_000)
+                } else {
+                    1000
+                };
                 SetTimer(
                     Some(hwnd),
                     T_TIMER,
-                    t.remaining_ms(wall).min(1000) as u32 + 15,
+                    t.remaining_ms(wall).min(step) as u32 + 15,
                     None,
                 );
             },
@@ -33,6 +45,23 @@ impl Ui {
         }
         self.model.set_idle(input_idle(), now);
         let mut next = self.model.expire(now);
+        self.focus_dnd();
+        // Break reminders: only when nothing is in the way; a due one waits for the way to clear.
+        let clear = !self.model.holding()
+            && !self.quiet()
+            && !self.hidden()
+            && !(self.model.cam || self.model.mic)
+            && self.model.chip.is_none()
+            && self.model.timer_done.is_none()
+            && self.model.nudge.is_none()
+            && !self.model.drop_over;
+        if let Some(kind) = self.breaks.tick(now, input_idle(), clear) {
+            self.model.nudge = Some(crate::ui_state::Nudge { kind, since: now });
+            next = self.model.expire(now);
+        }
+        if let Some(d) = self.breaks.next_deadline(now) {
+            next = Some(next.map_or(d, |n| n.min(d)));
+        }
         // A field only keeps focus while its pane is the one showing.
         if let Some(f) = self.model.typing {
             if self.model.panel() != typing::field_panel(f) {

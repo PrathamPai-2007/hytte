@@ -941,3 +941,97 @@ fn weather_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// Focus and breaks: the three nudges, the finished-focus card with its summary, and the quiet
+/// hairline on a bare pill (and the plain timer's fuse beside it for comparison).
+#[test]
+#[ignore]
+fn focus_snapshots() {
+    use crate::breaks::Kind;
+    use crate::timer::{Timer, TimerKind};
+    use crate::ui_state::Nudge;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    let now = Instant::now();
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(now);
+        for (name, kind, ago) in [
+            ("nudge-eyes", Kind::Eyes, 6),
+            ("nudge-eyes-late", Kind::Eyes, 17),
+            ("nudge-water", Kind::Water, 1),
+            ("nudge-stretch", Kind::Stretch, 1),
+        ] {
+            m.nudge = Some(Nudge {
+                kind,
+                since: now - std::time::Duration::from_secs(ago),
+            });
+            shoot(
+                &mut r,
+                &dir,
+                &format!("{name}{sfx}"),
+                &m,
+                Scene::ExpNudge,
+                light,
+            );
+        }
+        m.nudge = None;
+        // Focus finished, with and without what was held back.
+        let mut t = Timer::start(TimerKind::Focus, 25, wall - 25 * 60_000);
+        t.ends_ms = wall - 9 * 60_000;
+        m.timer_last = Some(t);
+        m.timer_done = Some((TimerKind::Focus, now));
+        m.timer_break = 5;
+        shoot(
+            &mut r,
+            &dir,
+            &format!("focus-done{sfx}"),
+            &m,
+            Scene::ExpTimerDone,
+            light,
+        );
+        m.focus_summary = Some("While you focused: 2 downloads, 1 task failed".into());
+        shoot(
+            &mut r,
+            &dir,
+            &format!("focus-done-summary{sfx}"),
+            &m,
+            Scene::ExpTimerDone,
+            light,
+        );
+        m.timer_done = None;
+        m.focus_summary = None;
+        // The line on a bare pill: a focus session (quiet) and a plain timer (the fuse).
+        m.timer = Some(Timer::start(TimerKind::Focus, 25, wall - 10 * 60_000));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("line-focus{sfx}"),
+            &m,
+            Scene::Idle,
+            light,
+        );
+        m.timer = Some(Timer::start(TimerKind::Focus, 25, wall - 24 * 60_000));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("line-focus-last-minute{sfx}"),
+            &m,
+            Scene::Idle,
+            light,
+        );
+        m.timer = Some(Timer::start(TimerKind::Plain, 25, wall - 10 * 60_000));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("line-plain{sfx}"),
+            &m,
+            Scene::Idle,
+            light,
+        );
+    }
+    contact_sheet(&dir);
+}

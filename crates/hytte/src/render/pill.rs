@@ -335,6 +335,7 @@ impl Renderer {
             Scene::ExpShelf => self.exp_shelf(fr, w, h),
             Scene::ExpHome => self.exp_home(fr, w, h),
             Scene::ExpPower => self.exp_power(fr, w, h),
+            Scene::ExpNudge => self.exp_nudge(fr, w, h),
             Scene::ExpNotes => self.exp_notes(fr, w, h),
             Scene::ExpTodo => self.exp_todo(fr, w, h),
             Scene::ExpWeather => self.exp_weather(fr, w, h),

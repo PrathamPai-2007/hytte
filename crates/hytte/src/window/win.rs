@@ -209,6 +209,11 @@ fn reassert_topmost(hwnd: HWND) {
     }
 }
 
+/// The break intervals from the settings: eyes, stretch, water.
+fn break_minutes(c: &Config) -> [u32; 3] {
+    [c.breaks.eyes_min, c.breaks.stretch_min, c.breaks.water_min]
+}
+
 fn push_event(sh: &Shared, e: UiEvent) {
     sh.pending.lock().unwrap().push(e);
     post(WM_UI);
@@ -309,6 +314,12 @@ struct Ui {
     high: Option<u16>,
     /// Counts place-field edits; a search result for an older one is ignored.
     place_seq: u64,
+    /// Break reminder schedule.
+    breaks: crate::breaks::Breaks,
+    /// Do Not Disturb is on for a Focus session: the value to put back afterwards.
+    dnd: Option<crate::dnd::Raw>,
+    /// Turning it on was tried this session (a failure is not retried on every change).
+    dnd_tried: bool,
     /// Hash of the last screenshot shelved from the clipboard: the Snipping Tool can
     /// announce one image more than once.
     last_snip: u64,
@@ -611,6 +622,9 @@ pub fn run_windows(
             caret_on: true,
             high: None,
             place_seq: 0,
+            breaks: Default::default(),
+            dnd: None,
+            dnd_tried: false,
             last_snip: 0,
             dim: 1.0,
             snip_seq: 0,
@@ -628,6 +642,7 @@ pub fn run_windows(
         ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
         ui.model.task_rows = ui.cfg.general.task_rows;
         ui.model.pin_button = ui.cfg.general.pin_button;
+        ui.breaks.configure(break_minutes(&ui.cfg), Instant::now());
         ui.model.init_jot(&crate::jot::path());
         ui.model.weather_place = crate::weather::Place::load();
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);

@@ -114,9 +114,22 @@ impl Ui {
                 }
             }
             Action::TimerStop => {
+                let was_focus = self.model.holding();
                 self.model.timer = None;
                 crate::timer::save(None);
+                // Ended early: what was held back shows now, on an ordinary card.
+                if let (true, Some(text)) = (was_focus, self.model.held.take_summary()) {
+                    let mut c = Chip::new(text, Instant::now());
+                    c.tone = crate::ui_state::Tone::Info;
+                    self.model.chip = Some(c);
+                }
             }
+            Action::NudgeSnooze => {
+                if let Some(n) = self.model.nudge.take() {
+                    self.breaks.snooze(n.kind, Instant::now());
+                }
+            }
+            Action::NudgeSkip => self.model.nudge = None,
             Action::TimerDismiss => self.model.timer_done = None,
             Action::TimerClose => self.model.timer_panel = false,
             Action::Settings(g) => self.model.settings = g,

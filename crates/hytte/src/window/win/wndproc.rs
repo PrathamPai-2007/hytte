@@ -449,6 +449,7 @@ pub(super) unsafe extern "system" fn wndproc(
             return LRESULT(0);
         }
         WM_DESTROY => {
+            with_ui(|ui| ui.dnd_release());
             if LIVE.load(Ordering::Relaxed) {
                 unsafe { PostQuitMessage(0) };
             }
