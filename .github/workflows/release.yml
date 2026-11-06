@@ -35,6 +35,24 @@ jobs:
           if ($got -ne "hytte $v") { throw "tag v$v but the exe reports '$got'; bump crates/hytte/Cargo.toml" }
           Compress-Archive target\release\hytte.exe "hytte-$v-x64.zip"
           Copy-Item target\release\hytte.exe hytte.exe
+      # The in-app updater only runs a download whose minisign signature checks out against the
+      # public key built into the exe. The secret key lives only in this repository's secrets.
+      - name: Sign hytte.exe
+        shell: pwsh
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          if (-not $env:MINISIGN_SECRET_KEY) { throw "the MINISIGN_SECRET_KEY secret is not set" }
+          cargo install rsign2 --version 0.6.7 --locked
+          $key = Join-Path $env:RUNNER_TEMP "hytte.key"
+          Set-Content -Path $key -Value $env:MINISIGN_SECRET_KEY -Encoding ascii
+          rsign sign -W -s $key -x hytte.exe.minisig -t "hytte.exe" hytte.exe
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          Remove-Item $key
+          # What was just signed must verify with the key that is compiled into the exe.
+          $pub = [regex]::Match((Get-Content crates/hytte/src/update.rs -Raw), 'const PUBKEY: &str = "([^"]+)"').Groups[1].Value
+          rsign verify hytte.exe -x hytte.exe.minisig -P $pub
+          if ($LASTEXITCODE -ne 0) { throw "the signature doesn't verify with the PUBKEY in update.rs" }
       # hytte.exe on its own is what the in-app updater downloads; the zip is for people.
       - uses: softprops/action-gh-release@v2
         if: ${{ !inputs.dry_run }}
@@ -44,6 +62,7 @@ jobs:
           files: |
             hytte-*-x64.zip
             hytte.exe
+            hytte.exe.minisig
           generate_release_notes: true
 
   # The winget manifest needs the SHA-256 of the zip that was just published. Take it from the
