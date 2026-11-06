@@ -1399,6 +1399,14 @@ impl Swipe {
     }
 }
 
+/// Clicks on Allow / Deny count only this long after an ask appears.
+pub const ASK_CLICK_GUARD: Duration = Duration::from_millis(400);
+
+/// Whether an Allow / Deny click may answer: not within [`ASK_CLICK_GUARD`] of the ask appearing.
+pub fn ask_click_ready(shown: Option<Instant>, now: Instant) -> bool {
+    shown.is_none_or(|s| now.saturating_duration_since(s) >= ASK_CLICK_GUARD)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1426,6 +1434,14 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn answers_wait_out_the_click_guard() {
+        let t = Instant::now();
+        assert!(!ask_click_ready(Some(t), t + Duration::from_millis(100)));
+        assert!(ask_click_ready(Some(t), t + Duration::from_millis(400)));
+        assert!(ask_click_ready(None, t));
+    }
 
     #[test]
     fn a_cut_command_is_not_rerunnable() {

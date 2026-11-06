@@ -329,6 +329,8 @@ mod win {
         /// Each: id, summary, arrival, and where the answer goes. Dropping the sender sends
         /// that agent back to its own terminal prompt.
         asks: std::collections::VecDeque<(u64, String, Instant, Sender<bool>)>,
+        /// When the current ask appeared on the chip: clicks right after are ignored.
+        ask_shown: Option<Instant>,
         /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
         gpu_retry: u32,
         /// The timer alarm is playing.
@@ -1786,6 +1788,10 @@ mod win {
                     self.model.dismiss_chip();
                 }
                 ChipAction::Answer(id, allow) => {
+                    // A click aimed at the previous chip must not answer the next ask.
+                    if !crate::ui_state::ask_click_ready(self.ask_shown, Instant::now()) {
+                        return;
+                    }
                     if let Some(i) = self.asks.iter().position(|a| a.0 == id) {
                         if let Some((.., reply)) = self.asks.remove(i) {
                             let _ = reply.send(allow);
@@ -1819,6 +1825,7 @@ mod win {
             ];
             self.model.chip = Some(c);
             self.model.chip_armed = None;
+            self.ask_shown = Some(now);
         }
 
         /// The clipboard changed: a screenshot from the Snipping Tool (Win+Shift+S) goes on
@@ -2265,6 +2272,7 @@ mod win {
                 kb: None,
                 kb_focus: None,
                 asks: Default::default(),
+                ask_shown: None,
                 gpu_retry: 0,
                 ringing: false,
                 last_snip: 0,
