@@ -1419,6 +1419,24 @@ impl Swipe {
     }
 }
 
+/// What to call a listening process on the Ports pane: Docker and WSL by their helper
+/// processes (their listeners are containers and Linux servers), else the project folder of
+/// the terminal command that started it when that is tracked, else the exe's name.
+pub fn port_name(exe: &str, cwd: Option<&str>) -> String {
+    let stem = exe.trim_end_matches(".exe");
+    let low = stem.to_ascii_lowercase();
+    if low.contains("docker") {
+        return "Docker".into();
+    }
+    if low.starts_with("wsl") || low == "vmmem" {
+        return "WSL".into();
+    }
+    let folder = cwd
+        .and_then(|c| c.trim_end_matches(['\\', '/']).rsplit(['\\', '/']).next())
+        .filter(|f| !f.is_empty() && !f.ends_with(':'));
+    folder.unwrap_or(stem).to_string()
+}
+
 /// Clicks on Allow / Deny count only this long after an ask appears.
 pub const ASK_CLICK_GUARD: Duration = Duration::from_millis(400);
 
@@ -1454,6 +1472,26 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn listeners_are_named_by_project_docker_wsl_or_exe() {
+        assert_eq!(
+            port_name("node.exe", Some(r"C:\code\shop-front")),
+            "shop-front"
+        );
+        assert_eq!(
+            port_name("node.exe", Some(r"C:\code\shop-front\")),
+            "shop-front"
+        );
+        assert_eq!(port_name("node.exe", None), "node");
+        assert_eq!(port_name("node.exe", Some(r"C:\")), "node");
+        assert_eq!(
+            port_name("com.docker.backend.exe", Some(r"C:\code\x")),
+            "Docker"
+        );
+        assert_eq!(port_name("wslrelay.exe", None), "WSL");
+        assert_eq!(port_name("vmmem", None), "WSL");
+    }
 
     #[test]
     fn answers_wait_out_the_click_guard() {

@@ -3402,10 +3402,10 @@ impl Renderer {
                 20.0,
                 self.cc(self.fg(), 0.97),
             );
-            let exe = p.exe.trim_end_matches(".exe");
+            let name = crate::ui_state::port_name(&p.exe, task.and_then(|t| t.cwd.as_deref()));
             let sub = match task {
-                Some(t) => format!("{exe}  ·  {}", crate::secrets::mask(&t.label)),
-                None => exe.to_string(),
+                Some(t) => format!("{name}  ·  {}", crate::secrets::mask(&t.label)),
+                None => name,
             };
             self.label(
                 &sub,
