@@ -3,15 +3,12 @@
 //! A background check (60 s after start, then daily; `[general] check_updates`) and the tray's
 //! "Check for updates…" ask GitHub for the latest release. If it is newer, a chip on the pill
 //! offers Update / Later (no window, no focus change); on Update the release's `hytte.exe`
-//! asset is downloaded next to this exe, verified (signature, then `--version` must name the
-//! release), swapped in by renaming (a running exe can be renamed, not overwritten), started,
+//! asset is downloaded next to this exe, checked (`--version` must name the release), swapped in by renaming (a running exe can be renamed, not overwritten), started,
 //! and this process quits. The leftover `hytte.exe.old` is removed on the next start. Later
 //! remembers that version (`update-skip`) so the daily check stays quiet.
 //!
 //! Downloads use Windows' own curl.exe (System32, by absolute path), so no HTTP stack is linked,
-//! over HTTPS only. The release also carries `hytte.exe.minisig`, a minisign signature that is
-//! checked against the public key built into this exe before the download is ever run.
-//! Debug builds (testing) read `HYTTE_UPDATE_API` / `HYTTE_UPDATE_PUBKEY` and accept `file://`.
+//! over HTTPS only. Debug builds (testing) read `HYTTE_UPDATE_API` and accept `file://`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,10 +17,6 @@ use std::time::Duration;
 
 const API: &str = "https://api.github.com/repos/PrathamPai-2007/hytte/releases/latest";
 const ASSET: &str = "hytte.exe";
-const SIG_ASSET: &str = "hytte.exe.minisig";
-/// The release signing key (its secret half is only in the release workflow's secrets). Losing
-/// that secret means a new key here and one manual update for everyone.
-const PUBKEY: &str = "RWRhYIiFU0f4WrWEqRoBmoQycFtz0quv7vxbJLiej9Q6XuKDS/hCx/ZP";
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
 /// One check at a time.
@@ -58,7 +51,6 @@ fn parse(tag: &str) -> Option<(u32, u32, u32)> {
 struct Release {
     tag: String,
     url: String,
-    sig_url: String,
     /// The first line of the release notes ("what changed"), empty when there are none.
     note: String,
 }
@@ -94,12 +86,9 @@ fn release_from_json(body: &[u8]) -> Result<Release, String> {
             .and_then(|a| a["browser_download_url"].as_str())
     };
     let url = asset(ASSET).ok_or_else(|| format!("release {tag} has no {ASSET} to download"))?;
-    let sig_url = asset(SIG_ASSET)
-        .ok_or_else(|| format!("release {tag} has no {SIG_ASSET}, so it can't be verified"))?;
     Ok(Release {
         tag: tag.into(),
         url: url.into(),
-        sig_url: sig_url.into(),
         note: first_note(v["body"].as_str().unwrap_or("")),
     })
 }
@@ -177,24 +166,6 @@ fn version_of(exe: &Path) -> Option<String> {
     Some(out.trim().to_string())
 }
 
-/// Checks `data` against a minisign signature (the `.minisig` file's text) and public key.
-fn verify(data: &[u8], sig: &str, key: &str) -> Result<(), String> {
-    let key = minisign_verify::PublicKey::from_base64(key).map_err(|e| format!("bad key: {e}"))?;
-    let sig = minisign_verify::Signature::decode(sig).map_err(|e| format!("bad signature: {e}"))?;
-    key.verify(data, &sig, false)
-        .map_err(|e| format!("signature check failed: {e}"))
-}
-
-/// The public key to trust: the built-in one (debug builds may override it, for tests).
-fn trusted_key() -> String {
-    if cfg!(debug_assertions) {
-        if let Ok(k) = std::env::var("HYTTE_UPDATE_PUBKEY") {
-            return k;
-        }
-    }
-    PUBKEY.into()
-}
-
 /// Downloads and swaps in the new exe; returns the path to start.
 fn install(r: &Release) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -211,19 +182,6 @@ fn install(r: &Release) -> Result<PathBuf, String> {
     if let Err(e) = curl(&r.url, Some(&new)) {
         let _ = std::fs::remove_file(&new);
         return Err(e);
-    }
-    // Signed by us, or it never runs: this is what makes a hijacked download harmless.
-    let sig = match curl(&r.sig_url, None) {
-        Ok(b) => String::from_utf8(b).unwrap_or_default(),
-        Err(e) => {
-            let _ = std::fs::remove_file(&new);
-            return Err(e);
-        }
-    };
-    let bytes = std::fs::read(&new).map_err(|e| e.to_string())?;
-    if let Err(e) = verify(&bytes, &sig, &trusted_key()) {
-        let _ = std::fs::remove_file(&new);
-        return Err(format!("{e}; nothing was changed"));
     }
     // The file must be a working hytte of exactly the advertised version.
     let want = format!("hytte {}", r.tag.trim_start_matches('v'));
@@ -395,59 +353,18 @@ mod tests {
     fn release_json_finds_the_exe_asset() {
         let body = br#"{"tag_name":"v2.1.0","assets":[
             {"name":"hytte-2.1.0-x64.zip","browser_download_url":"https://x/zip"},
-            {"name":"hytte.exe","browser_download_url":"https://x/exe"},
-            {"name":"hytte.exe.minisig","browser_download_url":"https://x/sig"}]}"#;
+            {"name":"hytte.exe","browser_download_url":"https://x/exe"}]}"#;
         assert_eq!(
             release_from_json(body),
             Ok(Release {
                 tag: "v2.1.0".into(),
                 url: "https://x/exe".into(),
-                sig_url: "https://x/sig".into(),
                 note: String::new(),
             })
         );
         // Pre-1.0 releases only had the zip.
         let old = br#"{"tag_name":"v1.3.0","assets":[{"name":"hytte-1.3.0-x64.zip","browser_download_url":"u"}]}"#;
         assert!(release_from_json(old).unwrap_err().contains("no hytte.exe"));
-        // A release without a signature can't be installed.
-        let unsigned =
-            br#"{"tag_name":"v2.1.0","assets":[{"name":"hytte.exe","browser_download_url":"u"}]}"#;
-        assert!(release_from_json(unsigned)
-            .unwrap_err()
-            .contains("can't be verified"));
         assert!(release_from_json(b"<html>").is_err());
-    }
-
-    /// A signature of `data` by a fresh key: (public key, .minisig text).
-    fn sign(data: &[u8]) -> (String, String) {
-        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
-        let sig = minisign::sign(
-            Some(&kp.pk),
-            &kp.sk,
-            std::io::Cursor::new(data),
-            Some("file:hytte.exe"),
-            None,
-        )
-        .unwrap();
-        (kp.pk.to_base64(), sig.into_string())
-    }
-
-    #[test]
-    fn only_a_good_signature_by_our_key_passes() {
-        let exe = b"MZ pretend this is hytte.exe".to_vec();
-        let (key, sig) = sign(&exe);
-        assert_eq!(verify(&exe, &sig, &key), Ok(()));
-        // Tampered download.
-        let mut bad = exe.clone();
-        bad[3] ^= 1;
-        assert!(verify(&bad, &sig, &key).is_err());
-        // Signed by somebody else's key.
-        let (_, other_sig) = sign(&exe);
-        assert!(verify(&exe, &other_sig, &key).is_err());
-        // Missing or garbage signature.
-        assert!(verify(&exe, "", &key).is_err());
-        assert!(verify(&exe, "not a signature", &key).is_err());
-        // The built-in key is a real one.
-        assert!(minisign_verify::PublicKey::from_base64(PUBKEY).is_ok());
     }
 }

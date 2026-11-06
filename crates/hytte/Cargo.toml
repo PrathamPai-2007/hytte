@@ -20,11 +20,7 @@ toml = { workspace = true }
 toml_edit = { workspace = true }
 image = { workspace = true }
 miniz_oxide = "0.8"
-minisign-verify = "0.3"
 qrcodegen = "1.8"
-
-[dev-dependencies]
-minisign = "0.10"
 
 [build-dependencies]
 embed-resource = "3"
