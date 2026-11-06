@@ -1,6 +1,7 @@
 //! Finds progress in a command's stderr for `hytte run`: OSC 9;4 sequences (the ones Windows
-//! Terminal turns into a tab progress bar) and plain `NN%` text, as printed by git, pip, curl,
-//! ffmpeg and many others.
+//! Terminal turns into a tab progress bar), plain `NN%` text (git, pip, curl, ffmpeg and many
+//! others) and bracketed counts like `[12/345]` or `(3/25)` (ninja, cmake, git). Only real
+//! numbers count: no guessing, no time estimates.
 
 /// Longest segment (text since the last `\r` / `\n`) kept for percentage matching.
 const SEG_CAP: usize = 512;
@@ -52,6 +53,9 @@ impl Scanner {
                     if b == b'%' {
                         found = percent_before(&self.seg).or(found);
                     }
+                    if b == b']' || b == b')' {
+                        found = fraction_before(&self.seg, b).or(found);
+                    }
                     if self.seg.len() < SEG_CAP {
                         self.seg.push(b);
                     }
@@ -85,6 +89,21 @@ fn percent_before(seg: &[u8]) -> Option<u8> {
     let ok = (1..=3).contains(&int.len()) && frac.bytes().all(|c| c.is_ascii_digit());
     let p: u32 = int.parse().ok().filter(|_| ok)?;
     (p <= 100).then_some(p as u8)
+}
+
+/// `[N/M]` or `(N/M)` ending right here: N of M steps done. Bracketed only, so a date
+/// (`12/25/2026`) or a path (`src/1/2`) is never read as progress.
+fn fraction_before(seg: &[u8], close: u8) -> Option<u8> {
+    let open = if close == b']' { b'[' } else { b'(' };
+    let start = seg.iter().rposition(|&c| c == open)?;
+    let inner = std::str::from_utf8(&seg[start + 1..]).ok()?;
+    let (n, m) = inner.split_once('/')?;
+    let digits = |s: &str| (1..=7).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_digit());
+    if !digits(n) || !digits(m) {
+        return None;
+    }
+    let (n, m): (u64, u64) = (n.parse().ok()?, m.parse().ok()?);
+    (m > 0 && n <= m).then(|| (n * 100 / m) as u8)
 }
 
 /// Longest output line sent to the pill, in characters.
@@ -194,6 +213,75 @@ mod tests {
         assert_eq!(s.feed(b"\x1b]9;4;1;250\x07"), Some(100));
         // A percentage in an ordinary log line still counts (`--no-progress` opts out).
         assert_eq!(s.feed(b"coverage: 73% of lines\n"), Some(73));
+    }
+
+    #[test]
+    fn bracketed_counts_fill_the_bar_but_dates_and_paths_do_not() {
+        let mut s = Scanner::default();
+        assert_eq!(
+            s.feed(
+                b"[12/345] Building CXX object a.o
+"
+            ),
+            Some(3)
+        );
+        assert_eq!(
+            s.feed(
+                b"Compiling foo (3/25)
+"
+            ),
+            Some(12)
+        );
+        assert_eq!(
+            s.feed(
+                b"[345/345] Linking
+"
+            ),
+            Some(100)
+        );
+        assert_eq!(
+            s.feed(
+                b"released 12/25/2026
+"
+            ),
+            None
+        );
+        assert_eq!(
+            s.feed(
+                b"open src/1/2 now
+"
+            ),
+            None
+        );
+        assert_eq!(
+            s.feed(
+                b"[5/3] impossible
+"
+            ),
+            None
+        );
+        assert_eq!(
+            s.feed(
+                b"[0/0]
+"
+            ),
+            None
+        );
+        assert_eq!(
+            s.feed(
+                b"[a/b] (x/y) [1/2/3]
+"
+            ),
+            None
+        );
+        // No numbers, no progress: the spinner stays.
+        assert_eq!(
+            s.feed(
+                b"Compiling hytte v1.5.0
+"
+            ),
+            None
+        );
     }
 
     #[test]
