@@ -185,6 +185,7 @@ pub fn help(key: &str) -> &'static str {
         "breaks.eyes_min" => "Every so often, a card asks you to look 20 feet away for 20 seconds.",
         "breaks.stretch_min" => "A card suggests standing up to stretch.",
         "breaks.water_min" => "A card reminds you to drink some water.",
+        "media.lyrics" => "Shows the words of the song that is playing. Looking them up sends the song title and artist to lrclib.net.",
         "panes.notes" => "Shows the Notes pane in the tab strip.",
         "panes.todo" => "Shows the To-do pane in the tab strip.",
         "panes.weather" => "Shows the Weather pane in the tab strip.",
@@ -468,6 +469,10 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     2,
                 ),
             ],
+        },
+        Section {
+            name: "Media",
+            rows: vec![(sw("Show lyrics", "media.lyrics", c.media.lyrics), -1)],
         },
         Section {
             name: "Breaks",

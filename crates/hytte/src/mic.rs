@@ -174,6 +174,22 @@ pub fn set_app_volume(exe: &str, v: f32) {
     let _ = (exe, v);
 }
 
+/// An app's volume (0..1), whether or not it is playing right now: its first audio session.
+pub fn app_volume(exe: &str) -> Option<f32> {
+    #[cfg(windows)]
+    {
+        imp::sessions()
+            .into_iter()
+            .find(|(e, ..)| e.eq_ignore_ascii_case(exe))
+            .and_then(|(_, v, ..)| unsafe { v.GetMasterVolume().ok() })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = exe;
+        None
+    }
+}
+
 /// Mute or unmute the default speaker. Returns the new state.
 pub fn toggle_speaker() -> Option<(f32, bool)> {
     #[cfg(windows)]

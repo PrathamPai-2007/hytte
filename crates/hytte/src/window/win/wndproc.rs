@@ -293,6 +293,7 @@ pub(super) unsafe extern "system" fn wndproc(
                         ui.hover = false;
                         ui.model.timer_panel = false;
                         ui.model.settings = None;
+                        ui.model.close_media_extras();
                         match ui.cfg.general.start_panel.as_str() {
                             "auto" => ui.model.selected = None,
                             "home" => ui.model.selected = Some(Panel::Home),

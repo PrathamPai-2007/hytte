@@ -51,6 +51,8 @@ pub enum UiEvent {
     Places(u64, String, Result<Vec<crate::weather::Place>, String>),
     /// A forecast arrived (or the fetch failed).
     Forecast(Result<crate::weather::Forecast, String>),
+    /// Lyrics for the song with this key (or the lookup failed).
+    Lyrics(String, Result<crate::lyrics::Lyrics, String>),
     Media(Option<MediaInfo>),
     MediaArt(Option<Arc<ArtBitmap>>),
     Privacy(bool, bool, Option<String>),
@@ -107,6 +109,7 @@ pub enum UiEvent {
 pub struct MediaInfo {
     pub title: String,
     pub artist: String,
+    pub album: String,
     pub playing: bool,
     /// Source app's AppUserModelId, used to bring it to the front.
     pub app: String,
@@ -550,6 +553,19 @@ pub struct Model {
     pub places_for: String,
     /// Show Fahrenheit.
     pub imperial: bool,
+    /// The sleep timer ("stop playing in 30 min"), and whether its chips are showing.
+    pub sleep: Option<crate::sleep::Sleep>,
+    pub sleep_open: bool,
+    /// The lyrics page is showing in the Media pane; `lyrics_on` is `[media] lyrics`.
+    pub lyrics_open: bool,
+    pub lyrics_on: bool,
+    /// The song the lyrics below are for (or being fetched for), and what is known.
+    pub lyric_key: String,
+    pub lyric_state: LyricState,
+    /// The last few songs' lyrics, newest last. In memory only.
+    pub lyric_cache: Vec<(String, crate::lyrics::Lyrics)>,
+    /// First line in view of plain (untimed) lyrics.
+    pub lyric_first: usize,
     /// Alerts held back during a Focus session, and what was said about them when it ended.
     pub held: Held,
     pub focus_summary: Option<String>,
@@ -604,6 +620,19 @@ impl Held {
         (!parts.is_empty()).then(|| format!("While you focused: {}", parts.join(", ")))
     }
 }
+
+/// What the lyrics page knows about the playing song.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum LyricState {
+    #[default]
+    Idle,
+    Loading,
+    Ready(crate::lyrics::Lyrics),
+    Failed,
+}
+
+/// Songs whose lyrics are kept in memory.
+const LYRIC_CACHE: usize = 20;
 
 /// A break reminder on screen.
 #[derive(Debug, Clone, Copy)]
@@ -777,9 +806,92 @@ impl Model {
         if m.is_none() {
             self.art = None;
             self.art_accent = None;
+            self.sleep_open = false;
+            self.lyrics_open = false;
+        }
+        // A different song: its lyrics start over.
+        let key = m.as_ref().map(|m| crate::lyrics::key(&m.title, &m.artist));
+        if key.as_deref() != Some(self.lyric_key.as_str()) {
+            self.lyric_key.clear();
+            self.lyric_state = LyricState::Idle;
+            self.lyric_first = 0;
         }
         self.media = m;
         self.media_stamp = Some(now);
+        // An "end of track" sleep timer follows the song.
+        if let Some(s) = self.sleep.as_mut() {
+            s.retime(self.media.as_ref(), now, now);
+        }
+    }
+
+    /// Set the sleep timer (None cancels it).
+    pub fn set_sleep(&mut self, kind: Option<crate::sleep::Kind>, now: Instant) {
+        self.sleep =
+            kind.map(|k| crate::sleep::Sleep::new(k, self.media.as_ref(), self.media_stamp, now));
+        self.sleep_open = false;
+    }
+
+    /// Lyrics to fetch now, as (key, title, artist, album, length ms): the page is open, lyrics
+    /// are on, a song plays and nothing is known about it yet. Cached songs are answered here.
+    pub fn lyrics_request(&mut self) -> Option<(String, String, String, String, u64)> {
+        if !(self.lyrics_open && self.lyrics_on) {
+            return None;
+        }
+        let m = self.media.as_ref().filter(|m| !m.title.is_empty())?;
+        let key = crate::lyrics::key(&m.title, &m.artist);
+        if key == self.lyric_key {
+            return None;
+        }
+        self.lyric_key = key.clone();
+        self.lyric_first = 0;
+        if let Some((_, l)) = self.lyric_cache.iter().find(|(k, _)| *k == key) {
+            self.lyric_state = LyricState::Ready(l.clone());
+            return None;
+        }
+        self.lyric_state = LyricState::Loading;
+        Some((
+            key,
+            m.title.clone(),
+            m.artist.clone(),
+            m.album.clone(),
+            m.dur_ms,
+        ))
+    }
+
+    /// A lookup finished. A late answer for an earlier song is kept for later, not shown.
+    pub fn lyrics_result(&mut self, key: String, r: Result<crate::lyrics::Lyrics, String>) {
+        match r {
+            Ok(l) => {
+                self.lyric_cache.retain(|(k, _)| *k != key);
+                self.lyric_cache.push((key.clone(), l.clone()));
+                if self.lyric_cache.len() > LYRIC_CACHE {
+                    self.lyric_cache.remove(0);
+                }
+                if key == self.lyric_key {
+                    self.lyric_state = LyricState::Ready(l);
+                }
+            }
+            Err(_) if key == self.lyric_key => self.lyric_state = LyricState::Failed,
+            Err(_) => {}
+        }
+    }
+
+    /// Scroll plain lyrics by `by` lines; false when there is nothing to scroll (or at an end).
+    pub fn scroll_lyrics(&mut self, by: i32) -> bool {
+        let LyricState::Ready(crate::lyrics::Lyrics::Plain(lines)) = &self.lyric_state else {
+            return false;
+        };
+        let max = lines.len().saturating_sub(3) as i32;
+        let first = self.lyric_first.min(max as usize) as i32;
+        let next = (first + by).clamp(0, max);
+        self.lyric_first = next as usize;
+        next != first
+    }
+
+    /// The Media pane's sleep chips and lyrics page close (the pill collapsed, another pane).
+    pub fn close_media_extras(&mut self) {
+        self.sleep_open = false;
+        self.lyrics_open = false;
     }
 
     pub fn set_art(&mut self, a: Option<Arc<ArtBitmap>>) {
@@ -916,6 +1028,11 @@ impl Model {
         }
         if let Some(n) = self.nudge {
             keep(n.since + n.kind.hold());
+        }
+        if let Some(s) = &self.sleep {
+            for d in s.deadlines(now) {
+                keep(d);
+            }
         }
         for t in &self.tasks {
             match t.event {
@@ -2226,6 +2343,120 @@ bang"
         assert_eq!(m.tasks[0].changed, t1);
     }
 
+    fn song(title: &str, playing: bool, pos: u64) -> MediaInfo {
+        MediaInfo {
+            title: title.into(),
+            artist: "Band".into(),
+            album: "Album".into(),
+            playing,
+            app: "Spotify.exe".into(),
+            pos_ms: pos,
+            dur_ms: 200_000,
+        }
+    }
+
+    #[test]
+    fn lyrics_are_fetched_once_per_song_and_only_when_wanted() {
+        use crate::lyrics::Lyrics;
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_media(Some(song("One", true, 0)), t0);
+        assert_eq!(m.lyrics_request(), None, "page closed");
+        m.lyrics_open = true;
+        assert_eq!(m.lyrics_request(), None, "lyrics off");
+        m.lyrics_on = true;
+        let (key, title, artist, album, dur) = m.lyrics_request().expect("a lookup");
+        assert_eq!(
+            (title.as_str(), artist.as_str(), album.as_str(), dur),
+            ("One", "Band", "Album", 200_000)
+        );
+        assert_eq!(m.lyric_state, LyricState::Loading);
+        assert_eq!(m.lyrics_request(), None, "not twice");
+        // Position updates for the same song change nothing.
+        m.apply_media(Some(song("One", true, 5_000)), t0);
+        assert_eq!(m.lyric_state, LyricState::Loading);
+        m.lyrics_result(key.clone(), Ok(Lyrics::Instrumental));
+        assert_eq!(m.lyric_state, LyricState::Ready(Lyrics::Instrumental));
+        // The next song starts over, and the first one is remembered.
+        m.apply_media(Some(song("Two", true, 0)), t0);
+        assert_eq!(m.lyric_state, LyricState::Idle);
+        let (key2, ..) = m.lyrics_request().expect("a lookup for the new song");
+        // A late answer for the old song doesn't show on the new one.
+        m.lyrics_result(key.clone(), Ok(Lyrics::NotFound));
+        assert_eq!(m.lyric_state, LyricState::Loading);
+        m.lyrics_result(key2, Err("offline".into()));
+        assert_eq!(m.lyric_state, LyricState::Failed);
+        // Back to song one: answered from memory, no lookup.
+        m.apply_media(Some(song("One", true, 0)), t0);
+        assert_eq!(m.lyrics_request(), None);
+        assert_eq!(
+            m.lyric_state,
+            LyricState::Ready(Lyrics::NotFound),
+            "the latest answer is kept"
+        );
+        // The player going away closes the extras.
+        m.sleep_open = true;
+        m.apply_media(None, t0);
+        assert!(!m.lyrics_open && !m.sleep_open);
+    }
+
+    #[test]
+    fn the_lyric_cache_keeps_the_last_twenty_songs() {
+        use crate::lyrics::Lyrics;
+        let mut m = Model::default();
+        for i in 0..25 {
+            m.lyrics_result(format!("k{i}"), Ok(Lyrics::Instrumental));
+        }
+        assert_eq!(m.lyric_cache.len(), 20);
+        assert_eq!(m.lyric_cache[0].0, "k5");
+    }
+
+    #[test]
+    fn plain_lyrics_scroll_three_lines_at_a_time_to_the_end() {
+        use crate::lyrics::Lyrics;
+        let mut m = Model::default();
+        assert!(!m.scroll_lyrics(1), "nothing to scroll");
+        m.lyric_state = LyricState::Ready(Lyrics::Plain((0..6).map(|i| format!("l{i}")).collect()));
+        assert!(m.scroll_lyrics(1) && m.scroll_lyrics(1) && m.scroll_lyrics(1));
+        assert_eq!(m.lyric_first, 3, "the last three lines");
+        assert!(!m.scroll_lyrics(1), "at the end the wheel pages");
+        assert!(m.scroll_lyrics(-1));
+    }
+
+    #[test]
+    fn the_sleep_timer_follows_the_song_and_wakes_the_model() {
+        use crate::sleep::Kind;
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_media(Some(song("One", true, 100_000)), t0);
+        m.set_sleep(Some(Kind::EndOfTrack), t0);
+        assert_eq!(
+            m.sleep.as_ref().unwrap().until,
+            Some(t0 + Duration::from_secs(100))
+        );
+        assert!(m.expire(t0).is_some(), "the model wakes for the fade");
+        // A seek moves it; a new song fires it.
+        m.apply_media(
+            Some(song("One", true, 190_000)),
+            t0 + Duration::from_secs(1),
+        );
+        assert_eq!(
+            m.sleep.as_ref().unwrap().until,
+            Some(t0 + Duration::from_secs(11))
+        );
+        m.apply_media(Some(song("Two", true, 0)), t0 + Duration::from_secs(2));
+        assert!(m.sleep.as_ref().unwrap().fire);
+        m.set_sleep(None, t0);
+        assert!(m.sleep.is_none() && !m.sleep_open);
+        assert_eq!(m.expire(t0), None, "nothing left to wake for");
+        m.set_sleep(Some(Kind::Minutes(30)), t0);
+        assert_eq!(
+            m.expire(t0),
+            Some(t0 + Duration::from_secs(60)),
+            "the label ticks each minute"
+        );
+    }
+
     fn focus_timer() -> crate::timer::Timer {
         crate::timer::Timer::start(crate::timer::TimerKind::Focus, 25, crate::timer::now_ms())
     }
@@ -2934,6 +3165,7 @@ bang"
 
         // Music playing beside a task.
         m.media = Some(MediaInfo {
+            album: String::new(),
             title: "t".into(),
             artist: "a".into(),
             playing: true,

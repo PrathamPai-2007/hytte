@@ -130,6 +130,8 @@ impl Ui {
         self.anim.nav = 0.0;
         self.kick();
         self.weather_refresh();
+        self.sleep_tick(now);
+        self.lyrics_tick();
     }
 
     pub(super) fn frame(&mut self, hwnd: HWND) {

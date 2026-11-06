@@ -67,6 +67,7 @@ impl Ui {
         };
         self.model.timer_panel = false;
         self.model.settings = None;
+        self.model.close_media_extras();
         self.model.selected = Some(p);
         match p {
             Panel::Tasks => crate::ports::request_refresh(),
@@ -183,6 +184,13 @@ impl Ui {
         if self.hover
             && self.model.panel() == Panel::Tasks
             && self.model.scroll_tasks(-steps.signum())
+        {
+            return;
+        }
+        if self.hover
+            && self.model.panel() == Panel::Media
+            && self.model.lyrics_open
+            && self.model.scroll_lyrics(-steps.signum())
         {
             return;
         }

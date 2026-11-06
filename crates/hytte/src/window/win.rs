@@ -36,6 +36,7 @@ mod events;
 mod forecast;
 mod frame;
 mod input;
+mod mediactl;
 mod shots;
 mod typing;
 mod view;
@@ -643,6 +644,7 @@ pub fn run_windows(
         ui.model.task_rows = ui.cfg.general.task_rows;
         ui.model.pin_button = ui.cfg.general.pin_button;
         ui.breaks.configure(break_minutes(&ui.cfg), Instant::now());
+        ui.model.lyrics_on = ui.cfg.media.lyrics;
         ui.model.init_jot(&crate::jot::path());
         ui.model.weather_place = crate::weather::Place::load();
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);

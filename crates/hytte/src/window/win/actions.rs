@@ -130,6 +130,21 @@ impl Ui {
                 }
             }
             Action::NudgeSkip => self.model.nudge = None,
+            Action::SleepMenu => self.model.sleep_open = !self.model.sleep_open,
+            Action::SleepSet(kind) => {
+                crate::sleep::cancel();
+                self.model.set_sleep(Some(kind), Instant::now());
+            }
+            Action::SleepCancel => {
+                crate::sleep::cancel();
+                self.model.set_sleep(None, Instant::now());
+            }
+            Action::LyricsOpen => self.model.lyrics_open = true,
+            Action::LyricsClose => self.model.lyrics_open = false,
+            Action::LyricsRetry => {
+                self.model.lyric_key.clear();
+                self.model.lyric_state = crate::ui_state::LyricState::Idle;
+            }
             Action::TimerDismiss => self.model.timer_done = None,
             Action::TimerClose => self.model.timer_panel = false,
             Action::Settings(g) => self.model.settings = g,

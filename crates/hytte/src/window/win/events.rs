@@ -194,6 +194,7 @@ impl Ui {
                     self.show_update(now);
                 }
                 UiEvent::Forecast(r) => self.model.forecast_result(r, now),
+                UiEvent::Lyrics(key, r) => self.model.lyrics_result(key, r),
                 UiEvent::Places(seq, q, r) if seq == self.place_seq => {
                     self.model.places_result(q, r)
                 }
@@ -266,6 +267,7 @@ impl Ui {
         }
         self.model.rounds = new.timer.rounds;
         self.model.apply_panes(&new.panes);
+        self.model.lyrics_on = new.media.lyrics;
         self.breaks.configure(break_minutes(&new), Instant::now());
         self.model.imperial = crate::weather::imperial(&new.weather.units);
         let monitor_changed = new.general.monitor != self.cfg.general.monitor

@@ -151,6 +151,13 @@ pub enum Action {
     NudgeSnooze,
     /// Break reminder: done, or not now.
     NudgeSkip,
+    /// The moon in the Media pane: open or close the sleep timer chips.
+    SleepMenu,
+    SleepSet(crate::sleep::Kind),
+    SleepCancel,
+    LyricsOpen,
+    LyricsClose,
+    LyricsRetry,
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.
@@ -239,6 +246,8 @@ struct Fmts {
     wrap: IDWriteTextFormat,
     center: IDWriteTextFormat,
     big_c: IDWriteTextFormat,
+    /// Lyrics: centred, wraps to a second line.
+    lyric: IDWriteTextFormat,
     small_c: IDWriteTextFormat,
     /// Segoe Fluent Icons glyphs, centred in their box (see `glyph`).
     icon: IDWriteTextFormat,
@@ -1169,6 +1178,9 @@ impl Fmts {
             wrap.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR)?;
             let big_c = mk(ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             big_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            let lyric = mk(ui, 14.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            lyric.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            lyric.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)?;
             let small_c = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             small_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             // Windows 11 ships Segoe Fluent Icons; the glyphs used here are also in its
@@ -1196,6 +1208,7 @@ impl Fmts {
                 wrap,
                 center,
                 big_c,
+                lyric,
                 small_c,
                 icon,
                 icon_l,

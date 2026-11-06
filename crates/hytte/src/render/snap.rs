@@ -409,6 +409,7 @@ fn snapshots() {
     m.timer_done = None;
 
     m.media = Some(MediaInfo {
+        album: String::new(),
         title: "Midnight City".into(),
         artist: "M83".into(),
         playing: true,
@@ -560,6 +561,7 @@ fn snapshots() {
     // Every pane at once, the pointer resting on a tab (its name shows above it).
     let all = &mut m;
     all.media = Some(MediaInfo {
+        album: String::new(),
         title: "A very long song title that will never fit in the pill".into(),
         artist: "Someone".into(),
         playing: true,
@@ -1032,6 +1034,114 @@ fn focus_snapshots() {
             Scene::Idle,
             light,
         );
+    }
+    contact_sheet(&dir);
+}
+
+/// The Media pane with the sleep timer and the lyrics page in every state. The song and its
+/// lines are invented.
+#[test]
+#[ignore]
+fn media_snapshots() {
+    use crate::lyrics::{Line, Lyrics};
+    use crate::sleep::{Kind, Sleep};
+    use crate::ui_state::LyricState;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let synced = Lyrics::Synced(
+        [
+            (0u64, "We left the boats to find their way"),
+            (6_000, "The harbour lights are coming on"),
+            (
+                12_000,
+                "And nobody is counting the hours we have been gone, nobody is counting at all",
+            ),
+            (20_000, ""),
+        ]
+        .into_iter()
+        .map(|(at_ms, t)| Line {
+            at_ms,
+            text: t.into(),
+        })
+        .collect(),
+    );
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(now);
+        m.media_stamp = Some(now);
+        m.media = Some(MediaInfo {
+            album: "Harbour".into(),
+            title: "Low Tide".into(),
+            artist: "The Lamplighters".into(),
+            playing: true,
+            app: "Spotify.exe".into(),
+            pos_ms: 6_900,
+            dur_ms: 214_000,
+        });
+        let s = |r: &mut Renderer, n: &str, m: &Model| {
+            shoot(r, &dir, &format!("{n}{sfx}"), m, Scene::ExpMedia, light)
+        };
+        s(&mut r, "media", &m);
+        m.sleep = Some(Sleep::new(
+            Kind::Minutes(28),
+            m.media.as_ref(),
+            m.media_stamp,
+            now,
+        ));
+        s(&mut r, "media-sleep-on", &m);
+        m.sleep_open = true;
+        s(&mut r, "media-sleep-menu-set", &m);
+        m.sleep = None;
+        s(&mut r, "media-sleep-menu", &m);
+        m.sleep_open = false;
+        m.sleep = Some(Sleep::new(
+            Kind::EndOfTrack,
+            m.media.as_ref(),
+            m.media_stamp,
+            now,
+        ));
+        s(&mut r, "media-sleep-end", &m);
+        m.sleep = None;
+        m.lyrics_open = true;
+        s(&mut r, "lyrics-off", &m);
+        m.lyrics_on = true;
+        s(&mut r, "lyrics-idle", &m);
+        m.lyric_state = LyricState::Loading;
+        s(&mut r, "lyrics-loading", &m);
+        m.lyric_state = LyricState::Failed;
+        s(&mut r, "lyrics-failed", &m);
+        m.lyric_state = LyricState::Ready(Lyrics::NotFound);
+        s(&mut r, "lyrics-none", &m);
+        m.lyric_state = LyricState::Ready(Lyrics::Instrumental);
+        s(&mut r, "lyrics-instrumental", &m);
+        m.lyric_state = LyricState::Ready(synced.clone());
+        s(&mut r, "lyrics-synced", &m);
+        m.media.as_mut().unwrap().pos_ms = 13_000;
+        s(&mut r, "lyrics-long-line", &m);
+        m.media.as_mut().unwrap().pos_ms = 21_000;
+        s(&mut r, "lyrics-pause", &m);
+        m.media.as_mut().unwrap().pos_ms = 1_000;
+        m.lyric_state = LyricState::Ready(Lyrics::Plain(
+            [
+                "First made-up line",
+                "Second made-up line",
+                "Third made-up line",
+                "Fourth",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ));
+        s(&mut r, "lyrics-plain", &m);
+        m.sleep = Some(Sleep::new(
+            Kind::Minutes(15),
+            m.media.as_ref(),
+            m.media_stamp,
+            now,
+        ));
+        s(&mut r, "lyrics-sleep-on", &m);
     }
     contact_sheet(&dir);
 }

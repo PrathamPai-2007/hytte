@@ -1,12 +1,38 @@
-//! The Music pane.
+//! The Music pane: now playing, transport, the sleep timer and the lyrics page.
 
 use super::*;
+use crate::lyrics::{current_line, Lyrics};
+use crate::sleep::Kind as SleepKind;
+use crate::ui_state::{LyricState, MediaInfo};
+
+/// How long a lyric takes to fade in once its line starts, in ms.
+const LINE_FADE_MS: f32 = 350.0;
 
 impl Renderer {
+    /// The play position now: the player's last report, carried forward while it plays.
+    fn media_pos(&self, fr: &Frame, md: &MediaInfo) -> u64 {
+        let mut pos = md.pos_ms;
+        if md.playing {
+            if let Some(s) = fr.model.media_stamp {
+                pos += fr.now.saturating_duration_since(s).as_millis() as u64;
+            }
+        }
+        if md.dur_ms > 0 {
+            pos = pos.min(md.dur_ms);
+        }
+        pos
+    }
+
     pub(super) fn exp_media(&self, fr: &Frame, w: f32, h: f32) {
         let Some(md) = fr.model.media.as_ref() else {
             return;
         };
+        if fr.model.sleep_open {
+            return self.sleep_menu(fr, w);
+        }
+        if fr.model.lyrics_open {
+            return self.lyrics_page(fr, md, w, h);
+        }
         let (a, saved) = self.hero(
             [8.0, 6.0, 20.0, 5.0],
             [16.0, 16.0, 72.0, 12.0],
@@ -53,15 +79,7 @@ impl Renderer {
         );
         self.eq_bars(right - 18.0, 18.0, 14.0, md.playing, GREEN);
         // Timeline with live extrapolation while playing.
-        let mut pos = md.pos_ms;
-        if md.playing {
-            if let Some(s) = fr.model.media_stamp {
-                pos += fr.now.saturating_duration_since(s).as_millis() as u64;
-            }
-        }
-        if md.dur_ms > 0 {
-            pos = pos.min(md.dur_ms);
-        }
+        let pos = self.media_pos(fr, md);
         let frac = if md.dur_ms > 0 {
             pos as f32 / md.dur_ms as f32
         } else {
@@ -111,11 +129,28 @@ impl Renderer {
             self.cc(GRAY, 1.0),
         );
         // Transport controls, clear of the tab dots.
-        let cx = tx + bw / 2.0;
         let tab = if fr.model.tabs() { TAB_H } else { 0.0 };
         let cy = h - tab - 26.0;
+        let cx = tx + bw / 2.0;
+        self.transport(fr, md, cx, cy, 1.0);
+        // Lyrics at the left of the controls, the sleep timer at the right.
+        self.button(
+            "Lyrics",
+            tx,
+            cy - 12.0,
+            54.0,
+            24.0,
+            self.fg(),
+            Action::LyricsOpen,
+        );
+        self.sleep_button(fr, right, cy);
+    }
+
+    /// Previous, play / pause, next, centred on (cx, cy); `k` scales the whole set.
+    fn transport(&self, fr: &Frame, md: &MediaInfo, cx: f32, cy: f32, k: f32) {
+        let _ = fr;
         for (dir, action) in [(-1.0, Action::MediaPrev), (1.0, Action::MediaNext)] {
-            let x = cx + dir * 46.0;
+            let x = cx + dir * 46.0 * k;
             let hov = self.hit(x - 16.0, cy - 16.0, 32.0, 32.0, action);
             if hov {
                 self.circle(x, cy, 16.0, self.cc(self.fg(), 0.09));
@@ -130,13 +165,289 @@ impl Renderer {
             18.0
         } else {
             17.0
-        };
+        } * k;
         self.circle(cx, cy, r, self.cc(self.fg(), 0.95));
         let dark = self.cc(self.ink(), 1.0);
         if md.playing {
-            self.pause_icon(cx, cy, 13.0, dark);
+            self.pause_icon(cx, cy, 13.0 * k, dark);
         } else {
-            self.play_icon(cx + 1.0, cy, 14.0, dark);
+            self.play_icon(cx + k, cy, 14.0 * k, dark);
+        }
+    }
+
+    /// The moon at the right of the transport row, with the time left beside it when set.
+    fn sleep_button(&self, fr: &Frame, right: f32, cy: f32) {
+        let m = fr.model;
+        let label = m.sleep.as_ref().map(|s| s.label(fr.now));
+        let wl = if label.is_some() { 36.0 } else { 0.0 };
+        let hov = self.hit(
+            right - 30.0 - wl,
+            cy - 14.0,
+            30.0 + wl,
+            28.0,
+            Action::SleepMenu,
+        );
+        let on = label.is_some();
+        let tone = [0.78, 0.74, 1.0];
+        if on || hov {
+            self.fill_rr(
+                right - 30.0 - wl,
+                cy - 13.0,
+                30.0 + wl,
+                26.0,
+                13.0,
+                self.cc(tone, if on { 0.20 } else { 0.10 }),
+            );
+        }
+        self.glyph(
+            '\u{E708}',
+            right - 15.0,
+            cy,
+            15.0,
+            self.cc(
+                if on { tone } else { self.fg() },
+                if on || hov { 1.0 } else { 0.62 },
+            ),
+        );
+        if let Some(l) = label {
+            self.text(
+                &l,
+                &self.f.btn,
+                right - 32.0 - 30.0,
+                cy - 8.0,
+                32.0,
+                16.0,
+                self.cc(tone, 1.0),
+            );
+        }
+    }
+
+    /// "Stop playing in": chips for 15, 30, 45, 60 minutes and the end of the song.
+    fn sleep_menu(&self, fr: &Frame, w: f32) {
+        let m = fr.model;
+        let fg = self.fg();
+        let tone = [0.78, 0.74, 1.0];
+        self.glyph('\u{E708}', 28.0, 26.0, 16.0, self.cc(tone, 1.0));
+        self.text(
+            "Stop playing in",
+            &self.f.title,
+            46.0,
+            16.0,
+            w - 100.0,
+            20.0,
+            self.cc(fg, 0.97),
+        );
+        let hov = self.hit(w - 40.0, 10.0, 28.0, 28.0, Action::SleepMenu);
+        if hov {
+            self.circle(w - 26.0, 24.0, 13.0, self.cc(fg, 0.10));
+        }
+        self.cross(
+            w - 26.0,
+            24.0,
+            4.5,
+            self.cc(fg, if hov { 1.0 } else { 0.6 }),
+            1.6,
+        );
+        let current = m.sleep.as_ref().map(|s| s.kind);
+        let mut x = 16.0;
+        let chips: [(String, SleepKind, f32); 5] = [
+            ("15".into(), SleepKind::Minutes(15), 50.0),
+            ("30".into(), SleepKind::Minutes(30), 50.0),
+            ("45".into(), SleepKind::Minutes(45), 50.0),
+            ("60".into(), SleepKind::Minutes(60), 50.0),
+            ("End of track".into(), SleepKind::EndOfTrack, 100.0),
+        ];
+        for (label, kind, cw) in chips {
+            let on = current == Some(kind);
+            let hov = self.hit(x, 52.0, cw, 30.0, Action::SleepSet(kind));
+            let fill = if on {
+                self.cc(self.accent.get(), 0.9)
+            } else {
+                self.cc(fg, if hov { 0.16 } else { 0.10 })
+            };
+            self.fill_rr(x, 52.0, cw, 30.0, 15.0, fill);
+            let ink = if on {
+                self.cc(self.ink(), 1.0)
+            } else {
+                self.cc(fg, 0.95)
+            };
+            self.text(&label, &self.f.btn, x, 52.0, cw, 30.0, ink);
+            x += cw + 8.0;
+        }
+        if let Some(s) = &m.sleep {
+            let msg = match s.kind {
+                SleepKind::EndOfTrack => "Stops when this song ends".to_string(),
+                _ => format!("Stops in {}", s.label(fr.now)),
+            };
+            self.text(
+                &msg,
+                &self.f.small,
+                18.0,
+                94.0,
+                w - 130.0,
+                22.0,
+                self.cc(GRAY, 1.0),
+            );
+            self.button(
+                "Cancel timer",
+                w - 16.0 - 96.0,
+                94.0,
+                96.0,
+                22.0,
+                fg,
+                Action::SleepCancel,
+            );
+        } else {
+            self.text(
+                "Volume fades out, then it pauses.",
+                &self.f.small,
+                18.0,
+                94.0,
+                w - 36.0,
+                22.0,
+                self.cc(GRAY, 0.9),
+            );
+        }
+    }
+
+    /// Three lines of lyrics, the one being sung in the middle, over small controls.
+    fn lyrics_page(&self, fr: &Frame, md: &MediaInfo, w: f32, h: f32) {
+        let m = fr.model;
+        let fg = self.fg();
+        let hov = self.hit(10.0, 4.0, 30.0, 28.0, Action::LyricsClose);
+        if hov {
+            self.circle(24.0, 18.0, 13.0, self.cc(fg, 0.10));
+        }
+        self.glyph(
+            '\u{E72B}',
+            24.0,
+            18.0,
+            13.0,
+            self.cc(fg, if hov { 1.0 } else { 0.7 }),
+        );
+        let title = if md.artist.is_empty() {
+            md.title.clone()
+        } else {
+            format!("{} · {}", md.title, md.artist)
+        };
+        self.text(
+            &title,
+            &self.f.small_c,
+            48.0,
+            8.0,
+            w - 96.0,
+            20.0,
+            self.cc(GRAY, 1.0),
+        );
+        let tab = if m.tabs() { TAB_H } else { 0.0 };
+        let cy = h - tab - 20.0;
+        self.transport(fr, md, w / 2.0, cy, 0.8);
+        self.sleep_button(fr, w - 16.0, cy);
+        let note = |text: &str, sub: &str| {
+            self.text(text, &self.f.big_c, 0.0, 28.0, w, 24.0, self.cc(fg, 0.9));
+            if !sub.is_empty() {
+                self.text(
+                    sub,
+                    &self.f.small_c,
+                    24.0,
+                    52.0,
+                    w - 48.0,
+                    18.0,
+                    self.cc(GRAY, 1.0),
+                );
+            }
+        };
+        if !m.lyrics_on {
+            note(
+                "Lyrics are off",
+                "Looking them up sends the song and artist to lrclib.net.",
+            );
+            self.button(
+                "Turn on",
+                w / 2.0 - 40.0,
+                74.0,
+                80.0,
+                22.0,
+                self.accent.get(),
+                Action::Set("media.lyrics", Val::B(true)),
+            );
+            return;
+        }
+        match &m.lyric_state {
+            LyricState::Idle | LyricState::Loading => note("Searching…", ""),
+            LyricState::Failed => {
+                note("Can't reach the lyrics service", "");
+                self.button(
+                    "Try again",
+                    w / 2.0 - 40.0,
+                    60.0,
+                    80.0,
+                    22.0,
+                    self.accent.get(),
+                    Action::LyricsRetry,
+                );
+            }
+            LyricState::Ready(Lyrics::NotFound) => note("No lyrics found", ""),
+            LyricState::Ready(Lyrics::Instrumental) => note("Instrumental", ""),
+            LyricState::Ready(Lyrics::Synced(lines)) => {
+                let pos = self.media_pos(fr, md);
+                let now_i = current_line(lines, pos);
+                let at = |i: Option<usize>| i.and_then(|i| lines.get(i));
+                let shown = |l: Option<&crate::lyrics::Line>| {
+                    l.map(|l| {
+                        if l.text.is_empty() {
+                            "♪"
+                        } else {
+                            l.text.as_str()
+                        }
+                    })
+                    .unwrap_or("")
+                    .to_string()
+                };
+                let (prev, cur, next) = match now_i {
+                    Some(i) => (at(i.checked_sub(1)), at(Some(i)), at(Some(i + 1))),
+                    None => (None, None, at(Some(0))),
+                };
+                // The line that has just started fades in; the one before it dims.
+                let fade = cur.map_or(1.0, |l| {
+                    ((pos - l.at_ms) as f32 / LINE_FADE_MS).clamp(0.0, 1.0)
+                });
+                self.text(
+                    &shown(prev),
+                    &self.f.center,
+                    24.0,
+                    26.0,
+                    w - 48.0,
+                    16.0,
+                    self.cc(GRAY, 0.55),
+                );
+                self.text(
+                    &shown(cur),
+                    &self.f.lyric,
+                    24.0,
+                    37.0,
+                    w - 48.0,
+                    40.0,
+                    self.cc(fg, 0.55 + 0.45 * fade),
+                );
+                self.text(
+                    &shown(next),
+                    &self.f.center,
+                    24.0,
+                    79.0,
+                    w - 48.0,
+                    16.0,
+                    self.cc(GRAY, 0.55),
+                );
+            }
+            LyricState::Ready(Lyrics::Plain(lines)) => {
+                let first = m.lyric_first.min(lines.len().saturating_sub(1));
+                for (i, y) in [(0usize, 28.0f32), (1, 48.0), (2, 68.0)] {
+                    let t = lines.get(first + i).map_or("", String::as_str);
+                    let a = if i == 0 { 0.95 } else { 0.7 };
+                    self.text(t, &self.f.center, 24.0, y, w - 48.0, 20.0, self.cc(fg, a));
+                }
+            }
         }
     }
 }

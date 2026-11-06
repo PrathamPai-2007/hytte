@@ -26,6 +26,7 @@ mod gpu;
 mod hog;
 mod jot;
 mod logging;
+mod lyrics;
 mod media;
 mod mic;
 mod net;
@@ -45,6 +46,7 @@ mod settings_win;
 mod setup;
 mod shelf;
 mod single_instance;
+mod sleep;
 #[cfg(windows)]
 mod tabs;
 mod tasks;
@@ -85,6 +87,7 @@ fn main() {
     };
     update::cleanup();
     dnd::recover();
+    sleep::recover();
     // Debug builds only: a crash on every start, to see the relaunch limit work.
     #[cfg(debug_assertions)]
     if std::env::var_os("HYTTE_TEST_PANIC").is_some() {
