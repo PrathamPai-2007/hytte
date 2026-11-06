@@ -19,6 +19,15 @@ if (-not $global:__notch) {
         } catch { }   # the daemon being down must never affect the prompt
     }
 
+    # Enter on an unfinished command (an open brace, here-string or pipe) only adds a line:
+    # the command starts when it is complete, so one command is one row.
+    function global:__notch_incomplete([string]$line) {
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$errors)
+        foreach ($e in $errors) { if ($e.IncompleteInput) { return $true } }
+        return $false
+    }
+
     function global:__notch_start([string]$line) {
         $n = $global:__notch
         $n.Seq++
@@ -63,7 +72,7 @@ if (-not $global:__notch) {
         Set-PSReadLineKeyHandler -Key Enter -BriefDescription 'NotchAcceptLine' -ScriptBlock {
             $line = $null; $cursor = $null
             [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-            if ($line -and $line.Trim()) { __notch_start $line }
+            if ($line -and $line.Trim() -and -not (__notch_incomplete $line)) { __notch_start $line }
             [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
         } -ErrorAction Stop
     } catch { }   # no PSReadLine: commands just aren't tracked
