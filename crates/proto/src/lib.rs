@@ -81,6 +81,22 @@ impl HytteMessage {
         }
     }
 
+    /// Trim every text field to its limit, on a character boundary.
+    fn clamp(&mut self) {
+        cut(&mut self.label, 1024);
+        for (f, max) in [
+            (&mut self.stderr_tail, 8192),
+            (&mut self.message, 1024),
+            (&mut self.cwd, 1024),
+            (&mut self.source, 16),
+            (&mut self.line, 512),
+        ] {
+            if let Some(s) = f {
+                cut(s, max);
+            }
+        }
+    }
+
     /// Validate untrusted input: version, lengths, UTF-8 already guaranteed by String.
     pub fn validate(&self) -> bool {
         if self.v != PROTOCOL_VERSION {
@@ -112,14 +128,28 @@ impl HytteMessage {
         true
     }
 
-    /// Encode as a single NDJSON line.
+    /// Encode as a single NDJSON line. Over-long text is trimmed to the limits [`validate`]
+    /// enforces, so a long reply or error tail still arrives instead of being rejected.
     pub fn to_line(&self) -> anyhow_string::Result<String> {
-        serde_json::to_string(self)
+        let mut m = self.clone();
+        m.clamp();
+        serde_json::to_string(&m)
             .map(|mut s| {
                 s.push('\n');
                 s
             })
             .map_err(|e| anyhow_string::Error(e.to_string()))
+    }
+}
+
+/// Truncate to at most `max` bytes without splitting a character.
+fn cut(s: &mut String, max: usize) {
+    if s.len() > max {
+        let mut n = max;
+        while !s.is_char_boundary(n) {
+            n -= 1;
+        }
+        s.truncate(n);
     }
 }
 
@@ -215,6 +245,19 @@ mod tests {
             ..a
         }
         .validate());
+    }
+
+    #[test]
+    fn to_line_trims_long_text_on_a_char_boundary() {
+        let mut m = HytteMessage::start("t", "あ".repeat(600)); // 1800 bytes
+        m.message = Some("x".repeat(4000));
+        m.stderr_tail = Some("e".repeat(20_000));
+        m.line = Some("l".repeat(900));
+        let back: HytteMessage = serde_json::from_str(m.to_line().unwrap().trim()).unwrap();
+        assert!(back.validate());
+        assert_eq!(back.label.len(), 1023); // 341 whole characters
+        assert_eq!(back.message.unwrap().len(), 1024);
+        assert_eq!(back.stderr_tail.unwrap().len(), 8192);
     }
 
     #[test]

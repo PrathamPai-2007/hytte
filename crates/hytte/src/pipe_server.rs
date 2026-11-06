@@ -144,6 +144,11 @@ fn serve_connection(
             if let Ok(msg) = serde_json::from_str::<HytteMessage>(trimmed) {
                 if msg.validate() {
                     let _ = tx.send(msg);
+                } else {
+                    crate::logging::line(&format!(
+                        "pipe: rejected {:?} message for {:?} (version or size limits)",
+                        msg.event, msg.task_id
+                    ));
                 }
             } else if let Ok(ask) = serde_json::from_str::<hytte_proto::Ask>(trimmed) {
                 if ask.validate() {
