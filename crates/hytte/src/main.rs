@@ -16,6 +16,7 @@ mod calendar;
 mod cli;
 mod config;
 mod convert;
+mod dnd;
 mod downloads;
 mod drop;
 mod fullscreen;
@@ -44,6 +45,7 @@ mod single_instance;
 #[cfg(windows)]
 mod tabs;
 mod tasks;
+mod textedit;
 mod timer;
 mod transforms;
 mod tray;
