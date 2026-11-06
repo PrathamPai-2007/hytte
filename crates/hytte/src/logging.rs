@@ -14,6 +14,10 @@ pub fn init() {
     if let Some(p) = path.parent() {
         let _ = std::fs::create_dir_all(p);
     }
+    // Keep one old log: the file never grows past about 1 MB per run.
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1024 * 1024) {
+        let _ = std::fs::rename(&path, path.with_extension("log.old"));
+    }
     std::panic::set_hook(Box::new(move |info| {
         let msg = format!("panic: {info}\n");
         eprintln!("{msg}");

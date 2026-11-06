@@ -134,7 +134,10 @@ fn install(r: &Release) -> Result<PathBuf, String> {
             dir.display()
         ));
     }
-    curl(&r.url, Some(&new))?;
+    if let Err(e) = curl(&r.url, Some(&new)) {
+        let _ = std::fs::remove_file(&new);
+        return Err(e);
+    }
     // The file must be a working hytte of exactly the advertised version.
     let want = format!("hytte {}", r.tag.trim_start_matches('v'));
     let got = version_of(&new).unwrap_or_else(|| "a file that doesn't run".into());

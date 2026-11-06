@@ -33,20 +33,56 @@ fn next_id(items: &[ShelfItem]) -> u64 {
     t.max(items.iter().map(|i| i.id + 1).max().unwrap_or(1))
 }
 
-/// Load the persisted shelf, dropping entries whose file vanished.
+/// Serialises picking a free name and creating it in the shelf folder, so two drops copying
+/// files with the same name at once cannot both pick `name.ext`, and the startup sweep can't
+/// delete a file that is just being staged.
+static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Load the persisted shelf, dropping entries whose file vanished, and delete the shelf's own
+/// files that no entry points to (left by a crash between staging and saving).
 pub fn load() -> Vec<ShelfItem> {
-    let text = std::fs::read_to_string(list_path()).unwrap_or_default();
-    let mut items: Vec<ShelfItem> = serde_json::from_str(&text).unwrap_or_default();
+    load_at(&list_path(), &store_dir())
+}
+
+fn load_at(list: &Path, store: &Path) -> Vec<ShelfItem> {
+    let text = std::fs::read_to_string(list).ok();
+    let parsed = text.as_deref().map(serde_json::from_str::<Vec<ShelfItem>>);
+    let mut items = parsed
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .cloned()
+        .unwrap_or_default();
     items.retain(|i| i.path.exists());
+    // Only trust the list to say what is unused when it was read cleanly: a shelf.json that
+    // is missing or failed to parse must never turn the user's copies into "orphans".
+    if matches!(parsed, Some(Ok(_))) {
+        sweep(store, &items);
+    }
     items
 }
 
-pub fn save(items: &[ShelfItem]) {
-    if let Some(p) = list_path().parent() {
-        let _ = std::fs::create_dir_all(p);
+/// Remove files and folders in the shelf folder that no item points to.
+fn sweep(store: &Path, items: &[ShelfItem]) {
+    let _store = STORE.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(rd) = std::fs::read_dir(store) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if items.iter().any(|i| i.owned && i.path == p) {
+            continue;
+        }
+        let _ = if p.is_dir() {
+            std::fs::remove_dir_all(&p)
+        } else {
+            std::fs::remove_file(&p)
+        };
     }
+}
+
+pub fn save(items: &[ShelfItem]) {
     if let Ok(t) = serde_json::to_string_pretty(items) {
-        let _ = std::fs::write(list_path(), t);
+        let _ = crate::setup::write_file(&list_path(), t.as_bytes());
     }
 }
 
@@ -95,9 +131,6 @@ pub fn stage(
     existing: &[PathBuf],
     room: usize,
 ) -> Vec<ShelfItem> {
-    // Serialises picking a free name and creating it, so two drops copying
-    // files with the same name at once cannot both pick `name.ext`.
-    static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let mut out: Vec<ShelfItem> = vec![];
     for p in paths {
         if out.len() >= room
@@ -205,7 +238,6 @@ pub fn stage_dib(dib: &[u8]) -> Option<ShelfItem> {
     let img = image::load_from_memory_with_format(&bmp, image::ImageFormat::Bmp).ok()?;
     // Screenshots are opaque; a 32-bit DIB's fourth byte is often 0, so drop it.
     let img = img.to_rgb8();
-    static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _store = STORE.lock().unwrap_or_else(|e| e.into_inner());
     let _ = std::fs::create_dir_all(store_dir());
     let path = unique_in(&store_dir(), "Screenshot.png");
@@ -378,6 +410,37 @@ mod tests {
             .to_rgb8();
         assert_eq!(dec, img);
         assert!(dib_to_bmp(&[1, 2, 3]).is_none());
+    }
+
+    #[test]
+    fn startup_sweep_removes_orphans_but_never_after_a_bad_list() {
+        let dir = std::env::temp_dir().join(format!("hytte-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = dir.join("shelf");
+        std::fs::create_dir_all(&store).unwrap();
+        let (kept, orphan) = (store.join("kept.txt"), store.join("orphan.txt"));
+        std::fs::write(&kept, "k").unwrap();
+        std::fs::write(&orphan, "o").unwrap();
+        let list = dir.join("shelf.json");
+        let item = ShelfItem {
+            id: 1,
+            path: kept.clone(),
+            name: "kept.txt".into(),
+            is_dir: false,
+            owned: true,
+        };
+        // A list that fails to parse: nothing is deleted, nothing is loaded.
+        std::fs::write(&list, "{ not json").unwrap();
+        assert!(load_at(&list, &store).is_empty());
+        assert!(kept.exists() && orphan.exists());
+        // A missing list: same.
+        std::fs::remove_file(&list).unwrap();
+        assert!(load_at(&list, &store).is_empty() && orphan.exists());
+        // A good list: the file it names stays, the orphan goes.
+        std::fs::write(&list, serde_json::to_string(&[item]).unwrap()).unwrap();
+        assert_eq!(load_at(&list, &store).len(), 1);
+        assert!(kept.exists() && !orphan.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

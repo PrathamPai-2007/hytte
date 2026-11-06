@@ -137,8 +137,7 @@ fn path() -> std::path::PathBuf {
 pub fn save(t: Option<&Timer>) {
     match t.and_then(|t| serde_json::to_string(t).ok()) {
         Some(s) => {
-            let _ = std::fs::create_dir_all(crate::config::data_dir());
-            let _ = std::fs::write(path(), s);
+            let _ = crate::setup::write_file(&path(), s.as_bytes());
         }
         None => {
             let _ = std::fs::remove_file(path());
