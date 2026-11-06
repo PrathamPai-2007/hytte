@@ -926,6 +926,19 @@ impl Model {
         self.task_for_port(p).filter(|t| t.rerunnable())
     }
 
+    /// How many lines the selected shelf item's action chips take (1 when none is selected).
+    pub fn shelf_chip_lines(&self) -> usize {
+        let Some(it) = self
+            .shelf_sel
+            .and_then(|id| self.shelf.iter().find(|i| i.id == id))
+        else {
+            return 1;
+        };
+        let chips = crate::transforms::chips_for(&it.path);
+        let labels: Vec<&str> = chips.iter().map(|c| c.0).collect();
+        crate::transforms::chip_lines(&labels, 380.0 - 8.0).len()
+    }
+
     pub fn visible_count(&self) -> usize {
         self.tasks.iter().filter(|t| self.visible(t)).count()
     }
@@ -1116,7 +1129,10 @@ impl Model {
             // Running: ring + controls. Not running: the setup card.
             Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
             Scene::ExpTimer => (380.0, 152.0 + tab),
-            Scene::ExpShelf if self.shelf_sel.is_some() => (380.0, 136.0 + tab),
+            Scene::ExpShelf if self.shelf_sel.is_some() => (
+                380.0,
+                136.0 + 32.0 * (self.shelf_chip_lines() - 1) as f64 + tab,
+            ),
             Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpTasks => {
                 let rows = self.rows();

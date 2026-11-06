@@ -3827,23 +3827,32 @@ impl Renderer {
             .and_then(|id| m.shelf.iter().find(|i| i.id == id))
         {
             let chips = crate::transforms::chips_for(&it.path);
-            // Chip width from the label length; centred as a row.
-            let wid: Vec<f32> = chips
+            let labels: Vec<&str> = chips.iter().map(|c| c.0).collect();
+            // Chip width from the label length; each line centred, a new line when full.
+            for (row, line) in crate::transforms::chip_lines(&labels, w - 8.0)
                 .iter()
-                .map(|(l, _)| 28.0 + l.chars().count() as f32 * 6.0)
-                .collect();
-            let mut x = (w - wid.iter().sum::<f32>() - 6.0 * (chips.len() - 1) as f32) / 2.0;
-            for ((label, op), cw) in chips.iter().zip(&wid) {
-                self.button(
-                    label,
-                    x,
-                    98.0,
-                    *cw,
-                    26.0,
-                    PURPLE,
-                    Action::ShelfOp(it.id, *op),
-                );
-                x += cw + 6.0;
+                .enumerate()
+            {
+                let used: f32 = line
+                    .iter()
+                    .map(|&i| crate::transforms::chip_width(labels[i]))
+                    .sum::<f32>()
+                    + 6.0 * (line.len() - 1) as f32;
+                let mut x = (w - used) / 2.0;
+                for &i in line {
+                    let (label, op) = &chips[i];
+                    let cw = crate::transforms::chip_width(label);
+                    self.button(
+                        label,
+                        x,
+                        98.0 + row as f32 * 32.0,
+                        cw,
+                        26.0,
+                        PURPLE,
+                        Action::ShelfOp(it.id, *op),
+                    );
+                    x += cw + 6.0;
+                }
             }
         } else {
             self.text(

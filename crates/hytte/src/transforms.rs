@@ -43,6 +43,30 @@ fn copy_as(path: &Path) -> Vec<(&'static str, Conv)> {
     v
 }
 
+/// How wide a chip is drawn, by its label.
+pub fn chip_width(label: &str) -> f32 {
+    28.0 + label.chars().count() as f32 * 6.0
+}
+
+/// Wraps the chip row onto as many lines as `width` needs (6 px between chips): the chips
+/// of each line, as indices. An item with many actions gets a second line, not a clipped one.
+pub fn chip_lines(labels: &[&str], width: f32) -> Vec<Vec<usize>> {
+    let mut lines: Vec<Vec<usize>> = vec![vec![]];
+    let mut used = 0.0;
+    for (i, l) in labels.iter().enumerate() {
+        let w = chip_width(l);
+        let cur = lines.last_mut().expect("always one line");
+        if !cur.is_empty() && used + 6.0 + w > width {
+            lines.push(vec![i]);
+            used = w;
+        } else {
+            used += if cur.is_empty() { 0.0 } else { 6.0 } + w;
+            cur.push(i);
+        }
+    }
+    lines
+}
+
 /// Chips offered for a shelf item, in order.
 pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
     let ext = path
@@ -947,5 +971,31 @@ mod tests {
         assert!(labels(&big).contains(&"Copy as Markdown"));
         assert!(run(Conv::Base64, &big).copy.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn many_chips_wrap_onto_a_second_line() {
+        let all = [
+            "Compress",
+            "To PDF",
+            "Remove metadata",
+            "Read text",
+            "Copy as base64",
+            "Copy as Markdown",
+        ];
+        let lines = chip_lines(&all, 372.0);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines.concat(),
+            vec![0, 1, 2, 3, 4, 5],
+            "every chip, in order"
+        );
+        for l in &lines {
+            let w: f32 =
+                l.iter().map(|&i| chip_width(all[i])).sum::<f32>() + 6.0 * (l.len() - 1) as f32;
+            assert!(w <= 372.0, "{l:?} is {w} wide");
+        }
+        assert_eq!(chip_lines(&all[..4], 372.0).len(), 1);
+        assert_eq!(chip_lines(&[], 372.0), vec![Vec::<usize>::new()]);
     }
 }
