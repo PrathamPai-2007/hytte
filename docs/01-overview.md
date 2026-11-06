@@ -67,9 +67,9 @@ crates/
     app.manifest           DPI awareness, UTF-8 code page, console allocation policy, ...
     assets/                logo.png, the generated .ico files and make_icons.py
     src/main.rs            entry point: CLI dispatch, console handling, then the daemon
-    src/window.rs          Win32 window, message loop, input, timers, drag & drop
+    src/window.rs          Win32 window, message loop, input, timers, drag & drop (a thin file; the code is in window/win.rs and window/win/: view, events, input, shots, frame, actions, controls, dnd, wndproc)
     src/settings_win.rs    the big settings window (the pane's popout), drawn by its own renderer
-    src/render.rs          Direct2D / DirectWrite drawing of every scene
+    src/render.rs          Direct2D / DirectWrite drawing: the Renderer, its constants and `Action`; each part of it is in render/ (prims, pill, compact, tasks, media, shelf, home, settings, cards, timer, plus settings_table and the snapshot test)
     src/gpu.rs             D3D11 + DirectComposition swap chain for the gpu renderer
     src/ui_state.rs        the pure UI model: tasks, panels, scenes, animation state
     src/animation.rs       spring physics
@@ -97,12 +97,14 @@ crates/
     src/setup.rs           PATH and shell-profile setup, migration of old notch hooks
     src/agents.rs          hytte setup agents: hooks for Claude Code, Codex, Gemini, Antigravity, Cursor
     src/agent_plugin.js    the OpenCode plugin agents.rs writes (embedded)
-    src/update.rs          update check against GitHub Releases and in-place self-replace
-    src/logging.rs         log file and panic hook
+    src/update.rs          update check against GitHub Releases, signature check and in-place self-replace
+    src/logging.rs         log file, panic hook and crash relaunch
+    src/secrets.rs         hides tokens and passwords in text the pill draws
     src/perf.rs            optional frame-time telemetry (HYTTE_PERF=1)
     src/single_instance.rs named mutex so only one daemon runs
     src/winrt.rs           tiny blocking driver for WinRT async calls
-    src/cli/mod.rs         the CLI: command dispatch, hytte run, hytte set, hytte setup
+    src/cli/mod.rs         the CLI: command dispatch, the pipe client, hytte run, hytte set, hytte notify, hytte shelf, hytte setup
+    src/cli/doctor.rs      hytte doctor
     src/cli/agent.rs       hytte agent ...
     src/cli/hook.rs        hytte hook ... and hytte init ...
     src/cli/portscmd.rs    hytte ports / hytte kill
@@ -125,7 +127,10 @@ manifests/winget/          winget package manifest template
 | `crossbeam-channel` | Channels between threads, including `select!`. |
 | `image` | Decoding and encoding images for the Drop Vault and album art. Only PNG, JPEG, WebP and BMP are enabled. The snapshot test writes its pictures as PNG. |
 | `miniz_oxide` | zlib compression for PDF image streams. |
+| `minisign-verify` | Checking an update's signature against the public key built into Hytte ([section 15](15-updates.md)). A small pure-Rust crate. |
+| `qrcodegen` | The shelf's QR code for a text snippet. No dependencies of its own. |
 | `embed-resource` (build only) | Compiling `hytte.rc` (icons, manifest, version info) into the exe. |
+| `minisign` (tests only) | Signing in the updater's tests, so good and tampered signatures are really checked. |
 
 There is deliberately **no async runtime** (no tokio), no GUI framework and no web view. Everything is plain threads, channels and direct Windows API calls. When you add a dependency, it should be because the alternative is clearly worse, and it should keep the CLI fast to start (shell hooks run `hytte` on every command).
 
