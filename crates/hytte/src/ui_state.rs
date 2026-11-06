@@ -170,7 +170,9 @@ impl TaskView {
     }
     /// A terminal command that can be run again in a new window (not an agent or download).
     pub fn rerunnable(&self) -> bool {
-        matches!(self.source.as_str(), "run" | "shell") && self.cwd.is_some()
+        matches!(self.source.as_str(), "run" | "shell")
+            && self.cwd.is_some()
+            && !self.label.ends_with('…') // cut off, so not the whole command
     }
 
     pub fn failed(&self) -> bool {
@@ -1424,6 +1426,31 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_cut_command_is_not_rerunnable() {
+        let now = Instant::now();
+        let mut t = TaskView {
+            id: "t".into(),
+            label: "cargo build".into(),
+            event: TaskEvent::Failed,
+            progress: None,
+            duration_ms: None,
+            exit_code: Some(1),
+            stderr: vec![],
+            pid: None,
+            attention: None,
+            line: None,
+            source: "run".into(),
+            cwd: Some("C:/x".into()),
+            started: now,
+            changed: now,
+            visible_after: now,
+        };
+        assert!(t.rerunnable());
+        t.label.push('…');
+        assert!(!t.rerunnable());
+    }
 
     #[test]
     fn shelf_row_scrolls_within_its_items() {

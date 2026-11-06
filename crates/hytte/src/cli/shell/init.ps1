@@ -27,7 +27,7 @@ if (-not $global:__notch) {
         $n.Watch = [Diagnostics.Stopwatch]::StartNew()
         $n.Err0 = if ($global:Error.Count -gt 0) { $global:Error[0] } else { $null }
         # The pipe limit is 1024 bytes: 4 bytes per character is the worst case.
-        $label = if ($line.Length -gt 250) { $line.Substring(0, 250) } else { $line }
+        $label = if ($line.Length -gt 250) { $line.Substring(0, 250) + [char]0x2026 } else { $line }
         __notch_send @{ task_id = $n.Id; event = 'Start'; label = $label; cwd = (Get-Location).Path }
     }
 

@@ -45,7 +45,7 @@ fn parse(args: &[String]) -> Opts {
         let v = args[i + 1].clone();
         match args[i].as_str() {
             "--id" => o.id = v,
-            "--cmd" => o.cmd = v.chars().take(512).collect(),
+            "--cmd" => o.cmd = super::fit_label(&v),
             "--pid" => o.pid = v.parse().ok(),
             "--cwd" => o.cwd = Some(v),
             "--code" => o.code = v.parse().ok(),

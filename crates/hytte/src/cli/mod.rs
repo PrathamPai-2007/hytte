@@ -137,6 +137,31 @@ fn start_daemon() -> bool {
     false
 }
 
+/// An argument as it must be typed in PowerShell to reach the program unchanged.
+fn quote_arg(a: &str) -> String {
+    let plain = !a.is_empty()
+        && a.chars()
+            .all(|c| c.is_alphanumeric() || r"_-./\:=+%".contains(c));
+    if plain {
+        a.into()
+    } else {
+        format!("'{}'", a.replace('\'', "''"))
+    }
+}
+
+/// Fit a command line into the protocol's 1024-byte label. A cut one ends in `…`, which the
+/// pill reads as "can't be run again".
+pub(crate) fn fit_label(s: &str) -> String {
+    if s.len() <= 1000 {
+        return s.into();
+    }
+    let mut cut = 1000;
+    while !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &s[..cut])
+}
+
 /// Rust's spawn only finds `.exe` on PATH, so `npm` (really `npm.cmd`) fails. For a bare name,
 /// look through PATH with PATHEXT; the full path then goes to `Command`, which escapes
 /// arguments for batch files itself. Anything else is passed through unchanged.
@@ -179,13 +204,13 @@ fn cmd_run(args: &[String]) {
         usage();
     }
     let id = task_id();
-    let label = cmd_args.join(" ");
-    // The whole command (Rerun runs it again), within the protocol's 1024-byte label.
-    let mut cut = label.len().min(1000);
-    while !label.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    let truncated = label[..cut].to_string();
+    // Quoted the way PowerShell wants it, since Rerun runs the label through PowerShell.
+    let label = cmd_args
+        .iter()
+        .map(|a| quote_arg(a))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let truncated = fit_label(&label);
     let cwd = std::env::current_dir()
         .ok()
         .map(|d| d.to_string_lossy().into_owned());
@@ -419,7 +444,23 @@ pub fn run(args: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::find_in;
+    use super::{find_in, fit_label, quote_arg};
+
+    #[test]
+    fn quoting_keeps_arguments_whole() {
+        assert_eq!(quote_arg("--release"), "--release");
+        assert_eq!(quote_arg("fix the bug"), "'fix the bug'");
+        assert_eq!(quote_arg("it's"), "'it''s'");
+        assert_eq!(quote_arg(""), "''");
+        assert_eq!(quote_arg("a;b"), "'a;b'");
+    }
+
+    #[test]
+    fn a_cut_label_is_marked() {
+        assert_eq!(fit_label("short"), "short");
+        let cut = fit_label(&"あ".repeat(500));
+        assert!(cut.ends_with('…') && cut.len() <= 1003);
+    }
 
     #[test]
     fn finds_cmd_through_pathext_but_leaves_paths_alone() {
