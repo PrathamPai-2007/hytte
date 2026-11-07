@@ -25,13 +25,14 @@ It never steals focus, idles at almost no CPU, and uses under 20 MB of RAM. It i
 - **Shows dev servers.** Anything on `localhost:3000`, `5173`, `8080` and friends appears with **Open**, **Stop** and, for servers started from a tracked command, **Restart**.
 - **Holds files (the shelf).** Drop files or text on the pill, switch windows, drag them back out. Win+Shift+S screenshots land there too.
 - **Quick file actions.** Shrink an image, make a PDF, strip location data, OCR, tidy JSON, decode a JWT, timestamp, base64, URL or hex colour, make a QR code.
-- **Controls music**, with a draggable timeline, lyrics and a sleep timer ("stop playing in 30 min") that fades the volume out.
+- **Controls music**, with a draggable timeline, lyrics that glide line by line (a **Live** tick box turns that off) and a sleep timer ("stop playing in 30 min") that fades the volume out.
 - **Quick controls.** Mute all microphones (red lock on the pill), mute speakers, keep the PC awake, per-app volume.
 - **Timer and focus sessions.** Countdown or Pomodoro. A focus session turns on Windows Do Not Disturb, holds Hytte's own alerts and tells you what you missed in one line; collapsed, it shows as a thin line along the pill.
 - **Notes and a to-do list.** Type something and press Enter; a note lasts 24 hours or is kept. A hotkey opens Notes with the cursor ready.
-- **Weather.** Pick a town (suggestions as you type) and see now plus the next hours. Nothing is fetched while the pane is closed.
+- **Weather.** Pick a town (suggestions as you type; if none match, one click searches OpenStreetMap) and see now plus the next hours. Nothing is fetched while the pane is closed.
 - **Break reminders.** Eyes (20-20-20), stretch and water nudges as a small card on the pill, never a popup, and never in a meeting, a game or a focus session.
-- **Skins.** Five colour themes for the pill.
+- **Skins.** Five colour themes for the pill (Settings → Look and feel).
+- **Your panes, your order.** Switch any pane off and arrange the tab strip in Settings → Panes.
 - **Alerts.** Browser downloads, runaway CPU or memory hogs (**Kill** / **Ignore**), your next meeting (optional, **Join** button), camera and mic dots, battery and power mode on laptops.
 - **Gets out of the way.** A game or fullscreen app makes it vanish and stop touching input (no FPS cost). A maximised or snapped window, or fullscreen video, shrinks it to a hairline.
 - **Safe to share.** One setting (`hide_from_capture`) keeps it out of screenshots, recordings and calls, and tokens or passwords in a command show as `•••`. New installs show the pill in screenshots; installs from before 1.7 keep whatever they had.
@@ -205,15 +206,23 @@ show_all = false
 enabled = false           # off by default: event titles are private
 
 [panes]
-notes = true              # tabs in the pill; switch any off
+home = true               # tabs in the pill; switch any off
+media = true
+shelf = true
+tasks = true
+timer = true
+power = true
+notes = true
 todo = true
 weather = true
+order = ""                # set by the arrows in Settings → Panes
 
 [weather]
 units = "auto"            # "auto" (follow Windows), "metric" or "imperial"
 
 [media]
 lyrics = false            # looks songs up on lrclib.net (sends title and artist)
+lyrics_live = true        # follow the song line by line when the lyrics are timed
 
 [breaks]
 eyes_min = 0              # minutes between reminders; 0 = off

@@ -19,7 +19,7 @@ Each worker watches one part of the system and reports changes to the UI thread 
 | Config | `config.rs` | Directory change notification | `Config` ([section 11](11-configuration-and-files.md#live-reload)) |
 | Terminal tabs | `tabs.rs` | Command channel | none (answers commands) |
 | Thumbnails | `shelf.rs` | One short-lived thread per tile | `Thumb` |
-| Place search, forecast | `weather.rs` | One short-lived thread per request, only while the Weather pane is showing | `Places`, `Forecast` |
+| Place search, forecast | `weather.rs` | One short-lived thread per request, only while the Weather pane is showing | `Places`, `WidePlaces`, `Forecast` |
 | Lyrics | `lyrics.rs` | One short-lived thread per song, only with the lyrics page open | `Lyrics` |
 | Sleep fade | `sleep.rs` | One thread from the fade's start to the pause (≤ 20 s) | none |
 
@@ -121,7 +121,7 @@ For each visible shelf tile without one, `Ui::request_thumbs` starts a short-liv
 
 `net::fetch(url, out, secs, max_bytes)` runs System32's `curl.exe` by absolute path (no HTTP stack is linked), HTTPS only in release builds, with a User-Agent of `hytte/<version>`; the updater, the weather and the lyrics all use it. `net::encode` percent-encodes query values as UTF-8.
 
-**Weather** uses Open-Meteo's geocoding and forecast endpoints (free for non-commercial use, CC BY 4.0, which is why the pane credits it). Nothing runs while the pane is closed. **Lyrics** use lrclib.net: `/api/get` with title, artist, album and length, then with title and artist alone, then `/api/search`. A 404 is "no such song"; any other failure is "can't reach".
+**Weather** uses Open-Meteo's geocoding and forecast endpoints (free for non-commercial use, CC BY 4.0, which is why the pane credits it). Nothing runs while the pane is closed. **The wider place search** uses OpenStreetMap's Nominatim (`weather::fetch_wide`, ODbL, credited under its results). Its usage policy forbids search-as-you-type, so it runs only when the user clicks or presses Enter on the "search more widely" row, which appears two seconds after Open-Meteo found nothing; answers are cached for the session, and the User-Agent names the app. **Lyrics** use lrclib.net: `/api/get` with title, artist, album and length, then with title and artist alone, then `/api/search`. A 404 is "no such song"; any other failure is "can't reach".
 
 ## The sleep fade (`sleep.rs`)
 

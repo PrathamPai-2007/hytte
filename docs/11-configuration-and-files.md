@@ -126,9 +126,11 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[calendar] enabled` / `lead_min` | `false` / `10` | Heads-up before the next event (off by default: titles are private; switching on starts reading; off drops heads-ups until restart) / minutes before the start. |
 | `[timer] sound` | `true` | Ring when a timer ends until **Stop alarm** (2 min max). |
 | `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
-| `[panes] notes` / `todo` / `weather` | `true` | Show that pane's tab. |
+| `[panes] home` / `media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). With all off, Home stays. |
+| `[panes] order` | `""` | The tab order as names ("home,media,..."). Set by the arrows in the settings window; names left out keep their usual place after those listed. |
 | `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
 | `[media] lyrics` | `false` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
+| `[media] lyrics_live` | `true` | Follow the song line by line when the lyrics are timed; off shows the words as a list. |
 | `[breaks] eyes_min` / `stretch_min` / `water_min` | `0` / `0` / `0` | Minutes between each reminder; 0 = off. |
 | `[timer] break_min` / `long_break_min` / `rounds` | `5` / `15` / `2` | Short and long break lengths; every `rounds`-th Focus is followed by a long break, and a Focus or Break timer shows that many round dots. |
 

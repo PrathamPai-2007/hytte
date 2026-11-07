@@ -10,7 +10,7 @@ The pin in the row of icons keeps it open until you click the pin again.
 
 ## Panes
 
-The icons along the bottom switch between panes. Only panes with something to show appear.
+The icons along the bottom switch between panes. Only panes with something to show appear. You can switch any pane off and put them in your own order in [Settings](07-settings.md#choosing-and-ordering-panes).
 
 | Pane | Shows |
 |---|---|
@@ -61,7 +61,7 @@ Right-clicking the pill opens the timer card.
 | A maximised or snapped window | Shrinks to the thin line. |
 | Fullscreen video | Shrinks to the thin line, so the controls around it stay clickable. |
 
-New installs show the pill in screenshots. If you'd rather keep it out of screenshots, recordings and screen shares, switch on `hide_from_capture` ([Settings](07-settings.md#editing-configtoml)); installs from before 1.7 already have it on. Tokens or passwords in a command show as `•••` either way.
+New installs show the pill in screenshots. If you'd rather keep it out of screenshots, recordings and screen shares, switch on `hide_from_capture` ([Settings](07-settings.md#editing-configtoml)); installs from before 2.0 already have it on. Tokens or passwords in a command show as `•••` either way.
 
 If a game isn't detected, or an app makes Hytte back off when it shouldn't, see [Settings](07-settings.md#fullscreen-apps-and-games).
 

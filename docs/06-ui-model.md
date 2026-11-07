@@ -21,6 +21,7 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | `Calendar(Option<NextEvent>)` | calendar watcher | `set_calendar`: arms the heads-up. |
 | `DragEnter` / `DragLeave` | OLE drop target | `drop_over`: the purple drop zone. |
 | `Places(seq, query, result)`, `Forecast(result)` | weather workers | `places_result` (dropped if the field no longer holds `query`, or `seq` is old), `forecast_result` (dropped for a place since changed). |
+| `WidePlaces(seq, query, result)` | wider place search | `wide_result`: kept in a small session cache; dropped if the field changed. |
 | `Lyrics(key, result)` | lyrics worker | `lyrics_result`: cached; shown only if `key` is still the song on screen. |
 
 ## `Model`: the state
@@ -40,16 +41,16 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | Notes and to-do | `jot` (the `jot::Store`), `jot_dirty` (the window layer saves), `typing: Option<Field>`, `note_edit` / `todo_edit` / `place_edit` (`textedit::TextEdit`), `note_keep`, `jot_edit` (an existing item being edited), `jot_undo`, `jot_first` |
 | Weather | `weather_place`, `forecast`, `weather_busy` / `weather_err` / `weather_retry`, `choosing`, `places`, `place_sel`, `places_busy` / `places_err` / `places_for`, `imperial` |
 | Focus and breaks | `held` (`Held` counts), `focus_summary`, `nudge` (`Nudge { kind, since }`); `holding()` is true while a Focus timer exists (paused too) |
-| Media extras | `sleep`, `sleep_open`, `lyrics_open`, `lyrics_on`, `lyric_key`, `lyric_state`, `lyric_cache` (last 20), `lyric_first` |
+| Media extras | `sleep`, `sleep_open`, `lyrics_open`, `lyrics_on`, `lyrics_still` (`[media] lyrics_live` off), `lyric_key`, `lyric_state`, `lyric_cache` (last 20), `lyric_first` |
 | Look | `skin` (`skin::Skin`), `panes` (`[panes]`) |
 
 `TaskView` is a task's display form: label, event, progress, stderr lines, pid, `attention` message, `source`, `cwd` (a `run` / `shell` task with a folder is `rerunnable()`), and instants `started`, `changed`, `visible_after`.
 
 ## Panels
 
-`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (always: mic, sound, keep-awake, timer tiles and volume bar), **Notes**, **To-do** and **Weather** (each unless switched off in `[panes]`), **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery). With the three optional panes on, the tab strip always shows.
+`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (mic, sound, keep-awake, timer tiles and volume bar), **Notes**, **To-do** and **Weather**, **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery). Every one has a switch in `[panes]` (`home`, `media`, `shelf`, `tasks`, `timer`, `power`, `notes`, `todo`, `weather`), and the result is sorted by `[panes] order` (`Panel::arranged`; panes the list does not name keep their usual place after those it does). The list is never empty: with everything off, Home stays. `move_pane` rewrites the order for the arrows in the settings window.
 
-- `panel()` is the selected panel if it still exists, else what the collapsed pill shows (Tasks if a task is visible, Media if music plays), else Home. Attention wins: a task that needs input or finishes `peek`s its pane, which selects it.
+- `panel()` is the selected panel if it still exists, else what the collapsed pill shows (Tasks if a task is visible, Media if music plays), else Home, else the first panel left when those are switched off. Attention wins: a task that needs input or finishes `peek`s its pane, which selects it.
 - `tabs()` is true with more than one panel (the tab strip is drawn only then). `step_panel(dir)` moves with wrap-around (sideways scroll, arrows).
 
 ## Choosing the scene
@@ -89,10 +90,10 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | `ExpShelf` | 380 × 118 (136 with a tile selected) |
 | `ExpTimer` | 380 × 96 running, 152 setup card |
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a one-line card) / 114 |
-| `ExpCharge` / `ExpSettings` | 300 × 52 / 380 × 216 (no tab strip) |
+| `ExpCharge` / `ExpSettings` | 300 × 52 / 380 × 252 (no tab strip) |
 | `ExpNudge` | 360 × 56 (no tab strip) |
 | `ExpNotes` / `ExpTodo` | 380 × (12 + 34 field + 8 + 30 per row shown, 1 to 4, plus one for the Undo row, + 8) + tab strip; the wheel scrolls longer lists (`JOT_ROWS` = 4) |
-| `ExpWeather` | 380 × 148 with a forecast, 120 while loading, `38 + 34 + 4 + 28 × suggestions + 8` for the place chooser, + tab strip |
+| `ExpWeather` | 380 × 148 with a forecast, 120 while loading, `38 + 34 + 4 + 28 × suggestions + 8` for the place chooser (one more row while "search more widely" is offered, 16 more under OpenStreetMap results), + tab strip |
 | `ExpTimerDone` with a focus summary | 380 × 134 instead of 114 |
 
 Panels that show the tab strip get `TAB_H` (24 px) more.
@@ -229,7 +230,7 @@ While `Model::holding()`, background alerts are counted in `Held` instead of sho
 
 `sleep::Sleep` is the pure timer (minutes, or end of track following the player's reports and firing when the song changes). `Ui::sleep_tick` starts `sleep::start_fade` in the last 20 seconds: a thread that lowers the player's own audio session volume once a second, pauses it with `media::Cmd::Pause`, and puts the volume back. `pick_exe` matches the media app id to an audio session by exe name. The original volume is written to `sleep-restore.txt` for the fade, so `sleep::recover` can restore it after a crash. The fade thread initialises COM itself.
 
-`lyrics.rs` parses LRC text and judges lrclib's answers against the song's length (timed lyrics within 3 s, words only within 10 s). `Model::lyrics_request` decides when to look up (page open, `[media] lyrics` on, a song, nothing known yet); `Ui::lyrics_tick` runs `lyrics::lookup` on a worker and `lyrics_result` caches the answer in memory.
+`lyrics.rs` parses LRC text and judges lrclib's answers against the song's length (timed lyrics within 3 s, words only within 10 s). With timed lyrics the page glides: the renderer takes the play position, eases the list from the previous line to the current one over 520 ms after the line starts, and cross-fades each line between the small and the large font by distance from the middle. It is computed from the position alone, so it needs no state and no frames beyond the Media pane's existing clock. `lyrics_still` (or no timed lyrics) shows the words as a plain list; `lyric_rows` says how many lines the wheel can scroll. `Model::lyrics_request` decides when to look up (page open, `[media] lyrics` on, a song, nothing known yet); `Ui::lyrics_tick` runs `lyrics::lookup` on a worker and `lyrics_result` caches the answer in memory.
 
 ## Skins
 

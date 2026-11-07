@@ -304,6 +304,21 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     0,
                 ),
                 (
+                    pick_s(
+                        "Pill skin",
+                        "general.skin",
+                        &[
+                            ("Graphite", "graphite"),
+                            ("Aurora", "aurora"),
+                            ("Ember", "ember"),
+                            ("Moss", "moss"),
+                            ("Dusk", "dusk"),
+                        ],
+                        &g.skin,
+                    ),
+                    -1,
+                ),
+                (
                     pick_i(
                         "Wait before opening on hover",
                         "general.hover_delay_ms",
@@ -451,21 +466,6 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                         g.finish_peek_secs as i64,
                     ),
                     1,
-                ),
-                (
-                    pick_s(
-                        "Pill skin",
-                        "general.skin",
-                        &[
-                            ("Graphite", "graphite"),
-                            ("Aurora", "aurora"),
-                            ("Ember", "ember"),
-                            ("Moss", "moss"),
-                            ("Dusk", "dusk"),
-                        ],
-                        &g.skin,
-                    ),
-                    -1,
                 ),
                 (
                     sw(

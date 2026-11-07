@@ -59,7 +59,7 @@ Key methods: `layout()` (scene from the model; sets every spring target); `kick(
 | `WM_HOTKEY` | `hotkey`: enter or leave [keyboard mode](#keyboard). `monitor_hotkey` (id 2): `Ui::next_monitor`. |
 | `WM_KEYDOWN` / `WM_KILLFOCUS` | Keyboard mode keys (Esc, Left/Right, Tab, Enter/Space) / ends keyboard mode (and typing) without taking focus back. While a text field has focus, `WM_KEYDOWN` goes to `Ui::typing_key` instead. |
 | `WM_CHAR` | A typed character (UTF-16 unit; an emoji arrives as two) into the focused text field, via `Ui::type_char`. |
-| `WM_MOUSEWHEEL` | Over the volume bar or **Sound** tile: volume, 2 % a notch. Over an app's bar: that app. Over the shelf row: scrolls a tile per notch. Over a task list with more rows than `task_rows`: a row per notch (at either end the wheel pages again). On the timer card: minutes. Otherwise a mouse wheel (whole 120 notches) pages the panes (down = next), not while the settings pane is open. A precision touchpad's vertical scroll (fractional deltas, as do free-spin wheels) does nothing there, so a two-finger scroll can't flip panes. |
+| `WM_MOUSEWHEEL` | Over the volume bar or **Sound** tile: volume, 2 % a notch. Over an app's bar: that app. Over the shelf row: scrolls a tile per notch. Over a task list with more rows than `task_rows`: a row per notch (at either end the wheel pages again). On the timer card: minutes. Otherwise a mouse wheel (whole 120 notches) pages the panes (down = next), not while the settings pane is open. A precision touchpad's vertical scroll (fractional deltas, as do free-spin wheels) does nothing there, so a two-finger scroll can't flip panes. On the lyrics page a notch moves a line, and a touchpad needs 600 units of scroll per line (`Ui::lyric_wheel`) so its stream of small deltas and its coasting don't fling the page. |
 | `WM_MOUSEHWHEEL` | Touchpad swipe or tilt wheel: next pane right, previous left, one per swipe; a collapsed pill peeks 3 s. |
 | `WM_SETCURSOR` | Hand cursor over clickable regions. |
 | `WM_LBUTTONDOWN` | On a shelf tile: remember it, capture the mouse for a drag. On the volume bar or timeline: set there and capture for dragging (`scrub`). |
@@ -91,11 +91,12 @@ All are one-shot Win32 timers (the handler kills the timer first).
 | `T_COLLAPSE` | `collapse_delay_ms` (300) | Pointer leaves while open | If still outside and not pinned: `hover = false`, timer card and settings pane close, `start_panel` applied. Re-entering in time cancels it. |
 | `T_EXPIRE` | Until the model's next deadline | After every model change | `after_model_change` (calls `Model::expire`). |
 | `T_TIMER` | ≤ 1 s | Countdown timer running | Redraws the fuse; fires the timer at zero. |
-| `T_FS` | 150 ms | Foreground change or move | Follows the monitor, re-evaluates fullscreen, re-asserts topmost (not over a game), follows the virtual desktop. |
+| `T_FS` | 150 ms | Foreground change or move | Follows the monitor, re-evaluates fullscreen (not while Hytte holds focus for typing or keyboard mode: Hytte in front says nothing about the app under it, and reading it as "no fullscreen" used to collapse the pill under the click), re-asserts topmost (not over a game), follows the virtual desktop. |
 | `T_TRIM` | 30 s | A frame finds nothing moving | If still settled, trims the working set ([section 12](12-performance.md)). |
 | `T_GPU` | 1 s doubling to 30 s | GPU rebuild failed | Retries `rebuild_gpu` ([section 8](08-rendering-and-animation.md#the-gpu-renderer)). |
 | `T_CARET` | 530 ms | A text field takes focus, and after every blink | Toggles the caret and re-arms, while a field has focus; otherwise leaves it shown and stops. |
 | `T_PLACE` | 250 ms | The weather place field changed | Runs the place search for what is typed (`Ui::place_search`). |
+| `T_WIDE` | 2 s | Open-Meteo answered a place search with nothing | Offers "search more widely" (`Ui::wide_offer_due`) if the field still holds that text. Typing cancels it. |
 | `T_SHOT` | 60 ms while a screenshot awaits Ctrl+V (`delete_after_paste`, ≤ 10 min), else 1 s while screenshots are on the shelf and `screenshot_secs` ≠ 0 | A screenshot was shelved | `Ui::tick_shots`: removes expired and pasted screenshots; re-arms while any is pending. |
 
 ## Clicks and actions
@@ -116,7 +117,8 @@ While drawing, the renderer records **hit regions** (`Hit { rect, action }`, [se
 | `TimerMinutes`, `TimerNudge`, `TimerStart`, `TimerBreak`, `TimerAdd`, `TimerPause`, `TimerStop`, `TimerDismiss` | Timer controls (preset, − / +, start timer or focus, offered break, **+5** (on the finished card, a new 5 min timer), ring pause/resume, Stop, Stop alarm / Dismiss). Changes to a running timer save to `timer.json`. |
 | `SetPowerMode` | Sets the Windows power mode. |
 | `Field(f)`, `NoteKeep`, `ToggleJot`, `EditJot`, `KeepJot`, `DeleteJot`, `UndoJot` | Focus a text field and place the caret / the 24 h / Keep switch / tick a to-do / edit an item in the field / keep a temporary note / delete (Undo for 6 s). |
-| `PickPlace`, `ChangePlace`, `CancelPlace`, `RetryWeather` | Weather: choose a suggestion, open the chooser, close it, fetch again. |
+| `PickPlace`, `ChangePlace`, `CancelPlace`, `RetryWeather`, `SearchWide` | Weather: choose a suggestion, open the chooser, close it, fetch again, run the OpenStreetMap search the user asked for. |
+| `PaneMove(key, ±1)` | Settings window only: move a pane in `[panes] order` (written with `config::set_text`). |
 | `NudgeSnooze`, `NudgeSkip` | Break reminder: ten minutes later / done. |
 | `SleepMenu`, `SleepSet`, `SleepCancel`, `LyricsOpen`, `LyricsClose`, `LyricsRetry` | The Media pane's sleep timer chips and lyrics page. |
 

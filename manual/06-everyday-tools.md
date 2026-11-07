@@ -39,7 +39,9 @@ When it ends, an alarm rings for up to two minutes. Choose **Stop alarm** or **+
 
 **Lyrics.** Click **Lyrics** on the Media pane. The page shows the line being sung with the line before and after. They are off until you turn them on (the page has a **Turn on** button, and there is a switch in [Settings](07-settings.md)), because looking a song up sends its title and artist to [lrclib.net](https://lrclib.net), a free lyrics database. Nothing is looked up unless the page is open, and Hytte keeps lyrics only in memory, for the last 20 songs.
 
-If the database has the words but for a different recording of the song, you see them without timing, scrolling with the mouse wheel.
+With timed lyrics the lines glide smoothly from one to the next. The **Live** tick box at the bottom left turns that off, so you see the words to scroll through instead (the choice is kept; it is `[media] lyrics_live`). **Live** is greyed out and does nothing for songs that have no timed lyrics.
+
+If the database has the words but for a different recording of the song, you see them without timing, scrolling with the mouse wheel. A touchpad moves one line per long stretch of two-finger scroll, so the page doesn't fly past.
 
 **Sleep timer.** Click the moon, then pick 15, 30, 45 or 60 minutes, or **End of track**. In the last 20 seconds the volume of that player fades out, then it pauses, then its volume is put back, so tomorrow's first song isn't silent. Pausing yourself doesn't cancel it. Click the moon again to cancel. Closing Hytte forgets the timer.
 
@@ -74,6 +76,10 @@ The same field adds a to-do. Click the box to tick it: it moves to the bottom an
 <img src="../docs/img/weather.png" alt="The Weather pane" width="300"> <img src="../docs/img/weather-ask.png" alt="Choosing a place" width="300">
 
 The first time, the pane asks where to check. Type a town and suggestions appear as you type; use the arrow keys and **Enter**, or click one. You then see the temperature now, today's high and low, and the next five hours. Click the town's name to choose another place.
+
+Not finding your town? If nothing matches for about two seconds, a row appears: **Search more widely for "your town"**. Click it (or press **Enter**) and Hytte asks [OpenStreetMap](https://www.openstreetmap.org) once, which knows many smaller places. Its answers are listed with a credit line, and the same search isn't repeated in a session. Nothing is sent to OpenStreetMap unless you click.
+
+<img src="../docs/img/weather-wide.png" alt="The search more widely row" width="300">
 
 Weather is fetched only when you open the pane and what Hytte has is over 30 minutes old, so a closed pill makes no requests. It comes from [Open-Meteo](https://open-meteo.com) (free for non-commercial use, which is why the pane credits it). Searching sends what you type to Open-Meteo; the forecast sends the town's coordinates. Hytte keeps your place in `place.json` and asks Windows for nothing. Temperatures follow your Windows measurement setting, or `[weather] units`.
 

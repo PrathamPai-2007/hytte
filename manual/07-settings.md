@@ -2,18 +2,22 @@
 
 ## The settings pane
 
-Click the **gear** on the Home pane. The pane covers the common settings, such as theme, opacity, glow and feature switches.
+Click the **gear** on the Home pane (or, if you have hidden Home, the tray icon → **Settings…**). The pane covers the common settings, such as theme, opacity, glow and feature switches. The blue **More settings** button at its bottom opens the full window.
 
 <img src="../docs/img/settings-pane.png" alt="The settings pane inside the pill" width="420">
 
 ## The settings window
 
-The button at the top right of the pane opens the full window. It has every switch and slider.
+The **More settings** button on the settings pane opens the full window; so does tray → **Settings…**. It has every switch and slider.
 
 - **Type** to search.
 - **Rest the pointer** on a setting for an explanation.
 - **Custom** opens `config.toml` at that setting, for a value the presets don't have.
 - **↺** puts a changed setting back to its default.
+
+### Choosing and ordering panes
+
+The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Timer, Battery, Notes, To-do and Weather. Each has a switch, and the **▲ ▼** buttons move it along the tab strip. Panes that only appear when they have something to show (Music, Shelf, Timer, Battery, Terminal tasks) keep their place in the order for when they do. If you switch everything off, the Quick controls stay so the pill is never empty.
 
 <img src="../docs/img/settings-window.png" alt="The settings window" width="560">
 
@@ -53,15 +57,23 @@ show_all = false
 enabled = false           # off by default: event titles are private
 
 [panes]
-notes = true              # switch a pane's tab off here
+home = true               # switch any pane's tab off here
+media = true
+shelf = true
+tasks = true
+timer = true
+power = true
+notes = true
 todo = true
 weather = true
+order = ""                # tab order, set by the arrows in the settings window
 
 [weather]
 units = "auto"            # "auto" (follow Windows), "metric" or "imperial"
 
 [media]
 lyrics = false            # looks songs up on lrclib.net
+lyrics_live = true        # follow the song line by line when the lyrics are timed
 
 [breaks]
 eyes_min = 0              # minutes between reminders; 0 = off

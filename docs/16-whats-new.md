@@ -2,7 +2,27 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## 1.7.0
+## 2.0.0
+
+This is the panes release. It carries everything that was planned as 1.7 (that number was never released), so it also includes the 1.6.1 change that releases are no longer signed.
+
+**Choosing and ordering panes**
+
+- **Every pane has a switch and a place.** `[panes]` now has `home`, `media`, `shelf`, `tasks`, `timer` and `power` besides `notes`, `todo` and `weather`, and the settings window's **Panes** section lists all nine with **▲ ▼** to put them in your order (`[panes] order`). The tab strip never empties: with everything off, the quick controls stay.
+- **The Pill skin row moved to Look and feel** (it was hidden under Behaviour).
+- **Tray → Settings…** opens the settings window, so hiding the Home pane never hides the settings.
+- **The settings pane has a clear blue "More settings" button** that opens the settings window, instead of an icon nobody read as that. The window's search box now shows that it has focus (border and caret).
+
+**Weather and lyrics, refined**
+
+- **Search more widely.** If Open-Meteo finds nothing for two seconds, a row offers an OpenStreetMap search, run once when you click it, credited, and cached for the session. It finds places such as Sri City that Open-Meteo lacks.
+- **Live lyrics glide** from line to line instead of switching. A **Live** tick box (`[media] lyrics_live`) turns that off for a scrolling list, and it is greyed out for songs without timed lyrics. Touchpad scrolling on the lyrics page is slower and steadier.
+
+**Fixed**
+
+- **Typing in Notes or To-do over a fullscreen or maximised app no longer collapses the pill.** Hytte taking focus made the fullscreen check think no app was fullscreen; the check now waits until focus is handed back.
+
+**The first panes build**
 
 **New panes**
 
