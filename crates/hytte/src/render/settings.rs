@@ -191,7 +191,10 @@ impl Renderer {
         let rw = w - gut;
         match row {
             Row::Switch(label, key, on) => {
-                let hov = self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
+                // The quick controls always show: that row only moves.
+                let pinned = key == "panes.home";
+                let hov =
+                    !pinned && self.hit(10.0, y, w - 20.0, 30.0, Action::Set(key, Val::B(!on)));
                 let h = self.ease(&format!("h:{key}"), hov as u8 as f32);
                 if h > 0.01 {
                     self.fill_rr(10.0, y, w - 20.0, 30.0, 12.0, self.cc(fg, 0.06 * h));
@@ -207,6 +210,17 @@ impl Renderer {
                 );
                 let t = self.ease(&format!("s:{key}"), on as u8 as f32);
                 let (kx, ky) = (rw - 22.0 - 34.0, y + 6.0);
+                if pinned {
+                    self.text(
+                        "Always on",
+                        &self.f.small_r,
+                        kx - 20.0,
+                        y,
+                        54.0,
+                        30.0,
+                        self.cc(GRAY, 0.8),
+                    );
+                }
                 // A pane's row also moves it along the tab strip.
                 if let Some(pk) = key.strip_prefix("panes.") {
                     for (i, (glyph, dir)) in [('\u{E70E}', -1i8), ('\u{E70D}', 1)]
@@ -224,7 +238,7 @@ impl Renderer {
                         );
                     }
                 }
-                if t < 0.99 {
+                if !pinned && t < 0.99 {
                     self.stroke_rr(
                         kx,
                         ky,
@@ -236,16 +250,18 @@ impl Renderer {
                         false,
                     );
                 }
-                if t > 0.01 {
+                if !pinned && t > 0.01 {
                     self.fill_rr(kx, ky, 34.0, 18.0, 9.0, self.cc(acc, 0.95 * t));
                 }
                 let knob = mix3(fg, self.ink(), t);
-                self.circle(
-                    kx + 9.0 + 16.0 * t,
-                    ky + 9.0,
-                    5.0 + t,
-                    self.cc(knob, 0.7 + 0.25 * t),
-                );
+                if !pinned {
+                    self.circle(
+                        kx + 9.0 + 16.0 * t,
+                        ky + 9.0,
+                        5.0 + t,
+                        self.cc(knob, 0.7 + 0.25 * t),
+                    );
+                }
             }
             Row::Opacity(v) => {
                 let name = if gut > 0.0 {
@@ -422,6 +438,32 @@ impl Renderer {
                 );
             }
             let a = if on { 1.0 } else { 0.62 + 0.38 * h };
+            if key == "general.skin" {
+                // A disc of the skin's body with a dot of its glow; the name sits left of the row.
+                let skin = crate::skin::Skin::ALL[j.min(crate::skin::Skin::ALL.len() - 1)];
+                let (cx, cy) = (x + sw / 2.0, y + 15.0);
+                let (_, bottom) = skin.body(self.light.get());
+                self.circle(cx, cy, 8.5, self.cc(bottom, 1.0));
+                self.circle(
+                    cx,
+                    cy,
+                    3.5,
+                    self.cc(skin.glow(), if on { 1.0 } else { 0.8 }),
+                );
+                self.ring(cx, cy, 8.5, self.cc(fg, 0.25 + 0.25 * a), 1.0);
+                if on {
+                    self.text(
+                        name,
+                        &self.f.small,
+                        px - 62.0,
+                        y,
+                        56.0,
+                        30.0,
+                        self.cc(GRAY, 0.95),
+                    );
+                }
+                continue;
+            }
             self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
         }
     }

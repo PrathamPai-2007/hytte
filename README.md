@@ -206,8 +206,7 @@ show_all = false
 enabled = false           # off by default: event titles are private
 
 [panes]
-home = true               # tabs in the pill; switch any off
-media = true
+media = true               # tabs in the pill; switch any off
 shelf = true
 tasks = true
 timer = true
@@ -221,7 +220,7 @@ order = ""                # set by the arrows in Settings → Panes
 units = "auto"            # "auto" (follow Windows), "metric" or "imperial"
 
 [media]
-lyrics = false            # looks songs up on lrclib.net (sends title and artist)
+lyrics = true             # looks songs up on lrclib.net (sends title and artist)
 lyrics_live = true        # follow the song line by line when the lyrics are timed
 
 [breaks]

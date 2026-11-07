@@ -71,7 +71,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `monitor` | `"primary"` | `"primary"`, `"active"` (foreground window's monitor), `"cursor"` or a number (`"1"`, `"2"`, left to right). The tray's **Move to next monitor** and `monitor_hotkey` set the number, kept across restarts ([section 7](07-window-and-input.md#monitor-and-dpi)). |
 | `theme` | `"auto"` | `"dark"`, `"light"`, or `"auto"` (Windows app mode). |
 | `glow_strength` | `1.2` | Border glow multiplier: `1.0` original, `0` off, capped at `3`. The settings slider runs 0–1.92 (shown 0–100 %). |
-| `pill_opacity` | `0.7` | Pill body opacity `0.4`–`1.0`; text and icons stay solid. |
+| `pill_opacity` | `0.8` | Pill body opacity `0.4`–`1.0`; text and icons stay solid. |
 | `pin_button` | `true` | A pin in the tab strip keeps the pill open until clicked again (or a fullscreen app takes over). Not saved. |
 | `remember_panel` | `false` | With `start_panel = "last"`, remember the panel across restarts. |
 | `hover_delay_ms` | `200` | Rest time before the pill (or sentinel) opens; `0` = at once. |
@@ -90,7 +90,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `check_updates` | `true` | Daily update check, first 60 s after start ([section 15](15-updates.md)). The tray item works either way. Live. |
 | `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 1.7; a file that says `true` keeps it. |
 | `note_hotkey` | `""` | Global chord that opens Notes with the cursor ready, e.g. `"Win+Alt+J"`. Empty = off. Live. |
-| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"` or `"dusk"`; anything else is graphite. Live. |
+| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"` or `"dusk"`; anything else is graphite. Live. The settings show it as five colour discs (graphite is named **Slate** there). |
 | `output_folder` | none | Drop Vault results folder; unset or missing = next to the source. |
 | `allow_list` / `deny_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"` / always get game mode while in front. |
 
@@ -126,10 +126,10 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[calendar] enabled` / `lead_min` | `false` / `10` | Heads-up before the next event (off by default: titles are private; switching on starts reading; off drops heads-ups until restart) / minutes before the start. |
 | `[timer] sound` | `true` | Ring when a timer ends until **Stop alarm** (2 min max). |
 | `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
-| `[panes] home` / `media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). With all off, Home stays. |
+| `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
 | `[panes] order` | `""` | The tab order as names ("home,media,..."). Set by the arrows in the settings window; names left out keep their usual place after those listed. |
 | `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
-| `[media] lyrics` | `false` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
+| `[media] lyrics` | `true` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
 | `[media] lyrics_live` | `true` | Follow the song line by line when the lyrics are timed; off shows the words as a list. |
 | `[breaks] eyes_min` / `stretch_min` / `water_min` | `0` / `0` / `0` | Minutes between each reminder; 0 = off. |
 | `[timer] break_min` / `long_break_min` / `rounds` | `5` / `15` / `2` | Short and long break lengths; every `rounds`-th Focus is followed by a long break, and a Focus or Break timer shows that many round dots. |

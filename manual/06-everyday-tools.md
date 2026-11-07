@@ -37,7 +37,7 @@ When it ends, an alarm rings for up to two minutes. Choose **Stop alarm** or **+
 
 <img src="../docs/img/lyrics.png" alt="The lyrics page" width="300"> <img src="../docs/img/sleep.png" alt="The sleep timer" width="300">
 
-**Lyrics.** Click **Lyrics** on the Media pane. The page shows the line being sung with the line before and after. They are off until you turn them on (the page has a **Turn on** button, and there is a switch in [Settings](07-settings.md)), because looking a song up sends its title and artist to [lrclib.net](https://lrclib.net), a free lyrics database. Nothing is looked up unless the page is open, and Hytte keeps lyrics only in memory, for the last 20 songs.
+**Lyrics.** Click **Lyrics** on the Media pane. The page shows the line being sung with the line before and after. They are on for new installs (older installs keep their setting; the page has a **Turn on** button, and there is a switch in [Settings](07-settings.md)). Looking a song up sends its title and artist to [lrclib.net](https://lrclib.net), a free lyrics database, so switch lyrics off if you would rather not. Nothing is looked up unless the page is open, and Hytte keeps lyrics only in memory, for the last 20 songs.
 
 With timed lyrics the lines glide smoothly from one to the next. The **Live** tick box at the bottom left turns that off, so you see the words to scroll through instead (the choice is kept; it is `[media] lyrics_live`). **Live** is greyed out and does nothing for songs that have no timed lyrics.
 

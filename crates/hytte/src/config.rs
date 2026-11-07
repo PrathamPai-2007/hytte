@@ -134,7 +134,7 @@ impl Default for General {
             monitor: "primary".into(),
             adaptive_glow: true,
             glow_strength: 1.2,
-            pill_opacity: 0.7,
+            pill_opacity: 0.8,
             hover_delay_ms: 200,
             collapse_delay_ms: 100,
             open_on: "hover".into(),
@@ -341,7 +341,6 @@ impl Default for Timer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Panes {
-    pub home: bool,
     pub media: bool,
     pub shelf: bool,
     pub tasks: bool,
@@ -357,7 +356,6 @@ pub struct Panes {
 impl Default for Panes {
     fn default() -> Self {
         Self {
-            home: true,
             media: true,
             shelf: true,
             tasks: true,
@@ -397,7 +395,7 @@ pub struct Media {
 impl Default for Media {
     fn default() -> Self {
         Self {
-            lyrics: false,
+            lyrics: true,
             lyrics_live: true,
         }
     }

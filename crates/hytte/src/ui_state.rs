@@ -1698,9 +1698,8 @@ impl Model {
         if self.panes.media && self.media.is_some() {
             v.push(Panel::Media);
         }
-        if self.panes.home {
-            v.push(Panel::Home);
-        }
+        // The quick controls are the home pane: they cannot be switched off.
+        v.push(Panel::Home);
         if self.panes.notes {
             v.push(Panel::Notes);
         }
@@ -1719,10 +1718,6 @@ impl Model {
         }
         if self.panes.power && self.power.is_some() {
             v.push(Panel::Power);
-        }
-        // Never an empty strip: with everything switched off the quick controls stay.
-        if v.is_empty() {
-            v.push(Panel::Home);
         }
         let order = Panel::arranged(&self.panes.order);
         v.sort_by_key(|p| order.iter().position(|q| q == p));
@@ -2279,10 +2274,9 @@ mod tests {
     }
 
     #[test]
-    fn every_pane_can_be_switched_off_but_the_strip_never_empties() {
+    fn every_pane_but_the_quick_controls_can_be_switched_off() {
         let mut m = Model::default();
         m.panes = crate::config::Panes {
-            home: false,
             notes: false,
             todo: false,
             weather: false,
@@ -2294,7 +2288,6 @@ mod tests {
             "nothing left: quick controls"
         );
         assert_eq!(m.panel(), Panel::Home);
-        m.panes.home = true;
         m.panes.timer = false;
         m.panes.tasks = false;
         assert_eq!(m.panels(), vec![Panel::Home]);

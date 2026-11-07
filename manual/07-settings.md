@@ -17,7 +17,7 @@ The **More settings** button on the settings pane opens the full window; so does
 
 ### Choosing and ordering panes
 
-The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Timer, Battery, Notes, To-do and Weather. Each has a switch, and the **▲ ▼** buttons move it along the tab strip. Panes that only appear when they have something to show (Music, Shelf, Timer, Battery, Terminal tasks) keep their place in the order for when they do. If you switch everything off, the Quick controls stay so the pill is never empty.
+The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Timer, Battery, Notes, To-do and Weather. Each has a switch (the Quick controls say **Always on**: they are where the pill starts), and the **▲ ▼** buttons move it along the tab strip. Panes that only appear when they have something to show (Music, Shelf, Timer, Battery, Terminal tasks) keep their place in the order for when they do. 
 
 <img src="../docs/img/settings-window.png" alt="The settings window" width="560">
 
@@ -57,8 +57,7 @@ show_all = false
 enabled = false           # off by default: event titles are private
 
 [panes]
-home = true               # switch any pane's tab off here
-media = true
+media = true               # switch any pane's tab off here
 shelf = true
 tasks = true
 timer = true
@@ -72,7 +71,7 @@ order = ""                # tab order, set by the arrows in the settings window
 units = "auto"            # "auto" (follow Windows), "metric" or "imperial"
 
 [media]
-lyrics = false            # looks songs up on lrclib.net
+lyrics = true             # looks songs up on lrclib.net (sends title and artist)
 lyrics_live = true        # follow the song line by line when the lyrics are timed
 
 [breaks]

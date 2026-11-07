@@ -8,8 +8,9 @@ This is the panes release. It carries everything that was planned as 1.7 (that n
 
 **Choosing and ordering panes**
 
-- **Every pane has a switch and a place.** `[panes]` now has `home`, `media`, `shelf`, `tasks`, `timer` and `power` besides `notes`, `todo` and `weather`, and the settings window's **Panes** section lists all nine with **▲ ▼** to put them in your order (`[panes] order`). The tab strip never empties: with everything off, the quick controls stay.
-- **The Pill skin row moved to Look and feel** (it was hidden under Behaviour).
+- **Every pane but the quick controls has a switch and a place.** `[panes]` now has `media`, `shelf`, `tasks`, `timer` and `power` besides `notes`, `todo` and `weather`, and the settings window's **Panes** section lists all nine with **▲ ▼** to put them in your order (`[panes] order`). The quick controls (Home) are the starting point and cannot be switched off, but can be moved.
+- **Pill skin** moved to Look and feel (it was hidden under Behaviour), is in the pill's own settings pane in place of Open delay, and shows five colour discs instead of names that did not fit (graphite is called Slate there).
+- **New defaults** for fresh installs: pill opacity when open 80 % (was 70 %) and lyrics on. Existing installs keep what their `config.toml` says.
 - **Tray → Settings…** opens the settings window, so hiding the Home pane never hides the settings.
 - **The settings pane has a clear blue "More settings" button** that opens the settings window, instead of an icon nobody read as that. The window's search box now shows that it has focus (border and caret).
 
@@ -39,7 +40,7 @@ This is the panes release. It carries everything that was planned as 1.7 (that n
 **Music**
 
 - **Sleep timer**: the moon on the Media pane. 15, 30, 45, 60 minutes or the end of the song; the player's volume fades out over the last 20 seconds, it pauses, and the volume comes back.
-- **Lyrics** from lrclib.net, off until turned on (`[media] lyrics`): the line being sung with its neighbours, or the plain words when only a different recording is known.
+- **Lyrics** from lrclib.net, on by default (`[media] lyrics`): the line being sung with its neighbours, or the plain words when only a different recording is known.
 
 **Look**
 

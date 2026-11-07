@@ -187,8 +187,8 @@ pub fn help(key: &str) -> &'static str {
         "breaks.water_min" => "A card reminds you to drink some water.",
         "media.lyrics_live" => "Highlights the line being sung when the lyrics are timed. Off shows the words to scroll through.",
         "media.lyrics" => "Shows the words of the song that is playing. Looking them up sends the song title and artist to lrclib.net.",
-        "general.skin" => "The colours of the pill: Graphite is the original dark look.",
-        "panes.home" => "Shows the Quick controls (mic, sound, awake, timer, volume) in the tab strip.",
+        "general.skin" => "The colours of the pill: Slate (graphite in the file) is the original dark look.",
+        "panes.home" => "The Quick controls are the home pane and always show. You can move them.",
         "panes.media" => "Shows the Music pane while something plays.",
         "panes.shelf" => "Shows the Shelf while it holds files.",
         "panes.tasks" => "Shows terminal tasks and dev servers in the tab strip.",
@@ -229,6 +229,9 @@ pub(super) fn pane_label(key: &str) -> Option<&'static str> {
     Some(match key {
         "general.theme" => "Theme",
         "general.hover_delay_ms" => "Open delay",
+        "general.skin" => "Pill skin",
+        "media.lyrics" => "Show lyrics",
+        "media.lyrics_live" => "Live lyrics",
         "general.pill_opacity" => "Opacity",
         "general.glow_strength" => "Glow",
         "general.adaptive_glow" => "Art-tinted glow",
@@ -308,7 +311,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                         "Pill skin",
                         "general.skin",
                         &[
-                            ("Graphite", "graphite"),
+                            ("Slate", "graphite"),
                             ("Aurora", "aurora"),
                             ("Ember", "ember"),
                             ("Moss", "moss"),
@@ -316,7 +319,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                         ],
                         &g.skin,
                     ),
-                    -1,
+                    0,
                 ),
                 (
                     pick_i(
@@ -325,7 +328,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                         &[("Instant", 0), ("0.2s", 200), ("0.5s", 500), ("1s", 1000)],
                         g.hover_delay_ms as i64,
                     ),
-                    0,
+                    -1,
                 ),
                 (
                     pick_s(
@@ -785,7 +788,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
 fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
     use crate::ui_state::Panel::*;
     match p {
-        Home => Row::Switch("Quick controls", "panes.home", c.home),
+        Home => Row::Switch("Quick controls", "panes.home", true),
         Media => Row::Switch("Music", "panes.media", c.media),
         Shelf => Row::Switch("Shelf", "panes.shelf", c.shelf),
         Tasks => Row::Switch("Terminal tasks", "panes.tasks", c.tasks),
