@@ -6,7 +6,7 @@ Hytte never takes keyboard focus on its own, so it won't interrupt your typing. 
 
 Point at the pill and it opens. Move away and it closes. If you'd rather click, set **open on click** in [Settings](07-settings.md).
 
-The pin in the row of icons keeps it open until you click the pin again.
+The pin in the row of icons keeps it open until you click the pin again. (Remove the pin with `pin_button = false` in [Settings](07-settings.md#editing-configtoml).)
 
 ## Panes
 

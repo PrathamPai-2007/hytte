@@ -36,7 +36,7 @@ Both modes share the small `crates/proto` library (`hytte-proto`).
 | **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window never resizes. |
 | **Scene** | What the pill shows right now (`Idle`, `CompactTask`, `ExpShelf`, ...). Exactly one is active. See `ui_state::Scene`. |
 | **Compact / expanded** | Compact scenes are the collapsed states (`Idle`, `CompactTask`, `CompactMedia`); `Exp*` scenes show on hover or a peek. |
-| **Panel** | A page of the expanded pill: Shelf, Media, Home (default), Tasks (dev servers under it), Timer, Power. Each maps to one expanded scene. |
+| **Panel** | A page of the expanded pill: Shelf, Media, Home (quick controls, the starting point), Notes, To-do, Weather, Tasks (dev servers under it), Timer, Power. Each maps to one expanded scene; all but Home can be switched off and reordered (`[panes]`). |
 | **Peek** | The pill opening by itself for a few seconds (agent needs input, file landed on the shelf). |
 | **Sentinel** | The thin grey bar (96 × 2.5 px) shown instead of the pill under a maximised, snapped or fullscreen window. |
 | **Task** | Something tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` report. |
@@ -62,12 +62,15 @@ crates/hytte/                     builds hytte.exe
   src/ui_state.rs, animation.rs      pure UI model, spring physics
   src/pipe_server.rs, tasks.rs       pipe listener, task registry
   src/ports, media, privacy, mic, hog, downloads, calendar, power, tabs .rs   background workers
+  src/weather, lyrics, net .rs       weather and lyrics lookups, and the curl wrapper they share
+  src/jot, textedit .rs              notes and to-dos, the one-line text editor
+  src/breaks, sleep, dnd, timer .rs  break reminders, sleep timer, Do Not Disturb, timer
   src/shelf, drop, transforms, convert .rs   shelf and Drop Vault
-  src/timer, fullscreen, tray, config, setup, agents, update .rs
+  src/fullscreen, tray, config, skin, setup, agents, update .rs
   src/logging, secrets, perf, single_instance, winrt, proc, rerun .rs   support
   src/cli/                           command dispatch, doctor, agent, hook/init, ports, progress, shell scripts
 docs/                             these docs and screenshots (docs/img)
-manifests/winget/                 winget manifest template
+manifests/winget/                 winget manifest (kept in step by the release tooling)
 .github/workflows/                ci.yml (fmt, clippy, tests), release.yml (on a version tag)
 ```
 
@@ -76,7 +79,7 @@ manifests/winget/                 winget manifest template
 | Crate | Used for |
 |---|---|
 | `windows`, `windows-core`, `windows-numerics` | Every OS call: Win32, COM, Direct2D, DirectWrite, WinRT. |
-| `serde`, `serde_json` | Pipe protocol, `shelf.json`, `timer.json`, JSON formatting. |
+| `serde`, `serde_json` | Pipe protocol, `shelf.json`, `timer.json`, `jot.json`, JSON formatting. |
 | `toml`, `toml_edit` | Reading `config.toml`; changing one key without losing comments. |
 | `crossbeam-channel` | Thread channels, including `select!`. |
 | `image` | Image decode/encode (PNG, JPEG, WebP, BMP only). |

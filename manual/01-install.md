@@ -44,6 +44,7 @@ It lists what's working and how to fix what isn't.
 | **Set up terminal integration** | Adds Hytte to your shells. Choose it again to remove. |
 | **Connect AI agents** | Adds Hytte to your agents. Choose it again to remove. |
 | **Move to next monitor** | Moves the pill. Only listed with two or more monitors. |
+| **Settings…** | Opens the settings window ([page 7](07-settings.md)). |
 | **Open settings folder** | Opens the folder with `config.toml` and `hytte.log`. |
 | **Check for updates…** | Checks now. |
 | **Help** | Opens this manual (version 2.0 and newer). |

@@ -91,7 +91,7 @@ Weather is fetched only when you open the pane and what Hytte has is over 30 min
 
 Off until you choose how often, in the **Breaks** section of the settings window: an **eye break** (the 20-20-20 rule: look 20 feet away for 20 seconds, with a countdown), a **stretch** reminder and a **water** reminder. Each shows as a small card on the pill, with **Snooze** (ten minutes) and **Skip**. There is no sound and no popup.
 
-Reminders wait during a focus session, a camera or microphone call, quiet hours, fullscreen and games, and while a card is up. A reminder that waited shows once, when the way is clear. Five minutes away from the PC counts as a break and restarts the clocks. Two reminders never come back to back.
+Reminders wait during a focus session, a camera or microphone call, quiet hours, fullscreen and games, while a card is up, and while you are using the pill (pointing at it or typing in it). A reminder that waited shows once, when the way is clear. Five minutes away from the PC counts as a break and restarts the clocks. Two reminders never come back to back.
 
 ## Dev servers
 

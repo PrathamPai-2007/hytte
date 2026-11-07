@@ -4,7 +4,7 @@ What changed in each version, newest first. Each version ends with a short note 
 
 ## 2.0.0
 
-This is the panes release. It carries everything that was planned as 1.7 (that number was never released), so it also includes the 1.6.1 change that releases are no longer signed.
+This is the panes release. It includes the 1.6.1 change that releases are no longer signed.
 
 **Choosing and ordering panes**
 
@@ -46,7 +46,7 @@ This is the panes release. It carries everything that was planned as 1.7 (that n
 **Look**
 
 - **Skins**: `graphite` (as before), `aurora`, `ember`, `moss`, `dusk`.
-- **`hide_from_capture` is now off for new installs**, so the pill shows in screenshots. Installs from before 1.7 keep what their `config.toml` says.
+- **`hide_from_capture` is now off for new installs**, so the pill shows in screenshots. Installs from before 2.0 keep what their `config.toml` says.
 
 **Also**
 

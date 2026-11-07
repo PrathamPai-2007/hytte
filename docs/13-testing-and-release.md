@@ -41,7 +41,7 @@ Anything needing a real desktop: drawing, hover timing, drag and drop, focus, fu
 
 1. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`
 2. A manual pass over every scene, on a high-DPI monitor if you have one (the snapshot test is a quick first look).
-3. An idle check ([section 12](12-performance.md#cpu-and-memory)): about 0 % CPU when collapsed.
+3. An idle check ([section 12](12-performance.md#measuring)): about 0 % CPU when collapsed.
 4. `scripts/release.ps1 <version>` (below): bumps the version everywhere, runs step 1 and a release build, commits and tags. The tag must match: the release job refuses a tag whose exe reports another version, since the in-app updater would refuse that download too.
 
 ## How a release is built

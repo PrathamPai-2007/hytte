@@ -88,7 +88,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `fullscreen` | `"line"` | Over a maximised window or fullscreen browser / player: `"line"` (3 px bar), `"hide"` (fade out), `"off"`. Games always hide fully unless `"off"` ([section 7](07-window-and-input.md#fullscreen-suppression)). Pre-1.2.2 `suppress_fullscreen = false` / `fullscreen_mode = "hide"` read as `"off"` / `"hide"`. |
 | `finish_peek_secs` | `3` | How long the pill opens for a finished or failed task; `0` = stays closed. |
 | `check_updates` | `true` | Daily update check, first 60 s after start ([section 15](15-updates.md)). The tray item works either way. Live. |
-| `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 1.7; a file that says `true` keeps it. |
+| `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 2.0; a file that says `true` keeps it. |
 | `note_hotkey` | `""` | Global chord that opens Notes with the cursor ready, e.g. `"Win+Alt+J"`. Empty = off. Live. |
 | `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"` or `"dusk"`; anything else is graphite. Live. The settings show it as five colour discs (graphite is named **Slate** there). |
 | `output_folder` | none | Drop Vault results folder; unset or missing = next to the source. |
@@ -105,7 +105,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `"reference"` | `"reference"` or `"copy"` ([section 10](10-shelf-and-drop-vault.md#two-modes)). |
+| `mode` | `"reference"` | `"reference"` or `"copy"` ([section 10](10-shelf-and-drop-vault.md#shelf-items)). |
 | `max_items` | `12` | Maximum tiles. |
 | `persist` | `true` | Save to `shelf.json` and restore at startup. |
 | `remove_after_drag` | `true` | Remove a tile after a successful drag-out. |
