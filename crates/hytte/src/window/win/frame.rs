@@ -54,12 +54,23 @@ impl Ui {
             && self.model.chip.is_none()
             && self.model.timer_done.is_none()
             && self.model.nudge.is_none()
-            && !self.model.drop_over;
+            && !self.model.drop_over
+            // The pill is in use right now: the nudge waits.
+            && self.model.typing.is_none()
+            && self.kb.is_none()
+            && !self.hover;
         if let Some(kind) = self.breaks.tick(now, input_idle(), clear) {
             self.model.nudge = Some(crate::ui_state::Nudge { kind, since: now });
             next = self.model.expire(now);
         }
-        if let Some(d) = self.breaks.next_deadline(now) {
+        let idle = input_idle();
+        for d in [
+            self.breaks.next_deadline(now),
+            self.breaks.away_deadline(now, idle),
+        ]
+        .into_iter()
+        .flatten()
+        {
             next = Some(next.map_or(d, |n| n.min(d)));
         }
         // A field only keeps focus while its pane is the one showing.

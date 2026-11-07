@@ -78,8 +78,16 @@ pub fn path() -> PathBuf {
 impl Store {
     /// Read the file. A damaged one is set aside as `jot.json.bad` and never overwritten.
     pub fn load(path: &Path, now: u64) -> Store {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Store::default();
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Store::default(),
+            Err(e) => {
+                // Unreadable is not empty: a later save must not overwrite what was never loaded.
+                // ponytail: if the file is locked the rename can fail too; a retry loop if it bites.
+                crate::logging::line(&format!("jot.json unreadable ({e}); kept as jot.json.bad"));
+                let _ = std::fs::rename(path, path.with_extension("json.bad"));
+                return Store::default();
+            }
         };
         match serde_json::from_str::<File>(&text) {
             Ok(f) => {
@@ -154,13 +162,16 @@ impl Store {
         self.items.push(j);
     }
 
-    pub fn edit(&mut self, id: u64, text: &str) {
+    /// Change an item's text; false when the item is gone (expired meanwhile).
+    pub fn edit(&mut self, id: u64, text: &str) -> bool {
         let text: String = text.trim().chars().take(MAX_CHARS).collect();
-        if let Some(j) = self.get_mut(id) {
-            if !text.is_empty() {
-                j.text = text;
-            }
+        let Some(j) = self.get_mut(id) else {
+            return false;
+        };
+        if !text.is_empty() {
+            j.text = text;
         }
+        true
     }
 
     pub fn keep(&mut self, id: u64) {
@@ -272,6 +283,7 @@ mod tests {
         assert_eq!(s.notes()[0].text, "keep me");
         s.edit(a, "  changed ");
         s.edit(a, "   "); // an empty edit is ignored
+        assert!(!s.edit(9999, "gone")); // an item that expired meanwhile
         assert_eq!(s.notes()[0].text, "changed");
     }
 

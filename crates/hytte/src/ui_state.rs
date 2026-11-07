@@ -1017,6 +1017,10 @@ impl Model {
     }
 
     pub fn peek(&mut self, panel: Panel, until: Instant) {
+        // A pane the user switched off stays shut: it would open on an unrelated one.
+        if !self.panels().contains(&panel) {
+            return;
+        }
         self.selected = Some(panel);
         self.peek_until = Some(until);
     }
@@ -1220,9 +1224,10 @@ impl Model {
         let now = crate::timer::now_ms();
         let ok = match self.jot_edit {
             Some(id) if !text.trim().is_empty() => {
-                self.jot.edit(id, &text);
                 self.jot_edit = None;
-                true
+                // The item expired while it was being edited: keep the text as a new one.
+                self.jot.edit(id, &text)
+                    || self.jot.add(kind, &text, self.note_keep, now).is_some()
             }
             Some(_) => false,
             None => self.jot.add(kind, &text, self.note_keep, now).is_some(),

@@ -159,19 +159,37 @@ pub fn apps() -> Vec<AppVol> {
 
 /// Set every session of one app (by exe name) to `v` (0..1); turning it up also unmutes.
 pub fn set_app_volume(exe: &str, v: f32) {
+    set_vol(exe, v, true);
+}
+
+/// Like [`set_app_volume`] but leaves the session's mute switch alone. True when a session of
+/// the app was found.
+pub fn set_app_volume_quiet(exe: &str, v: f32) -> bool {
+    set_vol(exe, v, false)
+}
+
+fn set_vol(exe: &str, v: f32, unmute: bool) -> bool {
     #[cfg(windows)]
-    for (e, s, ..) in imp::sessions() {
-        if e.eq_ignore_ascii_case(exe) {
-            unsafe {
-                let _ = s.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null());
-                if v > 0.0 {
-                    let _ = s.SetMute(false, std::ptr::null());
+    {
+        let mut found = false;
+        for (e, s, ..) in imp::sessions() {
+            if e.eq_ignore_ascii_case(exe) {
+                found = true;
+                unsafe {
+                    let _ = s.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null());
+                    if unmute && v > 0.0 {
+                        let _ = s.SetMute(false, std::ptr::null());
+                    }
                 }
             }
         }
+        found
     }
     #[cfg(not(windows))]
-    let _ = (exe, v);
+    {
+        let _ = (exe, v, unmute);
+        false
+    }
 }
 
 /// An app's volume (0..1), whether or not it is playing right now: its first audio session.

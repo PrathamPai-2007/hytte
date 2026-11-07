@@ -140,6 +140,7 @@ impl Ui {
                 GetKeyState(VK_SHIFT.0 as i32) < 0,
             )
         };
+        let before = self.model.edit_ref(f).text().to_string();
         let mut changed = true;
         match VIRTUAL_KEY(vk) {
             VK_ESCAPE => {
@@ -181,7 +182,14 @@ impl Ui {
             }
             _ => changed = false,
         }
-        if changed {
+        if !changed {
+            return;
+        }
+        if self.model.edit_ref(f).text() == before {
+            // Caret or highlight moved, text didn't: don't restart the place search.
+            self.reset_caret(hwnd);
+            self.after_model_change(hwnd);
+        } else {
             self.edited(hwnd, f);
         }
     }

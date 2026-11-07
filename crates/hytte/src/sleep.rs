@@ -6,7 +6,7 @@
 //! volume at the next start.
 
 use crate::ui_state::MediaInfo;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// The fade before the stop.
@@ -139,11 +139,20 @@ pub fn fade_volume(orig: f32, elapsed: f32, total: f32) -> f32 {
     (orig * (1.0 - elapsed / total)).clamp(0.0, orig)
 }
 
-static CANCEL: AtomicBool = AtomicBool::new(false);
+/// Bumped by every `start_fade` and `cancel`: a fade is cancelled once the counter has moved on
+/// from the value it started with, so a cancel can't be undone by the next fade.
+static GEN: AtomicU64 = AtomicU64::new(0);
 
 /// A fade in progress stops and gives the volume back (the timer was cancelled).
 pub fn cancel() {
-    CANCEL.store(true, Ordering::SeqCst);
+    GEN.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The original volume a running (or crashed) fade saved for `exe`.
+fn saved_volume(exe: &str) -> Option<f32> {
+    let text = std::fs::read_to_string(marker()).ok()?;
+    let (e, v) = text.split_once('\n')?;
+    e.trim().eq_ignore_ascii_case(exe).then(|| v.trim().parse().ok())?
 }
 
 fn marker() -> std::path::PathBuf {
@@ -154,7 +163,8 @@ fn marker() -> std::path::PathBuf {
 /// session's app id; the audio session is found on the thread. A player that can't be matched
 /// is only paused. `secs` of 0 pauses at once.
 pub fn start_fade(app: String, secs: u32) {
-    CANCEL.store(false, Ordering::SeqCst);
+    let mine = GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let cancelled = move || GEN.load(Ordering::SeqCst) != mine;
     std::thread::spawn(move || {
         #[cfg(windows)]
         {
@@ -171,11 +181,15 @@ pub fn start_fade(app: String, secs: u32) {
         let list: Vec<(String, bool)> =
             sessions.iter().map(|a| (a.exe.clone(), a.active)).collect();
         let exe = pick_exe(&app, &list);
-        let orig = exe.as_deref().and_then(crate::mic::app_volume);
+        // A fade cancelled a moment ago may not have given the volume back yet: trust the saved one.
+        // ponytail: its restore may still delete this fade's marker; crash recovery is lost then.
+        let orig = exe
+            .as_deref()
+            .and_then(|e| saved_volume(e).or_else(|| crate::mic::app_volume(e)));
         let target = exe.clone().zip(orig);
         let restore = || {
             if let Some((e, v)) = &target {
-                crate::mic::set_app_volume(e, *v);
+                crate::mic::set_app_volume_quiet(e, *v);
                 let _ = std::fs::remove_file(marker());
             }
         };
@@ -184,15 +198,15 @@ pub fn start_fade(app: String, secs: u32) {
         }
         for i in 1..=secs {
             std::thread::sleep(Duration::from_secs(1));
-            if CANCEL.load(Ordering::SeqCst) {
+            if cancelled() {
                 restore();
                 return;
             }
             if let Some((e, v)) = &target {
-                crate::mic::set_app_volume(e, fade_volume(*v, i as f32, secs as f32));
+                crate::mic::set_app_volume_quiet(e, fade_volume(*v, i as f32, secs as f32));
             }
         }
-        if CANCEL.load(Ordering::SeqCst) {
+        if cancelled() {
             restore();
             return;
         }
@@ -207,12 +221,23 @@ pub fn recover() {
     let Ok(text) = std::fs::read_to_string(marker()) else {
         return;
     };
-    if let Some((exe, vol)) = text.split_once('\n') {
-        if let Ok(v) = vol.trim().parse::<f32>() {
-            crate::mic::set_app_volume(exe.trim(), v);
-        }
+    // The main thread has no COM yet at startup; the audio session calls need it.
+    #[cfg(windows)]
+    unsafe {
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_MULTITHREADED,
+        );
     }
-    let _ = std::fs::remove_file(marker());
+    let restored = text.split_once('\n').is_some_and(|(exe, vol)| {
+        vol.trim()
+            .parse::<f32>()
+            .is_ok_and(|v| crate::mic::set_app_volume_quiet(exe.trim(), v))
+    });
+    // ponytail: no session yet (player not running) keeps the marker for the next start.
+    if restored || text.split_once('\n').is_none() {
+        let _ = std::fs::remove_file(marker());
+    }
 }
 
 #[cfg(test)]

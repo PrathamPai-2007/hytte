@@ -112,6 +112,12 @@ impl Breaks {
         }
     }
 
+    /// While a clock runs and the user is not yet away: when five minutes without input would be
+    /// reached, so the break gets noticed even if nothing else wakes us.
+    pub fn away_deadline(&self, now: Instant, idle: Duration) -> Option<Instant> {
+        (idle < AWAY && self.due.iter().any(Option::is_some)).then(|| now + (AWAY - idle))
+    }
+
     /// When to look again: the next due time, or a minute from now while a due one is blocked.
     pub fn next_deadline(&self, now: Instant) -> Option<Instant> {
         let first = self.due.iter().flatten().min().copied()?;
@@ -136,6 +142,15 @@ mod tests {
         let mut b = Breaks::default();
         b.configure([eyes, stretch, water], t0);
         b
+    }
+
+    #[test]
+    fn a_wake_is_set_for_when_the_user_counts_as_away() {
+        let t0 = Instant::now();
+        let b = all(20, 0, 0, t0);
+        assert_eq!(b.away_deadline(t0, 2 * MIN), Some(t0 + 3 * MIN));
+        assert_eq!(b.away_deadline(t0, AWAY), None);
+        assert_eq!(all(0, 0, 0, t0).away_deadline(t0, MIN), None);
     }
 
     #[test]
