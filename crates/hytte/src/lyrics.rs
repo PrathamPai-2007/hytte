@@ -19,6 +19,37 @@ pub enum Lyrics {
     NotFound,
 }
 
+/// Apps whose "title" and "artist" are not a song: photo, movie and video players and the
+/// streaming-video apps. Nothing is looked up for them (and nothing is sent). Matched as a
+/// case-insensitive piece of the app's id (`Microsoft.Windows.Photos_...!App`, `vlc.exe`).
+const NOT_MUSIC: &[&str] = &[
+    "photos",
+    "zunevideo", // Movies & TV
+    "zunemusic", // the new Windows Media Player
+    "wmplayer",
+    "mediaplayer",
+    "clipchamp",
+    "vlc",
+    "mpc-hc",
+    "mpc-be",
+    "mpv",
+    "potplayer",
+    "kodi",
+    "plex",
+    "netflix",
+    "primevideo",
+    "disney",
+    "hbomax",
+    "hulu",
+    "crunchyroll",
+];
+
+/// Should lyrics be left alone for the app with this AppUserModelId?
+pub fn skips_app(app_id: &str) -> bool {
+    let a = app_id.to_ascii_lowercase();
+    NOT_MUSIC.iter().any(|n| a.contains(n))
+}
+
 /// Parse an LRC body: `[mm:ss.xx] text`, several stamps allowed on one line. Tags such as
 /// `[ar: Someone]` are skipped. Lines come back in time order.
 pub fn parse_lrc(body: &str) -> Vec<Line> {
@@ -204,6 +235,31 @@ mod tests {
         assert!(parse_lrc("no stamps here\n[bad:tag]").is_empty());
         assert_eq!(stamp_ms("00:01.5"), Some(1500));
         assert_eq!(stamp_ms("00:61.0"), None);
+    }
+
+    #[test]
+    fn video_and_photo_apps_are_skipped_but_music_players_and_browsers_are_not() {
+        for app in [
+            "Microsoft.Windows.Photos_8wekyb3d8bbwe!App",
+            "Microsoft.ZuneVideo_8wekyb3d8bbwe!Microsoft.ZuneVideo",
+            "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic",
+            "vlc.exe",
+            "PotPlayerMini64.exe",
+            "mpv.exe",
+            "4DF9E0F8.Netflix_mcm4njqhnhss8!Netflix.App",
+        ] {
+            assert!(skips_app(app), "{app}");
+        }
+        for app in [
+            "Spotify.exe",
+            "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify",
+            "chrome.exe",
+            "MSEdge",
+            "firefox.exe",
+            "",
+        ] {
+            assert!(!skips_app(app), "{app}");
+        }
     }
 
     #[test]

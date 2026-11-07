@@ -17,6 +17,7 @@ This is the panes release. It carries everything that was planned as 1.7 (that n
 **Weather and lyrics, refined**
 
 - **Search more widely.** If Open-Meteo finds nothing for two seconds, a row offers an OpenStreetMap search, run once when you click it, credited, and cached for the session. It finds places such as Sri City that Open-Meteo lacks.
+- **Lyrics skip video and photo apps** (Photos, Movies & TV, Windows Media Player, VLC, mpv, PotPlayer, streaming-video apps): nothing is looked up or sent for them.
 - **Live lyrics glide** from line to line instead of switching. A **Live** tick box (`[media] lyrics_live`) turns that off for a scrolling list, and it is greyed out for songs without timed lyrics. Touchpad scrolling on the lyrics page is slower and steadier.
 
 **Fixed**

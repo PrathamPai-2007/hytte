@@ -691,6 +691,8 @@ pub enum LyricState {
     Loading,
     Ready(crate::lyrics::Lyrics),
     Failed,
+    /// The player is a video or photo app: nothing is looked up.
+    Skipped,
 }
 
 /// Songs whose lyrics are kept in memory.
@@ -917,6 +919,10 @@ impl Model {
         }
         self.lyric_key = key.clone();
         self.lyric_first = 0;
+        if crate::lyrics::skips_app(&m.app) {
+            self.lyric_state = LyricState::Skipped;
+            return None;
+        }
         if let Some((_, l)) = self.lyric_cache.iter().find(|(k, _)| *k == key) {
             self.lyric_state = LyricState::Ready(l.clone());
             return None;
@@ -2627,6 +2633,20 @@ bang"
             pos_ms: pos,
             dur_ms: 200_000,
         }
+    }
+
+    #[test]
+    fn lyrics_are_not_looked_up_for_a_video_app() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let mut s = song("A film", true, 0);
+        s.app = "Microsoft.ZuneVideo_8wekyb3d8bbwe!Microsoft.ZuneVideo".into();
+        m.apply_media(Some(s), t0);
+        m.lyrics_open = true;
+        m.lyrics_on = true;
+        assert_eq!(m.lyrics_request(), None, "nothing is sent");
+        assert_eq!(m.lyric_state, LyricState::Skipped);
+        assert_eq!(m.lyric_rows(), None);
     }
 
     #[test]

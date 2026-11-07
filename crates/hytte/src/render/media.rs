@@ -424,6 +424,10 @@ impl Renderer {
                     Action::LyricsRetry,
                 );
             }
+            LyricState::Skipped => note(
+                "Not for this app",
+                "Lyrics aren't looked up for video and photo players.",
+            ),
             LyricState::Ready(Lyrics::NotFound) => note("No lyrics found", ""),
             LyricState::Ready(Lyrics::Instrumental) => note("Instrumental", ""),
             LyricState::Ready(Lyrics::Synced(lines)) if !m.lyrics_still => {
