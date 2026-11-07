@@ -12,19 +12,24 @@
 
 mod agents;
 mod animation;
+mod breaks;
 mod calendar;
 mod cli;
 mod config;
 mod convert;
+mod dnd;
 mod downloads;
 mod drop;
 mod fullscreen;
 #[cfg(windows)]
 mod gpu;
 mod hog;
+mod jot;
 mod logging;
+mod lyrics;
 mod media;
 mod mic;
+mod net;
 mod perf;
 mod pipe_server;
 mod ports;
@@ -41,14 +46,18 @@ mod settings_win;
 mod setup;
 mod shelf;
 mod single_instance;
+mod skin;
+mod sleep;
 #[cfg(windows)]
 mod tabs;
 mod tasks;
+mod textedit;
 mod timer;
 mod transforms;
 mod tray;
 mod ui_state;
 mod update;
+mod weather;
 mod window;
 #[cfg(windows)]
 mod winrt;
@@ -78,6 +87,8 @@ fn main() {
         std::process::exit(0);
     };
     update::cleanup();
+    dnd::recover();
+    sleep::recover();
     // Debug builds only: a crash on every start, to see the relaunch limit work.
     #[cfg(debug_assertions)]
     if std::env::var_os("HYTTE_TEST_PANIC").is_some() {

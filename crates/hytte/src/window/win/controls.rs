@@ -67,6 +67,7 @@ impl Ui {
         };
         self.model.timer_panel = false;
         self.model.settings = None;
+        self.model.close_media_extras();
         self.model.selected = Some(p);
         match p {
             Panel::Tasks => crate::ports::request_refresh(),
@@ -186,6 +187,19 @@ impl Ui {
         {
             return;
         }
+        if self.hover
+            && self.model.panel() == Panel::Media
+            && self.model.lyrics_open
+            && self.model.scroll_lyrics(-steps.signum())
+        {
+            return;
+        }
+        if self.hover
+            && matches!(self.model.panel(), Panel::Notes | Panel::Todo)
+            && self.model.scroll_jot(-steps.signum())
+        {
+            return;
+        }
         if self.model.timer_panel && self.model.timer.is_none() {
             self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
             return;
@@ -217,6 +231,30 @@ impl Ui {
 
     /// The alarm rings as long as the finished card is up (dismissed, or its hold ran out),
     /// but not over a game: the card is hidden there, so nothing could stop it.
+    /// A Focus session turns Windows Do Not Disturb on and puts it back afterwards (a crashed
+    /// session is undone at the next start, see `dnd::recover`). If Windows refuses, Focus still
+    /// holds Hytte's own alerts; the failure is logged once.
+    pub(super) fn focus_dnd(&mut self) {
+        let want = self.model.holding() && self.cfg.timer.focus_dnd;
+        if want && self.dnd.is_none() && !self.dnd_tried {
+            self.dnd_tried = true;
+            self.dnd = crate::dnd::enter();
+            if self.dnd.is_none() {
+                crate::logging::line("focus: couldn't turn Do Not Disturb on");
+            }
+        } else if !want {
+            self.dnd_release();
+            self.dnd_tried = false;
+        }
+    }
+
+    /// Put Do Not Disturb back as it was.
+    pub(super) fn dnd_release(&mut self) {
+        if let Some(prev) = self.dnd.take() {
+            crate::dnd::leave(prev);
+        }
+    }
+
     pub(super) fn sync_ring(&mut self) {
         let ring = self.cfg.timer.sound
             && self.model.timer_done.is_some()

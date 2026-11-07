@@ -2,10 +2,36 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## Unreleased
+## 1.7.0
 
-- **A user manual**, in [`manual/`](../manual/README.md). The tray's new **Help** item opens it.
+**New panes**
+
+- **Notes.** Type in the pill (the first time it takes text input): click the field, type, **Enter**. A note lasts 24 hours or is kept (**24 h / Keep**), shows a ring with the time left, and can be copied, kept, edited or deleted with **Undo**. An optional `note_hotkey` opens Notes with the cursor ready from any app.
+- **To-do.** The same field; ticked items sink and leave after a day.
+- **Weather.** Pick a place with suggestions as you type, then the temperature now, the day's range and the next five hours, with the pill's glow following the sky. Open-Meteo; nothing is fetched while the pane is closed. `[weather] units`.
+- All three have switches in `[panes]` and Settings, and show from the start.
+
+**Focus and breaks**
+
+- **A focus session now does something.** It turns on Windows Do Not Disturb (put back afterwards, and after a crash at the next start; `[timer] focus_dnd`), holds Hytte's downloads, finished tasks, agent reply cards and CPU warnings and tells you what you missed in one line, and shows a thin pale line instead of the bright fuse.
+- **Break reminders.** Eye (20-20-20, with a countdown ring), stretch and water, as a small card with **Snooze** and **Skip**. Off until `[breaks]` sets an interval. They wait for focus, calls, quiet hours, fullscreen and games, and five minutes away restarts the clocks.
+
+**Music**
+
+- **Sleep timer**: the moon on the Media pane. 15, 30, 45, 60 minutes or the end of the song; the player's volume fades out over the last 20 seconds, it pauses, and the volume comes back.
+- **Lyrics** from lrclib.net, off until turned on (`[media] lyrics`): the line being sung with its neighbours, or the plain words when only a different recording is known.
+
+**Look**
+
+- **Skins**: `graphite` (as before), `aurora`, `ember`, `moss`, `dusk`.
+- **`hide_from_capture` is now off for new installs**, so the pill shows in screenshots. Installs from before 1.7 keep what their `config.toml` says.
+
+**Also**
+
+- A user manual, in [`manual/`](../manual/README.md); the tray's **Help** item opens it.
 - **Releases are no longer signed.** Hytte 1.6.0 needs a manual download to move on from it ([section 15](15-updates.md#signing)).
+
+For people who change Hytte: new modules `textedit`, `jot`, `weather`, `net` (the updater's `curl` moved there), `lyrics`, `sleep`, `breaks`, `skin` and `dnd`, and `render/{jot,weather,nudge}.rs`, `window/win/{typing,forecast,mediactl}.rs`. See [typing, notes and weather in section 6](06-ui-model.md#typing-notes-and-to-dos) and the new recipe in [section 14](14-how-to-recipes.md#add-a-text-field).
 
 ## 1.6.1
 

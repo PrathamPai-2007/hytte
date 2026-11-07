@@ -84,6 +84,16 @@ Example: "Clipboard history".
 
 A small related feature can share a pane, as dev servers share Tasks: `panels()` shows Tasks for visible tasks **or** listening ports, `Model::size(ExpTasks)` adds `servers_h()`, and `exp_tasks` draws `servers` under the rows.
 
+## Add a text field
+
+Example: a "snippet name" field.
+
+1. Add a variant to `ui_state::Field` and a `TextEdit` for it in `Model` (give it a limit in `init_jot`); extend `edit_ref` / `edit_mut` and, in `window/win/typing.rs`, `field_panel` (the pane it lives in).
+2. Draw it with `Renderer::text_field(fr, field, (x, y, w, h), "hint", right)`; it registers the `Action::Field` click for you.
+3. React in `Ui::enter_field` (Enter) and, for changes as it is typed, in `Ui::edited`.
+4. Keep the draft rules in `Model::end_typing` in mind (an edit of an existing item is dropped, a draft stays).
+5. Look at it in the `jot_snapshots` test (empty, typing, long text, both themes) and try it in a dev build: click, type, Esc must hand focus back.
+
 ## Add a clickable action
 
 1. Add a variant to `render::Action` carrying what the click needs.

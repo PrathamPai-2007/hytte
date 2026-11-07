@@ -126,6 +126,7 @@ fn shoot_at(
         focus: None,
         armed: false,
         ringing: true,
+        caret_on: true,
     };
     let crop = r.plan(an.rect.w.pos as f32, an.rect.h.pos as f32, false, 0.0, true);
     let mut hits = vec![];
@@ -408,6 +409,7 @@ fn snapshots() {
     m.timer_done = None;
 
     m.media = Some(MediaInfo {
+        album: String::new(),
         title: "Midnight City".into(),
         artist: "M83".into(),
         playing: true,
@@ -559,6 +561,7 @@ fn snapshots() {
     // Every pane at once, the pointer resting on a tab (its name shows above it).
     let all = &mut m;
     all.media = Some(MediaInfo {
+        album: String::new(),
         title: "A very long song title that will never fit in the pill".into(),
         artist: "Someone".into(),
         playing: true,
@@ -689,5 +692,534 @@ fn snapshots() {
     });
     m.charge_in = true;
     shoot(&mut r, &dir, "charge", &m, Scene::ExpCharge, false);
+    contact_sheet(&dir);
+}
+
+/// Notes and To-do: empty, full, editing, long text, undo, both themes. A mock "now" keeps the
+/// ring and time-left text stable.
+#[test]
+#[ignore]
+fn jot_snapshots() {
+    use crate::jot::Kind;
+    use crate::ui_state::Field;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    let mut m = model();
+    m.now = Some(Instant::now());
+    m.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+    m.panes = Config::default().panes;
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m2 = model();
+        m2.now = m.now;
+        m2.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+        m2.panes = Config::default().panes;
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-empty{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("todo-empty{sfx}"),
+            &m2,
+            Scene::ExpTodo,
+            light,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "Wi-Fi code at the studio: 4471",
+            false,
+            wall - 7 * 3_600_000,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "Call the dentist back after two",
+            false,
+            wall - 18 * 3_600_000,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "Passport renewal needs two photos and the old passport",
+            true,
+            wall,
+        );
+        m2.jot.add(
+            Kind::Note,
+            "A much longer note that cannot possibly fit on one line of the pill and so gets trimmed",
+            true,
+            wall - 1000,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-full{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        m2.note_edit.set("Ask Mina about the invoice");
+        m2.typing = Some(Field::Note);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-typing{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        m2.note_edit.set("A very long draft that runs well past the end of the field so that it scrolls sideways");
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-scrolled{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        m2.note_edit.clear();
+        m2.typing = None;
+        m2.note_keep = true;
+        let at = Some((130.0, 72.0));
+        shoot_at(
+            &mut r,
+            &dir,
+            &format!("notes-hover{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+            at,
+        );
+        let id = m2.jot.notes()[0].id;
+        m2.delete_jot(id, Instant::now());
+        shoot(
+            &mut r,
+            &dir,
+            &format!("notes-undo{sfx}"),
+            &m2,
+            Scene::ExpNotes,
+            light,
+        );
+        for t in [
+            "Send the April invoice",
+            "Book the car service",
+            "Reply to the landlord",
+            "Renew the domain",
+        ] {
+            m2.jot.add(Kind::Todo, t, false, wall);
+        }
+        let done = m2.jot.todos()[2].id;
+        m2.jot.toggle(done, wall);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("todo-full{sfx}"),
+            &m2,
+            Scene::ExpTodo,
+            light,
+        );
+        for t in ["Water the plants", "Pay the council tax"] {
+            m2.jot.add(Kind::Todo, t, false, wall);
+        }
+        shoot(
+            &mut r,
+            &dir,
+            &format!("todo-six{sfx}"),
+            &m2,
+            Scene::ExpTodo,
+            light,
+        );
+    }
+    contact_sheet(&dir);
+}
+
+/// Weather: the place chooser in each state, then every sky, loading, offline and stale.
+#[test]
+#[ignore]
+fn weather_snapshots() {
+    use crate::ui_state::Field;
+    use crate::weather::{Forecast, Hour, Place};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    let place = |n: &str, reg: &str| Place {
+        name: n.into(),
+        region: reg.into(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+    let bergen = place("Bergen", "Vestland, Norway");
+    let fc = |code: u8, day: bool, codes: [u8; 5], age_min: u64| Forecast {
+        place: bergen.clone(),
+        fetched_ms: wall - age_min * 60_000,
+        now: Hour {
+            hour: 14,
+            temp: 11.4,
+            code,
+            day,
+        },
+        hi: 14.2,
+        lo: 7.6,
+        next: (0..5)
+            .map(|i| Hour {
+                hour: 15 + i as u8,
+                temp: 12.0 + (i as f32) * 0.4 - if i > 3 { 2.5 } else { 0.0 },
+                code: codes[i],
+                day: i < 3,
+            })
+            .collect(),
+    };
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(Instant::now());
+        m.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+        let s = |r: &mut Renderer, n: &str, m: &Model| {
+            shoot(r, &dir, &format!("{n}{sfx}"), m, Scene::ExpWeather, light)
+        };
+        // Place chooser: nothing typed, typing, matches, no match, searching, offline.
+        s(&mut r, "weather-ask", &m);
+        m.typing = Some(Field::Place);
+        m.place_edit.set("b");
+        s(&mut r, "weather-ask-short", &m);
+        m.place_edit.set("ber");
+        m.places = vec![
+            place("Berlin", "State of Berlin, Germany"),
+            place("Bergen", "Vestland, Norway"),
+            place("Bern", "Switzerland"),
+            place("Bergamo", "Lombardy, Italy"),
+        ];
+        m.places_for = "ber".into();
+        m.place_sel = 1;
+        s(&mut r, "weather-ask-matches", &m);
+        m.places.clear();
+        m.place_edit.set("zzzz");
+        m.places_for = "zzzz".into();
+        s(&mut r, "weather-ask-none", &m);
+        m.places_busy = true;
+        s(&mut r, "weather-ask-searching", &m);
+        m.places_busy = false;
+        m.places_err = true;
+        s(&mut r, "weather-ask-offline", &m);
+        // A place is chosen.
+        let mut m = model();
+        m.now = Some(Instant::now());
+        m.weather_place = Some(bergen.clone());
+        s(&mut r, "weather-loading", &m);
+        m.weather_err = true;
+        s(&mut r, "weather-failed", &m);
+        m.weather_err = false;
+        for (name, code, day, codes) in [
+            ("rain", 61u8, true, [61, 3, 3, 2, 1]),
+            ("sunny", 0, true, [0, 0, 1, 2, 1]),
+            ("night", 0, false, [0, 0, 1, 2, 3]),
+            ("partly-night", 2, false, [2, 2, 3, 3, 0]),
+            ("cloud", 3, true, [3, 3, 45, 3, 3]),
+            ("snow", 73, true, [73, 71, 3, 3, 0]),
+            ("thunder", 95, true, [95, 80, 61, 3, 2]),
+            ("fog", 45, true, [45, 45, 3, 2, 0]),
+        ] {
+            m.forecast = Some(fc(code, day, codes, 5));
+            s(&mut r, &format!("weather-{name}"), &m);
+        }
+        m.forecast = Some(fc(61, true, [61, 3, 3, 2, 1], 95));
+        s(&mut r, "weather-stale", &m);
+        m.weather_err = true;
+        s(&mut r, "weather-stale-offline", &m);
+        m.weather_err = false;
+        m.imperial = true;
+        m.forecast = Some(fc(61, true, [61, 3, 3, 2, 1], 5));
+        s(&mut r, "weather-fahrenheit", &m);
+        // Changing the place keeps the old one to fall back on.
+        m.choosing = true;
+        s(&mut r, "weather-change", &m);
+    }
+    contact_sheet(&dir);
+}
+
+/// Focus and breaks: the three nudges, the finished-focus card with its summary, and the quiet
+/// hairline on a bare pill (and the plain timer's fuse beside it for comparison).
+#[test]
+#[ignore]
+fn focus_snapshots() {
+    use crate::breaks::Kind;
+    use crate::timer::{Timer, TimerKind};
+    use crate::ui_state::Nudge;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    let now = Instant::now();
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(now);
+        for (name, kind, ago) in [
+            ("nudge-eyes", Kind::Eyes, 6),
+            ("nudge-eyes-late", Kind::Eyes, 17),
+            ("nudge-water", Kind::Water, 1),
+            ("nudge-stretch", Kind::Stretch, 1),
+        ] {
+            m.nudge = Some(Nudge {
+                kind,
+                since: now - std::time::Duration::from_secs(ago),
+            });
+            shoot(
+                &mut r,
+                &dir,
+                &format!("{name}{sfx}"),
+                &m,
+                Scene::ExpNudge,
+                light,
+            );
+        }
+        m.nudge = None;
+        // Focus finished, with and without what was held back.
+        let mut t = Timer::start(TimerKind::Focus, 25, wall - 25 * 60_000);
+        t.ends_ms = wall - 9 * 60_000;
+        m.timer_last = Some(t);
+        m.timer_done = Some((TimerKind::Focus, now));
+        m.timer_break = 5;
+        shoot(
+            &mut r,
+            &dir,
+            &format!("focus-done{sfx}"),
+            &m,
+            Scene::ExpTimerDone,
+            light,
+        );
+        m.focus_summary = Some("While you focused: 2 downloads, 1 task failed".into());
+        shoot(
+            &mut r,
+            &dir,
+            &format!("focus-done-summary{sfx}"),
+            &m,
+            Scene::ExpTimerDone,
+            light,
+        );
+        m.timer_done = None;
+        m.focus_summary = None;
+        // The line on a bare pill: a focus session (quiet) and a plain timer (the fuse).
+        m.timer = Some(Timer::start(TimerKind::Focus, 25, wall - 10 * 60_000));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("line-focus{sfx}"),
+            &m,
+            Scene::Idle,
+            light,
+        );
+        m.timer = Some(Timer::start(TimerKind::Focus, 25, wall - 24 * 60_000));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("line-focus-last-minute{sfx}"),
+            &m,
+            Scene::Idle,
+            light,
+        );
+        m.timer = Some(Timer::start(TimerKind::Plain, 25, wall - 10 * 60_000));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("line-plain{sfx}"),
+            &m,
+            Scene::Idle,
+            light,
+        );
+    }
+    contact_sheet(&dir);
+}
+
+/// The Media pane with the sleep timer and the lyrics page in every state. The song and its
+/// lines are invented.
+#[test]
+#[ignore]
+fn media_snapshots() {
+    use crate::lyrics::{Line, Lyrics};
+    use crate::sleep::{Kind, Sleep};
+    use crate::ui_state::LyricState;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let synced = Lyrics::Synced(
+        [
+            (0u64, "We left the boats to find their way"),
+            (6_000, "The harbour lights are coming on"),
+            (
+                12_000,
+                "And nobody is counting the hours we have been gone, nobody is counting at all",
+            ),
+            (20_000, ""),
+        ]
+        .into_iter()
+        .map(|(at_ms, t)| Line {
+            at_ms,
+            text: t.into(),
+        })
+        .collect(),
+    );
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(now);
+        m.media_stamp = Some(now);
+        m.media = Some(MediaInfo {
+            album: "Harbour".into(),
+            title: "Low Tide".into(),
+            artist: "The Lamplighters".into(),
+            playing: true,
+            app: "Spotify.exe".into(),
+            pos_ms: 6_900,
+            dur_ms: 214_000,
+        });
+        let s = |r: &mut Renderer, n: &str, m: &Model| {
+            shoot(r, &dir, &format!("{n}{sfx}"), m, Scene::ExpMedia, light)
+        };
+        s(&mut r, "media", &m);
+        m.sleep = Some(Sleep::new(
+            Kind::Minutes(28),
+            m.media.as_ref(),
+            m.media_stamp,
+            now,
+        ));
+        s(&mut r, "media-sleep-on", &m);
+        m.sleep_open = true;
+        s(&mut r, "media-sleep-menu-set", &m);
+        m.sleep = None;
+        s(&mut r, "media-sleep-menu", &m);
+        m.sleep_open = false;
+        m.sleep = Some(Sleep::new(
+            Kind::EndOfTrack,
+            m.media.as_ref(),
+            m.media_stamp,
+            now,
+        ));
+        s(&mut r, "media-sleep-end", &m);
+        m.sleep = None;
+        m.lyrics_open = true;
+        s(&mut r, "lyrics-off", &m);
+        m.lyrics_on = true;
+        s(&mut r, "lyrics-idle", &m);
+        m.lyric_state = LyricState::Loading;
+        s(&mut r, "lyrics-loading", &m);
+        m.lyric_state = LyricState::Failed;
+        s(&mut r, "lyrics-failed", &m);
+        m.lyric_state = LyricState::Ready(Lyrics::NotFound);
+        s(&mut r, "lyrics-none", &m);
+        m.lyric_state = LyricState::Ready(Lyrics::Instrumental);
+        s(&mut r, "lyrics-instrumental", &m);
+        m.lyric_state = LyricState::Ready(synced.clone());
+        s(&mut r, "lyrics-synced", &m);
+        m.media.as_mut().unwrap().pos_ms = 13_000;
+        s(&mut r, "lyrics-long-line", &m);
+        m.media.as_mut().unwrap().pos_ms = 21_000;
+        s(&mut r, "lyrics-pause", &m);
+        m.media.as_mut().unwrap().pos_ms = 1_000;
+        m.lyric_state = LyricState::Ready(Lyrics::Plain(
+            [
+                "First made-up line",
+                "Second made-up line",
+                "Third made-up line",
+                "Fourth",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ));
+        s(&mut r, "lyrics-plain", &m);
+        m.sleep = Some(Sleep::new(
+            Kind::Minutes(15),
+            m.media.as_ref(),
+            m.media_stamp,
+            now,
+        ));
+        s(&mut r, "lyrics-sleep-on", &m);
+    }
+    contact_sheet(&dir);
+}
+
+/// Every skin on Home, Media, Notes and a bare pill, dark and light.
+#[test]
+#[ignore]
+fn skin_snapshots() {
+    use crate::jot::Kind;
+    use crate::skin::Skin;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let wall = crate::timer::now_ms();
+    for light in [false, true] {
+        for skin in Skin::ALL {
+            let mut m = model();
+            m.now = Some(Instant::now());
+            m.skin = skin;
+            m.media_stamp = m.now;
+            m.media = Some(MediaInfo {
+                album: String::new(),
+                title: "Low Tide".into(),
+                artist: "The Lamplighters".into(),
+                playing: true,
+                app: "x".into(),
+                pos_ms: 70_000,
+                dur_ms: 214_000,
+            });
+            m.init_jot(&std::path::PathBuf::from("Z:\\none\\jot.json"));
+            m.jot.add(
+                Kind::Note,
+                "Wi-Fi code at the studio: 4471",
+                false,
+                wall - 7 * 3_600_000,
+            );
+            m.jot
+                .add(Kind::Note, "Passport renewal needs two photos", true, wall);
+            let n = format!("{}{}", skin.name(), if light { "-light" } else { "" });
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-home-{n}"),
+                &m,
+                Scene::ExpHome,
+                light,
+            );
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-media-{n}"),
+                &m,
+                Scene::ExpMedia,
+                light,
+            );
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-notes-{n}"),
+                &m,
+                Scene::ExpNotes,
+                light,
+            );
+            m.timer = Some(crate::timer::Timer::start(
+                crate::timer::TimerKind::Focus,
+                25,
+                wall - 10 * 60_000,
+            ));
+            m.media = None;
+            shoot(
+                &mut r,
+                &dir,
+                &format!("skin-idle-{n}"),
+                &m,
+                Scene::Idle,
+                light,
+            );
+        }
+    }
     contact_sheet(&dir);
 }

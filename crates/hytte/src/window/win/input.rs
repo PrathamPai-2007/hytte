@@ -56,6 +56,7 @@ impl Ui {
     /// Leave keyboard mode; `restore` hands focus back to the window that had it.
     pub(super) fn end_keyboard(&mut self, restore: bool) {
         let Some(prev) = self.kb.take() else { return };
+        self.model.end_typing();
         self.kb_focus = None;
         self.hover = self.inside;
         if restore && !prev.0.is_null() {
@@ -72,6 +73,9 @@ impl Ui {
         use windows::Win32::UI::Input::KeyboardAndMouse::*;
         if self.kb.is_none() {
             return;
+        }
+        if self.model.typing.is_some() {
+            return self.typing_key(hwnd, vk);
         }
         let shift = unsafe { GetKeyState(VK_SHIFT.0 as i32) } < 0;
         match VIRTUAL_KEY(vk) {
@@ -180,6 +184,7 @@ impl Ui {
         for (id, spec) in [
             (HOTKEY_ID, &self.cfg.general.hotkey),
             (MONITOR_HOTKEY_ID, &self.cfg.general.monitor_hotkey),
+            (NOTE_HOTKEY_ID, &self.cfg.general.note_hotkey),
         ] {
             unsafe {
                 let _ = UnregisterHotKey(Some(hwnd), id);

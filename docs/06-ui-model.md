@@ -20,6 +20,8 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | `DownloadDone { name, path }`, `TaskGone(id)` | downloads watcher | "Finished downloading" card with Open / Shelve; `remove_task` for a cancelled download. |
 | `Calendar(Option<NextEvent>)` | calendar watcher | `set_calendar`: arms the heads-up. |
 | `DragEnter` / `DragLeave` | OLE drop target | `drop_over`: the purple drop zone. |
+| `Places(seq, query, result)`, `Forecast(result)` | weather workers | `places_result` (dropped if the field no longer holds `query`, or `seq` is old), `forecast_result` (dropped for a place since changed). |
+| `Lyrics(key, result)` | lyrics worker | `lyrics_result`: cached; shown only if `key` is still the song on screen. |
 
 ## `Model`: the state
 
@@ -35,12 +37,17 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | Calendar / Timer | `calendar`, `calendar_seen`; `timer`, `timer_panel`, `timer_min`, `timer_done`, `timer_last`, `timer_break`, `focus_done`, `rounds` |
 | Settings / Look | `settings` (pane open, on a group of `SETTINGS_GROUPS`: Look, Behaviour, Features; hovering away, picking a pane or Back closes it); `art_accent`, `adaptive_glow`, `glow_gain`, `body_alpha` |
 | Clock | `now`: last time the model advanced; visibility rules compare against it |
+| Notes and to-do | `jot` (the `jot::Store`), `jot_dirty` (the window layer saves), `typing: Option<Field>`, `note_edit` / `todo_edit` / `place_edit` (`textedit::TextEdit`), `note_keep`, `jot_edit` (an existing item being edited), `jot_undo`, `jot_first` |
+| Weather | `weather_place`, `forecast`, `weather_busy` / `weather_err` / `weather_retry`, `choosing`, `places`, `place_sel`, `places_busy` / `places_err` / `places_for`, `imperial` |
+| Focus and breaks | `held` (`Held` counts), `focus_summary`, `nudge` (`Nudge { kind, since }`); `holding()` is true while a Focus timer exists (paused too) |
+| Media extras | `sleep`, `sleep_open`, `lyrics_open`, `lyrics_on`, `lyric_key`, `lyric_state`, `lyric_cache` (last 20), `lyric_first` |
+| Look | `skin` (`skin::Skin`), `panes` (`[panes]`) |
 
 `TaskView` is a task's display form: label, event, progress, stderr lines, pid, `attention` message, `source`, `cwd` (a `run` / `shell` task with a folder is `rerunnable()`), and instants `started`, `changed`, `visible_after`.
 
 ## Panels
 
-`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (always: mic, sound, keep-awake, timer tiles and volume bar), **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery).
+`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (always: mic, sound, keep-awake, timer tiles and volume bar), **Notes**, **To-do** and **Weather** (each unless switched off in `[panes]`), **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery). With the three optional panes on, the tab strip always shows.
 
 - `panel()` is the selected panel if it still exists, else what the collapsed pill shows (Tasks if a task is visible, Media if music plays), else Home. Attention wins: a task that needs input or finishes `peek`s its pane, which selects it.
 - `tabs()` is true with more than one panel (the tab strip is drawn only then). `step_panel(dir)` moves with wrap-around (sideways scroll, arrows).
@@ -57,6 +64,7 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | 4 | Timer just finished (`timer_done`) | `ExpTimerDone` |
 | 5 | Timer setup card open (`timer_panel`) | `ExpTimer` |
 | 6 | Settings pane open (`settings`) | `ExpSettings` |
+| 6a | A break reminder is up (`nudge`), hovered or not | `ExpNudge` |
 | 7 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()` (`ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower`, `ExpHome`) |
 | 8 | Charger plugged / unplugged < 3 s ago (`charge_since`, `charge_in`) | `ExpCharge` |
 | 9 | A visible task | `CompactTask` |
@@ -82,6 +90,10 @@ Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows)
 | `ExpTimer` | 380 × 96 running, 152 setup card |
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a one-line card) / 114 |
 | `ExpCharge` / `ExpSettings` | 300 × 52 / 380 × 216 (no tab strip) |
+| `ExpNudge` | 360 × 56 (no tab strip) |
+| `ExpNotes` / `ExpTodo` | 380 × (12 + 34 field + 8 + 30 per row shown, 1 to 4, plus one for the Undo row, + 8) + tab strip; the wheel scrolls longer lists (`JOT_ROWS` = 4) |
+| `ExpWeather` | 380 × 148 with a forecast, 120 while loading, `38 + 34 + 4 + 28 × suggestions + 8` for the place chooser, + tab strip |
+| `ExpTimerDone` with a focus summary | 380 × 134 instead of 114 |
 
 Panels that show the tab strip get `TAB_H` (24 px) more.
 
@@ -97,7 +109,9 @@ Panels that show the tab strip get `TAB_H` (24 px) more.
 | Timer panel / timer finished | blue, faint / green |
 | Charger plugged in / unplugged | green / amber |
 | Power | green plugged in, red ≤ 20 %, else white faint |
-| Media, Home, Tasks with only servers | white, faint |
+| Media, Home, Tasks with only servers | white, faint (or the skin's glow colour: any scene whose colour would be white takes `Skin::glow`) |
+| Weather with a forecast | follows the sky (`sky_glow`): warm for a sunny day, indigo for a clear night, blue for rain, white-blue for snow, purple for thunder |
+| Break reminder | blue (eyes), cyan (water), green (stretch) |
 | Idle, Sentinel | none |
 
 ## Timed behaviour: `expire`
@@ -113,6 +127,10 @@ Instead of periodic checks, `Model::expire(now)` removes everything due and retu
 | Keep-awake for an hour | `Awake::Until` its end (`AWAKE_FOR`) |
 | Plug-in / unplug card | 3 s (`CHARGE_HOLD`) |
 | Peek, forced visibility | their own deadline |
+| Break reminder | its kind's hold: 10 s, eyes 20 s (`breaks::Kind::hold`) |
+| Undo after a delete | 6 s (`UNDO_HOLD`) |
+| A temporary note, a ticked to-do | their wall-clock deadline (`jot::Store::next_deadline`, converted to an `Instant`) |
+| Sleep timer | the start of its fade, its stop, and the next minute of its label (`Sleep::deadlines`) |
 
 "Away" is no input anywhere for 60 s (`AWAY_AFTER`); the window layer feeds `GetLastInputInfo` through `Model::set_idle` before each `expire`. While a finished row is held and the user is away, the deadline is a 5 s poll (`AWAY_POLL`), the only way to notice their return without a hook.
 
@@ -124,7 +142,7 @@ The window layer arms one Win32 timer (`T_EXPIRE`) for exactly that instant and 
 
 - `rows()` lists visible tasks: waiting, failed, running, then the rest; newest first within a group; truncated to 4. The Tasks panel draws exactly these.
 - `primary()` is the first row (computed without building the list: it runs several times per frame); the compact pill shows it. `visible_count()` drives the count badge.
-- `ambient(scene, now)` answers "does anything need continuous frames?": true for a running or waiting task, a failed task whose red pulse is fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, the plug-in card, the timer-finished card (its bell swings while the alarm rings), or playing media in a media scene. Always false for `Sentinel`. See [section 8](08-rendering-and-animation.md).
+- `ambient(scene, now)` answers "does anything need continuous frames?": true for a running or waiting task, a failed task whose red pulse is fading (8 s, `FAIL_PULSE`), breathing privacy dots in an expanded scene, a drag over the pill, the plug-in card, the timer-finished card (its bell swings while the alarm rings), an eye-break card (its ring counts 20 s down), or playing media in a media scene (the lyrics page fades each new line in by the same frames). Always false for `Sentinel`. See [section 8](08-rendering-and-animation.md).
 
 ## `Anim`: animation state
 
@@ -184,6 +202,38 @@ Expanded scenes show these as panels, so no bubble. The bubble is part of the ho
 ## Per-app volume
 
 The ▾ on the Home volume bar (`Action::ToggleApps`) sets `apps_open` and fills `Model::apps` from `mic::apps()`: the default speaker's audio sessions (`IAudioSessionManager2`), without system sounds, expired sessions, or apps that neither play nor have a visible window (audio consoles, wallpaper engines holding a session; `proc::has_window` ignores a suspended app's cloaked window). One row per exe (Chrome's sessions merge), playing first, at most `APPS_MAX` (4), named by the exe's file description (`proc::file_description`, cached per path) or the exe name. The pane grows by `apps_h()`. The list is re-read when the pane opens with it open, not while shown, so a drag isn't fighting a refresh. An app's bar (`Action::AppVolume(exe)`) drags like the master (`scrub`), scrolls 2 % a notch, toggles silent/full from the keyboard; `mic::set_app_volume` sets every session of that exe and unmutes when turned up.
+
+## Typing, notes and to-dos
+
+The pill never takes focus by itself, so typing is built on **keyboard mode** ([section 7](07-window-and-input.md#typing)): `Action::Field(f)` (a click) or the `note_hotkey` calls `Ui::begin_typing`, which sets `Model::typing`, remembers the foreground window in `kb`, and takes focus. `Model::end_typing` runs when typing stops (Esc, a click elsewhere, leaving the pane): an edit of an existing item is dropped, a draft for a new one stays.
+
+`textedit::TextEdit` is the one-line editor: byte offsets that never split a character, an accent, an emoji modifier or a joined emoji; selection; word jumps; paste cleaned to one line and cut at the limit. `Renderer::text_field` draws it and `field_byte_at` turns a click into a caret using DirectWrite hit testing. The caret blinks on the one-shot `T_CARET` timer and only while a field has focus.
+
+`jot::Store` holds notes and to-dos in `jot.json`: a temporary note's `expires_ms`, a ticked to-do's `done_ms` + 24 h. `Model::submit_jot` adds or saves an edit; `delete_jot` keeps the item for `undo_jot`. Every change sets `jot_dirty`, and `after_model_change` writes the file (temp file and rename; a damaged file is set aside as `jot.json.bad`, never overwritten).
+
+## Weather
+
+`weather.rs` has the pure parts (URLs, `parse_places`, `parse_forecast`, WMO code to `Sky`, units) and two blocking fetches that run on worker threads through `net::fetch`. `Ui::place_typed` debounces the search with `T_PLACE` (250 ms) and counts edits in `place_seq`; a reply for an older count is ignored. `Ui::weather_refresh` runs from `after_model_change` and fetches the forecast only when the Weather scene is showing and `Model::want_forecast` says the data is missing or over 30 minutes old; a failure waits `WEATHER_RETRY` (60 s). The chosen place is kept in `place.json`.
+
+## Focus: held alerts and Do Not Disturb
+
+While `Model::holding()`, background alerts are counted in `Held` instead of shown: `UiEvent::DownloadDone`, `UiEvent::Hog`, the finished-task peek (`events.rs`) and an agent's reply card (`apply_task`). An agent's permission ask, `NeedsInput`, the timer itself and calendar heads-ups still show. `finish_timer` turns the counts into `focus_summary`, drawn on the finished card; stopping early shows them on an ordinary card.
+
+`Ui::focus_dnd` (`after_model_change`) calls `dnd::enter` when a Focus timer exists and `[timer] focus_dnd` is on, and `dnd::leave` when it ends or Hytte quits. `dnd.rs` writes `NOC_GLOBAL_SETTING_TOASTS_ENABLED` and reads it back; the earlier value is kept in `dnd-restore.txt` so `dnd::recover` (at startup) can undo a crashed session. The key is undocumented: if the write doesn't take, the session just holds Hytte's alerts.
+
+## Break nudges
+
+`breaks::Breaks` is the pure schedule: a due time per kind, `tick(now, idle, clear)` returns the kind to show, `next_deadline` feeds the one expiry timer. `after_model_change` computes `clear` (not holding, not quiet hours, not hidden or in a game, no camera or microphone use, no card or drop up) and sets `Model::nudge`. A due nudge that is blocked waits; five idle minutes (`breaks::AWAY`) restart every clock; nudges are at least two minutes apart.
+
+## Sleep timer and lyrics
+
+`sleep::Sleep` is the pure timer (minutes, or end of track following the player's reports and firing when the song changes). `Ui::sleep_tick` starts `sleep::start_fade` in the last 20 seconds: a thread that lowers the player's own audio session volume once a second, pauses it with `media::Cmd::Pause`, and puts the volume back. `pick_exe` matches the media app id to an audio session by exe name. The original volume is written to `sleep-restore.txt` for the fade, so `sleep::recover` can restore it after a crash. The fade thread initialises COM itself.
+
+`lyrics.rs` parses LRC text and judges lrclib's answers against the song's length (timed lyrics within 3 s, words only within 10 s). `Model::lyrics_request` decides when to look up (page open, `[media] lyrics` on, a song, nothing known yet); `Ui::lyrics_tick` runs `lyrics::lookup` on a worker and `lyrics_result` caches the answer in memory.
+
+## Skins
+
+`skin::Skin` gives the body gradient, the glow colour for scenes with none of their own, and the rim tint. The renderer reads `Model::skin` each frame and keys its cached gradient brushes by it, so a skin costs nothing at idle.
 
 ## Tests
 

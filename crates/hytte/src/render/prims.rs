@@ -35,7 +35,12 @@ impl Renderer {
     /// Pill body gradient.
     pub(super) fn body_brush(&self) -> Option<ID2D1LinearGradientBrush> {
         let (top, bottom) = self.body_colors();
-        let key = [self.light.get() as u8 as f32, 0.0, 0.0, 0.0];
+        let key = [
+            self.light.get() as u8 as f32,
+            self.skin.get() as u8 as f32,
+            0.0,
+            0.0,
+        ];
         self.grad(Grad::Body, key, &[(0.0, top, 1.0), (1.0, bottom, 1.0)])
     }
 
@@ -59,11 +64,7 @@ impl Renderer {
 
     /// Pill body gradient (top, bottom).
     pub(super) fn body_colors(&self) -> ([f32; 3], [f32; 3]) {
-        if self.light.get() {
-            ([0.97, 0.97, 0.985], [0.89, 0.89, 0.92])
-        } else {
-            ([0.027, 0.027, 0.035], [0.075, 0.075, 0.095])
-        }
+        self.skin.get().body(self.light.get())
     }
 
     /// Shimmer for indeterminate progress; the content fade is applied through the brush

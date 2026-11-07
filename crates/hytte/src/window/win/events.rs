@@ -51,7 +51,7 @@ impl Ui {
                                 hytte_proto::TaskEvent::Done | hytte_proto::TaskEvent::Failed
                             ) =>
                         {
-                            Some(s.task_id.clone())
+                            Some((s.task_id.clone(), s.event == hytte_proto::TaskEvent::Failed))
                         }
                         _ => None,
                     };
@@ -59,11 +59,21 @@ impl Ui {
                     // Open the pill on the result, unless the task was hidden (a short
                     // shell command, or Ctrl-C) and so never made it into the list.
                     let secs = self.cfg.general.finish_peek_secs;
-                    if secs > 0
-                        && finished.is_some_and(|id| self.model.tasks.iter().any(|t| t.id == id))
-                    {
-                        self.model
-                            .peek(Panel::Tasks, now + Duration::from_secs(secs));
+                    let shown = finished
+                        .as_ref()
+                        .is_some_and(|(id, _)| self.model.tasks.iter().any(|t| &t.id == id));
+                    if let (true, Some((_, failed))) = (shown, &finished) {
+                        if self.model.holding() {
+                            // A Focus session: counted, told when it ends.
+                            if *failed {
+                                self.model.held.failed += 1;
+                            } else {
+                                self.model.held.done += 1;
+                            }
+                        } else if secs > 0 {
+                            self.model
+                                .peek(Panel::Tasks, now + Duration::from_secs(secs));
+                        }
                     }
                 }
                 UiEvent::Ports(p, parents) => self.model.set_ports(p, parents),
@@ -74,6 +84,11 @@ impl Ui {
                     self.cfg.calendar.lead_min as i64 * 60_000,
                     now,
                 ),
+                UiEvent::DownloadDone { .. } if self.model.holding() => {
+                    if self.cfg.downloads.enabled {
+                        self.model.held.downloads += 1;
+                    }
+                }
                 UiEvent::DownloadDone { name, path } => {
                     if self.model.chip.is_none() && self.cfg.downloads.enabled {
                         let mut c = Chip::new(format!("{name} finished downloading"), now);
@@ -82,6 +97,7 @@ impl Ui {
                         self.model.chip = Some(c);
                     }
                 }
+                UiEvent::Hog(_) if self.model.holding() => self.model.held.warnings += 1,
                 UiEvent::Hog(a) => {
                     // Never over another card, and never for a process the user muted.
                     let muted = self.model.hog_ignore.contains(&a.exe.to_ascii_lowercase());
@@ -177,6 +193,12 @@ impl Ui {
                     self.update_offer = Some((tag, note));
                     self.show_update(now);
                 }
+                UiEvent::Forecast(r) => self.model.forecast_result(r, now),
+                UiEvent::Lyrics(key, r) => self.model.lyrics_result(key, r),
+                UiEvent::Places(seq, q, r) if seq == self.place_seq => {
+                    self.model.places_result(q, r)
+                }
+                UiEvent::Places(..) => {}
                 UiEvent::Notice(text, tone) => {
                     let mut c = Chip::new(text, now);
                     c.tone = tone;
@@ -206,7 +228,8 @@ impl Ui {
     /// the tiles already there and only limits new ones.
     pub(super) fn apply_config(&mut self, new: Config) {
         let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey
-            || new.general.monitor_hotkey != self.cfg.general.monitor_hotkey;
+            || new.general.monitor_hotkey != self.cfg.general.monitor_hotkey
+            || new.general.note_hotkey != self.cfg.general.note_hotkey;
         if new.general.hide_from_capture != self.cfg.general.hide_from_capture {
             set_capture_hidden(
                 HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _),
@@ -243,6 +266,11 @@ impl Ui {
             self.model.pinned = false;
         }
         self.model.rounds = new.timer.rounds;
+        self.model.apply_panes(&new.panes);
+        self.model.skin = crate::skin::Skin::from_name(&new.general.skin);
+        self.model.lyrics_on = new.media.lyrics;
+        self.breaks.configure(break_minutes(&new), Instant::now());
+        self.model.imperial = crate::weather::imperial(&new.weather.units);
         let monitor_changed = new.general.monitor != self.cfg.general.monitor
             || new.general.pill_scale != self.cfg.general.pill_scale;
         let general = new.general != self.cfg.general;

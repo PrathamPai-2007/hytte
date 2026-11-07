@@ -47,6 +47,12 @@ pub const CHARGE_HOLD: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone)]
 pub enum UiEvent {
     Task(TaskUpdate),
+    /// Place search results for the query typed when search number `0` was current.
+    Places(u64, String, Result<Vec<crate::weather::Place>, String>),
+    /// A forecast arrived (or the fetch failed).
+    Forecast(Result<crate::weather::Forecast, String>),
+    /// Lyrics for the song with this key (or the lookup failed).
+    Lyrics(String, Result<crate::lyrics::Lyrics, String>),
     Media(Option<MediaInfo>),
     MediaArt(Option<Arc<ArtBitmap>>),
     Privacy(bool, bool, Option<String>),
@@ -103,6 +109,7 @@ pub enum UiEvent {
 pub struct MediaInfo {
     pub title: String,
     pub artist: String,
+    pub album: String,
     pub playing: bool,
     /// Source app's AppUserModelId, used to bring it to the front.
     pub app: String,
@@ -213,6 +220,9 @@ pub enum Panel {
     Timer,
     Power,
     Home,
+    Notes,
+    Todo,
+    Weather,
 }
 
 impl Panel {
@@ -224,6 +234,9 @@ impl Panel {
             Panel::Timer => "Timer",
             Panel::Power => "Power",
             Panel::Home => "Home",
+            Panel::Notes => "Notes",
+            Panel::Todo => "To-do",
+            Panel::Weather => "Weather",
         }
     }
 
@@ -235,6 +248,9 @@ impl Panel {
             Panel::Timer,
             Panel::Power,
             Panel::Home,
+            Panel::Notes,
+            Panel::Todo,
+            Panel::Weather,
         ]
         .into_iter()
         .find(|p| p.name() == s.trim())
@@ -249,6 +265,9 @@ impl Panel {
             Scene::ExpTimer => Panel::Timer,
             Scene::ExpPower => Panel::Power,
             Scene::ExpHome => Panel::Home,
+            Scene::ExpNotes => Panel::Notes,
+            Scene::ExpTodo => Panel::Todo,
+            Scene::ExpWeather => Panel::Weather,
             _ => return None,
         })
     }
@@ -355,6 +374,11 @@ pub enum Scene {
     ExpShelf,
     ExpHome,
     ExpPower,
+    /// A break reminder (eyes, stretch, water).
+    ExpNudge,
+    ExpNotes,
+    ExpTodo,
+    ExpWeather,
     ExpDrop,
     ExpChip,
     ExpTimer,
@@ -493,7 +517,144 @@ pub struct Model {
     pub away: bool,
     /// The last input after an away spell; held rows count their hold time from here.
     pub back: Option<Instant>,
+    /// `[panes]`: which of Notes, To-do and Weather show in the tab strip.
+    pub panes: crate::config::Panes,
+    /// Notes and to-dos; `jot_dirty` asks the window layer to save them.
+    pub jot: crate::jot::Store,
+    pub jot_dirty: bool,
+    /// The text field that has keyboard focus, if any.
+    pub typing: Option<Field>,
+    pub note_edit: crate::textedit::TextEdit,
+    pub todo_edit: crate::textedit::TextEdit,
+    pub place_edit: crate::textedit::TextEdit,
+    /// The Notes field's switch: keep the note for good (false = 24 h).
+    pub note_keep: bool,
+    /// An existing note or to-do being edited in the field (instead of adding a new one).
+    pub jot_edit: Option<u64>,
+    /// The last removed item, and when: Undo puts it back until it expires.
+    pub jot_undo: Option<(crate::jot::Jot, Instant)>,
+    /// First list row in view in Notes / To-do when there are more than `JOT_ROWS`.
+    pub jot_first: usize,
+    /// The chosen place, and what is known about its weather.
+    pub weather_place: Option<crate::weather::Place>,
+    pub forecast: Option<crate::weather::Forecast>,
+    pub weather_busy: bool,
+    /// The last forecast fetch failed.
+    pub weather_err: bool,
+    /// Don't fetch again before this (after a failure).
+    pub weather_retry: Option<Instant>,
+    /// The place chooser is showing (always, while no place is chosen).
+    pub choosing: bool,
+    pub places: Vec<crate::weather::Place>,
+    pub place_sel: usize,
+    pub places_busy: bool,
+    pub places_err: bool,
+    /// The query `places` answers.
+    pub places_for: String,
+    /// Show Fahrenheit.
+    pub imperial: bool,
+    /// `[general] skin`: the pill's colours.
+    pub skin: crate::skin::Skin,
+    /// The sleep timer ("stop playing in 30 min"), and whether its chips are showing.
+    pub sleep: Option<crate::sleep::Sleep>,
+    pub sleep_open: bool,
+    /// The lyrics page is showing in the Media pane; `lyrics_on` is `[media] lyrics`.
+    pub lyrics_open: bool,
+    pub lyrics_on: bool,
+    /// The song the lyrics below are for (or being fetched for), and what is known.
+    pub lyric_key: String,
+    pub lyric_state: LyricState,
+    /// The last few songs' lyrics, newest last. In memory only.
+    pub lyric_cache: Vec<(String, crate::lyrics::Lyrics)>,
+    /// First line in view of plain (untimed) lyrics.
+    pub lyric_first: usize,
+    /// Alerts held back during a Focus session, and what was said about them when it ended.
+    pub held: Held,
+    pub focus_summary: Option<String>,
+    pub nudge: Option<Nudge>,
 }
+
+/// How long to wait after a failed forecast fetch before trying again.
+pub const WEATHER_RETRY: Duration = Duration::from_secs(60);
+
+/// The glow that follows the sky: warm for a sunny day, indigo for a clear night, blue for rain.
+fn sky_glow(h: crate::weather::Hour) -> ([f32; 3], f32) {
+    use crate::weather::Sky;
+    match (crate::weather::sky(h.code), h.day) {
+        (Sky::Clear, true) => ([1.0, 0.80, 0.40], 0.30),
+        (Sky::Clear, false) => ([0.55, 0.58, 1.0], 0.30),
+        (Sky::Partly, true) => ([0.75, 0.85, 1.0], 0.22),
+        (Sky::Partly, false) => ([0.55, 0.60, 0.90], 0.22),
+        (Sky::Cloud, _) => ([0.70, 0.75, 0.85], 0.20),
+        (Sky::Fog, _) => ([0.80, 0.80, 0.85], 0.18),
+        (Sky::Rain, _) => ([0.35, 0.63, 1.0], 0.38),
+        (Sky::Snow, _) => ([0.85, 0.92, 1.0], 0.35),
+        (Sky::Thunder, _) => ([0.65, 0.54, 0.98], 0.45),
+    }
+}
+
+/// Alerts held back while a Focus session runs, to be told as one line afterwards.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Held {
+    pub downloads: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub warnings: u32,
+}
+
+impl Held {
+    /// "While you focused: 2 downloads, 1 task failed", or None when nothing was held. Counts
+    /// start over.
+    pub fn take_summary(&mut self) -> Option<String> {
+        let h = std::mem::take(self);
+        let plural = |n: u32, one: &str, many: &str| {
+            (n > 0).then(|| format!("{n} {}", if n == 1 { one } else { many }))
+        };
+        let parts: Vec<String> = [
+            plural(h.downloads, "download", "downloads"),
+            plural(h.done, "task finished", "tasks finished"),
+            plural(h.failed, "task failed", "tasks failed"),
+            plural(h.warnings, "warning", "warnings"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (!parts.is_empty()).then(|| format!("While you focused: {}", parts.join(", ")))
+    }
+}
+
+/// What the lyrics page knows about the playing song.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum LyricState {
+    #[default]
+    Idle,
+    Loading,
+    Ready(crate::lyrics::Lyrics),
+    Failed,
+}
+
+/// Songs whose lyrics are kept in memory.
+const LYRIC_CACHE: usize = 20;
+
+/// A break reminder on screen.
+#[derive(Debug, Clone, Copy)]
+pub struct Nudge {
+    pub kind: crate::breaks::Kind,
+    pub since: Instant,
+}
+
+/// A text field on the pill that can take keyboard focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Note,
+    Todo,
+    Place,
+}
+
+/// Rows of notes or to-dos shown before the list scrolls.
+pub const JOT_ROWS: usize = 4;
+/// How long Undo stays after a delete.
+pub const UNDO_HOLD: Duration = Duration::from_secs(6);
 
 /// The settings pane's groups, as its segmented header shows them.
 pub const SETTINGS_GROUPS: [&str; 3] = ["Look", "Behaviour", "Features"];
@@ -550,7 +711,11 @@ impl Model {
         }
         // An agent's turn ended with a reply: its first line on a card for the "Open on
         // finish" time, Copy takes all of it. A pending ask or warning (amber) keeps the card.
-        if s.source == "agent" && s.event == TaskEvent::Done && !self.finish_peek.is_zero() {
+        if s.source == "agent"
+            && s.event == TaskEvent::Done
+            && !self.finish_peek.is_zero()
+            && !self.holding()
+        {
             let msg = s.message.as_deref().map(str::trim).unwrap_or("");
             let first = msg
                 .lines()
@@ -643,9 +808,92 @@ impl Model {
         if m.is_none() {
             self.art = None;
             self.art_accent = None;
+            self.sleep_open = false;
+            self.lyrics_open = false;
+        }
+        // A different song: its lyrics start over.
+        let key = m.as_ref().map(|m| crate::lyrics::key(&m.title, &m.artist));
+        if key.as_deref() != Some(self.lyric_key.as_str()) {
+            self.lyric_key.clear();
+            self.lyric_state = LyricState::Idle;
+            self.lyric_first = 0;
         }
         self.media = m;
         self.media_stamp = Some(now);
+        // An "end of track" sleep timer follows the song.
+        if let Some(s) = self.sleep.as_mut() {
+            s.retime(self.media.as_ref(), now, now);
+        }
+    }
+
+    /// Set the sleep timer (None cancels it).
+    pub fn set_sleep(&mut self, kind: Option<crate::sleep::Kind>, now: Instant) {
+        self.sleep =
+            kind.map(|k| crate::sleep::Sleep::new(k, self.media.as_ref(), self.media_stamp, now));
+        self.sleep_open = false;
+    }
+
+    /// Lyrics to fetch now, as (key, title, artist, album, length ms): the page is open, lyrics
+    /// are on, a song plays and nothing is known about it yet. Cached songs are answered here.
+    pub fn lyrics_request(&mut self) -> Option<(String, String, String, String, u64)> {
+        if !(self.lyrics_open && self.lyrics_on) {
+            return None;
+        }
+        let m = self.media.as_ref().filter(|m| !m.title.is_empty())?;
+        let key = crate::lyrics::key(&m.title, &m.artist);
+        if key == self.lyric_key {
+            return None;
+        }
+        self.lyric_key = key.clone();
+        self.lyric_first = 0;
+        if let Some((_, l)) = self.lyric_cache.iter().find(|(k, _)| *k == key) {
+            self.lyric_state = LyricState::Ready(l.clone());
+            return None;
+        }
+        self.lyric_state = LyricState::Loading;
+        Some((
+            key,
+            m.title.clone(),
+            m.artist.clone(),
+            m.album.clone(),
+            m.dur_ms,
+        ))
+    }
+
+    /// A lookup finished. A late answer for an earlier song is kept for later, not shown.
+    pub fn lyrics_result(&mut self, key: String, r: Result<crate::lyrics::Lyrics, String>) {
+        match r {
+            Ok(l) => {
+                self.lyric_cache.retain(|(k, _)| *k != key);
+                self.lyric_cache.push((key.clone(), l.clone()));
+                if self.lyric_cache.len() > LYRIC_CACHE {
+                    self.lyric_cache.remove(0);
+                }
+                if key == self.lyric_key {
+                    self.lyric_state = LyricState::Ready(l);
+                }
+            }
+            Err(_) if key == self.lyric_key => self.lyric_state = LyricState::Failed,
+            Err(_) => {}
+        }
+    }
+
+    /// Scroll plain lyrics by `by` lines; false when there is nothing to scroll (or at an end).
+    pub fn scroll_lyrics(&mut self, by: i32) -> bool {
+        let LyricState::Ready(crate::lyrics::Lyrics::Plain(lines)) = &self.lyric_state else {
+            return false;
+        };
+        let max = lines.len().saturating_sub(3) as i32;
+        let first = self.lyric_first.min(max as usize) as i32;
+        let next = (first + by).clamp(0, max);
+        self.lyric_first = next as usize;
+        next != first
+    }
+
+    /// The Media pane's sleep chips and lyrics page close (the pill collapsed, another pane).
+    pub fn close_media_extras(&mut self) {
+        self.sleep_open = false;
+        self.lyrics_open = false;
     }
 
     pub fn set_art(&mut self, a: Option<Arc<ArtBitmap>>) {
@@ -755,8 +1003,39 @@ impl Model {
         {
             self.timer_done = None;
         }
+        if self.timer_done.is_none() {
+            self.focus_summary = None;
+        }
+        if self.nudge.is_some_and(|n| now >= n.since + n.kind.hold()) {
+            self.nudge = None;
+        }
+        let wall = crate::timer::now_ms();
+        if self.jot.expire(wall) {
+            self.jot_dirty = true;
+        }
+        if self
+            .jot_undo
+            .as_ref()
+            .is_some_and(|(_, t)| now.duration_since(*t) >= UNDO_HOLD)
+        {
+            self.jot_undo = None;
+        }
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
+        if let Some(d) = self.jot.next_deadline() {
+            keep(now + Duration::from_millis(d.saturating_sub(wall)));
+        }
+        if let Some((_, t)) = &self.jot_undo {
+            keep(*t + UNDO_HOLD);
+        }
+        if let Some(n) = self.nudge {
+            keep(n.since + n.kind.hold());
+        }
+        if let Some(s) = &self.sleep {
+            for d in s.deadlines(now) {
+                keep(d);
+            }
+        }
         for t in &self.tasks {
             match t.event {
                 TaskEvent::Done | TaskEvent::Lost if away => keep(now + AWAY_POLL),
@@ -797,6 +1076,251 @@ impl Model {
             keep(t);
         }
         next
+    }
+
+    /// A Focus session is running (paused or not): background alerts wait for its end.
+    pub fn holding(&self) -> bool {
+        self.timer
+            .as_ref()
+            .is_some_and(|t| t.kind == crate::timer::TimerKind::Focus)
+    }
+
+    /// Apply `[panes]`; a hidden pane that was selected falls back to Home (via `panel()`).
+    pub fn apply_panes(&mut self, p: &crate::config::Panes) {
+        self.panes = p.clone();
+        if self.typing.is_some() && !self.panels().contains(&self.panel()) {
+            self.typing = None;
+        }
+    }
+
+    /// Load the saved notes and give the text fields their limits.
+    pub fn init_jot(&mut self, path: &std::path::Path) {
+        self.jot = crate::jot::Store::load(path, crate::timer::now_ms());
+        self.note_edit = crate::textedit::TextEdit::new(crate::jot::MAX_CHARS);
+        self.todo_edit = crate::textedit::TextEdit::new(crate::jot::MAX_CHARS);
+        self.place_edit = crate::textedit::TextEdit::new(80);
+        self.note_keep = false;
+    }
+
+    pub fn edit_mut(&mut self, f: Field) -> &mut crate::textedit::TextEdit {
+        match f {
+            Field::Note => &mut self.note_edit,
+            Field::Todo => &mut self.todo_edit,
+            Field::Place => &mut self.place_edit,
+        }
+    }
+
+    pub fn edit_ref(&self, f: Field) -> &crate::textedit::TextEdit {
+        match f {
+            Field::Note => &self.note_edit,
+            Field::Todo => &self.todo_edit,
+            Field::Place => &self.place_edit,
+        }
+    }
+
+    /// Enter in a Notes or To-do field: add the item, or save the edit of an existing one.
+    /// Returns true when something was stored. The field clears when it was.
+    pub fn submit_jot(&mut self, f: Field) -> bool {
+        use crate::jot::Kind;
+        let kind = match f {
+            Field::Note => Kind::Note,
+            Field::Todo => Kind::Todo,
+            Field::Place => return false,
+        };
+        let text = self.edit_ref(f).text().to_string();
+        let now = crate::timer::now_ms();
+        let ok = match self.jot_edit {
+            Some(id) if !text.trim().is_empty() => {
+                self.jot.edit(id, &text);
+                self.jot_edit = None;
+                true
+            }
+            Some(_) => false,
+            None => self.jot.add(kind, &text, self.note_keep, now).is_some(),
+        };
+        if ok {
+            self.edit_mut(f).clear();
+            self.jot_first = 0;
+            self.jot_dirty = true;
+        }
+        ok
+    }
+
+    /// Delete an item, keeping it for Undo.
+    pub fn delete_jot(&mut self, id: u64, now: Instant) {
+        if let Some(j) = self.jot.remove(id) {
+            self.jot_undo = Some((j, now));
+            self.jot_dirty = true;
+            if self.jot_edit == Some(id) {
+                self.jot_edit = None;
+            }
+        }
+    }
+
+    pub fn undo_jot(&mut self) {
+        if let Some((j, _)) = self.jot_undo.take() {
+            self.jot.restore(j);
+            self.jot_dirty = true;
+        }
+    }
+
+    /// Start editing an existing item in its pane's field.
+    pub fn begin_edit(&mut self, id: u64) {
+        let Some(j) = self.jot.get(id) else { return };
+        let (f, text) = match j.kind {
+            crate::jot::Kind::Note => (Field::Note, j.text.clone()),
+            crate::jot::Kind::Todo => (Field::Todo, j.text.clone()),
+        };
+        self.jot_edit = Some(id);
+        self.edit_mut(f).set(&text);
+        self.typing = Some(f);
+    }
+
+    /// The Weather pane shows its place chooser (no place yet, or changing it).
+    pub fn choosing_place(&self) -> bool {
+        self.choosing || self.weather_place.is_none()
+    }
+
+    /// Height of the Weather pane without the tab strip.
+    pub fn weather_h(&self) -> f64 {
+        if self.choosing_place() {
+            let rows = self.places.len().max(1) as f64;
+            38.0 + 34.0 + 4.0 + rows * 28.0 + 8.0
+        } else if self.forecast.is_some() {
+            148.0
+        } else {
+            120.0
+        }
+    }
+
+    /// Should the forecast be fetched now? A place is chosen, nothing is in flight, the data is
+    /// old (or missing) and a recent failure isn't being waited out.
+    pub fn want_forecast(&self, wall_ms: u64, now: Instant) -> bool {
+        self.weather_place.is_some()
+            && !self.choosing_place()
+            && !self.weather_busy
+            && self.weather_retry.is_none_or(|t| now >= t)
+            && self.forecast.as_ref().is_none_or(|f| !f.fresh(wall_ms))
+    }
+
+    /// A forecast fetch finished. One for a place that was changed since is dropped.
+    pub fn forecast_result(&mut self, r: Result<crate::weather::Forecast, String>, now: Instant) {
+        self.weather_busy = false;
+        match r {
+            Ok(f) if self.weather_place.as_ref() == Some(&f.place) => {
+                self.forecast = Some(f);
+                self.weather_err = false;
+                self.weather_retry = None;
+            }
+            Ok(_) => {}
+            Err(_) => {
+                self.weather_err = true;
+                self.weather_retry = Some(now + WEATHER_RETRY);
+            }
+        }
+    }
+
+    /// Search results. Ones for text that is no longer in the field are dropped.
+    pub fn places_result(&mut self, query: String, r: Result<Vec<crate::weather::Place>, String>) {
+        if self.place_edit.text().trim() != query {
+            return;
+        }
+        self.places_busy = false;
+        self.places_for = query;
+        match r {
+            Ok(p) => {
+                self.places = p;
+                self.places_err = false;
+                self.place_sel = 0;
+            }
+            Err(_) => {
+                self.places.clear();
+                self.places_err = true;
+            }
+        }
+    }
+
+    /// Move the highlighted suggestion.
+    pub fn place_move(&mut self, by: i32) {
+        if !self.places.is_empty() {
+            self.place_sel =
+                (self.place_sel as i32 + by).clamp(0, self.places.len() as i32 - 1) as usize;
+        }
+    }
+
+    /// Choose suggestion `i`: the chooser closes and the forecast starts over.
+    pub fn pick_place(&mut self, i: usize) -> Option<crate::weather::Place> {
+        let p = self.places.get(i)?.clone();
+        self.weather_place = Some(p.clone());
+        self.forecast = None;
+        self.weather_err = false;
+        self.weather_retry = None;
+        self.close_chooser();
+        Some(p)
+    }
+
+    fn close_chooser(&mut self) {
+        self.choosing = false;
+        self.places.clear();
+        self.places_busy = false;
+        self.places_err = false;
+        self.place_edit.clear();
+    }
+
+    /// Open the chooser to change the place.
+    pub fn start_choosing(&mut self) {
+        self.choosing = true;
+        self.close_chooser_fields();
+    }
+
+    fn close_chooser_fields(&mut self) {
+        self.places.clear();
+        self.places_busy = false;
+        self.places_err = false;
+        self.place_edit.clear();
+    }
+
+    /// Typing ended (Esc, clicked away): a half-made edit of an existing item is dropped, a
+    /// draft for a new one stays.
+    pub fn end_typing(&mut self) {
+        if self.jot_edit.take().is_some() {
+            if let Some(f) = self.typing {
+                self.edit_mut(f).clear();
+            }
+        }
+        // Leaving the place field with a place already chosen means "keep it".
+        if self.typing == Some(Field::Place) && self.weather_place.is_some() {
+            self.close_chooser();
+        }
+        self.typing = None;
+    }
+
+    /// The items of Notes or To-do as they list (top to bottom).
+    pub fn jot_list(&self, scene: Scene) -> Vec<&crate::jot::Jot> {
+        if scene == Scene::ExpTodo {
+            self.jot.todos()
+        } else {
+            self.jot.notes()
+        }
+    }
+
+    /// Rows in view: (first, count), with the scroll clamped.
+    pub fn jot_window(&self, scene: Scene) -> (usize, usize) {
+        let n = self.jot_list(scene).len();
+        let first = self.jot_first.min(n.saturating_sub(JOT_ROWS));
+        (first, (n - first).min(JOT_ROWS))
+    }
+
+    /// Height of the Notes / To-do pane without the tab strip: field, rows (one line of
+    /// invitation when empty) and a little room below.
+    pub fn jot_h(&self, scene: Scene) -> f64 {
+        let (_, shown) = self.jot_window(scene);
+        let undo = self
+            .jot_undo
+            .as_ref()
+            .is_some_and(|(j, _)| (j.kind == crate::jot::Kind::Todo) == (scene == Scene::ExpTodo));
+        let rows = (shown + undo as usize).max(1);
+        12.0 + 34.0 + 8.0 + rows as f64 * 30.0 + 8.0
     }
 
     /// Move a due timer to the finished card. Returns its kind when it just fired.
@@ -910,6 +1434,21 @@ impl Model {
         next != first
     }
 
+    /// Scroll the Notes or To-do list by `by` rows; false when it didn't move (at an end, or
+    /// nothing to scroll), so the wheel pages instead.
+    pub fn scroll_jot(&mut self, by: i32) -> bool {
+        let scene = if self.panel() == Panel::Todo {
+            Scene::ExpTodo
+        } else {
+            Scene::ExpNotes
+        };
+        let max = self.jot_list(scene).len().saturating_sub(JOT_ROWS) as i32;
+        let first = self.jot_first.min(max as usize) as i32;
+        let next = (first + by).clamp(0, max);
+        self.jot_first = next as usize;
+        next != first
+    }
+
     /// The task whose process started this server (it, or one of its ancestors, is the task's).
     pub fn task_for_port(&self, p: &PortInfo) -> Option<&TaskView> {
         let chain = self.port_parents.get(&p.pid);
@@ -1003,6 +1542,15 @@ impl Model {
         }
         // Quick controls (mic, sound, keep awake, timer) are always there.
         v.push(Panel::Home);
+        if self.panes.notes {
+            v.push(Panel::Notes);
+        }
+        if self.panes.todo {
+            v.push(Panel::Todo);
+        }
+        if self.panes.weather {
+            v.push(Panel::Weather);
+        }
         // Terminal tasks and the dev servers they run share one pane.
         if self.visible_count() > 0 || !self.ports.is_empty() {
             v.push(Panel::Tasks);
@@ -1074,6 +1622,9 @@ impl Model {
         if self.settings.is_some() {
             return Scene::ExpSettings;
         }
+        if self.nudge.is_some() {
+            return Scene::ExpNudge;
+        }
         let peeking = self.now.zip(self.peek_until).is_some_and(|(n, p)| n < p);
         if hover || peeking {
             return match self.panel() {
@@ -1083,6 +1634,9 @@ impl Model {
                 Panel::Timer => Scene::ExpTimer,
                 Panel::Power => Scene::ExpPower,
                 Panel::Home => Scene::ExpHome,
+                Panel::Notes => Scene::ExpNotes,
+                Panel::Todo => Scene::ExpTodo,
+                Panel::Weather => Scene::ExpWeather,
             };
         }
         if self
@@ -1120,9 +1674,13 @@ impl Model {
             Scene::ExpMedia => (380.0, 132.0 + tab),
             Scene::ExpHome => (380.0, 136.0 + tab + self.apps_h()),
             Scene::ExpPower => (380.0, 112.0 + tab),
+            Scene::ExpNudge => (360.0, 56.0),
+            Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
+            Scene::ExpWeather => (380.0, self.weather_h() + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
             Scene::ExpChip => (380.0, 96.0),
+            Scene::ExpTimerDone if self.focus_summary.is_some() => (380.0, 134.0),
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
             Scene::ExpSettings => (380.0, 216.0),
@@ -1159,6 +1717,12 @@ impl Model {
 
     /// Glow colour (rgb 0..1) and strength for the scene.
     pub fn glow(&self, scene: Scene) -> ([f32; 3], f32) {
+        let (c, k) = self.glow_base(scene);
+        // A scene with no colour of its own takes the skin's.
+        (if c == [1.0; 3] { self.skin.glow() } else { c }, k)
+    }
+
+    fn glow_base(&self, scene: Scene) -> ([f32; 3], f32) {
         const RED: [f32; 3] = [1.0, 0.35, 0.37];
         const GREEN: [f32; 3] = [0.20, 0.82, 0.48];
         const BLUE: [f32; 3] = [0.35, 0.63, 1.0];
@@ -1191,9 +1755,22 @@ impl Model {
                 _ => ([1.0; 3], 0.10),
             },
             Scene::ExpTasks if self.visible_count() == 0 => ([1.0; 3], 0.10),
-            Scene::CompactMedia | Scene::ExpMedia | Scene::ExpHome | Scene::ExpSettings => {
-                ([1.0; 3], 0.10)
-            }
+            Scene::ExpNudge => match self.nudge.map(|n| n.kind) {
+                Some(crate::breaks::Kind::Water) => ([0.45, 0.85, 1.0], 0.35),
+                Some(crate::breaks::Kind::Stretch) => (GREEN, 0.30),
+                _ => (BLUE, 0.35),
+            },
+            Scene::ExpWeather if self.forecast.is_some() && !self.choosing_place() => self
+                .forecast
+                .as_ref()
+                .map_or(([1.0; 3], 0.10), |f| sky_glow(f.now)),
+            Scene::CompactMedia
+            | Scene::ExpMedia
+            | Scene::ExpHome
+            | Scene::ExpSettings
+            | Scene::ExpNotes
+            | Scene::ExpTodo
+            | Scene::ExpWeather => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
                 Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),
@@ -1219,6 +1796,9 @@ impl Model {
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
             || self.drop_over
             || scene == Scene::ExpCharge
+            // The eye break's ring counts its 20 seconds down.
+            || (scene == Scene::ExpNudge
+                && self.nudge.is_some_and(|n| n.kind == crate::breaks::Kind::Eyes))
             // The bell swings while the alarm rings.
             || scene == Scene::ExpTimerDone
             || (self.media.as_ref().is_some_and(|m| m.playing)
@@ -1771,6 +2351,255 @@ bang"
         assert_eq!(m.tasks[0].changed, t1);
     }
 
+    fn song(title: &str, playing: bool, pos: u64) -> MediaInfo {
+        MediaInfo {
+            title: title.into(),
+            artist: "Band".into(),
+            album: "Album".into(),
+            playing,
+            app: "Spotify.exe".into(),
+            pos_ms: pos,
+            dur_ms: 200_000,
+        }
+    }
+
+    #[test]
+    fn lyrics_are_fetched_once_per_song_and_only_when_wanted() {
+        use crate::lyrics::Lyrics;
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_media(Some(song("One", true, 0)), t0);
+        assert_eq!(m.lyrics_request(), None, "page closed");
+        m.lyrics_open = true;
+        assert_eq!(m.lyrics_request(), None, "lyrics off");
+        m.lyrics_on = true;
+        let (key, title, artist, album, dur) = m.lyrics_request().expect("a lookup");
+        assert_eq!(
+            (title.as_str(), artist.as_str(), album.as_str(), dur),
+            ("One", "Band", "Album", 200_000)
+        );
+        assert_eq!(m.lyric_state, LyricState::Loading);
+        assert_eq!(m.lyrics_request(), None, "not twice");
+        // Position updates for the same song change nothing.
+        m.apply_media(Some(song("One", true, 5_000)), t0);
+        assert_eq!(m.lyric_state, LyricState::Loading);
+        m.lyrics_result(key.clone(), Ok(Lyrics::Instrumental));
+        assert_eq!(m.lyric_state, LyricState::Ready(Lyrics::Instrumental));
+        // The next song starts over, and the first one is remembered.
+        m.apply_media(Some(song("Two", true, 0)), t0);
+        assert_eq!(m.lyric_state, LyricState::Idle);
+        let (key2, ..) = m.lyrics_request().expect("a lookup for the new song");
+        // A late answer for the old song doesn't show on the new one.
+        m.lyrics_result(key.clone(), Ok(Lyrics::NotFound));
+        assert_eq!(m.lyric_state, LyricState::Loading);
+        m.lyrics_result(key2, Err("offline".into()));
+        assert_eq!(m.lyric_state, LyricState::Failed);
+        // Back to song one: answered from memory, no lookup.
+        m.apply_media(Some(song("One", true, 0)), t0);
+        assert_eq!(m.lyrics_request(), None);
+        assert_eq!(
+            m.lyric_state,
+            LyricState::Ready(Lyrics::NotFound),
+            "the latest answer is kept"
+        );
+        // The player going away closes the extras.
+        m.sleep_open = true;
+        m.apply_media(None, t0);
+        assert!(!m.lyrics_open && !m.sleep_open);
+    }
+
+    #[test]
+    fn the_lyric_cache_keeps_the_last_twenty_songs() {
+        use crate::lyrics::Lyrics;
+        let mut m = Model::default();
+        for i in 0..25 {
+            m.lyrics_result(format!("k{i}"), Ok(Lyrics::Instrumental));
+        }
+        assert_eq!(m.lyric_cache.len(), 20);
+        assert_eq!(m.lyric_cache[0].0, "k5");
+    }
+
+    #[test]
+    fn plain_lyrics_scroll_three_lines_at_a_time_to_the_end() {
+        use crate::lyrics::Lyrics;
+        let mut m = Model::default();
+        assert!(!m.scroll_lyrics(1), "nothing to scroll");
+        m.lyric_state = LyricState::Ready(Lyrics::Plain((0..6).map(|i| format!("l{i}")).collect()));
+        assert!(m.scroll_lyrics(1) && m.scroll_lyrics(1) && m.scroll_lyrics(1));
+        assert_eq!(m.lyric_first, 3, "the last three lines");
+        assert!(!m.scroll_lyrics(1), "at the end the wheel pages");
+        assert!(m.scroll_lyrics(-1));
+    }
+
+    #[test]
+    fn the_sleep_timer_follows_the_song_and_wakes_the_model() {
+        use crate::sleep::Kind;
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.apply_media(Some(song("One", true, 100_000)), t0);
+        m.set_sleep(Some(Kind::EndOfTrack), t0);
+        assert_eq!(
+            m.sleep.as_ref().unwrap().until,
+            Some(t0 + Duration::from_secs(100))
+        );
+        assert!(m.expire(t0).is_some(), "the model wakes for the fade");
+        // A seek moves it; a new song fires it.
+        m.apply_media(
+            Some(song("One", true, 190_000)),
+            t0 + Duration::from_secs(1),
+        );
+        assert_eq!(
+            m.sleep.as_ref().unwrap().until,
+            Some(t0 + Duration::from_secs(11))
+        );
+        m.apply_media(Some(song("Two", true, 0)), t0 + Duration::from_secs(2));
+        assert!(m.sleep.as_ref().unwrap().fire);
+        m.set_sleep(None, t0);
+        assert!(m.sleep.is_none() && !m.sleep_open);
+        assert_eq!(m.expire(t0), None, "nothing left to wake for");
+        m.set_sleep(Some(Kind::Minutes(30)), t0);
+        assert_eq!(
+            m.expire(t0),
+            Some(t0 + Duration::from_secs(60)),
+            "the label ticks each minute"
+        );
+    }
+
+    fn focus_timer() -> crate::timer::Timer {
+        crate::timer::Timer::start(crate::timer::TimerKind::Focus, 25, crate::timer::now_ms())
+    }
+
+    #[test]
+    fn only_a_focus_timer_holds_alerts() {
+        use crate::timer::{Timer, TimerKind};
+        let mut m = Model::default();
+        assert!(!m.holding());
+        let wall = crate::timer::now_ms();
+        for (kind, holds) in [
+            (TimerKind::Plain, false),
+            (TimerKind::Break, false),
+            (TimerKind::Focus, true),
+        ] {
+            m.timer = Some(Timer::start(kind, 5, wall));
+            assert_eq!(m.holding(), holds, "{kind:?}");
+        }
+        // Paused is still a session.
+        m.timer = Some(focus_timer());
+        m.timer.as_mut().unwrap().paused_ms = Some(60_000);
+        assert!(m.holding());
+    }
+
+    #[test]
+    fn held_alerts_are_told_once_in_one_line() {
+        let mut h = Held::default();
+        assert_eq!(h.take_summary(), None);
+        h.downloads = 2;
+        h.failed = 1;
+        assert_eq!(
+            h.take_summary().as_deref(),
+            Some("While you focused: 2 downloads, 1 task failed")
+        );
+        assert_eq!(h.take_summary(), None, "counts start over");
+        h = Held {
+            downloads: 1,
+            done: 3,
+            failed: 0,
+            warnings: 1,
+        };
+        assert_eq!(
+            h.take_summary().as_deref(),
+            Some("While you focused: 1 download, 3 tasks finished, 1 warning")
+        );
+    }
+
+    #[test]
+    fn an_agent_reply_waits_out_a_focus_session() {
+        let t0 = Instant::now();
+        let mut m = Model {
+            finish_peek: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let reply = || {
+            let mut u = st("agent:Claude Code:1", TaskEvent::Done, t0);
+            if let TaskUpdate::Upsert(s) = &mut u {
+                s.source = "agent".into();
+                s.label = "Claude Code".into();
+                s.message = Some("All done.".into());
+            }
+            u
+        };
+        m.timer = Some(focus_timer());
+        m.apply_task(reply(), t0);
+        assert!(m.chip.is_none(), "no card during focus");
+        m.timer = None;
+        m.apply_task(reply(), t0);
+        assert!(m.chip.is_some(), "and back to normal afterwards");
+    }
+
+    #[test]
+    fn a_break_nudge_sits_below_cards_and_ends_by_itself() {
+        use crate::breaks::Kind;
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.now = Some(t0);
+        m.nudge = Some(Nudge {
+            kind: Kind::Eyes,
+            since: t0,
+        });
+        assert_eq!(m.scene(false, false), Scene::ExpNudge);
+        assert_eq!(
+            m.scene(true, false),
+            Scene::ExpNudge,
+            "hovering doesn't hide it"
+        );
+        // A card, the finished-timer card and the settings pane are never covered by it.
+        m.settings = Some(0);
+        assert_eq!(m.scene(false, false), Scene::ExpSettings);
+        m.settings = None;
+        m.timer_done = Some((crate::timer::TimerKind::Focus, t0));
+        assert_eq!(m.scene(false, false), Scene::ExpTimerDone);
+        m.timer_done = None;
+        m.chip = Some(Chip::new("x", t0));
+        assert_eq!(m.scene(false, false), Scene::ExpChip);
+        m.chip = None;
+        // The eye break animates its ring, and only it; neither outlives its hold.
+        assert!(m.ambient(Scene::ExpNudge, t0));
+        m.nudge = Some(Nudge {
+            kind: Kind::Water,
+            since: t0,
+        });
+        assert!(!m.ambient(Scene::ExpNudge, t0));
+        assert_eq!(m.expire(t0), Some(t0 + Duration::from_secs(10)));
+        assert!(m.nudge.is_some());
+        m.expire(t0 + Duration::from_secs(10));
+        assert!(m.nudge.is_none());
+        assert_eq!(m.scene(false, false), Scene::Idle);
+        m.nudge = Some(Nudge {
+            kind: Kind::Eyes,
+            since: t0,
+        });
+        m.expire(t0 + Duration::from_secs(19));
+        assert!(m.nudge.is_some(), "twenty seconds for the eyes");
+        m.expire(t0 + Duration::from_secs(20));
+        assert!(m.nudge.is_none());
+        assert!(!m.ambient(Scene::ExpNudge, t0), "frames stop with it");
+    }
+
+    #[test]
+    fn the_focus_summary_goes_when_the_finished_card_does() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        m.timer_done = Some((crate::timer::TimerKind::Focus, t0));
+        m.focus_summary = Some("While you focused: 1 download".into());
+        assert_eq!(m.size(Scene::ExpTimerDone).1, 134.0, "room for the line");
+        m.expire(t0);
+        assert!(m.focus_summary.is_some());
+        m.timer_done = None;
+        m.expire(t0);
+        assert!(m.focus_summary.is_none());
+        assert_eq!(m.size(Scene::ExpTimerDone).1, 114.0);
+    }
+
     #[test]
     fn an_agent_reply_comes_as_a_card_with_copy() {
         let t0 = Instant::now();
@@ -1945,10 +2774,126 @@ bang"
         );
     }
 
+    /// A model showing only the panes that exist without Notes, To-do and Weather.
+    fn no_extra_panes() -> Model {
+        let mut m = Model::default();
+        m.panes = crate::config::Panes {
+            notes: false,
+            todo: false,
+            weather: false,
+        };
+        m
+    }
+
+    #[test]
+    fn notes_todo_and_weather_follow_home_and_can_be_switched_off() {
+        let mut m = Model::default();
+        assert_eq!(
+            m.panels(),
+            vec![Panel::Home, Panel::Notes, Panel::Todo, Panel::Weather]
+        );
+        assert!(m.tabs(), "the strip shows even with nothing else going on");
+        m.panes.todo = false;
+        m.selected = Some(Panel::Todo);
+        assert_eq!(m.panel(), Panel::Home, "a hidden pane can't stay selected");
+        assert_eq!(Panel::from_name("To-do"), Some(Panel::Todo));
+        assert_eq!(Panel::of(Scene::ExpWeather), Some(Panel::Weather));
+        // Scenes follow the panel, and the typing panes grow with their rows.
+        m.selected = Some(Panel::Notes);
+        assert_eq!(m.scene(true, false), Scene::ExpNotes);
+        let empty = m.size(Scene::ExpNotes).1;
+        let now = crate::timer::now_ms();
+        for i in 0..3 {
+            m.jot
+                .add(crate::jot::Kind::Note, &format!("n{i}"), true, now);
+        }
+        assert_eq!(m.size(Scene::ExpNotes).1, empty + 60.0);
+        for i in 3..9 {
+            m.jot
+                .add(crate::jot::Kind::Note, &format!("n{i}"), true, now);
+        }
+        assert_eq!(
+            m.size(Scene::ExpNotes).1,
+            empty + 90.0,
+            "no taller than four rows"
+        );
+    }
+
+    #[test]
+    fn notes_are_added_edited_deleted_and_undone() {
+        let mut m = Model::default();
+        m.note_edit.set("  buy milk ");
+        assert!(m.submit_jot(Field::Note));
+        assert!(m.note_edit.is_empty(), "the field clears");
+        assert!(m.jot_dirty);
+        assert_eq!(m.jot.notes()[0].text, "buy milk");
+        assert!(!m.submit_jot(Field::Note), "nothing to add");
+        let id = m.jot.notes()[0].id;
+        m.begin_edit(id);
+        assert_eq!(m.typing, Some(Field::Note));
+        assert_eq!(m.note_edit.text(), "buy milk");
+        m.note_edit.set("buy oat milk");
+        assert!(m.submit_jot(Field::Note));
+        assert_eq!(m.jot.notes()[0].text, "buy oat milk");
+        assert_eq!(m.jot.items.len(), 1, "an edit doesn't add");
+        // Esc on an edit drops it and leaves the field empty.
+        m.begin_edit(id);
+        m.end_typing();
+        assert!(m.note_edit.is_empty() && m.typing.is_none() && m.jot_edit.is_none());
+        let t0 = Instant::now();
+        m.delete_jot(id, t0);
+        assert!(m.jot.items.is_empty());
+        assert!(m.jot_undo.is_some());
+        m.undo_jot();
+        assert_eq!(m.jot.items.len(), 1);
+        // Undo goes after a few seconds, with its own deadline in `expire`.
+        m.delete_jot(id, t0);
+        let next = m.expire(t0 + Duration::from_secs(1));
+        assert_eq!(next, Some(t0 + UNDO_HOLD));
+        m.expire(t0 + UNDO_HOLD);
+        assert!(m.jot_undo.is_none());
+    }
+
+    #[test]
+    fn a_draft_survives_leaving_the_field_and_wheel_scrolls_only_long_lists() {
+        let mut m = Model::default();
+        m.note_edit.set("half a thought");
+        m.typing = Some(Field::Note);
+        m.end_typing();
+        assert_eq!(m.note_edit.text(), "half a thought", "the draft stays");
+        m.selected = Some(Panel::Notes);
+        let now = crate::timer::now_ms();
+        for i in 0..4 {
+            m.jot
+                .add(crate::jot::Kind::Note, &format!("n{i}"), true, now + i);
+        }
+        assert!(!m.scroll_jot(1), "four rows fit: the wheel pages instead");
+        m.jot.add(crate::jot::Kind::Note, "n4", true, now + 4);
+        assert!(m.scroll_jot(1));
+        assert!(!m.scroll_jot(1), "at the end it pages again");
+        assert_eq!(m.jot_window(Scene::ExpNotes), (1, 4));
+    }
+
+    #[test]
+    fn temporary_notes_set_the_next_deadline() {
+        let mut m = Model::default();
+        let t0 = Instant::now();
+        assert_eq!(m.expire(t0), None);
+        m.jot.add(
+            crate::jot::Kind::Note,
+            "soon",
+            false,
+            crate::timer::now_ms(),
+        );
+        let next = m.expire(t0).expect("a deadline for the 24 h note");
+        let secs = next.duration_since(t0).as_secs();
+        assert!((86_395..=86_400).contains(&secs), "{secs}");
+    }
+
     #[test]
     fn panels_and_selection() {
         // (a running timer adds its own pane)
-        let mut m = Model::default();
+        let mut m = no_extra_panes();
         assert_eq!(m.panels(), vec![Panel::Home]);
         assert!(!m.tabs());
         m.ports = vec![PortInfo {
@@ -1990,7 +2935,7 @@ bang"
 
     #[test]
     fn wheel_steps_and_wraps() {
-        let mut m = Model::default();
+        let mut m = no_extra_panes();
         m.ports = vec![PortInfo {
             port: 3000,
             pid: 9,
@@ -2228,6 +3173,7 @@ bang"
 
         // Music playing beside a task.
         m.media = Some(MediaInfo {
+            album: String::new(),
             title: "t".into(),
             artist: "a".into(),
             playing: true,

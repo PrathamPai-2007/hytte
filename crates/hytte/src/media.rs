@@ -10,6 +10,8 @@ use crossbeam_channel::Sender;
 pub enum Cmd {
     Prev,
     Toggle,
+    /// Pause (never starts playback, unlike Toggle).
+    Pause,
     Next,
     /// Jump to this position (ms) in the current track.
     Seek(u64),
@@ -207,6 +209,11 @@ mod imp {
             .ok()
             .map(|h| h.to_string())
             .unwrap_or_default();
+        let album = props
+            .AlbumTitle()
+            .ok()
+            .map(|h| h.to_string())
+            .unwrap_or_default();
         let (mut pos_ms, mut dur_ms) = (0u64, 0u64);
         if let Ok(tl) = s.GetTimelineProperties() {
             let ms = |t: windows::Foundation::TimeSpan| (t.Duration.max(0) / 10_000) as u64;
@@ -222,6 +229,7 @@ mod imp {
             MediaInfo {
                 title,
                 artist,
+                album,
                 playing,
                 app,
                 pos_ms,
@@ -259,6 +267,11 @@ mod imp {
             }
             Cmd::Toggle => {
                 if let Ok(op) = s.TryTogglePlayPauseAsync() {
+                    let _ = block_on(op, T);
+                }
+            }
+            Cmd::Pause => {
+                if let Ok(op) = s.TryPauseAsync() {
                     let _ = block_on(op, T);
                 }
             }

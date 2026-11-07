@@ -11,7 +11,7 @@ use crate::config::{Config, Val};
 use crate::gpu::Gpu;
 use crate::power::Mode;
 use crate::ui_state::{
-    Anim, Bubble, ChipAction, Model, Panel, Scene, TaskView, Tone, LOCK_W, TAB_H,
+    Anim, Bubble, ChipAction, Field, Model, Panel, Scene, TaskView, Tone, LOCK_W, TAB_H,
 };
 use hytte_proto::TaskEvent;
 use std::cell::{Cell, RefCell};
@@ -32,7 +32,9 @@ use windows_numerics::{Matrix3x2, Vector2};
 mod cards;
 mod compact;
 mod home;
+mod jot;
 mod media;
+mod nudge;
 mod pill;
 mod prims;
 mod settings;
@@ -40,6 +42,7 @@ mod settings_table;
 mod shelf;
 mod tasks;
 mod timer;
+mod weather;
 
 pub use settings_table::*;
 
@@ -124,6 +127,37 @@ pub enum Action {
     Set(&'static str, Val),
     /// Open `config.toml` for the settings the pane doesn't have.
     OpenConfig,
+    /// A text field: click to type in it.
+    Field(Field),
+    /// The Notes field's 24 h / Keep switch.
+    NoteKeep(bool),
+    /// Tick or untick a to-do.
+    ToggleJot(u64),
+    /// Edit an existing note or to-do in the field.
+    EditJot(u64),
+    /// Keep a temporary note for good.
+    KeepJot(u64),
+    DeleteJot(u64),
+    UndoJot,
+    /// A suggestion in the Weather place chooser.
+    PickPlace(usize),
+    /// The place name in the Weather pane: choose another place.
+    ChangePlace,
+    /// Close the place chooser and keep the current place.
+    CancelPlace,
+    /// Fetch the forecast again after a failure.
+    RetryWeather,
+    /// Break reminder: remind me again in ten minutes.
+    NudgeSnooze,
+    /// Break reminder: done, or not now.
+    NudgeSkip,
+    /// The moon in the Media pane: open or close the sleep timer chips.
+    SleepMenu,
+    SleepSet(crate::sleep::Kind),
+    SleepCancel,
+    LyricsOpen,
+    LyricsClose,
+    LyricsRetry,
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.
@@ -196,6 +230,8 @@ pub struct Frame<'a> {
     pub armed: bool,
     /// The timer alarm is sounding.
     pub ringing: bool,
+    /// The text caret is in its visible half of the blink.
+    pub caret_on: bool,
 }
 
 struct Fmts {
@@ -210,6 +246,8 @@ struct Fmts {
     wrap: IDWriteTextFormat,
     center: IDWriteTextFormat,
     big_c: IDWriteTextFormat,
+    /// Lyrics: centred, wraps to a second line.
+    lyric: IDWriteTextFormat,
     small_c: IDWriteTextFormat,
     /// Segoe Fluent Icons glyphs, centred in their box (see `glyph`).
     icon: IDWriteTextFormat,
@@ -276,6 +314,7 @@ pub struct Renderer {
     morph: Cell<Option<f32>>,
     pressed: Cell<bool>,
     light: Cell<bool>,
+    skin: Cell<crate::skin::Skin>,
     accent: Cell<[f32; 3]>,
     focus: Cell<Option<usize>>,
     /// True while the live scene (not the one fading out) is drawing: only it shows focus.
@@ -392,6 +431,9 @@ fn panel_glyph(p: Panel) -> char {
         Panel::Tasks => '\u{E756}',
         Panel::Timer => '\u{E916}',
         Panel::Power => '\u{E83F}',
+        Panel::Notes => '\u{E70B}',
+        Panel::Todo => '\u{E73A}',
+        Panel::Weather => '\u{E753}',
     }
 }
 
@@ -487,6 +529,7 @@ impl Renderer {
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
                 light: Cell::new(false),
+                skin: Cell::new(crate::skin::Skin::Graphite),
                 accent: Cell::new(BLUE),
                 focus: Cell::new(None),
                 focus_live: Cell::new(false),
@@ -573,6 +616,7 @@ impl Renderer {
         self.t.set(fr.anim.t as f32);
         self.pressed.set(fr.pressed);
         self.light.set(fr.light);
+        self.skin.set(fr.model.skin);
         self.accent.set(fr.accent);
         self.focus.set(fr.focus);
         self.focus_live.set(false);
@@ -1137,6 +1181,9 @@ impl Fmts {
             wrap.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR)?;
             let big_c = mk(ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             big_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            let lyric = mk(ui, 14.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            lyric.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            lyric.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)?;
             let small_c = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             small_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             // Windows 11 ships Segoe Fluent Icons; the glyphs used here are also in its
@@ -1164,6 +1211,7 @@ impl Fmts {
                 wrap,
                 center,
                 big_c,
+                lyric,
                 small_c,
                 icon,
                 icon_l,

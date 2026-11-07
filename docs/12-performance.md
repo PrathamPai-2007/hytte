@@ -6,9 +6,10 @@ Hytte runs all day beside everything else, so idle cost matters more than peak s
 
 | Budget | Target | Last measured (1.6.0 release build, default settings, fresh data folder; frame cost from 1.3.0) |
 |---|---|---|
-| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.3 % of one core (94 ms CPU in 30 s, after 45 s settling) |
-| Idle memory | < 30 MB goal, 100 MB ceiling | ≈ 10.8 MB private bytes; working set ≈ 7 MB after the trim; 35 threads, ~405 handles |
+| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.26 % of one core (78 ms CPU in 30 s, after 45 s settling), 0.36 % with a Focus session running (109 ms); 1.7.0 with every feature on, 120 stored notes, a skin and all three break reminders enabled |
+| Idle memory | < 30 MB goal, 100 MB ceiling | ≈ 10.1 MB private bytes; working set ≈ 5.7 MB after the trim; 32 threads, ~404 handles (1.7.0, same setup) |
 | Animation | Refresh rate during transitions only | vsync-paced; parks when settled |
+| Frame cost with a running task, 1.7.0 | well under one refresh period | draw + present p50 ≈ 0.9-1.0 ms, p99 ≈ 1.9-3.2 ms (60 Hz, 200 % scaling, WARP, the full tab strip) |
 | Frame cost while a spring moves | well under one refresh period | draw + present p50 ≈ 2.0 ms, p99 ≈ 2.5–5.8 ms with a spinner in the open pill (60 Hz, 200 % scaling, WARP); draw alone p50 ≈ 1.8 ms; a period is 16.6 ms |
 
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`).
@@ -56,6 +57,13 @@ When adding a feature, don't add a row here without good reason.
 | Clipboard listener | on a clipboard change | Looks at the owner first, so other apps' copies cost at most a process-name lookup. |
 | Screenshot timer (`T_SHOT`) | 1 s while a screenshot is on the shelf with `screenshot_secs` set; 60 ms for ≤ 10 min after each screenshot while `delete_after_paste` waits for a Ctrl+V | Never runs without a screenshot. |
 | Settings window | 60 Hz **only while something eases** | Nothing runs while closed. |
+| Text caret (`T_CARET`) | 530 ms, **only while a text field has focus** | One small redraw per blink; stops when typing ends. |
+| Place search (`T_PLACE`) | once, 250 ms after the last keystroke | Then one request. |
+| Break reminders | once, at the next due time (or a minute later while one waits) | Part of the single expiry timer. |
+| Notes and to-dos | once, at the next expiry | Part of the single expiry timer; none when nothing expires. |
+| Sleep timer | at its fade, its stop and each minute of its label | Only while a timer is set. |
+| Focus line | every `total / 100` seconds (1 to 30 s) | Only while a Focus session runs on a bare pill; with a bubble or an open pane it is the 1 Hz timer. |
+| Forecast, lyrics | one request per open of the pane (data over 30 min old) / per song | Never while the pane or page is closed. |
 | Countdown timer | 1 Hz **only while a timer runs unpaused** | Redraws the fuse. |
 | Expiry timer | once, at the next deadline | Also ends a one-hour keep-awake. |
 | Memory trim | once, 30 s after the last frame | `SetProcessWorkingSetSize`. |
@@ -75,6 +83,8 @@ When adding a feature, don't add a row here without good reason.
 | Running task, waiting agent, playing media in a media scene, drag over the pill, expanded privacy dots | ~30 fps |
 | Failed task | ~30 fps for 8 s (the pulse fades), then none |
 | Timer-finished card | ~30 fps while up (≤ 2 min) |
+| Eye-break card | ~30 fps for its 20 s (the ring) |
+| Text field with focus | one frame per blink (about 2 per second) |
 | Sentinel, hidden, paused, game mode | none |
 
 ## Measuring

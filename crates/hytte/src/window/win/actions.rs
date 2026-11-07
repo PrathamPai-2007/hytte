@@ -33,6 +33,31 @@ impl Ui {
                 }
             }
             Action::SelectPanel(p) => self.select_panel(p),
+            Action::Field(f) => self.click_field(hwnd, f),
+            Action::NoteKeep(k) => self.model.note_keep = k,
+            Action::ToggleJot(id) => {
+                self.model.jot.toggle(id, crate::timer::now_ms());
+                self.model.jot_dirty = true;
+            }
+            Action::EditJot(id) => {
+                self.model.begin_edit(id);
+                if let Some(f) = self.model.typing {
+                    self.begin_typing(hwnd, f);
+                }
+            }
+            Action::KeepJot(id) => {
+                self.model.jot.keep(id);
+                self.model.jot_dirty = true;
+            }
+            Action::DeleteJot(id) => self.model.delete_jot(id, Instant::now()),
+            Action::UndoJot => self.model.undo_jot(),
+            Action::PickPlace(i) => self.pick_place(hwnd, i),
+            Action::ChangePlace => self.change_place(hwnd),
+            Action::CancelPlace => {
+                self.model.choosing = false;
+                self.end_keyboard(true);
+            }
+            Action::RetryWeather => self.model.weather_retry = None,
             Action::ToggleMic => self.toggle_mic(),
             Action::ToggleSpeaker => {
                 if let Some(s) = crate::mic::toggle_speaker() {
@@ -89,8 +114,36 @@ impl Ui {
                 }
             }
             Action::TimerStop => {
+                let was_focus = self.model.holding();
                 self.model.timer = None;
                 crate::timer::save(None);
+                // Ended early: what was held back shows now, on an ordinary card.
+                if let (true, Some(text)) = (was_focus, self.model.held.take_summary()) {
+                    let mut c = Chip::new(text, Instant::now());
+                    c.tone = crate::ui_state::Tone::Info;
+                    self.model.chip = Some(c);
+                }
+            }
+            Action::NudgeSnooze => {
+                if let Some(n) = self.model.nudge.take() {
+                    self.breaks.snooze(n.kind, Instant::now());
+                }
+            }
+            Action::NudgeSkip => self.model.nudge = None,
+            Action::SleepMenu => self.model.sleep_open = !self.model.sleep_open,
+            Action::SleepSet(kind) => {
+                crate::sleep::cancel();
+                self.model.set_sleep(Some(kind), Instant::now());
+            }
+            Action::SleepCancel => {
+                crate::sleep::cancel();
+                self.model.set_sleep(None, Instant::now());
+            }
+            Action::LyricsOpen => self.model.lyrics_open = true,
+            Action::LyricsClose => self.model.lyrics_open = false,
+            Action::LyricsRetry => {
+                self.model.lyric_key.clear();
+                self.model.lyric_state = crate::ui_state::LyricState::Idle;
             }
             Action::TimerDismiss => self.model.timer_done = None,
             Action::TimerClose => self.model.timer_panel = false,

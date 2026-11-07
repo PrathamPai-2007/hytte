@@ -33,9 +33,12 @@ mod actions;
 mod controls;
 mod dnd;
 mod events;
+mod forecast;
 mod frame;
 mod input;
+mod mediactl;
 mod shots;
+mod typing;
 mod view;
 mod wndproc;
 
@@ -49,6 +52,7 @@ const WM_DRAG_ARM: u32 = 0x8005;
 const WM_DRAG_END: u32 = 0x8006;
 const HOTKEY_ID: i32 = 1;
 const MONITOR_HOTKEY_ID: i32 = 2;
+const NOTE_HOTKEY_ID: i32 = 3;
 
 const T_DWELL: usize = 1;
 const T_COLLAPSE: usize = 2;
@@ -58,6 +62,8 @@ const T_TIMER: usize = 5;
 const T_TRIM: usize = 6;
 const T_GPU: usize = 7;
 const T_SHOT: usize = 8;
+const T_CARET: usize = 9;
+const T_PLACE: usize = 10;
 /// Idle this long (no frames) before the working set is trimmed.
 const TRIM_MS: u32 = 30_000;
 
@@ -204,6 +210,11 @@ fn reassert_topmost(hwnd: HWND) {
     }
 }
 
+/// The break intervals from the settings: eyes, stretch, water.
+fn break_minutes(c: &Config) -> [u32; 3] {
+    [c.breaks.eyes_min, c.breaks.stretch_min, c.breaks.water_min]
+}
+
 fn push_event(sh: &Shared, e: UiEvent) {
     sh.pending.lock().unwrap().push(e);
     post(WM_UI);
@@ -298,6 +309,18 @@ struct Ui {
     gpu_retry: u32,
     /// The timer alarm is playing.
     ringing: bool,
+    /// The text caret is in the visible half of its blink.
+    caret_on: bool,
+    /// The first half of a typed emoji, waiting for its second.
+    high: Option<u16>,
+    /// Counts place-field edits; a search result for an older one is ignored.
+    place_seq: u64,
+    /// Break reminder schedule.
+    breaks: crate::breaks::Breaks,
+    /// Do Not Disturb is on for a Focus session: the value to put back afterwards.
+    dnd: Option<crate::dnd::Raw>,
+    /// Turning it on was tried this session (a failure is not retried on every change).
+    dnd_tried: bool,
     /// Hash of the last screenshot shelved from the clipboard: the Snipping Tool can
     /// announce one image more than once.
     last_snip: u64,
@@ -597,6 +620,12 @@ pub fn run_windows(
             update_offer: None,
             gpu_retry: 0,
             ringing: false,
+            caret_on: true,
+            high: None,
+            place_seq: 0,
+            breaks: Default::default(),
+            dnd: None,
+            dnd_tried: false,
             last_snip: 0,
             dim: 1.0,
             snip_seq: 0,
@@ -614,6 +643,13 @@ pub fn run_windows(
         ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
         ui.model.task_rows = ui.cfg.general.task_rows;
         ui.model.pin_button = ui.cfg.general.pin_button;
+        ui.breaks.configure(break_minutes(&ui.cfg), Instant::now());
+        ui.model.lyrics_on = ui.cfg.media.lyrics;
+        ui.model.skin = crate::skin::Skin::from_name(&ui.cfg.general.skin);
+        ui.model.init_jot(&crate::jot::path());
+        ui.model.weather_place = crate::weather::Place::load();
+        ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
+        ui.model.apply_panes(&ui.cfg.panes.clone());
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())
                 .ok()

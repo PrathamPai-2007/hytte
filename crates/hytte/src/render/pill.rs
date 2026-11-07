@@ -130,10 +130,10 @@ impl Renderer {
                 }
             }
             // Rim: barely there at the screen edge, catching the light round the bottom.
-            let fg = self.fg();
+            let fg = self.skin.get().rim(self.fg(), self.light.get());
             let rim = self.grad(
                 Grad::Rim,
-                [fg[0], 0.0, 0.0, 0.0],
+                [fg[0], fg[1], fg[2], self.light.get() as u8 as f32],
                 &[(0.0, fg, 0.03), (1.0, fg, 0.14)],
             );
             match rim {
@@ -335,6 +335,10 @@ impl Renderer {
             Scene::ExpShelf => self.exp_shelf(fr, w, h),
             Scene::ExpHome => self.exp_home(fr, w, h),
             Scene::ExpPower => self.exp_power(fr, w, h),
+            Scene::ExpNudge => self.exp_nudge(fr, w, h),
+            Scene::ExpNotes => self.exp_notes(fr, w, h),
+            Scene::ExpTodo => self.exp_todo(fr, w, h),
+            Scene::ExpWeather => self.exp_weather(fr, w, h),
             Scene::ExpDrop => self.exp_drop(w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
             Scene::ExpTimer => self.exp_timer(fr, w, h),
