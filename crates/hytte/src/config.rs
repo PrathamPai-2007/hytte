@@ -341,16 +341,32 @@ impl Default for Timer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Panes {
+    pub home: bool,
+    pub media: bool,
+    pub shelf: bool,
+    pub tasks: bool,
+    pub timer: bool,
+    pub power: bool,
     pub notes: bool,
     pub todo: bool,
     pub weather: bool,
+    /// The tab order, as pane names ("home,media,..."). Set by the arrows in the settings
+    /// window; panes not named keep their usual place after the ones that are.
+    pub order: String,
 }
 impl Default for Panes {
     fn default() -> Self {
         Self {
+            home: true,
+            media: true,
+            shelf: true,
+            tasks: true,
+            timer: true,
+            power: true,
             notes: true,
             todo: true,
             weather: true,
+            order: String::new(),
         }
     }
 }
@@ -370,11 +386,21 @@ impl Default for Weather {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Media {
     /// Look up lyrics (sends the song title and artist to lrclib.net).
     pub lyrics: bool,
+    /// Follow the song line by line when the lyrics are timed.
+    pub lyrics_live: bool,
+}
+impl Default for Media {
+    fn default() -> Self {
+        Self {
+            lyrics: false,
+            lyrics_live: true,
+        }
+    }
 }
 
 /// Break reminders: each kind has its own interval in minutes (0 = off).
@@ -623,6 +649,15 @@ impl From<Val> for toml_edit::Value {
 /// and returns the settings it now holds. `Ok(None)`: the file doesn't parse, so it is left
 /// alone (the user is mid-edit; their file wins).
 pub fn set(key: &str, v: Val) -> std::io::Result<Option<Config>> {
+    set_any(key, v)
+}
+
+/// `set` for a text value (the one setting that is a list written as a string).
+pub fn set_text(key: &str, v: &str) -> std::io::Result<Option<Config>> {
+    set_any(key, v.to_string())
+}
+
+fn set_any(key: &str, v: impl Into<toml_edit::Value>) -> std::io::Result<Option<Config>> {
     let path = config_path();
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
@@ -679,7 +714,7 @@ pub fn ensure_noted(key: &str, v: Val, note: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn with_value(text: &str, key: &str, v: Val) -> Option<String> {
+pub(crate) fn with_value(text: &str, key: &str, v: impl Into<toml_edit::Value>) -> Option<String> {
     let (section, name) = key.split_once('.')?;
     let mut doc: toml_edit::DocumentMut = text.parse().ok()?;
     let table = doc
@@ -694,7 +729,7 @@ pub(crate) fn with_value(text: &str, key: &str, v: Val) -> Option<String> {
             *old.decor_mut() = decor;
         }
         None => {
-            table.insert(name, toml_edit::value(toml_edit::Value::from(v)));
+            table.insert(name, toml_edit::value(v.into()));
         }
     }
     Some(doc.to_string())

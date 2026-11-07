@@ -14,14 +14,6 @@ impl Renderer {
         self.round_btn(28.0, 23.0, 13.0, fg, back, |cx, cy, col| {
             self.glyph_s('\u{E72B}', cx, cy, col)
         });
-        self.round_btn(
-            w - 28.0,
-            23.0,
-            13.0,
-            fg,
-            Action::OpenConfig,
-            |cx, cy, col| self.glyph_s('\u{E8A7}', cx, cy, col),
-        );
         let (sx, sw) = (50.0, w - 100.0);
         self.fill_rr(sx, 10.0, sw, 26.0, 13.0, self.cc(fg, 0.06));
         let seg = sw / SETTINGS_GROUPS.len() as f32;
@@ -66,16 +58,17 @@ impl Renderer {
         for (i, row) in rows.into_iter().enumerate() {
             self.setting_row(row, None, 46.0 + i as f32 * 32.0, w, 0.0);
         }
-        // Spare room at the bottom: where the rest of the settings live.
-        if n < 5 {
-            let note = concat!(
-                "Hytte ",
-                env!("CARGO_PKG_VERSION"),
-                "  ·  more in config.toml"
-            );
-            let y = 46.0 + 4.0 * 32.0;
-            self.text(note, &self.f.small_c, 0.0, y, w, 30.0, self.cc(GRAY, 0.75));
-        }
+        let _ = n;
+        // The rest of the settings live in their own window: a button that says so.
+        self.primary(
+            "More settings  ›",
+            16.0,
+            46.0 + 5.0 * 32.0 + 6.0,
+            w - 32.0,
+            30.0,
+            acc,
+            Action::OpenConfig,
+        );
     }
 
     /// `key`'s value eased towards `target` (settings window only: the pill's pane snaps).
@@ -214,6 +207,23 @@ impl Renderer {
                 );
                 let t = self.ease(&format!("s:{key}"), on as u8 as f32);
                 let (kx, ky) = (rw - 22.0 - 34.0, y + 6.0);
+                // A pane's row also moves it along the tab strip.
+                if let Some(pk) = key.strip_prefix("panes.") {
+                    for (i, (glyph, dir)) in [('\u{E70E}', -1i8), ('\u{E70D}', 1)]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let cx = kx - 70.0 + i as f32 * 28.0;
+                        self.round_btn(
+                            cx,
+                            y + 15.0,
+                            11.0,
+                            fg,
+                            Action::PaneMove(pk_static(pk), dir),
+                            |cx, cy, c| self.glyph(glyph, cx, cy, 11.0, c),
+                        );
+                    }
+                }
                 if t < 0.99 {
                     self.stroke_rr(
                         kx,
@@ -415,4 +425,9 @@ impl Renderer {
             self.text(name, &self.f.btn, x, y + 3.0, sw, 24.0, self.cc(fg, a));
         }
     }
+}
+
+/// The pane key as a `&'static str` (`Action` holds static names).
+fn pk_static(k: &str) -> &'static str {
+    crate::ui_state::Panel::from_key(k).map_or("", |p| p.key())
 }

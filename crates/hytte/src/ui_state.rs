@@ -242,6 +242,52 @@ impl Panel {
         }
     }
 
+    /// Every pane, in the order the tab strip has them until the user moves them.
+    pub const ALL: [Panel; 9] = [
+        Panel::Shelf,
+        Panel::Media,
+        Panel::Home,
+        Panel::Notes,
+        Panel::Todo,
+        Panel::Weather,
+        Panel::Tasks,
+        Panel::Timer,
+        Panel::Power,
+    ];
+
+    /// The pane's name in `[panes]` (the switch `panes.<key>` and the `order` list).
+    pub fn key(self) -> &'static str {
+        match self {
+            Panel::Tasks => "tasks",
+            Panel::Shelf => "shelf",
+            Panel::Media => "media",
+            Panel::Timer => "timer",
+            Panel::Power => "power",
+            Panel::Home => "home",
+            Panel::Notes => "notes",
+            Panel::Todo => "todo",
+            Panel::Weather => "weather",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Option<Panel> {
+        Panel::ALL.into_iter().find(|p| p.key() == s.trim())
+    }
+
+    /// All panes in the user's order: those named in `order` first (as written, unknown names
+    /// and repeats ignored), then the rest in their usual order.
+    pub fn arranged(order: &str) -> Vec<Panel> {
+        let mut v: Vec<Panel> = vec![];
+        for p in order.split(',').filter_map(Panel::from_key) {
+            if !v.contains(&p) {
+                v.push(p);
+            }
+        }
+        let rest: Vec<Panel> = Panel::ALL.into_iter().filter(|p| !v.contains(p)).collect();
+        v.extend(rest);
+        v
+    }
+
     pub fn from_name(s: &str) -> Option<Panel> {
         [
             Panel::Tasks,
@@ -573,6 +619,8 @@ pub struct Model {
     /// The lyrics page is showing in the Media pane; `lyrics_on` is `[media] lyrics`.
     pub lyrics_open: bool,
     pub lyrics_on: bool,
+    /// `[media] lyrics_live` is off: timed lyrics show as plain words to scroll.
+    pub lyrics_still: bool,
     /// The song the lyrics below are for (or being fetched for), and what is known.
     pub lyric_key: String,
     pub lyric_state: LyricState,
@@ -669,6 +717,17 @@ pub const JOT_ROWS: usize = 4;
 pub const UNDO_HOLD: Duration = Duration::from_secs(6);
 
 /// The settings pane's groups, as its segmented header shows them.
+/// `order` with the pane `key` moved `dir` places (-1 earlier, 1 later) among all nine; the
+/// whole new order, ready to write back.
+pub fn move_pane(order: &str, key: &str, dir: i8) -> String {
+    let mut v = Panel::arranged(order);
+    if let Some(i) = Panel::from_key(key).and_then(|p| v.iter().position(|q| *q == p)) {
+        let j = (i as i32 + dir as i32).clamp(0, v.len() as i32 - 1) as usize;
+        v.swap(i, j);
+    }
+    v.iter().map(|p| p.key()).collect::<Vec<_>>().join(",")
+}
+
 pub const SETTINGS_GROUPS: [&str; 3] = ["Look", "Behaviour", "Features"];
 
 /// First word of a command line, lower-cased, without path or `.exe`.
@@ -890,12 +949,24 @@ impl Model {
         }
     }
 
+    /// How many lines the lyrics page lists for scrolling: plain words, or timed lines shown
+    /// without following the song. None while the page follows the song or has no words.
+    pub fn lyric_rows(&self) -> Option<usize> {
+        match &self.lyric_state {
+            LyricState::Ready(crate::lyrics::Lyrics::Plain(l)) => Some(l.len()),
+            LyricState::Ready(crate::lyrics::Lyrics::Synced(l)) if self.lyrics_still => {
+                Some(l.len())
+            }
+            _ => None,
+        }
+    }
+
     /// Scroll plain lyrics by `by` lines; false when there is nothing to scroll (or at an end).
     pub fn scroll_lyrics(&mut self, by: i32) -> bool {
-        let LyricState::Ready(crate::lyrics::Lyrics::Plain(lines)) = &self.lyric_state else {
+        let Some(n) = self.lyric_rows() else {
             return false;
         };
-        let max = lines.len().saturating_sub(3) as i32;
+        let max = n.saturating_sub(3) as i32;
         let first = self.lyric_first.min(max as usize) as i32;
         let next = (first + by).clamp(0, max);
         self.lyric_first = next as usize;
@@ -1621,14 +1692,15 @@ impl Model {
 
     pub fn panels(&self) -> Vec<Panel> {
         let mut v = vec![];
-        if !self.shelf.is_empty() {
+        if self.panes.shelf && !self.shelf.is_empty() {
             v.push(Panel::Shelf);
         }
-        if self.media.is_some() {
+        if self.panes.media && self.media.is_some() {
             v.push(Panel::Media);
         }
-        // Quick controls (mic, sound, keep awake, timer) are always there.
-        v.push(Panel::Home);
+        if self.panes.home {
+            v.push(Panel::Home);
+        }
         if self.panes.notes {
             v.push(Panel::Notes);
         }
@@ -1639,15 +1711,21 @@ impl Model {
             v.push(Panel::Weather);
         }
         // Terminal tasks and the dev servers they run share one pane.
-        if self.visible_count() > 0 || !self.ports.is_empty() {
+        if self.panes.tasks && (self.visible_count() > 0 || !self.ports.is_empty()) {
             v.push(Panel::Tasks);
         }
-        if self.timer.is_some() {
+        if self.panes.timer && self.timer.is_some() {
             v.push(Panel::Timer);
         }
-        if self.power.is_some() {
+        if self.panes.power && self.power.is_some() {
             v.push(Panel::Power);
         }
+        // Never an empty strip: with everything switched off the quick controls stay.
+        if v.is_empty() {
+            v.push(Panel::Home);
+        }
+        let order = Panel::arranged(&self.panes.order);
+        v.sort_by_key(|p| order.iter().position(|q| q == p));
         v
     }
 
@@ -1679,10 +1757,22 @@ impl Model {
         let ps = self.panels();
         match self.selected {
             Some(p) if ps.contains(&p) => p,
-            // Unpicked: what the collapsed pill shows (a task, music), else the quick controls.
-            _ if self.visible_count() > 0 => Panel::Tasks,
-            _ if self.media.as_ref().is_some_and(|m| m.playing) => Panel::Media,
-            _ => Panel::Home,
+            // Unpicked: what the collapsed pill shows (a task, music), else the quick controls,
+            // else the first pane left.
+            _ => {
+                let want = if self.visible_count() > 0 {
+                    Panel::Tasks
+                } else if self.media.as_ref().is_some_and(|m| m.playing) {
+                    Panel::Media
+                } else {
+                    Panel::Home
+                };
+                if ps.contains(&want) {
+                    want
+                } else {
+                    ps[0]
+                }
+            }
         }
     }
 
@@ -1770,7 +1860,7 @@ impl Model {
             Scene::ExpTimerDone if self.focus_summary.is_some() => (380.0, 134.0),
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
-            Scene::ExpSettings => (380.0, 216.0),
+            Scene::ExpSettings => (380.0, 252.0),
             // Running: ring + controls. Not running: the setup card.
             Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
             Scene::ExpTimer => (380.0, 152.0 + tab),
@@ -2161,6 +2251,54 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn panes_follow_the_users_order_and_moves_are_clamped() {
+        assert_eq!(Panel::arranged("").as_slice(), Panel::ALL.as_slice());
+        // Unknown names and repeats are ignored; the rest keep their usual order after.
+        let a = Panel::arranged("weather, nope,home,weather");
+        assert_eq!(&a[..2], &[Panel::Weather, Panel::Home]);
+        assert_eq!(a.len(), 9);
+        assert_eq!(
+            move_pane("", "home", -1)
+                .split(',')
+                .take(3)
+                .collect::<Vec<_>>(),
+            ["shelf", "home", "media"]
+        );
+        // At an end a move changes nothing.
+        let first = Panel::ALL[0].key();
+        assert_eq!(move_pane("", first, -1), move_pane("", first, 0));
+        // The strip uses the order, for the panes that exist.
+        let mut m = Model::default();
+        m.panes.order = "weather,notes,home".into();
+        assert_eq!(
+            m.panels(),
+            vec![Panel::Weather, Panel::Notes, Panel::Home, Panel::Todo]
+        );
+    }
+
+    #[test]
+    fn every_pane_can_be_switched_off_but_the_strip_never_empties() {
+        let mut m = Model::default();
+        m.panes = crate::config::Panes {
+            home: false,
+            notes: false,
+            todo: false,
+            weather: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            m.panels(),
+            vec![Panel::Home],
+            "nothing left: quick controls"
+        );
+        assert_eq!(m.panel(), Panel::Home);
+        m.panes.home = true;
+        m.panes.timer = false;
+        m.panes.tasks = false;
+        assert_eq!(m.panels(), vec![Panel::Home]);
+    }
 
     #[test]
     fn wider_search_is_offered_only_for_an_empty_answer_and_cached() {
@@ -2916,6 +3054,7 @@ bang"
             notes: false,
             todo: false,
             weather: false,
+            ..Default::default()
         };
         m
     }

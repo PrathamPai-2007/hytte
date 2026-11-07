@@ -167,6 +167,7 @@ impl Ui {
             Action::Opacity
             | Action::Glow
             | Action::ClearSearch
+            | Action::PaneMove(..)
             | Action::Jump(_)
             | Action::EditConfig(_) => {}
             Action::Set(key, v) => match crate::config::set(key, v) {

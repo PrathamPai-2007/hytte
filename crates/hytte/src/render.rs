@@ -123,6 +123,8 @@ pub enum Action {
     FocusMedia(String),
     /// Open the settings pane on this group, or close it (None).
     Settings(Option<u8>),
+    /// Move a pane (`panes.<key>`) earlier (-1) or later (1) in the tab order.
+    PaneMove(&'static str, i8),
     /// Write one `section.key` to `config.toml`; it applies straight away.
     Set(&'static str, Val),
     /// Open `config.toml` for the settings the pane doesn't have.

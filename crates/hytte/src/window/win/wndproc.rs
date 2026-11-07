@@ -426,6 +426,11 @@ pub(super) unsafe extern "system" fn wndproc(
                         .spawn();
                 }
                 14 => crate::setup::tray_setup(),
+                19 => {
+                    with_ui(|ui| {
+                        crate::settings_win::open(&ui.cfg);
+                    });
+                }
                 16 => crate::agents::tray(),
                 15 => crate::update::check_now(),
                 18 => open_url("https://github.com/PrathamPai-2007/hytte/blob/main/manual/README.md"),

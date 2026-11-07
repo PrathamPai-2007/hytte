@@ -496,6 +496,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             Action::OpenConfig => {
                                 open_config(&s.cfg);
                             }
+                            Action::PaneMove(k, dir) => {
+                                let order = crate::ui_state::move_pane(&s.cfg.panes.order, k, dir);
+                                match config::set_text("panes.order", &order) {
+                                    Ok(Some(cfg)) => s.cfg = cfg,
+                                    Ok(None) => crate::logging::line(
+                                        "settings window: config.toml has a mistake in it",
+                                    ),
+                                    Err(e) => {
+                                        crate::logging::line(&format!("settings window: {e}"))
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }

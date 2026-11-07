@@ -122,6 +122,7 @@ impl Tray {
             if multi {
                 let _ = AppendMenuW(menu, MF_STRING, 17, w!("Move to next monitor"));
             }
+            let _ = AppendMenuW(menu, MF_STRING, 19, w!("Settings…"));
             let _ = AppendMenuW(menu, MF_STRING, 11, w!("Open settings folder"));
             let _ = AppendMenuW(menu, MF_STRING, 15, w!("Check for updates…"));
             let _ = AppendMenuW(menu, MF_STRING, 18, w!("Help"));

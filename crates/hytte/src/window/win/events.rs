@@ -280,6 +280,7 @@ impl Ui {
         self.model.apply_panes(&new.panes);
         self.model.skin = crate::skin::Skin::from_name(&new.general.skin);
         self.model.lyrics_on = new.media.lyrics;
+        self.model.lyrics_still = !new.media.lyrics_live;
         self.breaks.configure(break_minutes(&new), Instant::now());
         self.model.imperial = crate::weather::imperial(&new.weather.units);
         let monitor_changed = new.general.monitor != self.cfg.general.monitor

@@ -5,8 +5,11 @@ use crate::lyrics::{current_line, Lyrics};
 use crate::sleep::Kind as SleepKind;
 use crate::ui_state::{LyricState, MediaInfo};
 
-/// How long a lyric takes to fade in once its line starts, in ms.
-const LINE_FADE_MS: f32 = 350.0;
+/// How long the lyrics take to glide to the next line once it starts, in ms.
+const LINE_SLIDE_MS: f32 = 520.0;
+/// Distance between lyric lines, and the height where the sung one sits.
+const LINE_PITCH: f32 = 26.0;
+const LINE_MID: f32 = 57.0;
 
 impl Renderer {
     /// The play position now: the player's last report, carried forward while it plays.
@@ -310,6 +313,37 @@ impl Renderer {
         }
     }
 
+    /// "Live": follow the song line by line. A tick box; greyed and dead when this song has no
+    /// timed lyrics.
+    fn live_toggle(&self, x: f32, cy: f32, enabled: bool, on: bool) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        let (bw, bh) = (62.0, 24.0);
+        let y = cy - bh / 2.0;
+        let hov = enabled && self.hit(x, y, bw, bh, Action::Set("media.lyrics_live", Val::B(!on)));
+        if hov {
+            self.fill_rr(x, y, bw, bh, 12.0, self.cc(fg, 0.08));
+        }
+        let a = if enabled { 1.0 } else { 0.35 };
+        let (bx, by, s) = (x + 8.0, cy - 7.0, 14.0);
+        if enabled && on {
+            self.fill_rr(bx, by, s, s, 4.0, self.cc(acc, 0.95));
+            let ink = self.cc(self.ink(), 0.95);
+            self.line((bx + 3.5, by + 7.5), (bx + 6.0, by + 10.0), ink, 1.8);
+            self.line((bx + 6.0, by + 10.0), (bx + 10.8, by + 4.5), ink, 1.8);
+        } else {
+            self.stroke_rr(bx, by, s, s, 4.0, self.cc(fg, 0.55 * a), 1.3, false);
+        }
+        self.text(
+            "Live",
+            &self.f.btn,
+            x + 28.0,
+            y,
+            bw - 28.0,
+            bh,
+            self.cc(fg, (if hov { 1.0 } else { 0.86 }) * a),
+        );
+    }
+
     /// Three lines of lyrics, the one being sung in the middle, over small controls.
     fn lyrics_page(&self, fr: &Frame, md: &MediaInfo, w: f32, h: f32) {
         let m = fr.model;
@@ -343,6 +377,9 @@ impl Renderer {
         let cy = h - tab - 20.0;
         self.transport(fr, md, w / 2.0, cy, 0.8);
         self.sleep_button(fr, w - 16.0, cy);
+        // Only timed lyrics can follow the song: for any other song the box is disabled.
+        let timed = m.lyrics_on && matches!(&m.lyric_state, LyricState::Ready(Lyrics::Synced(_)));
+        self.live_toggle(16.0, cy, timed, !m.lyrics_still);
         let note = |text: &str, sub: &str| {
             self.text(text, &self.f.big_c, 0.0, 28.0, w, 24.0, self.cc(fg, 0.9));
             if !sub.is_empty() {
@@ -389,61 +426,71 @@ impl Renderer {
             }
             LyricState::Ready(Lyrics::NotFound) => note("No lyrics found", ""),
             LyricState::Ready(Lyrics::Instrumental) => note("Instrumental", ""),
-            LyricState::Ready(Lyrics::Synced(lines)) => {
+            LyricState::Ready(Lyrics::Synced(lines)) if !m.lyrics_still => {
                 let pos = self.media_pos(fr, md);
-                let now_i = current_line(lines, pos);
-                let at = |i: Option<usize>| i.and_then(|i| lines.get(i));
-                let shown = |l: Option<&crate::lyrics::Line>| {
-                    l.map(|l| {
-                        if l.text.is_empty() {
-                            "♪"
-                        } else {
-                            l.text.as_str()
-                        }
-                    })
-                    .unwrap_or("")
-                    .to_string()
+                // Where the list is scrolled to, in lines: it glides from the line before to
+                // the one being sung just after that one starts. Before the first line it
+                // waits one line short, so the opening line rises into place.
+                let at = match current_line(lines, pos) {
+                    Some(i) => {
+                        let t = ((pos - lines[i].at_ms) as f32 / LINE_SLIDE_MS).clamp(0.0, 1.0);
+                        i as f32 - 1.0 + t * t * (3.0 - 2.0 * t)
+                    }
+                    None => -1.0,
                 };
-                let (prev, cur, next) = match now_i {
-                    Some(i) => (at(i.checked_sub(1)), at(Some(i)), at(Some(i + 1))),
-                    None => (None, None, at(Some(0))),
-                };
-                // The line that has just started fades in; the one before it dims.
-                let fade = cur.map_or(1.0, |l| {
-                    ((pos - l.at_ms) as f32 / LINE_FADE_MS).clamp(0.0, 1.0)
-                });
-                self.text(
-                    &shown(prev),
-                    &self.f.center,
-                    24.0,
-                    26.0,
-                    w - 48.0,
-                    16.0,
-                    self.cc(GRAY, 0.55),
-                );
-                self.text(
-                    &shown(cur),
-                    &self.f.lyric,
-                    24.0,
-                    37.0,
-                    w - 48.0,
-                    40.0,
-                    self.cc(fg, 0.55 + 0.45 * fade),
-                );
-                self.text(
-                    &shown(next),
-                    &self.f.center,
-                    24.0,
-                    79.0,
-                    w - 48.0,
-                    16.0,
-                    self.cc(GRAY, 0.55),
-                );
+                let first = (at.floor() as i32 - 1).max(0);
+                for k in first..=(at.floor() as i32 + 3) {
+                    let Some(l) = lines.get(k as usize) else {
+                        break;
+                    };
+                    let d = k as f32 - at;
+                    // 1 on the line being sung, 0 a whole line away.
+                    let e = (1.0 - d.abs()).clamp(0.0, 1.0);
+                    let e = e * e * (3.0 - 2.0 * e);
+                    // Lines further than a line and a half melt away before the edges.
+                    let reach = (1.0 - (d.abs() - 1.0).max(0.0) / 0.6).clamp(0.0, 1.0);
+                    let text = if l.text.is_empty() {
+                        "♪"
+                    } else {
+                        l.text.as_str()
+                    };
+                    let cy = LINE_MID + d * LINE_PITCH;
+                    let (small, big) = (0.55 * (1.0 - e) * reach, e);
+                    if small > 0.02 {
+                        self.text(
+                            text,
+                            &self.f.center,
+                            24.0,
+                            cy - 8.0,
+                            w - 48.0,
+                            16.0,
+                            self.cc(GRAY, small),
+                        );
+                    }
+                    if big > 0.02 {
+                        self.text(
+                            text,
+                            &self.f.lyric,
+                            24.0,
+                            cy - 20.0,
+                            w - 48.0,
+                            40.0,
+                            self.cc(fg, big),
+                        );
+                    }
+                }
             }
-            LyricState::Ready(Lyrics::Plain(lines)) => {
-                let first = m.lyric_first.min(lines.len().saturating_sub(1));
+            LyricState::Ready(Lyrics::Plain(_) | Lyrics::Synced(_)) => {
+                let words: Vec<&str> = match &m.lyric_state {
+                    LyricState::Ready(Lyrics::Plain(l)) => l.iter().map(String::as_str).collect(),
+                    LyricState::Ready(Lyrics::Synced(l)) => {
+                        l.iter().map(|l| l.text.as_str()).collect()
+                    }
+                    _ => vec![],
+                };
+                let first = m.lyric_first.min(words.len().saturating_sub(1));
                 for (i, y) in [(0usize, 28.0f32), (1, 48.0), (2, 68.0)] {
-                    let t = lines.get(first + i).map_or("", String::as_str);
+                    let t = words.get(first + i).copied().unwrap_or("");
                     let a = if i == 0 { 0.95 } else { 0.7 };
                     self.text(t, &self.f.center, 24.0, y, w - 48.0, 20.0, self.cc(fg, a));
                 }

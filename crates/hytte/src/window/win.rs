@@ -296,6 +296,8 @@ struct Ui {
     kb_focus: Option<usize>,
     /// Accumulated wheel delta (a notch is 120; precision wheels send fractions).
     wheel: i32,
+    /// Touchpad scroll gathered for the lyrics page (it moves a line per big stretch).
+    lyric_wheel: i32,
     /// Sideways scroll (touchpad swipe, tilt wheel), turned into one page per gesture.
     swipe: crate::ui_state::Swipe,
     /// Agent asks waiting for an answer, oldest first; the front one is on the chip.
@@ -610,6 +612,7 @@ pub fn run_windows(
             thumb_req: Default::default(),
             tabs: crate::tabs::spawn(),
             wheel: 0,
+            lyric_wheel: 0,
             swipe: Default::default(),
             pressed: false,
             light: false,
@@ -646,6 +649,7 @@ pub fn run_windows(
         ui.model.pin_button = ui.cfg.general.pin_button;
         ui.breaks.configure(break_minutes(&ui.cfg), Instant::now());
         ui.model.lyrics_on = ui.cfg.media.lyrics;
+        ui.model.lyrics_still = !ui.cfg.media.lyrics_live;
         ui.model.skin = crate::skin::Skin::from_name(&ui.cfg.general.skin);
         ui.model.init_jot(&crate::jot::path());
         ui.model.weather_place = crate::weather::Place::load();

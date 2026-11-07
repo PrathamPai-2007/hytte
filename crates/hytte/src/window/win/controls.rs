@@ -143,6 +143,25 @@ impl Ui {
     pub(super) fn wheel(&mut self, delta: i32) {
         // ponytail: notch size tells mouse from touchpad; free-spin mice count as touchpads
         let notched = delta != 0 && delta % 120 == 0;
+        // Lyrics move a line per notch, but a touchpad needs a long stretch per line (it sends
+        // a stream of small deltas, and its coasting would otherwise fling the page).
+        if self.hover
+            && self.model.panel() == Panel::Media
+            && self.model.lyrics_open
+            && self.model.lyric_rows().is_some()
+        {
+            if self.lyric_wheel.signum() == -delta.signum() {
+                self.lyric_wheel = 0; // the other way: start over
+            }
+            self.lyric_wheel += delta;
+            let need = if notched { 120 } else { 600 };
+            if self.lyric_wheel.abs() >= need {
+                let dir = -self.lyric_wheel.signum();
+                self.lyric_wheel = 0;
+                self.model.scroll_lyrics(dir);
+            }
+            return;
+        }
         self.wheel += delta;
         let steps = self.wheel / 120;
         if steps == 0 {
@@ -283,6 +302,12 @@ impl Ui {
 
     pub(super) fn evaluate_fullscreen(&mut self, hwnd: HWND) {
         use crate::fullscreen::Suppress;
+        // Typing (or keyboard mode) puts Hytte itself in front. That says nothing about the
+        // app underneath, and reading it as "no fullscreen app" would clear `hover` and
+        // collapse the pill under the user's click. Decide again once focus is handed back.
+        if self.kb.is_some() || self.model.typing.is_some() {
+            return;
+        }
         // None: an overlay (Game Bar, GPU / OEM tools) is in front; keep the current state.
         let Some(s) = crate::fullscreen::evaluate(&self.cfg.general, self.hmon) else {
             return;

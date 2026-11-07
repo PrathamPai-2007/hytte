@@ -185,8 +185,15 @@ pub fn help(key: &str) -> &'static str {
         "breaks.eyes_min" => "Every so often, a card asks you to look 20 feet away for 20 seconds.",
         "breaks.stretch_min" => "A card suggests standing up to stretch.",
         "breaks.water_min" => "A card reminds you to drink some water.",
+        "media.lyrics_live" => "Highlights the line being sung when the lyrics are timed. Off shows the words to scroll through.",
         "media.lyrics" => "Shows the words of the song that is playing. Looking them up sends the song title and artist to lrclib.net.",
         "general.skin" => "The colours of the pill: Graphite is the original dark look.",
+        "panes.home" => "Shows the Quick controls (mic, sound, awake, timer, volume) in the tab strip.",
+        "panes.media" => "Shows the Music pane while something plays.",
+        "panes.shelf" => "Shows the Shelf while it holds files.",
+        "panes.tasks" => "Shows terminal tasks and dev servers in the tab strip.",
+        "panes.timer" => "Shows the Timer pane while a timer runs.",
+        "panes.power" => "Shows the Battery pane when the PC has a battery.",
         "panes.notes" => "Shows the Notes pane in the tab strip.",
         "panes.todo" => "Shows the To-do pane in the tab strip.",
         "panes.weather" => "Shows the Weather pane in the tab strip.",
@@ -488,7 +495,17 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
         },
         Section {
             name: "Media",
-            rows: vec![(sw("Show lyrics", "media.lyrics", c.media.lyrics), -1)],
+            rows: vec![
+                (sw("Show lyrics", "media.lyrics", c.media.lyrics), -1),
+                (
+                    sw(
+                        "Follow the song live",
+                        "media.lyrics_live",
+                        c.media.lyrics_live,
+                    ),
+                    -1,
+                ),
+            ],
         },
         Section {
             name: "Breaks",
@@ -524,11 +541,10 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
         },
         Section {
             name: "Panes",
-            rows: vec![
-                (sw("Notes", "panes.notes", c.panes.notes), -1),
-                (sw("To-do", "panes.todo", c.panes.todo), -1),
-                (sw("Weather", "panes.weather", c.panes.weather), -1),
-            ],
+            rows: crate::ui_state::Panel::arranged(&c.panes.order)
+                .into_iter()
+                .map(|p| (pane_switch(p, &c.panes), -1))
+                .collect(),
         },
         Section {
             name: "Timer",
@@ -763,4 +779,20 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             ],
         },
     ]
+}
+
+/// A pane's switch, labelled for the settings window (which adds the move arrows).
+fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
+    use crate::ui_state::Panel::*;
+    match p {
+        Home => Row::Switch("Quick controls", "panes.home", c.home),
+        Media => Row::Switch("Music", "panes.media", c.media),
+        Shelf => Row::Switch("Shelf", "panes.shelf", c.shelf),
+        Tasks => Row::Switch("Terminal tasks", "panes.tasks", c.tasks),
+        Timer => Row::Switch("Timer", "panes.timer", c.timer),
+        Power => Row::Switch("Battery", "panes.power", c.power),
+        Notes => Row::Switch("Notes", "panes.notes", c.notes),
+        Todo => Row::Switch("To-do", "panes.todo", c.todo),
+        Weather => Row::Switch("Weather", "panes.weather", c.weather),
+    }
 }

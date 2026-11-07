@@ -1141,6 +1141,12 @@ fn media_snapshots() {
         s(&mut r, "lyrics-long-line", &m);
         m.media.as_mut().unwrap().pos_ms = 21_000;
         s(&mut r, "lyrics-pause", &m);
+        // Gliding to the next line (a quarter second after it starts), and "Live" unticked.
+        m.media.as_mut().unwrap().pos_ms = 6_250;
+        s(&mut r, "lyrics-slide", &m);
+        m.lyrics_still = true;
+        s(&mut r, "lyrics-not-live", &m);
+        m.lyrics_still = false;
         m.media.as_mut().unwrap().pos_ms = 1_000;
         m.lyric_state = LyricState::Ready(Lyrics::Plain(
             [
