@@ -133,19 +133,21 @@ impl Renderer {
     /// The search field at the top of the settings window.
     pub(super) fn search_field(&self, query: &str, x: f32, y: f32, w: f32) {
         let (fg, acc) = (self.fg(), self.accent.get());
-        self.fill_rr(x, y, w, 34.0, 17.0, self.cc(fg, 0.06));
-        if !query.is_empty() {
-            self.stroke_rr(
-                x + 0.5,
-                y + 0.5,
-                w - 1.0,
-                33.0,
-                17.0,
-                self.cc(acc, 0.7),
-                1.0,
-                false,
-            );
-        }
+        // The window sends every key here, so the field always looks focused.
+        self.fill_rr(x, y, w, 34.0, 17.0, self.cc(fg, 0.1));
+        self.stroke_rr(
+            x + 0.5,
+            y + 0.5,
+            w - 1.0,
+            33.0,
+            17.0,
+            self.cc(acc, 0.85),
+            1.3,
+            false,
+        );
+        // A still bar, not a blinking one: no idle frames.
+        let cx = (x + 42.0 + self.caret_x(query, query.len())).min(x + w - 48.0);
+        self.fill_rr(cx, y + 8.0, 1.5, 18.0, 0.75, self.cc(acc, 0.95));
         // A magnifier.
         self.ring(x + 24.0, y + 16.0, 5.0, self.cc(fg, 0.55), 1.6);
         self.line(
@@ -158,7 +160,7 @@ impl Renderer {
             self.text(
                 "Search settings",
                 &self.f.body,
-                x + 42.0,
+                x + 46.0,
                 y,
                 w - 90.0,
                 34.0,
