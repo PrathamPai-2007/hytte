@@ -908,6 +908,24 @@ fn weather_snapshots() {
         m.places_busy = false;
         m.places_err = true;
         s(&mut r, "weather-ask-offline", &m);
+        // Nothing found for two seconds: the wider search is offered, then answers.
+        m.places_err = false;
+        m.place_edit.set("sri city");
+        m.places_for = "sri city".into();
+        m.wide_offer = true;
+        s(&mut r, "weather-ask-wide-offer", &m);
+        m.wide_offer = false;
+        m.wide_busy = true;
+        s(&mut r, "weather-ask-wide-busy", &m);
+        m.wide_busy = false;
+        m.places = vec![place("Sri City", "Andhra Pradesh, India")];
+        m.places_wide = true;
+        s(&mut r, "weather-ask-wide-found", &m);
+        m.places.clear();
+        m.places_wide = false;
+        m.wide_for = "sri city".into();
+        s(&mut r, "weather-ask-wide-none", &m);
+        m.wide_for.clear();
         // A place is chosen.
         let mut m = model();
         m.now = Some(Instant::now());

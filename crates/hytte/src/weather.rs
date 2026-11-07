@@ -227,6 +227,55 @@ pub fn parse_forecast(place: &Place, body: &[u8], fetched_ms: u64) -> Result<For
     })
 }
 
+/// The wider search: OpenStreetMap's Nominatim. Only ever run on the user's say-so (its policy
+/// forbids search-as-you-type); `net::fetch` names the app in the User-Agent.
+pub fn wide_url(query: &str) -> String {
+    format!(
+        "https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=4\
+         &addressdetails=1&accept-language=en",
+        crate::net::encode(query.trim())
+    )
+}
+
+/// Matches from the wider search. Coordinates arrive as strings.
+pub fn parse_wide(body: &[u8]) -> Result<Vec<Place>, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("unexpected reply: {e}"))?;
+    let mut out: Vec<Place> = vec![];
+    for r in v.as_array().into_iter().flatten() {
+        let (Some(name), Some(lat), Some(lon)) = (
+            r["name"].as_str().filter(|s| !s.is_empty()),
+            r["lat"].as_str().and_then(|s| s.parse::<f64>().ok()),
+            r["lon"].as_str().and_then(|s| s.parse::<f64>().ok()),
+        ) else {
+            continue;
+        };
+        let mut parts: Vec<&str> = vec![];
+        for key in ["state", "country"] {
+            if let Some(s) = r["address"][key]
+                .as_str()
+                .filter(|s| !s.is_empty() && *s != name)
+            {
+                parts.push(s);
+            }
+        }
+        let p = Place {
+            name: name.to_string(),
+            region: parts.join(", "),
+            lat,
+            lon,
+        };
+        if !out.iter().any(|q| q.name == p.name && q.region == p.region) {
+            out.push(p);
+        }
+    }
+    Ok(out)
+}
+
+pub fn fetch_wide(query: &str) -> Result<Vec<Place>, String> {
+    parse_wide(&crate::net::fetch(&wide_url(query), None, 10, 262_144)?)
+}
+
 /// Search places on a worker thread.
 pub fn fetch_places(query: &str) -> Result<Vec<Place>, String> {
     parse_places(&crate::net::fetch(&places_url(query), None, 10, 262_144)?)
@@ -311,6 +360,30 @@ mod tests {
             vec![]
         );
         assert!(parse_places(b"<html>403</html>").is_err());
+    }
+
+    #[test]
+    fn wide_places_read_string_coordinates_and_region() {
+        let body = br#"[
+          {"name":"Sri City","lat":"13.5362462","lon":"79.9911259",
+           "address":{"state":"Andhra Pradesh","country":"India"}},
+          {"name":"Sri City","lat":"13.53","lon":"79.99",
+           "address":{"state":"Andhra Pradesh","country":"India"}},
+          {"name":"no coordinates"}]"#;
+        let p = parse_wide(body).unwrap();
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].region, "Andhra Pradesh, India");
+        assert!((p[0].lat - 13.5362462).abs() < 1e-9 && (p[0].lon - 79.9911259).abs() < 1e-9);
+        assert_eq!(parse_wide(b"[]").unwrap(), vec![]);
+        assert!(parse_wide(b"<html>429</html>").is_err());
+        assert!(wide_url(" sri city ").contains("q=sri%20city&"));
+    }
+
+    #[test]
+    #[ignore = "needs the network"]
+    fn wide_finds_sri_city() {
+        let p = fetch_wide("sri city").unwrap();
+        assert!(p.iter().any(|p| p.name == "Sri City"), "{p:?}");
     }
 
     #[test]

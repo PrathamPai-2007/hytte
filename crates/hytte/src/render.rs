@@ -143,6 +143,8 @@ pub enum Action {
     PickPlace(usize),
     /// The place name in the Weather pane: choose another place.
     ChangePlace,
+    /// "Search more widely": the OpenStreetMap lookup.
+    SearchWide,
     /// Close the place chooser and keep the current place.
     CancelPlace,
     /// Fetch the forecast again after a failure.

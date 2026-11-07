@@ -1,5 +1,6 @@
 //! Draining `UiEvent`s into the model, and applying a changed config.
 
+use super::forecast::WIDE_OFFER_MS;
 use super::*;
 
 impl Ui {
@@ -196,9 +197,19 @@ impl Ui {
                 UiEvent::Forecast(r) => self.model.forecast_result(r, now),
                 UiEvent::Lyrics(key, r) => self.model.lyrics_result(key, r),
                 UiEvent::Places(seq, q, r) if seq == self.place_seq => {
-                    self.model.places_result(q, r)
+                    self.model.places_result(q, r);
+                    // Nothing found: after two quiet seconds, offer the wider search.
+                    if self.model.places.is_empty() && !self.model.places_err {
+                        unsafe {
+                            SetTimer(Some(hwnd), T_WIDE, WIDE_OFFER_MS, None);
+                        }
+                    }
                 }
                 UiEvent::Places(..) => {}
+                UiEvent::WidePlaces(seq, q, r) if seq == self.place_seq => {
+                    self.model.wide_result(q, r)
+                }
+                UiEvent::WidePlaces(..) => {}
                 UiEvent::Notice(text, tone) => {
                     let mut c = Chip::new(text, now);
                     c.tone = tone;

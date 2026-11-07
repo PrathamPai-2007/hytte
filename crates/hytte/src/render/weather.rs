@@ -77,7 +77,13 @@ impl Renderer {
         let mut y = 76.0;
         if m.places.is_empty() {
             let q = m.place_edit.text().trim();
-            let msg = if m.places_busy {
+            let msg = if m.wide_busy {
+                "Searching more widely…"
+            } else if m.wide_err {
+                "Can't reach the map search."
+            } else if !m.wide_for.is_empty() && m.wide_for == q {
+                "Nothing found there either."
+            } else if m.places_busy {
                 "Searching…"
             } else if m.places_err {
                 "Can't reach the weather service."
@@ -95,6 +101,38 @@ impl Renderer {
                 SUG_H,
                 self.cc(GRAY, 0.9),
             );
+            if m.wide_offer {
+                y += SUG_H;
+                let hov = self.hit(12.0, y, w - 24.0, SUG_H, Action::SearchWide);
+                // Enter takes it too, so it always reads as the chosen row.
+                self.fill_rr(
+                    12.0,
+                    y,
+                    w - 24.0,
+                    SUG_H,
+                    9.0,
+                    self.cc(fg, if hov { 0.10 } else { 0.07 }),
+                );
+                let label = format!("Search more widely for “{q}”");
+                self.text(
+                    &label,
+                    &self.f.body,
+                    22.0,
+                    y,
+                    w - 44.0 - 84.0,
+                    SUG_H,
+                    self.cc(self.accent.get(), 0.95),
+                );
+                self.text(
+                    "OpenStreetMap",
+                    &self.f.small_r,
+                    w - 22.0 - 84.0,
+                    y,
+                    84.0,
+                    SUG_H,
+                    self.cc(GRAY, 0.8),
+                );
+            }
             return;
         }
         for (i, p) in m.places.iter().enumerate() {
@@ -130,6 +168,17 @@ impl Renderer {
                 self.cc(GRAY, 0.95),
             );
             y += SUG_H;
+        }
+        if m.places_wide {
+            self.text(
+                "© OpenStreetMap contributors",
+                &self.f.small,
+                22.0,
+                y + 2.0,
+                w - 44.0,
+                12.0,
+                self.cc(GRAY, 0.6),
+            );
         }
     }
 

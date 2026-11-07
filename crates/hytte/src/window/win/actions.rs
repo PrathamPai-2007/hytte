@@ -53,6 +53,7 @@ impl Ui {
             Action::UndoJot => self.model.undo_jot(),
             Action::PickPlace(i) => self.pick_place(hwnd, i),
             Action::ChangePlace => self.change_place(hwnd),
+            Action::SearchWide => self.search_wide(),
             Action::CancelPlace => {
                 self.model.choosing = false;
                 self.end_keyboard(true);

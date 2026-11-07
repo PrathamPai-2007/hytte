@@ -64,6 +64,7 @@ const T_GPU: usize = 7;
 const T_SHOT: usize = 8;
 const T_CARET: usize = 9;
 const T_PLACE: usize = 10;
+const T_WIDE: usize = 11;
 /// Idle this long (no frames) before the working set is trimmed.
 const TRIM_MS: u32 = 30_000;
 

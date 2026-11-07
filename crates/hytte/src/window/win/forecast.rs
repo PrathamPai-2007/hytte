@@ -6,6 +6,8 @@ use crate::ui_state::Field;
 
 /// A pause after the last keystroke before the place search runs.
 const SEARCH_DELAY_MS: u32 = 250;
+/// How long "no places" stands before the wider search is offered.
+pub(super) const WIDE_OFFER_MS: u32 = 2000;
 
 impl Ui {
     /// Fetch the forecast if the Weather pane is showing and its data is old (or missing).
@@ -36,9 +38,33 @@ impl Ui {
     pub(super) fn place_typed(&mut self, hwnd: HWND) {
         self.place_seq += 1;
         self.model.place_sel = 0;
+        self.model.reset_wide();
         unsafe {
+            let _ = KillTimer(Some(hwnd), T_WIDE);
             SetTimer(Some(hwnd), T_PLACE, SEARCH_DELAY_MS, None);
         }
+    }
+
+    /// `T_WIDE` fired: Open-Meteo has had nothing for two seconds, so offer the wider search.
+    pub(super) fn wide_offer_due(&mut self) {
+        if self.model.offer_wide() {
+            self.layout();
+            self.kick();
+        }
+    }
+
+    /// The user chose "search more widely" (click, or Enter on it): ask OpenStreetMap once.
+    pub(super) fn search_wide(&mut self) {
+        if let Some(q) = self.model.start_wide() {
+            let (seq, sh) = (self.place_seq, self.shared.clone());
+            std::thread::spawn(move || {
+                crate::proc::eco_thread();
+                let r = crate::weather::fetch_wide(&q);
+                push_event(&sh, UiEvent::WidePlaces(seq, q, r));
+            });
+        }
+        self.layout();
+        self.kick();
     }
 
     /// `T_PLACE` fired: look the typed place up.
@@ -65,6 +91,9 @@ impl Ui {
 
     /// Enter in the place field: take the highlighted suggestion.
     pub(super) fn place_enter(&mut self, hwnd: HWND) {
+        if self.model.places.is_empty() && self.model.wide_offer {
+            return self.search_wide();
+        }
         self.pick_place(hwnd, self.model.place_sel);
     }
 

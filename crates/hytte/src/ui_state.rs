@@ -49,6 +49,8 @@ pub enum UiEvent {
     Task(TaskUpdate),
     /// Place search results for the query typed when search number `0` was current.
     Places(u64, String, Result<Vec<crate::weather::Place>, String>),
+    /// The same for the wider (OpenStreetMap) search the user asked for.
+    WidePlaces(u64, String, Result<Vec<crate::weather::Place>, String>),
     /// A forecast arrived (or the fetch failed).
     Forecast(Result<crate::weather::Forecast, String>),
     /// Lyrics for the song with this key (or the lookup failed).
@@ -551,6 +553,16 @@ pub struct Model {
     pub places_err: bool,
     /// The query `places` answers.
     pub places_for: String,
+    /// Open-Meteo found nothing for a while: the "search more widely" row is offered.
+    pub wide_offer: bool,
+    pub wide_busy: bool,
+    pub wide_err: bool,
+    /// The query the wider search answered (even with nothing).
+    pub wide_for: String,
+    /// `places` came from the wider search (its source is credited under the list).
+    pub places_wide: bool,
+    /// Wider-search answers this session, so the same query is never asked twice.
+    pub wide_cache: Vec<(String, Vec<crate::weather::Place>)>,
     /// Show Fahrenheit.
     pub imperial: bool,
     /// `[general] skin`: the pill's colours.
@@ -1184,8 +1196,13 @@ impl Model {
     /// Height of the Weather pane without the tab strip.
     pub fn weather_h(&self) -> f64 {
         if self.choosing_place() {
-            let rows = self.places.len().max(1) as f64;
-            38.0 + 34.0 + 4.0 + rows * 28.0 + 8.0
+            let mut rows = self.places.len().max(1) as f64;
+            if self.places.is_empty() && self.wide_offer {
+                rows += 1.0; // the "search more widely" row
+            }
+            // A line crediting OpenStreetMap under its results.
+            let credit = if self.places_wide { 16.0 } else { 0.0 };
+            38.0 + 34.0 + 4.0 + rows * 28.0 + 8.0 + credit
         } else if self.forecast.is_some() {
             148.0
         } else {
@@ -1227,6 +1244,7 @@ impl Model {
         }
         self.places_busy = false;
         self.places_for = query;
+        self.reset_wide();
         match r {
             Ok(p) => {
                 self.places = p;
@@ -1237,6 +1255,73 @@ impl Model {
                 self.places.clear();
                 self.places_err = true;
             }
+        }
+    }
+
+    /// Forget the wider search (the query changed, or a new Open-Meteo answer came).
+    pub fn reset_wide(&mut self) {
+        self.wide_offer = false;
+        self.wide_busy = false;
+        self.wide_err = false;
+        self.wide_for.clear();
+        self.places_wide = false;
+    }
+
+    /// Two seconds of "nothing found" have passed: offer the wider search. Only when the
+    /// answer on screen is Open-Meteo's empty one for what is still in the field.
+    pub fn offer_wide(&mut self) -> bool {
+        let q = self.place_edit.text().trim();
+        let due = self.choosing_place()
+            && self.places.is_empty()
+            && !self.places_busy
+            && !self.places_err
+            && !self.wide_busy
+            && q.chars().count() >= 2
+            && self.places_for == q;
+        self.wide_offer = due;
+        due
+    }
+
+    /// The user asked for the wider search. A repeat of an earlier query is answered from the
+    /// session cache; otherwise the query to send.
+    pub fn start_wide(&mut self) -> Option<String> {
+        if !self.wide_offer || self.wide_busy {
+            return None;
+        }
+        let q = self.place_edit.text().trim().to_string();
+        let key = q.to_lowercase();
+        self.wide_err = false;
+        if let Some((_, p)) = self.wide_cache.iter().find(|(k, _)| *k == key) {
+            self.places = p.clone();
+            self.wide_for = q;
+            self.places_wide = true;
+            self.wide_offer = false;
+            self.place_sel = 0;
+            return None;
+        }
+        self.wide_busy = true;
+        Some(q)
+    }
+
+    /// The wider search answered. One for text no longer in the field is dropped.
+    pub fn wide_result(&mut self, query: String, r: Result<Vec<crate::weather::Place>, String>) {
+        if self.place_edit.text().trim() != query {
+            return;
+        }
+        self.wide_busy = false;
+        match r {
+            Ok(p) => {
+                if self.wide_cache.len() >= 8 {
+                    self.wide_cache.remove(0);
+                }
+                self.wide_cache.push((query.to_lowercase(), p.clone()));
+                self.wide_for = query;
+                self.places_wide = !p.is_empty();
+                self.wide_offer = false;
+                self.places = p;
+                self.place_sel = 0;
+            }
+            Err(_) => self.wide_err = true,
         }
     }
 
@@ -1261,6 +1346,7 @@ impl Model {
 
     fn close_chooser(&mut self) {
         self.choosing = false;
+        self.reset_wide();
         self.places.clear();
         self.places_busy = false;
         self.places_err = false;
@@ -1274,6 +1360,7 @@ impl Model {
     }
 
     fn close_chooser_fields(&mut self) {
+        self.reset_wide();
         self.places.clear();
         self.places_busy = false;
         self.places_err = false;
@@ -2074,6 +2161,54 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn wider_search_is_offered_only_for_an_empty_answer_and_cached() {
+        let place = |n: &str| crate::weather::Place {
+            name: n.into(),
+            region: "India".into(),
+            lat: 13.5,
+            lon: 80.0,
+        };
+        let mut m = Model::default();
+        m.choosing = true;
+        m.place_edit.set("sri city");
+        assert!(!m.offer_wide(), "nothing has been searched yet");
+        m.places_result("sri city".into(), Ok(vec![]));
+        assert!(m.offer_wide() && m.weather_h() > 0.0);
+        let h = m.weather_h();
+        // Asking is the user's act; the query goes out once, and a second ask is ignored.
+        assert_eq!(m.start_wide().as_deref(), Some("sri city"));
+        assert_eq!(m.start_wide(), None);
+        // An answer for text since changed is dropped.
+        m.wide_result("sri".into(), Ok(vec![place("x")]));
+        assert!(m.wide_busy && m.places.is_empty());
+        m.wide_result("sri city".into(), Ok(vec![place("Sri City")]));
+        assert!(m.places_wide && m.places.len() == 1 && !m.wide_offer);
+        assert!(
+            m.weather_h() > 0.0 && m.weather_h() != h,
+            "credit line adds height"
+        );
+        // Typing again forgets it; the same query later is answered from the cache.
+        m.reset_wide();
+        m.places.clear();
+        m.places_result("sri city".into(), Ok(vec![]));
+        assert!(m.offer_wide());
+        assert_eq!(m.start_wide(), None);
+        assert_eq!(m.places[0].name, "Sri City");
+        // A new Open-Meteo answer with matches never offers it.
+        m.places_result("sri city".into(), Ok(vec![place("Sri City")]));
+        assert!(!m.offer_wide());
+        // Nothing found by the wider search either: no offer, message shows.
+        let mut m = Model::default();
+        m.choosing = true;
+        m.place_edit.set("zzzz");
+        m.places_result("zzzz".into(), Ok(vec![]));
+        assert!(m.offer_wide());
+        m.start_wide();
+        m.wide_result("zzzz".into(), Ok(vec![]));
+        assert!(!m.wide_offer && m.wide_for == "zzzz" && !m.places_wide);
+    }
 
     #[test]
     fn listeners_are_named_by_project_docker_wsl_or_exe() {
