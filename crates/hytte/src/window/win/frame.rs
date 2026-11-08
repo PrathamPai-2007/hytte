@@ -92,6 +92,14 @@ impl Ui {
             self.show_update(now);
             next = self.model.expire(now);
         }
+        if self.model.chip.is_none() && !self.model.cards.is_empty() && !self.paused && !self.gaming
+        {
+            self.model.show_card(now);
+            next = self.model.expire(now);
+        }
+        // A card that expired or was dismissed answers its waiting script with a hang-up.
+        let model = &self.model;
+        self.card_waits.retain(|(id, _)| model.has_card(id));
         match next {
             Some(next) => unsafe {
                 let ms = next.saturating_duration_since(now).as_millis() as u32 + 20;

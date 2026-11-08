@@ -189,7 +189,7 @@ impl Ui {
                     c.open = Some(crate::config::config_path());
                     self.model.chip = Some(c);
                 }
-                UiEvent::Cmd(c) => self.run_cmd(c, now),
+                UiEvent::Cmd(c, reply) => self.run_cmd(c, reply, now),
                 UiEvent::UpdateOffer { tag, note } => {
                     self.update_offer = Some((tag, note));
                     self.show_update(now);

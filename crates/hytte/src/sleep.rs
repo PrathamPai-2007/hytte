@@ -152,7 +152,9 @@ pub fn cancel() {
 fn saved_volume(exe: &str) -> Option<f32> {
     let text = std::fs::read_to_string(marker()).ok()?;
     let (e, v) = text.split_once('\n')?;
-    e.trim().eq_ignore_ascii_case(exe).then(|| v.trim().parse().ok())?
+    e.trim()
+        .eq_ignore_ascii_case(exe)
+        .then(|| v.trim().parse().ok())?
 }
 
 fn marker() -> std::path::PathBuf {

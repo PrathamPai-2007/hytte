@@ -1247,3 +1247,83 @@ fn skin_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// Live cards (`hytte card`): plain, progress, done, buttons, error, long text.
+#[test]
+#[ignore]
+fn card_snapshots() {
+    use hytte_proto::Cmd;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let s = |v: &str| Some(v.to_string());
+    let cases: Vec<(&str, Cmd)> = vec![
+        ("card-plain", Cmd { title: s("Backup finished"), ..Cmd::card() }),
+        (
+            "card-progress",
+            Cmd {
+                title: s("Deploy"),
+                text: s("Uploading assets…"),
+                progress: Some(40),
+                ..Cmd::card()
+            },
+        ),
+        (
+            "card-done",
+            Cmd {
+                title: s("Deploy"),
+                text: s("Live at hytte.app"),
+                progress: Some(40),
+                done: true,
+                open: s("https://example.com"),
+                ..Cmd::card()
+            },
+        ),
+        (
+            "card-buttons",
+            Cmd {
+                title: s("Restart the dev server?"),
+                text: s("package.json changed"),
+                buttons: vec!["Restart".into(), "Later".into()],
+                ..Cmd::card()
+            },
+        ),
+        (
+            "card-error",
+            Cmd {
+                title: s("CI failed"),
+                text: s("3 tests failed on main"),
+                icon: s("error"),
+                open: s("https://example.com"),
+                ..Cmd::card()
+            },
+        ),
+        (
+            "card-long",
+            Cmd {
+                title: s("Nightly report"),
+                text: s("All 1,204 checks passed, the bundle grew by 3 KB and the slowest page now loads in 1.4 s on a cold cache"),
+                progress: Some(75),
+                ..Cmd::card()
+            },
+        ),
+    ];
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        for (name, c) in &cases {
+            let mut m = model();
+            m.card(c, now);
+            m.show_card(now);
+            shoot(
+                &mut r,
+                &dir,
+                &format!("{name}{sfx}"),
+                &m,
+                Scene::ExpChip,
+                light,
+            );
+        }
+    }
+    contact_sheet(&dir);
+}

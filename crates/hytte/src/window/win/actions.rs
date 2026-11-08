@@ -343,13 +343,33 @@ impl Ui {
                 self.model.dismiss_chip();
                 self.show_ask(Instant::now());
             }
+            ChipAction::Card(id, label) => {
+                if let Some(i) = self.card_waits.iter().position(|w| w.0 == id) {
+                    let _ = self.card_waits.remove(i).1.send(label);
+                }
+                self.model.dismiss_chip();
+            }
         }
     }
 
-    /// A script's request (`hytte notify`, `hytte shelf add`). Paused or in a game nothing
-    /// may pop up, and a card never covers another one.
-    pub(super) fn run_cmd(&mut self, c: hytte_proto::Cmd, now: Instant) {
+    /// A script's request (`hytte notify`, `hytte card`, `hytte shelf add`). Paused or in a
+    /// game nothing may pop up (a waiting `card` gets a hang-up: no press), and a notify card
+    /// never covers another one. Live cards queue for the chip (`after_model_change`).
+    pub(super) fn run_cmd(
+        &mut self,
+        c: hytte_proto::Cmd,
+        reply: Option<Sender<String>>,
+        now: Instant,
+    ) {
         if self.paused || self.gaming {
+            return;
+        }
+        if c.cmd == "card" {
+            let id = self.model.card(&c, now);
+            if let Some(r) = reply {
+                self.card_waits.retain(|w| w.0 != id);
+                self.card_waits.push((id, r));
+            }
             return;
         }
         if c.cmd == "notify" {
@@ -406,6 +426,7 @@ impl Ui {
         let mut c = Chip::new(summary, *at);
         c.tone = crate::ui_state::Tone::Warn;
         c.hold = wait;
+        self.model.requeue_card();
         c.extra = vec![
             ("Allow".into(), ChipAction::Answer(*id, true)),
             ("Deny".into(), ChipAction::Answer(*id, false)),

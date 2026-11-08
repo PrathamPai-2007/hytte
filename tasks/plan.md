@@ -2,133 +2,133 @@
 
 ## Overview
 
-2.0 is everything already on local `main` (the panes, weather, notes, to-do, lyrics, skins, breaks,
-unsigned updates) plus two headline features that make the pill a real notch rather than a set of
-panes:
+2.0 is everything already on local `main` (panes, notes, to-do, weather, lyrics, skins, breaks,
+unsigned updates) plus five new things that turn the pill from an app into something you build on:
 
-1. **Notifications in the pill.** Windows notifications (WhatsApp, Teams, Discord, Outlook…) show
-   on the pill as a card with **Open** and **Dismiss**.
-2. **Live cards.** Any script, CI job or app can put a card on the pill, update it in place, give it
-   buttons, and optionally wait for which one was pressed.
+1. **Live cards.** Any script, CI job or app puts a card on the pill, updates it in place, gives it
+   a progress bar and buttons, and can wait for which button was pressed.
+2. **Script panes.** Your own panes, fed by a command Hytte runs on a timer, by your scripts
+   pushing text in, or both.
+3. **Accent skin.** A sixth skin that follows the Windows accent colour (which Windows picks from
+   the wallpaper when Colours is on Automatic).
+4. **Key hints.** Keyboard mode shows how to drive it, and the hotkey is shown where people look.
+5. **Welcome tour.** Three cards on the pill, shown once: "What's new in 2.0" for updaters,
+   "What Hytte does" for fresh installs.
 
-Plus **winget** (`winget install Hytte.Hytte`) and a live test pass before anything ships.
+Then a **launch video** for the README and landing page.
 
-**Release hold:** nothing after 1.6.1 is pushed or tagged on GitHub until the user lifts the hold
-(every user must reach 1.6.1, the update that stops requiring signatures, first). All work below
-stays on local `main`. `scripts/release.ps1` already refuses while main differs from origin/main.
+Out of scope (the old plan, dropped 2026-11-08): notifications in the pill, winget, live test pass
+as a separate phase. Release hold still applies: nothing after 1.6.1 is pushed or tagged until the
+user lifts it. All work stays on local `main`.
 
 Tasks are in [todo.md](todo.md).
 
 ## Architecture decisions
 
-### Notifications
-
-- **API:** `Windows.UI.Notifications.Management.UserNotificationListener` through the `windows`
-  crate (features `UI_Notifications`, `UI_Notifications_Management`). Hytte isn't a packaged app.
-  Community reports say an unpackaged app can request access and read notifications, but the
-  `NotificationChanged` event fails with `0x80070490`. So Hytte reads, it doesn't subscribe.
-  **This is unverified for us. Task 1 is a spike that settles it before anything else is built.**
-- **When to read (zero idle frames still holds):** the preferred design reads only when Windows
-  shows a toast, signalled by a WinEvent hook on the toast window appearing (`EVENT_OBJECT_SHOW`
-  filtered to the shell's toast window). Hytte already runs WinEvent hooks (`window/win.rs`).
-  Fallback if the spike finds no reliable signal: a worker thread calls `GetNotificationsAsync`
-  every 2 s and diffs ids. That wakes a thread but draws no frames. A `// ponytail:` comment names
-  the ceiling (up to 2 s late, a small periodic wakeup) and the upgrade path (the event, if
-  Microsoft ever allows it for unpackaged apps).
-- **Mirror, don't replace.** The listener can't hide only the corner banner (`RemoveNotification`
-  also deletes it from the notification centre). Hytte shows its card, and the manual tells users
-  who want Hytte *instead of* the banner to set that app to "notification centre only" in Windows
-  Settings; Hytte still sees those notifications.
-- **What a card shows:** app icon (from the notification's `AppInfo`), app name, title, first body
-  line. **Open** launches the notification's app (toast arguments aren't available to other apps).
-  **Dismiss** removes only Hytte's card. Several in a row stack as "3 new", newest on top.
-- **Rules:** nothing in game mode, over a fullscreen app or in a meeting; during a Focus session
-  notifications are held and counted in the existing "what you missed" line; Hytte's own toasts and
-  a skip list never show; per-app mute (right-click a card → "Don't show <app>") writes
-  `[notifications] muted`.
-- **Privacy:** fresh installs ask once (Windows also shows its own permission prompt); existing
-  installs stay off until switched on. `[notifications] show_text` turns body text off (app and
-  title only). Body text respects `hide_from_capture` like everything else.
-
 ### Live cards
 
-- **Built on what exists.** `hytte notify` (a `Cmd`) already shows a one-line card, and `Ask`
-  already waits for a button on the same connection. A live card is a new `Cmd` kind `card` with
-  optional fields, so old daemons ignore it and `old_messages_still_parse` keeps passing.
+- **Built on what exists.** `hytte notify` already sends a `Cmd` (`cmd: "notify"`), and `Ask`
+  already waits for a reply on the same connection. A live card is a new `Cmd` kind `"card"` with
+  optional fields, so old daemons ignore it and `old_messages_still_parse` keeps passing. No
+  protocol version bump.
 - **Fields:** `id` (update in place, 1–128 B), `title` (≤ 128 B), `body` (≤ 1024 B), `progress`
-  (0–100), `icon` (fixed set: info, ok, warn, error, deploy, music), `buttons` (0–2 labels, ≤ 24 B
-  each), `open` (URL or absolute path for a body click), `ttl` (seconds, default 10, max 3600; a card
-  with `progress` lives until done or 30 s of silence, like `hytte set`), `done`, `clear`.
-- **Buttons never run commands.** A press is only reported back: with `--wait` the CLI blocks (up
-  to the card's ttl), prints the pressed label and exits 0; no press prints nothing and exits 1.
-  Same pipe, owner-only DACL and server identity check as `Ask`.
+  (0–100), `icon` (fixed set: info, ok, warn, error), `buttons` (0–2 labels, ≤ 24 B each), `open`
+  (http(s) URL or absolute path, opened on a body click), `ttl` (seconds, default 10, max 3600),
+  `done`, `clear`. A card with `progress` lives until `done` or 30 s of silence, like `hytte set`.
+- **Buttons never run commands.** A press is only reported back. With `--wait` the CLI keeps the
+  connection open (up to the card's ttl), prints the pressed label and exits 0; no press prints
+  nothing and exits 1. Same pipe, owner-only DACL and server check as `Ask`.
 - **CLI:**
   `hytte card --id deploy --title "Deploy" --body "Uploading…" --progress 40`
   `hytte card --id deploy --done --body "Live"`
   `hytte card --title "Restart server?" --button Restart --button Later --wait`
-- Shows like a notify card, with progress and buttons. Queues behind Ask chips (permission prompts
-  always win).
+- **On the pill:** drawn like a notify chip plus an icon, a progress bar and up to two buttons.
+  Queues behind Ask chips (permission prompts always win) and the update offer. Text goes through
+  `secrets::mask`. Nothing shows while paused, in a game or over fullscreen (the existing rule).
 
-### winget
+### Script panes
 
-- Free. The first attempt (winget-pkgs PR 472228, 1.6.0) closed with **Needs-CLA** and
-  **Validation-Defender-Error** (Defender blocked the unsigned exe in the install scan).
-- Fix: sign Microsoft's CLA (a comment on the PR), submit `hytte.exe` to Microsoft's false-positive
-  form, then resubmit in the multi-file manifest layout winget-pkgs requires (`version`,
-  `installer`, `defaultLocale`), generated with `wingetcreate` or `komac`.
-- **Submitting 1.6.1 to winget fits the hold** (it ships the release users should be on), but it's
-  outward-facing, so the user decides when.
-- Later releases: a release-workflow step opens the winget-pkgs PR (`komac update`, needs a token
-  secret). Self-update still works for winget installs (the folder is user-writable); winget's own
-  version record lags until the next winget PR merges.
+- **Declared in config only.** `[[script_pane]]` entries in `config.toml`: `name` (tab label,
+  ≤ 16 chars), optional `command`, optional `every` (seconds, min 30, default 300). Max 4 panes.
+  Nothing can be added from the pill or by a script, so a stray script can't fill the tab strip.
+  Anyone who can edit `config.toml` already runs code as the user, so `command` adds no new trust.
+- **Pull (Hytte runs it):** `cmd /c <command>` with `CREATE_NO_WINDOW`, in the user's home folder,
+  10 s timeout then killed. Runs once at start, then every `every` seconds **only while the pane is
+  showing** (plus once when it opens, if the last result is older than `every`). That keeps zero
+  idle work when the pane is closed. Stdout: ANSI stripped, first 6 lines, ≤ 2 KB, through
+  `secrets::mask`. A non-zero exit shows the output in the warn colour with "exit N".
+- **Push (scripts feed it):** `hytte pane set <name> --text "…"` (or piped stdin) sends a `Cmd`
+  kind `"pane_set"`. Push to a name not in config is ignored by the daemon; the CLI reads
+  `config.toml` itself and says "no [[script_pane]] called <name>" with exit 1. A pushed value
+  replaces the pane's text until the next pull or push. Not kept across restarts.
+- **Both:** one pane type. Last writer wins; the pane shows "updated 3 min ago".
+- **In the code:** `Panel::Script(u8)` (index into the config list), so the existing tab strip,
+  `[panes] order` (names `script:<name>`), 1–9 keys and settings arrows work unchanged. A new
+  `scriptpane.rs` holds the runner (one worker thread, woken by the UI) and pure helpers (output
+  cleaning, due check) with unit tests. Render in `render/script.rs`.
 
-## Task list
+### Accent skin
 
-### Phase 0: Prove it works (fail fast)
-- [ ] Task 1: Notification listener spike
-- [ ] Task 2: Unblock winget (user-run steps)
+- `Skin::Accent`, name `accent`, disc in the pill's Look tab and the settings window. Not the
+  default.
+- Colour from `UISettings::GetColorValue(UIColorType::Accent)` (WinRT, as `winrt.rs` already
+  does for other calls), read at start and on `WM_SETTINGCHANGE` with `ImmersiveColorSet`
+  (already handled in `wndproc.rs` for the theme). Fallback when the call fails: graphite.
+- Body gradient, glow and rim are derived from the accent (darkened for the dark pill, washed out
+  for the light one) by a pure function with a unit test that the text stays readable (contrast
+  ≥ 4.5:1 against `fg` for a few known accents, including a very light and a very dark one).
+- `Skin` stays `Copy`: the live colour is passed in by the renderer, not stored in the enum.
 
-### Checkpoint A
-- [ ] Spike answers: access ok unpackaged? reading ok? which trigger (toast hook or 2 s poll)?
-- [ ] User decides: go, or reshape notifications
+### Key hints
 
-### Phase 1: Live cards (no unknowns)
-- [ ] Task 3: `card` command in the protocol
-- [ ] Task 4: The card on the pill
-- [ ] Task 5: `hytte card` CLI with `--wait`
+- In keyboard mode a faint one-line hint sits under the pill content:
+  `← → panes · Tab buttons · Enter press · Esc close` (shorter when typing: `Enter save · Esc
+  cancel`). It fades after 4 s without a key, comes back on the next key.
+- The hotkey is shown in the settings window next to its field (as now) **and** in the tray menu
+  item ("Open with keyboard  Win+Alt+N"), and the first card of the welcome tour mentions it when
+  one is set. No default hotkey (user's choice).
 
-### Checkpoint B
-- [ ] Checks pass; snapshot of each card state reviewed by the user
+### Welcome tour
 
-### Phase 2: Notifications
-- [ ] Task 6: Notification worker
-- [ ] Task 7: Notification card and its rules
-- [ ] Task 8: Permission and settings
+- Three cards on the pill with **Next** and **Skip** (the last card: **Done**). Shown once, after
+  any Ask or update chip, never while paused, gaming, fullscreen, in a call or during focus.
+- **Who sees which:** a fresh install (no `config.toml` at start) gets "What Hytte does": watch
+  commands and agents · drop files, music and timers · point at the pill (or your hotkey). An
+  update from 1.x (`config.toml` exists, no marker) gets "What's new in 2.0": Notes, To-do and
+  Weather · live cards and script panes · skins, including Accent.
+- **Marker:** `%APPDATA%\Hytte\welcome` holding the version seen (`2.0`). Written when the tour is
+  finished or skipped. A later 2.x shows nothing; 3.0 can reuse it with new cards.
+- **Content lives in one table** (`welcome.rs`) so the words can be changed without touching
+  drawing code. Built last among the features so the cards describe what really shipped.
 
-### Checkpoint C
-- [ ] Checks pass; snapshots reviewed; idle CPU and frame count unchanged with no notifications
+### Launch video
 
-### Phase 3: Ship-ready
-- [ ] Task 9: Docs, manual, what's new, README images
-- [ ] Task 10: Live test pass of everything on main
-- [ ] Task 11: winget manifest for 2.0 and the release-workflow step
+- Made with the `/brag` skill (Hyperframes), which reads the landing page code. The landing page
+  copy is updated first for the 2.0 features (and the FAQ line that still says the pill hides
+  from screenshots by default). No redesign; the landing redesign stages are separate work.
+- Output: an MP4 (and a short GIF for the README) in `docs/img/`. Not published anywhere until
+  the user says so.
 
-### Checkpoint D (release still on hold)
-- [ ] User lifts the hold → compare 1.6.0 and 1.6.1 downloads → user decides → release
-
-## Risks and mitigations
+## Risks
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| The listener refuses unpackaged apps on some Windows builds | High | Task 1 first; if it fails, notifications leave 2.0 and live cards carry it |
-| No reliable "toast shown" signal | Med | 2 s poll on a worker thread, no frames; measure CPU in Task 6 |
-| Defender keeps flagging the unsigned exe | Med | False-positive submission per release; winget is optional for 2.0 |
-| Notification text shows in screenshots or calls | Med | `hide_from_capture`, `show_text = false`, nothing in meetings |
-| A runaway script spams cards | Low | One card per `id`, at most 3 queued, 5 updates/s per id |
+| `cmd /c` scripts that hang or spawn children | Stuck worker, orphan processes | 10 s timeout, kill the process tree with a Job object (`KILL_ON_JOB_CLOSE`) |
+| Script output with control chars or huge lines | Broken layout | Strip ANSI and control chars, cut to 6 lines / 2 KB, ellipsize per line in render |
+| `--wait` connection held open | Pipe instances used up | Same limit as Ask; card ttl caps the wait at 3600 s; daemon drops the reply side on dismiss |
+| Accent colour too light or too dark | Unreadable pill | Clamp lightness in the derive function; contrast test |
+| Welcome tour shows at a bad time | Annoying first impression | Same gates as the update chip; never auto-opens the pill, it waits for the next hover |
+| Scope creep before release | 2.0 never ships | Each phase ends in a checkpoint; anything new goes to a 2.1 list |
 
-## Open questions (defaults in brackets, used unless the user says otherwise)
+## Phases and checkpoints
 
-1. Notifications on fresh installs: ask once, or off until switched on? [ask once]
-2. Show message text, or app and title only? [text on, one line, setting to turn off]
-3. Live-card buttons: report-back only? [yes, plus the `open` body click; never run commands]
-4. Submit 1.6.1 to winget now? [user's call; the CLA and Defender steps are theirs]
+1. Live cards (Tasks 1–3) → **Checkpoint A**: checks pass, snapshot page reviewed by the user.
+2. Script panes (Tasks 4–7) → **Checkpoint B**: snapshot page; live run of a pull and a push pane.
+3. Accent skin (Task 8) and key hints (Task 9) → **Checkpoint C**: snapshot page with accents.
+4. Welcome tour (Task 10) → **Checkpoint D**: snapshot page of both tours; words approved.
+5. Docs, landing copy, video (Tasks 11–13) → **Checkpoint E**: user watches the video; release
+   still waits on the hold.
+
+"Checks" means `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`.
+UI changes get offscreen snapshots (`HYTTE_SNAP_DIR`) shown on one before/after page. Dev builds
+only (isolated `%APPDATA%`); the Desktop Hytte stays stopped. Commits carry no trailers.

@@ -1,162 +1,128 @@
 # Hytte 2.0 tasks
 
-Decisions, risks and open questions are in [plan.md](plan.md). "Checks" means
-`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. Every UI change
-gets an offscreen snapshot (`HYTTE_SNAP_DIR`). Commits carry no trailers. Nothing is pushed.
+Decisions, risks and checkpoints are in [plan.md](plan.md). "Checks" = fmt, clippy `-D warnings`,
+tests. Every UI change gets an offscreen snapshot. Commits carry no trailers. Nothing is pushed.
 
-## Task 1: Notification listener spike
+## Phase 1: Live cards
 
-**Description:** A throwaway `examples/notif_spike.rs` (not shipped) proves, from an unpackaged
-exe on this machine: `RequestAccessAsync` returns Allowed, `GetNotificationsAsync(Toast)` lists
-real notifications with app name, title and body, and whether a WinEvent signal fires when a toast
-appears (log every `EVENT_OBJECT_SHOW` from the shell process while a test toast arrives).
+### Task 1: `card` command in the protocol
+Add `Cmd` kind `"card"` with the optional fields from the plan (all `Option`, skipped when empty).
+`validate` checks every limit; `open` must be http(s) or an absolute path.
+- [x] Round-trip, limit and bad-`open` tests; `old_messages_still_parse` still passes
+- [x] A `card` line sent to a 1.6 daemon is ignored (no task row, no chip)
+**Files:** `crates/proto/src/lib.rs`. **Scope:** S
 
-**Acceptance criteria:**
-- [ ] Written result in this file: access ok / fails, read ok / fails, toast signal found (class
-      name and event) or not
-- [ ] CPU cost of one `GetNotificationsAsync` call measured
+### Task 2: The card on the pill
+`UiEvent::Cmd` with `card` creates or updates a card by `id`; drawn as a chip with icon, progress
+bar and up to two buttons; queues behind Ask and update chips; `done`, `clear`, ttl and 30 s
+silence for progress cards. Body click opens `open`.
+- [x] Unit tests: update in place, queue order, ttl/silence expiry
+- [x] Snapshots: plain, progress 40 %, done, two buttons, long text
+**Files:** `ui_state.rs`, `window/win/actions.rs`, `render/cards.rs`. **Scope:** M
 
-**Verification:** run it with `hytte notify` and a real app sending a toast; paste the output.
-**Dependencies:** none. **Files:** `crates/hytte/examples/notif_spike.rs`, `Cargo.toml` (features).
+### Task 3: `hytte card` CLI with `--wait`
+Flags as in the plan. `--wait` keeps the pipe open; the daemon writes the pressed label back
+(reusing the Ask reply path in `pipe_server.rs`). Exit 0 with the label, 1 on no press.
+Note: a waited card may sit queued behind others; the wait allows the ttl plus 5 minutes of
+queue (`CARD_QUEUE_SECS`) and ends at once when the card expires, is dismissed or cleared.
+- [x] Arg-parsing tests; `hytte card --help` text
+- [x] Live: a script waits, press **Restart**, script prints `Restart`; ttl expiry exits 1
+**Files:** `cli/mod.rs`, `pipe_server.rs`. **Scope:** M
+
+### Checkpoint A
+- [x] Checks pass
+- [ ] Snapshot page reviewed by the user
+
+## Phase 2: Script panes
+
+### Task 4: Config and the pane slot
+`[[script_pane]]` (`name`, `command`, `every`) with limits (max 4, `every` ≥ 30). `Panel::Script(u8)`
+in the tab strip, `[panes] order` (`script:<name>`), 1–9 keys and settings arrows. Empty pane
+shows "Waiting for output".
+- [ ] Config tests: defaults, limits, unknown keys warned as usual, order parsing with script names
+- [ ] Snapshot: a script pane in the strip
+**Files:** `config.rs`, `ui_state.rs`, `tabs.rs`, `render/script.rs`. **Scope:** M
+
+### Task 5: Push (`hytte pane set`)
+`Cmd` kind `"pane_set"` (`name`, `text` ≤ 2 KB). Daemon ignores unknown names; the CLI checks
+`config.toml` and errors with exit 1. Piped stdin works.
+- [ ] Proto tests; CLI test for the unknown-name message
+- [ ] Live: `echo 3 users | hytte pane set Server` shows on the pane
+**Files:** `crates/proto/src/lib.rs`, `cli/mod.rs`, `window/win/actions.rs`. **Scope:** S
+
+### Task 6: Pull (Hytte runs the command)
+`scriptpane.rs`: one worker thread; runs due panes only while their pane shows (and once at start);
+`cmd /c` hidden, home folder, 10 s timeout, Job object kills the tree. Output cleaned (ANSI,
+control chars, 6 lines, 2 KB, `secrets::mask`). Non-zero exit shown in warn colour.
+- [ ] Unit tests: output cleaning, due check, timeout result
+- [ ] Live: a 1 s command shows; a `timeout /t 60` command is killed at 10 s with no orphan left
+- [ ] Idle with the pane closed: no process spawned, CPU unchanged from the baseline
+**Files:** `scriptpane.rs` (new), `window/win/*.rs`. **Scope:** M
+
+### Task 7: Pane rendering and settings
+"Updated 3 min ago" line, warn style for failures, long lines ellipsized. The settings window's
+Panes list shows script panes with switches and ▲ ▼ (editing them stays in `config.toml`; a
+"Edit in config.toml" link opens the file).
+- [ ] Snapshots: output, failure, stale, settings list
+**Files:** `render/script.rs`, `render/settings_table.rs`. **Scope:** S
+
+### Checkpoint B
+- [ ] Checks pass; snapshot page reviewed; a pull and a push pane run live together
+
+## Phase 3: Accent and key hints
+
+### Task 8: Accent skin
+`Skin::Accent`; accent read through WinRT at start and on `ImmersiveColorSet`; pure derive
+function for body, glow and rim; disc in the Look tab and the settings window.
+- [ ] Unit test: contrast ≥ 4.5:1 for several accents (light, dark, saturated); fallback to graphite
+- [ ] Live: change the Windows accent, the pill follows without a restart
+- [ ] Snapshots: four accents, dark and light pill
+**Files:** `skin.rs`, `winrt.rs`, `window/win/wndproc.rs`, `render/settings*.rs`. **Scope:** M
+
+### Task 9: Key hints
+Hint line in keyboard mode (and the typing variant), fading after 4 s idle; hotkey shown in the
+tray item text when set.
+- [ ] Snapshots: hint line on Home, on a pane, while typing
+- [ ] Live: the tray shows the chord; no hint outside keyboard mode
+**Files:** `render/pill.rs`, `window/win/input.rs`, `tray.rs`. **Scope:** S
+
+### Checkpoint C
+- [ ] Checks pass; snapshot page reviewed
+
+## Phase 4: Welcome tour
+
+### Task 10: Welcome tour
+`welcome.rs` with the two 3-card sets in one table; fresh vs update decided from whether
+`config.toml` existed at start; `%APPDATA%\Hytte\welcome` marker written on Done or Skip; same
+gates as the update chip; waits for the next hover instead of popping the pill open.
+- [ ] Unit tests: which set (fresh, update, already seen, later 2.x)
+- [ ] Snapshots: all six cards
+- [ ] Live: fresh dev profile sees the intro once; a profile with a 1.6 config sees "What's new"
+**Files:** `welcome.rs` (new), `window/win/actions.rs`, `render/cards.rs`, `main.rs`. **Scope:** M
+
+### Checkpoint D
+- [ ] Card words approved by the user
+
+## Phase 5: Docs and launch
+
+### Task 11: Docs and manual
+`docs/16-whats-new.md` (2.0 section), `docs/04-ipc-protocol.md` (`card`, `pane_set`),
+`docs/05-cli.md` (`hytte card`, `hytte pane set`), `docs/11-configuration-and-files.md`
+(`[[script_pane]]`, `welcome` file), manual pages for live cards, script panes, the accent skin and
+keyboard mode. README "Try it" gains a `hytte card` line.
+- [ ] Every new flag and config key appears in docs and manual
 **Scope:** S
 
-## Task 2: Unblock winget (user-run steps)
+### Task 12: Landing page copy for 2.0
+Feature copy for live cards, script panes and the accent skin; fix the FAQ line about screenshots.
+No layout changes. `npm run build` passes.
+- [ ] Built site reviewed by the user locally (not deployed)
+**Files:** `landing-page/src/`. **Scope:** S
 
-**Description:** The user signs the Microsoft CLA, submits `hytte.exe` 1.6.1 to the Defender
-false-positive form, and decides whether 1.6.1 goes to winget now. I prepare the multi-file manifest
-for 1.6.1 (real SHA-256 of the published zip) in `manifests/winget/1.6.1/` for them to submit.
+### Task 13: Launch video
+Run `/brag` against the updated landing page; MP4 plus a short GIF in `docs/img/`; README links the
+video.
+- [ ] User watches it and approves; nothing published until the release hold lifts
 
-**Acceptance criteria:**
-- [ ] Manifest passes `winget validate`
-- [ ] `winget install --manifest manifests/winget/1.6.1` installs and runs a test copy (isolated
-      `%APPDATA%`), then uninstalls cleanly
-
-**Dependencies:** none. **Files:** `manifests/winget/`. **Scope:** S
-
-## Checkpoint A
-- [ ] Spike result reviewed with the user; go or reshape Phase 2
-
-## Task 3: `card` command in the protocol
-
-**Description:** Add `card` to `hytte_proto::Cmd` with optional `id`, `title`, `body`, `progress`,
-`icon`, `buttons`, `open`, `ttl`, `done`, `clear`; validation limits from the plan; a reply line
-`{"pressed":"Restart"}` for a waiting card.
-
-**Acceptance criteria:**
-- [ ] `validate` rejects over-limit fields, 3+ buttons, bad icons, progress > 100
-- [ ] `old_messages_still_parse` extended; a card line never parses as `HytteMessage` or `Ask`
-
-**Verification:** checks. **Dependencies:** none. **Files:** `crates/proto/src/lib.rs`,
-`pipe_server.rs`. **Scope:** S
-
-## Task 4: The card on the pill
-
-**Description:** `Model` keeps live cards by `id` (at most 3 queued, newest shown, Ask chips first).
-Render title, body, a progress bar, icon and up to 2 buttons in the existing card style; a body
-click opens `open`; ttl expiry through the existing deadline timer (no new idle frames). Rate limit
-5 updates/s per id.
-
-**Acceptance criteria:**
-- [ ] Update with the same `id` changes the card in place (no close/open animation)
-- [ ] Snapshots: plain, progress, two buttons, done, three stacked
-- [ ] Nothing shows paused, in game mode or over a fullscreen app
-
-**Verification:** checks and snapshots. **Dependencies:** 3. **Files:** `ui_state.rs`,
-`render/` (new `render/card.rs`), `window/win/events.rs`, `render/snap.rs`. **Scope:** M
-
-## Task 5: `hytte card` CLI with `--wait`
-
-**Description:** `hytte card [--id] [--title] [--body] [--progress N] [--icon] [--button L]...
-[--open X] [--ttl S] [--done|--clear] [--wait]`. `--wait` blocks for the ttl, prints the pressed
-label (exit 0) or nothing (exit 1). Exit 1 with "daemon not running" when there's no pill.
-
-**Acceptance criteria:**
-- [ ] Unit tests for argument parsing and exit codes
-- [ ] A PowerShell example in `docs/05-cli.md` works end to end against a dev build
-
-**Verification:** checks; run against `target\release\hytte.exe` with isolated `%APPDATA%`.
-**Dependencies:** 3, 4. **Files:** `cli/mod.rs` (or `cli/card.rs`), `docs/05-cli.md`. **Scope:** S
-
-## Checkpoint B
-- [ ] Checks pass; the user reviews the card snapshots
-
-## Task 6: Notification worker
-
-**Description:** `notifications.rs` worker: request access once, read on the trigger chosen in
-Task 1 (toast hook, else a 2 s poll), diff by notification id, send
-`UiEvent::Notification { app, icon, title, body, id }`. Skip Hytte's own and muted apps. Not started
-at all while the feature is off.
-
-**Acceptance criteria:**
-- [ ] Pure diff and filter functions unit-tested
-- [ ] With the feature on and no notifications: no frames drawn; idle CPU within the
-      `docs/12-performance.md` baseline
-
-**Verification:** checks; perf measurement written into `docs/12-performance.md`.
-**Dependencies:** 1. **Files:** `notifications.rs`, `main.rs`, `Cargo.toml`. **Scope:** M
-
-## Task 7: Notification card and its rules
-
-**Description:** Card with the app icon, app name, title and one body line; **Open** launches the
-app, **Dismiss** removes Hytte's card; stacking as "N new". Held during Focus (counted in the
-"what you missed" line), dropped in game mode, fullscreen and meetings. Right-click → "Don't show
-<app>" writes `[notifications] muted`.
-
-**Acceptance criteria:**
-- [ ] Unit tests: held in focus, dropped in a game, muted app ignored, stack count
-- [ ] Snapshots: one, stacked, text off, light and dark
-
-**Verification:** checks and snapshots. **Dependencies:** 4, 6. **Files:** `ui_state.rs`,
-`render/card.rs`, `window/win/actions.rs`, `config.rs`. **Scope:** M
-
-## Task 8: Permission and settings
-
-**Description:** `[notifications] enabled, show_text, muted` in config (off for existing installs).
-Fresh installs get a one-time card "Show your notifications here?" (Yes triggers the Windows
-prompt). Settings → Features gets the switch and "Show message text"; the window lists muted apps
-with an unmute button. A denied permission shows a row explaining where to allow it in Windows.
-
-**Acceptance criteria:**
-- [ ] Existing config without the section keeps the feature off
-- [ ] Denied access never retries in a loop
-
-**Verification:** checks and snapshots. **Dependencies:** 6, 7. **Files:** `config.rs`,
-`render/settings_table.rs`, `settings_win.rs`. **Scope:** M
-
-## Checkpoint C
-- [ ] Checks pass; snapshots reviewed; idle CPU and frames unchanged
-
-## Task 9: Docs, manual, what's new, README images
-
-**Description:** README feature list, `manual/06` and `manual/07`, `docs/04` (card command),
-`docs/05` (CLI), `docs/09` (worker), `docs/11` (config), `docs/16` (2.0 section), new images
-`docs/img/card.png` and `docs/img/notification.png` from snapshots.
-
-**Acceptance criteria:** every new setting, command and message is documented.
-**Dependencies:** 4–8. **Scope:** M
-
-## Task 10: Live test pass of everything on main
-
-**Description:** A dev build with isolated `%APPDATA%` (never the Desktop `hytte.exe`): the user
-and I go through a checklist: pane switches and arrows, Live lyrics box and glide, touchpad scroll,
-typing over a fullscreen app, skin discs, More settings, the wider town search, lyrics skip list,
-live cards, notifications. Bugs found are fixed and get a test.
-
-**Acceptance criteria:** checklist written here with pass / fixed for each item.
-**Dependencies:** 9. **Scope:** M
-
-## Task 11: winget manifest for 2.0 and the release-workflow step
-
-**Description:** Replace the singleton `manifests/winget/Hytte.Hytte.yaml` with the multi-file
-layout; the release workflow fills the hash and opens the winget-pkgs PR with `komac`
-(needs a token secret the user adds). Not run until the hold is lifted.
-
-**Acceptance criteria:**
-- [ ] `winget validate` passes; CI version check updated for the new files
-- [ ] The workflow step is skipped cleanly when the token secret is missing
-
-**Dependencies:** 2. **Files:** `manifests/winget/`, `.github/workflows/release.yml`,
-`.github/workflows/ci.yml`, `scripts/version.ps1`. **Scope:** S
-
-## Checkpoint D (release still on hold)
-- [ ] The user lifts the hold → compare 1.6.0 and 1.6.1 downloads → the user decides → release
+### Checkpoint E
+- [ ] Everything on local `main`, checks pass, version 2.0.0; release waits on the hold

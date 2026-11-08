@@ -308,6 +308,9 @@ struct Ui {
     ask_shown: Option<Instant>,
     /// A newer version waiting for a free moment on the chip: (tag, note).
     update_offer: Option<(String, String)>,
+    /// Scripts waiting on a live card's button (`hytte card --wait`): card id and where the
+    /// label goes. Dropped when the card is gone, which tells the script "no press".
+    card_waits: Vec<(String, Sender<String>)>,
     /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
     gpu_retry: u32,
     /// The timer alarm is playing.
@@ -622,6 +625,7 @@ pub fn run_windows(
             asks: Default::default(),
             ask_shown: None,
             update_offer: None,
+            card_waits: vec![],
             gpu_retry: 0,
             ringing: false,
             caret_on: true,

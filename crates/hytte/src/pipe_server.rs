@@ -151,8 +151,11 @@ fn serve_connection(
                     ));
                 }
             } else if let Ok(cmd) = serde_json::from_str::<hytte_proto::Cmd>(trimmed) {
-                if cmd.validate() {
-                    let _ = ui_tx.send(UiEvent::Cmd(cmd));
+                if cmd.validate() && cmd.wait {
+                    // Like an ask: one per connection, held open for the answer.
+                    return wait_for_press(h, cmd, ui_tx);
+                } else if cmd.validate() {
+                    let _ = ui_tx.send(UiEvent::Cmd(cmd, None));
                 } else {
                     crate::logging::line(&format!("pipe: rejected {:?} command", cmd.cmd));
                 }
@@ -166,6 +169,33 @@ fn serve_connection(
             }
         }
     }
+}
+
+/// Put a `card --wait` on the pill and block this connection until one of its buttons is
+/// pressed (written back as one [`hytte_proto::Pressed`] line) or the card goes away (nothing
+/// written: the hang-up tells the script there was no press).
+#[cfg(windows)]
+fn wait_for_press(
+    h: windows::Win32::Foundation::HANDLE,
+    cmd: hytte_proto::Cmd,
+    ui_tx: &Sender<UiEvent>,
+) {
+    use windows::Win32::Storage::FileSystem::WriteFile;
+    let ttl = cmd.ttl.unwrap_or(hytte_proto::CARD_TTL_SECS) as u64;
+    let (reply, rx) = crossbeam_channel::bounded::<String>(1);
+    if ui_tx.send(UiEvent::Cmd(cmd, Some(reply))).is_err() {
+        return;
+    }
+    // The card's own end (expired, dismissed) drops the sender and ends the wait at once.
+    let cap = std::time::Duration::from_secs(ttl + hytte_proto::CARD_QUEUE_SECS);
+    let Ok(pressed) = rx.recv_timeout(cap) else {
+        return;
+    };
+    let Ok(mut line) = serde_json::to_string(&hytte_proto::Pressed { pressed }) else {
+        return;
+    };
+    line.push('\n');
+    let _ = unsafe { WriteFile(h, Some(line.as_bytes()), None, None) };
 }
 
 /// Put an [`hytte_proto::Ask`] on the pill and block this connection until the human answers.

@@ -189,20 +189,67 @@ impl Ask {
     }
 }
 
-/// A one-way request from a script (`hytte notify`, `hytte shelf add`): show a card, or put a
-/// file or text on the shelf. Never parses as a [`HytteMessage`] (no `task_id`) or an [`Ask`]
-/// (no `name`), so an older daemon ignores it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A request from a script (`hytte notify`, `hytte card`, `hytte shelf add`): show a card, or
+/// put a file or text on the shelf. Never parses as a [`HytteMessage`] (no `task_id`) or an
+/// [`Ask`] (no `name`), so an older daemon ignores it. The fields after `path` belong to `card`
+/// and are all optional; a daemon that predates cards drops a `card` line as an unknown command.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cmd {
     pub v: u32,
-    /// `"notify"` or `"shelf_add"`.
+    /// `"notify"`, `"card"` or `"shelf_add"`.
     pub cmd: String,
-    /// The card text (`notify`) or the snippet to shelve (`shelf_add`).
+    /// The card text (`notify`, a `card`'s body) or the snippet to shelve (`shelf_add`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// An absolute path to shelve (`shelf_add`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// A card sent again with the same id updates it in place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// 0-100: a bar under the text. The card then stays until `done` or 30 s of silence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<u8>,
+    /// One of [`CARD_ICONS`]; absent = info.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Up to two labels. A press is only reported back (`wait`); it never runs anything.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buttons: Vec<String>,
+    /// An http(s) URL or an absolute path, offered as **Open**.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<String>,
+    /// Seconds the card stays (default [`CARD_TTL_SECS`], at most [`CARD_MAX_TTL_SECS`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u32>,
+    /// The job behind a progress card finished.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done: bool,
+    /// Take the card with this id away.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear: bool,
+    /// Keep the connection open and answer with one [`Pressed`] line (or hang up: no press).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wait: bool,
+}
+
+/// The icons a card may ask for.
+pub const CARD_ICONS: [&str; 4] = ["info", "ok", "warn", "error"];
+/// How long a card stays unless it says otherwise.
+pub const CARD_TTL_SECS: u32 = 10;
+pub const CARD_MAX_TTL_SECS: u32 = 3600;
+/// How long a waited-on card may sit in the queue behind other cards before the wait gives up.
+/// The daemon hangs up as soon as the card expires or is dismissed; this only caps a lost one.
+// ponytail: a fixed allowance, not "until shown"; tie the wait to the card's display if queues
+// of long cards ever make five minutes too short.
+pub const CARD_QUEUE_SECS: u64 = 300;
+
+/// The daemon's answer to a `card` sent with `wait`: which button was pressed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pressed {
+    pub pressed: String,
 }
 
 /// Longest snippet `shelf_add` carries.
@@ -214,7 +261,7 @@ impl Cmd {
             v: PROTOCOL_VERSION,
             cmd: "notify".into(),
             text: Some(text.into()),
-            path: None,
+            ..Default::default()
         }
     }
 
@@ -222,8 +269,8 @@ impl Cmd {
         Self {
             v: PROTOCOL_VERSION,
             cmd: "shelf_add".into(),
-            text: None,
             path: Some(path.into()),
+            ..Default::default()
         }
     }
 
@@ -232,7 +279,16 @@ impl Cmd {
             v: PROTOCOL_VERSION,
             cmd: "shelf_add".into(),
             text: Some(text.into()),
-            path: None,
+            ..Default::default()
+        }
+    }
+
+    /// An empty `card`; fill in what you need.
+    pub fn card() -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "card".into(),
+            ..Default::default()
         }
     }
 
@@ -243,7 +299,21 @@ impl Cmd {
         }
         let text = self.text.as_deref().map(str::len);
         let path = self.path.as_deref().map(str::len);
+        let card_fields = self.id.is_some()
+            || self.title.is_some()
+            || self.progress.is_some()
+            || self.icon.is_some()
+            || !self.buttons.is_empty()
+            || self.open.is_some()
+            || self.ttl.is_some()
+            || self.done
+            || self.clear
+            || self.wait;
+        if card_fields && self.cmd != "card" {
+            return false;
+        }
         match self.cmd.as_str() {
+            "card" => self.card_ok(),
             "notify" => self.path.is_none() && text.is_some_and(|n| n > 0 && n <= 1024),
             "shelf_add" => match (text, path) {
                 (Some(n), None) => n > 0 && n <= MAX_SNIPPET_BYTES,
@@ -252,6 +322,44 @@ impl Cmd {
             },
             _ => false,
         }
+    }
+
+    fn card_ok(&self) -> bool {
+        let fits = |s: &Option<String>, max: usize| s.as_ref().is_none_or(|s| s.len() <= max);
+        let filled = |s: &Option<String>| s.as_ref().is_some_and(|s| !s.trim().is_empty());
+        let id_ok = self
+            .id
+            .as_ref()
+            .is_none_or(|i| !i.is_empty() && i.len() <= 128);
+        let open_ok = self.open.as_ref().is_none_or(|o| {
+            o.len() <= 1024
+                && (o.starts_with("https://")
+                    || o.starts_with("http://")
+                    || std::path::Path::new(o).is_absolute())
+        });
+        // Clearing names the card; anything else must say something or update one by id.
+        let shape = if self.clear {
+            self.id.is_some()
+        } else {
+            self.id.is_some() || filled(&self.title) || filled(&self.text)
+        };
+        self.path.is_none()
+            && shape
+            && id_ok
+            && open_ok
+            && fits(&self.title, 128)
+            && fits(&self.text, 1024)
+            && self.progress.is_none_or(|p| p <= 100)
+            && self.icon.as_deref().is_none_or(|i| CARD_ICONS.contains(&i))
+            && self.buttons.len() <= 2
+            && self
+                .buttons
+                .iter()
+                .all(|b| !b.trim().is_empty() && b.len() <= 24)
+            && self
+                .ttl
+                .is_none_or(|t| (1..=CARD_MAX_TTL_SECS).contains(&t))
+            && (!self.wait || !self.buttons.is_empty())
     }
 
     fn path_is_absolute(&self) -> bool {
@@ -389,6 +497,72 @@ mod tests {
         assert!(
             serde_json::from_str::<Cmd>(&HytteMessage::start("t", "x").to_line().unwrap()).is_err()
         );
+    }
+
+    #[test]
+    fn cards_are_validated() {
+        let mut c = Cmd::card();
+        assert!(!c.validate(), "an empty card says nothing");
+        c.title = Some("Deploy".into());
+        c.progress = Some(40);
+        assert!(c.validate());
+        let line = c.to_line().unwrap();
+        assert!(serde_json::from_str::<HytteMessage>(line.trim()).is_err());
+        assert!(serde_json::from_str::<Ask>(line.trim()).is_err());
+        let back: Cmd = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!((back.progress, back.done), (Some(40), false));
+        // An update needs only its id.
+        let upd = Cmd {
+            id: Some("deploy".into()),
+            done: true,
+            ..Cmd::card()
+        };
+        assert!(upd.validate());
+        let bad = |f: fn(&mut Cmd)| {
+            let mut c = Cmd {
+                title: Some("t".into()),
+                ..Cmd::card()
+            };
+            f(&mut c);
+            !c.validate()
+        };
+        assert!(bad(|c| c.progress = Some(101)));
+        assert!(bad(|c| c.icon = Some("skull".into())));
+        assert!(bad(|c| c.buttons = vec!["a".into(), "b".into(), "c".into()]));
+        assert!(bad(|c| c.buttons = vec!["x".repeat(25)]));
+        assert!(bad(|c| c.buttons = vec![" ".into()]));
+        assert!(bad(|c| c.open = Some("relative/file".into())));
+        assert!(bad(|c| c.open = Some("javascript:alert(1)".into())));
+        assert!(bad(|c| c.ttl = Some(0)));
+        assert!(bad(|c| c.ttl = Some(CARD_MAX_TTL_SECS + 1)));
+        assert!(bad(|c| c.title = Some("x".repeat(129))));
+        assert!(bad(|c| c.id = Some(String::new())));
+        assert!(bad(|c| c.wait = true), "waiting needs a button to press");
+        assert!(bad(|c| c.clear = true), "clearing needs an id");
+        assert!(bad(|c| c.path = Some("C:/x".into())));
+        let mut ok = Cmd {
+            title: Some("t".into()),
+            buttons: vec!["Restart".into(), "Later".into()],
+            wait: true,
+            open: Some("https://example.com".into()),
+            ..Cmd::card()
+        };
+        assert!(ok.validate());
+        ok.icon = Some("error".into());
+        assert!(ok.validate());
+        // Card fields on another command are refused, not silently ignored.
+        let mut n = Cmd::notify("x");
+        n.progress = Some(5);
+        assert!(!n.validate());
+    }
+
+    #[test]
+    fn old_commands_parse_with_the_card_fields_absent() {
+        let old = r#"{"v":1,"cmd":"notify","text":"hi"}"#;
+        let c: Cmd = serde_json::from_str(old).unwrap();
+        assert!(c.validate() && c.id.is_none() && c.buttons.is_empty() && !c.wait);
+        // A notify line written now is exactly what 1.6 wrote.
+        assert_eq!(Cmd::notify("hi").to_line().unwrap().trim(), old);
     }
 
     #[test]

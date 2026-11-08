@@ -96,8 +96,9 @@ pub enum UiEvent {
         summary: String,
         reply: crossbeam_channel::Sender<bool>,
     },
-    /// A script asked for a card or a shelf item (`hytte notify`, `hytte shelf add`).
-    Cmd(hytte_proto::Cmd),
+    /// A script asked for a card or a shelf item (`hytte notify`, `hytte card`, `hytte shelf
+    /// add`). A `card --wait` comes with where to send the pressed button's label.
+    Cmd(hytte_proto::Cmd, Option<crossbeam_channel::Sender<String>>),
     /// A newer version exists: its tag and the first line of its notes.
     UpdateOffer {
         tag: String,
@@ -365,6 +366,8 @@ pub enum ChipAction {
     InstallUpdate,
     /// Not now: don't offer this version (tag) again.
     UpdateLater(String),
+    /// A live card's button (card id, label): reported back to a waiting script, nothing run.
+    Card(String, String),
 }
 
 /// The look of a chip's icon.
@@ -377,6 +380,20 @@ pub enum Tone {
     Warn,
     /// For your information: blue.
     Info,
+    /// Something failed: red (a live card's `error` icon).
+    Error,
+}
+
+/// How long a progress card stays without an update.
+pub const CARD_SILENCE: Duration = Duration::from_secs(30);
+
+/// What makes a chip a live card (`hytte card`): its id, and the parts updates change.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Card {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+    pub progress: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -390,6 +407,8 @@ pub struct Chip {
     /// How long it stays before folding away on its own.
     pub hold: Duration,
     pub tone: Tone,
+    /// Set when the chip is a script's live card.
+    pub card: Option<Card>,
 }
 
 impl Chip {
@@ -407,7 +426,68 @@ impl Chip {
             extra: vec![],
             hold: CHIP_HOLD,
             tone: Tone::Done,
+            card: None,
         }
+    }
+
+    /// The live card's id, if this chip is one.
+    pub fn card_id(&self) -> Option<&str> {
+        self.card.as_ref().map(|c| c.id.as_str())
+    }
+
+    /// Apply a `card` command to this card: only the fields it carries change, and the hold
+    /// starts again (a progress card is "30 s of silence", not 30 s in all).
+    fn apply_card(&mut self, c: &hytte_proto::Cmd, now: Instant) {
+        let Some(k) = self.card.as_mut() else { return };
+        if let Some(t) = &c.title {
+            k.title = t.trim().to_string();
+        }
+        if let Some(t) = &c.text {
+            k.body = t.trim().to_string();
+        }
+        if c.progress.is_some() {
+            k.progress = c.progress;
+        }
+        if c.done && k.progress.is_some() {
+            k.progress = Some(100);
+        }
+        self.summary = match (k.title.is_empty(), k.body.is_empty()) {
+            (false, false) => format!("{}\n{}", k.title, k.body),
+            (true, _) => k.body.clone(),
+            (false, true) => k.title.clone(),
+        };
+        self.tone = match (c.icon.as_deref(), c.done) {
+            (Some("ok"), _) => Tone::Done,
+            (Some("warn"), _) => Tone::Warn,
+            (Some("error"), _) => Tone::Error,
+            (Some(_), _) => Tone::Info,
+            (None, true) => Tone::Done,
+            (None, false) => self.tone,
+        };
+        if !c.buttons.is_empty() || c.open.is_some() {
+            let id = k.id.clone();
+            self.extra.clear();
+            self.open = None;
+            match c.open.as_deref() {
+                Some(o) if o.starts_with("http") => self
+                    .extra
+                    .push(("Open".into(), ChipAction::OpenUrl(o.into()))),
+                Some(o) => self.open = Some(o.into()),
+                None => {}
+            }
+            for b in &c.buttons {
+                let b = b.trim().to_string();
+                self.extra
+                    .push((b.clone(), ChipAction::Card(id.clone(), b)));
+            }
+        }
+        let running = self.card.as_ref().is_some_and(|k| k.progress.is_some()) && !c.done;
+        self.hold = match c.ttl {
+            Some(t) => Duration::from_secs(t as u64),
+            None if running => CARD_SILENCE,
+            None => Duration::from_secs(hytte_proto::CARD_TTL_SECS as u64),
+        };
+        self.since = now;
     }
 }
 
@@ -509,6 +589,13 @@ pub struct Model {
     pub force_until: Option<Instant>,
     pub drop_over: bool,
     pub chip: Option<Chip>,
+    /// Live cards (`hytte card`) waiting for the chip, oldest first.
+    // ponytail: a chip set directly elsewhere (a download, a notice) replaces a card on it
+    // without requeueing; a progress card comes back with its next update. Route every chip
+    // through one setter if that ever loses a waited-on card in practice.
+    pub cards: std::collections::VecDeque<Chip>,
+    /// Numbers live cards sent without an id.
+    pub card_seq: u64,
     /// A chip's Kill button was clicked once and waits for a second click until then.
     pub chip_armed: Option<Instant>,
     /// Exe names (lower-cased) the resource-hog alert is muted for, for this session.
@@ -1226,8 +1313,7 @@ impl Model {
             Some(id) if !text.trim().is_empty() => {
                 self.jot_edit = None;
                 // The item expired while it was being edited: keep the text as a new one.
-                self.jot.edit(id, &text)
-                    || self.jot.add(kind, &text, self.note_keep, now).is_some()
+                self.jot.edit(id, &text) || self.jot.add(kind, &text, self.note_keep, now).is_some()
             }
             Some(_) => false,
             None => self.jot.add(kind, &text, self.note_keep, now).is_some(),
@@ -1550,6 +1636,76 @@ impl Model {
 
     pub fn dismiss_chip(&mut self) {
         self.chip = None;
+    }
+
+    /// A script's live card (`hytte card`): update the card with its id wherever it is (on the
+    /// chip or queued), or queue a new one. `clear` takes it away. Returns the card's id.
+    /// The caller shows queued cards with [`Model::show_card`] when nothing is in the way.
+    pub fn card(&mut self, c: &hytte_proto::Cmd, now: Instant) -> String {
+        let id = match &c.id {
+            Some(id) => id.clone(),
+            None => {
+                self.card_seq += 1;
+                format!("card:{}", self.card_seq)
+            }
+        };
+        let on_chip = self.chip.as_ref().and_then(Chip::card_id) == Some(id.as_str());
+        if c.clear {
+            if on_chip {
+                self.chip = None;
+            }
+            self.cards.retain(|k| k.card_id() != Some(id.as_str()));
+            return id;
+        }
+        let slot = if on_chip {
+            self.chip.as_mut()
+        } else {
+            self.cards
+                .iter_mut()
+                .find(|k| k.card_id() == Some(id.as_str()))
+        };
+        match slot {
+            Some(k) => k.apply_card(c, now),
+            None => {
+                let mut k = Chip::new("", now);
+                k.tone = Tone::Info;
+                k.card = Some(Card {
+                    id: id.clone(),
+                    title: String::new(),
+                    body: String::new(),
+                    progress: None,
+                });
+                k.apply_card(c, now);
+                self.cards.push_back(k);
+            }
+        }
+        id
+    }
+
+    /// Put the next queued card on the chip if the chip is free. Its hold starts now.
+    pub fn show_card(&mut self, now: Instant) {
+        if self.chip.is_none() {
+            if let Some(mut k) = self.cards.pop_front() {
+                k.since = now;
+                self.chip = Some(k);
+                self.chip_armed = None;
+            }
+        }
+    }
+
+    /// Something urgent takes the chip: a card on it goes back to the front of the queue
+    /// instead of being lost.
+    pub fn requeue_card(&mut self) {
+        if self.chip.as_ref().is_some_and(|c| c.card.is_some()) {
+            self.cards.extend(self.chip.take());
+            self.cards.rotate_right(1);
+        }
+    }
+
+    /// Whether a live card with this id is on the chip or waiting for it.
+    pub fn has_card(&self, id: &str) -> bool {
+        self.chip.as_ref().and_then(Chip::card_id) == Some(id)
+            || self.cards.iter().any(|k| k.card_id() == Some(id))
     }
 
     pub fn privacy_active(&self) -> bool {
@@ -3506,6 +3662,131 @@ bang"
         // The kind survives while it retracts.
         a.set_bubble(None);
         assert_eq!(a.bubble_kind, Some(Bubble::Timer));
+    }
+
+    fn card(id: &str) -> hytte_proto::Cmd {
+        hytte_proto::Cmd {
+            id: Some(id.into()),
+            ..hytte_proto::Cmd::card()
+        }
+    }
+
+    #[test]
+    fn a_live_card_updates_in_place_wherever_it_is() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let first = hytte_proto::Cmd {
+            title: Some("Deploy".into()),
+            text: Some("Uploading…".into()),
+            progress: Some(40),
+            ..card("deploy")
+        };
+        assert_eq!(m.card(&first, t0), "deploy");
+        assert!(m.chip.is_none(), "cards queue; the window shows them");
+        m.show_card(t0);
+        let c = m.chip.as_ref().unwrap();
+        assert_eq!(c.summary, "Deploy\nUploading…");
+        assert_eq!((c.tone, c.hold), (Tone::Info, CARD_SILENCE));
+        // An update keeps the title, changes the body and progress, and restarts the hold.
+        let t1 = t0 + Duration::from_secs(20);
+        let upd = hytte_proto::Cmd {
+            text: Some("Almost".into()),
+            progress: Some(90),
+            ..card("deploy")
+        };
+        m.card(&upd, t1);
+        let c = m.chip.as_ref().unwrap();
+        assert_eq!(c.summary, "Deploy\nAlmost");
+        assert_eq!(c.card.as_ref().unwrap().progress, Some(90));
+        m.expire(t1 + Duration::from_secs(29));
+        assert!(m.chip.is_some(), "30 s of silence, not 30 s in all");
+        // Done fills the bar, ticks, and stays the normal ten seconds.
+        let t2 = t1 + Duration::from_secs(29);
+        m.card(
+            &hytte_proto::Cmd {
+                done: true,
+                text: Some("Live".into()),
+                ..card("deploy")
+            },
+            t2,
+        );
+        let c = m.chip.as_ref().unwrap();
+        assert_eq!(
+            (c.tone, c.card.as_ref().unwrap().progress),
+            (Tone::Done, Some(100))
+        );
+        assert_eq!(c.hold, Duration::from_secs(10));
+        // A second card waits behind the first and is updated while it waits.
+        m.card(
+            &hytte_proto::Cmd {
+                title: Some("Tests".into()),
+                ..card("tests")
+            },
+            t2,
+        );
+        m.card(
+            &hytte_proto::Cmd {
+                icon: Some("error".into()),
+                text: Some("3 failed".into()),
+                ..card("tests")
+            },
+            t2,
+        );
+        assert_eq!(m.cards.len(), 1);
+        m.expire(t2 + Duration::from_secs(10));
+        assert!(m.chip.is_none());
+        m.show_card(t2 + Duration::from_secs(10));
+        let c = m.chip.as_ref().unwrap();
+        assert_eq!(
+            (c.summary.as_str(), c.tone),
+            ("Tests\n3 failed", Tone::Error)
+        );
+        assert!(m.has_card("tests") && !m.has_card("deploy"));
+        // Clear takes it away from the chip or the queue.
+        m.card(
+            &hytte_proto::Cmd {
+                clear: true,
+                ..card("tests")
+            },
+            t2,
+        );
+        assert!(m.chip.is_none() && !m.has_card("tests"));
+    }
+
+    #[test]
+    fn card_buttons_report_back_and_an_ask_puts_the_card_back_in_line() {
+        let t0 = Instant::now();
+        let mut m = Model::default();
+        let ask = hytte_proto::Cmd {
+            title: Some("Restart server?".into()),
+            buttons: vec!["Restart".into(), "Later".into()],
+            open: Some("https://example.com".into()),
+            ttl: Some(60),
+            ..hytte_proto::Cmd::card()
+        };
+        let id = m.card(&ask, t0);
+        assert!(id.starts_with("card:"), "cards without an id get one");
+        m.show_card(t0);
+        let c = m.chip.as_ref().unwrap();
+        let labels: Vec<&str> = c.extra.iter().map(|e| e.0.as_str()).collect();
+        assert_eq!(labels, ["Open", "Restart", "Later"]);
+        assert_eq!(c.extra[1].1, ChipAction::Card(id.clone(), "Restart".into()));
+        assert_eq!(c.hold, Duration::from_secs(60));
+        // Another card is already waiting; an urgent chip puts this one back first in line.
+        m.card(
+            &hytte_proto::Cmd {
+                title: Some("later".into()),
+                ..hytte_proto::Cmd::card()
+            },
+            t0,
+        );
+        m.requeue_card();
+        assert!(m.chip.is_none());
+        assert_eq!(m.cards.front().and_then(Chip::card_id), Some(id.as_str()));
+        // A plain chip is never requeued.
+        m.chip = Some(Chip::new("download done", t0));
+        m.requeue_card();
+        assert_eq!(m.cards.len(), 2);
     }
 
     #[test]

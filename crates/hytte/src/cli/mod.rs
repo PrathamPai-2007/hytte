@@ -30,6 +30,7 @@ usage:
   hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
   hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
   hytte notify \"text\"                    # show a card on the pill (for your own scripts)
+  hytte card --title \"...\" [...]          # a live card: progress, buttons, --wait (hytte card --help)
   hytte shelf add <file>... | (text on stdin)   # put files or text on the shelf
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
@@ -121,9 +122,18 @@ fn open_pipe(_read: bool) -> std::io::Result<std::fs::File> {
 /// Send an [`hytte_proto::Ask`] and wait for the human's answer. None = no daemon, no
 /// answer in time, or dismissed: the caller falls back to asking in the terminal.
 fn ask_pipe(ask: &hytte_proto::Ask) -> Option<bool> {
-    use std::io::{BufRead, BufReader};
     let mut line = serde_json::to_string(ask).ok()?;
     line.push('\n');
+    let reply = request_reply(&line, hytte_proto::ASK_WAIT_SECS + 2)?;
+    serde_json::from_str::<hytte_proto::Answer>(reply.trim())
+        .ok()
+        .map(|a| a.allow)
+}
+
+/// Send one line and wait up to `secs` for the daemon's one-line reply. None = no daemon,
+/// no reply in time, or a hang-up without one.
+fn request_reply(line: &str, secs: u64) -> Option<String> {
+    use std::io::{BufRead, BufReader};
     let mut f = open_pipe(true).ok()?;
     f.write_all(line.as_bytes()).ok()?;
     // The read blocks until the daemon answers or hangs up; cap it from outside.
@@ -134,12 +144,9 @@ fn ask_pipe(ask: &hytte_proto::Ask) -> Option<bool> {
             let _ = tx.send(reply);
         }
     });
-    let reply = rx
-        .recv_timeout(Duration::from_secs(hytte_proto::ASK_WAIT_SECS + 2))
-        .ok()?;
-    serde_json::from_str::<hytte_proto::Answer>(reply.trim())
+    rx.recv_timeout(Duration::from_secs(secs))
         .ok()
-        .map(|a| a.allow)
+        .filter(|r| !r.trim().is_empty())
 }
 
 /// This same exe with no arguments (the pill), started detached; waits briefly for its pipe.
@@ -199,6 +206,135 @@ fn send_cmd(c: &hytte_proto::Cmd) -> bool {
             .is_ok()
     })
 }
+
+/// How long `hytte card --wait` leaves its question up unless `--ttl` says otherwise.
+const CARD_WAIT_TTL: u32 = 60;
+
+/// Parse `hytte card` flags into a `card` command (validated), or say what is wrong.
+fn build_card(args: &[String]) -> Result<hytte_proto::Cmd, String> {
+    let mut c = hytte_proto::Cmd::card();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut val = || {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{a} needs a value"))
+        };
+        match a.as_str() {
+            "--id" => c.id = Some(val()?),
+            "--title" => c.title = Some(val()?),
+            "--body" => c.text = Some(val()?),
+            "--icon" => c.icon = Some(val()?),
+            "--open" => c.open = Some(val()?),
+            "--button" => c.buttons.push(val()?),
+            "--progress" => {
+                c.progress = Some(
+                    val()?
+                        .parse()
+                        .ok()
+                        .filter(|p| *p <= 100)
+                        .ok_or("--progress takes 0-100")?,
+                )
+            }
+            "--ttl" => {
+                c.ttl = Some(
+                    val()?
+                        .parse()
+                        .ok()
+                        .filter(|t| (1..=hytte_proto::CARD_MAX_TTL_SECS).contains(t))
+                        .ok_or("--ttl takes 1-3600 seconds")?,
+                )
+            }
+            "--done" => c.done = true,
+            "--clear" => c.clear = true,
+            "--wait" => c.wait = true,
+            _ => return Err(format!("unknown option {a}")),
+        }
+    }
+    if c.wait && c.buttons.is_empty() {
+        return Err("--wait needs at least one --button".into());
+    }
+    if c.wait && c.ttl.is_none() {
+        c.ttl = Some(CARD_WAIT_TTL);
+    }
+    if let Some(i) = c.icon.as_deref() {
+        if !hytte_proto::CARD_ICONS.contains(&i) {
+            return Err(format!(
+                "--icon is one of {}",
+                hytte_proto::CARD_ICONS.join(", ")
+            ));
+        }
+    }
+    if c.validate() {
+        Ok(c)
+    } else {
+        Err(
+            "a card needs --title or --body (or --id to update one); --clear needs --id; \
+             at most 2 buttons of 24 bytes; title 128, body 1024 bytes; \
+             --open is an http(s) link or a full path"
+                .into(),
+        )
+    }
+}
+
+/// `hytte card ...`: put a live card on the pill, update or clear it, or (`--wait`) ask a
+/// question and print the pressed button. Exit 0 with the label; 1 when nothing was pressed or
+/// the pill isn't running; 2 for a mistake in the arguments.
+fn cmd_card(args: &[String]) {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("--help" | "-h") | None
+    ) {
+        println!("{CARD_USAGE}");
+        if args.is_empty() {
+            std::process::exit(2);
+        }
+        return;
+    }
+    let c = match build_card(args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("hytte card: {e}\n\n{CARD_USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if !c.wait {
+        if !send_cmd(&c) {
+            eprintln!("hytte: daemon not running (card dropped)");
+            std::process::exit(1);
+        }
+        return;
+    }
+    let Ok(line) = c.to_line() else {
+        std::process::exit(2)
+    };
+    let secs = c.ttl.unwrap_or(CARD_WAIT_TTL) as u64 + hytte_proto::CARD_QUEUE_SECS + 10;
+    let pressed = request_reply(&line, secs)
+        .and_then(|r| serde_json::from_str::<hytte_proto::Pressed>(r.trim()).ok());
+    match pressed {
+        Some(p) => println!("{}", p.pressed),
+        None => std::process::exit(1),
+    }
+}
+
+const CARD_USAGE: &str = "\
+usage: hytte card [options]
+  --title \"...\"      bold first line (128 bytes)
+  --body \"...\"       text under it (1024 bytes)
+  --id <id>          send again with the same id to update the card in place
+  --progress <0-100> a bar; the card stays until --done or 30 s without an update
+  --done             the job finished (fills the bar, shows a tick)
+  --icon <info|ok|warn|error>
+  --button \"...\"     up to two; a press only reports back, it never runs anything
+  --open <url|path>  adds an Open button
+  --ttl <seconds>    how long it stays (default 10, with --wait 60, at most 3600)
+  --wait             block until a button is pressed: prints its label, exit 0;
+                     no press (or no pill) exits 1
+  --clear            take the card with --id away
+examples:
+  hytte card --id deploy --title Deploy --body \"Uploading...\" --progress 40
+  hytte card --id deploy --done --body Live
+  hytte card --title \"Restart server?\" --button Restart --button Later --wait";
 
 fn cmd_notify(args: &[String]) {
     let mut text = args.join(" ");
@@ -540,6 +676,7 @@ pub fn run(args: &[String]) {
         "setup" => cmd_setup(&args[1..]),
         "doctor" => doctor::run(),
         "notify" => cmd_notify(&args[1..]),
+        "card" => cmd_card(&args[1..]),
         "shelf" => cmd_shelf(&args[1..]),
         #[cfg(debug_assertions)]
         "__update" => crate::update::debug_install(),
@@ -549,7 +686,7 @@ pub fn run(args: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_set, find_in, fit_label, quote_arg};
+    use super::{build_card, build_set, find_in, fit_label, quote_arg};
     use hytte_proto::TaskEvent;
 
     #[test]
@@ -566,6 +703,42 @@ mod tests {
         assert_eq!((f.event, f.exit_code), (TaskEvent::Failed, Some(1)));
         assert!(a(&[]).is_none() && a(&["--progress", "101"]).is_none());
         assert!(a(&["--done", "--progress", "5"]).is_none() && a(&["--bogus"]).is_none());
+    }
+
+    #[test]
+    fn card_flags_build_a_valid_card_or_say_why_not() {
+        let a = |v: &[&str]| build_card(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let c = a(&["--id", "deploy", "--title", "Deploy", "--progress", "40"]).unwrap();
+        assert_eq!((c.id.as_deref(), c.progress), (Some("deploy"), Some(40)));
+        let w = a(&[
+            "--title", "Restart?", "--button", "Restart", "--button", "Later", "--wait",
+        ])
+        .unwrap();
+        assert_eq!(
+            (w.buttons.len(), w.ttl, w.wait),
+            (2, Some(60), true),
+            "--wait waits a minute"
+        );
+        assert!(a(&["--id", "deploy", "--done"]).unwrap().done);
+        assert!(a(&["--id", "x", "--clear"]).unwrap().clear);
+        for bad in [
+            &["--title", "t", "--wait"][..],
+            &["--title", "t", "--progress", "101"],
+            &["--title", "t", "--ttl", "0"],
+            &["--title", "t", "--icon", "skull"],
+            &["--title"],
+            &["--clear"],
+            &["--bogus"],
+            &[],
+            &[
+                "--title", "t", "--button", "a", "--button", "b", "--button", "c",
+            ],
+        ] {
+            assert!(a(bad).is_err(), "{bad:?}");
+        }
+        assert!(a(&["--title", "t", "--wait"])
+            .unwrap_err()
+            .contains("--button"));
     }
 
     #[test]

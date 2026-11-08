@@ -57,6 +57,7 @@ impl Renderer {
             Tone::Done => PURPLE,
             Tone::Warn => AMBER,
             Tone::Info => BLUE,
+            Tone::Error => RED,
         };
         self.circle(26.0, 24.0, 9.0, self.cc(accent, 0.2));
         match c.tone {
@@ -67,6 +68,10 @@ impl Renderer {
             Tone::Warn => {
                 self.line((26.0, 19.0), (26.0, 25.0), self.cc(accent, 1.0), 2.0);
                 self.circle(26.0, 28.5, 1.2, self.cc(accent, 1.0));
+            }
+            Tone::Error => {
+                self.line((22.5, 20.5), (29.5, 27.5), self.cc(accent, 1.0), 2.0);
+                self.line((29.5, 20.5), (22.5, 27.5), self.cc(accent, 1.0), 2.0);
             }
             Tone::Info => {
                 self.circle(26.0, 19.8, 1.2, self.cc(accent, 1.0));
@@ -83,6 +88,15 @@ impl Renderer {
             self.cc(self.fg(), 0.95),
         );
         let by = if c.one_line() { 44.0 } else { 60.0 };
+        // A live card's progress: a thin bar between the text and the buttons.
+        if let Some(p) = c.card.as_ref().and_then(|k| k.progress) {
+            let (bx, bw) = (46.0, w - 46.0 - 20.0);
+            self.fill_rr(bx, by - 9.0, bw, 4.0, 2.0, self.cc(self.fg(), 0.12));
+            let fill = bw * p as f32 / 100.0;
+            if fill > 0.5 {
+                self.fill_rr(bx, by - 9.0, fill.max(4.0), 4.0, 2.0, self.cc(accent, 0.95));
+            }
+        }
         let mut x = 16.0;
         if let Some(p) = &c.open {
             self.button(
