@@ -352,6 +352,32 @@ pub struct Panes {
     /// The tab order, as pane names ("home,media,..."). Set by the arrows in the settings
     /// window; panes not named keep their usual place after the ones that are.
     pub order: String,
+    /// Switches for the `[[script_pane]]`s, by place. Only written when off.
+    #[serde(skip_serializing_if = "is_on")]
+    pub script1: bool,
+    #[serde(skip_serializing_if = "is_on")]
+    pub script2: bool,
+    #[serde(skip_serializing_if = "is_on")]
+    pub script3: bool,
+    #[serde(skip_serializing_if = "is_on")]
+    pub script4: bool,
+}
+
+fn is_on(b: &bool) -> bool {
+    *b
+}
+
+impl Panes {
+    /// Whether the script pane in this place (0..4) is switched on.
+    pub fn script_on(&self, slot: usize) -> bool {
+        match slot {
+            0 => self.script1,
+            1 => self.script2,
+            2 => self.script3,
+            3 => self.script4,
+            _ => false,
+        }
+    }
 }
 impl Default for Panes {
     fn default() -> Self {
@@ -365,6 +391,10 @@ impl Default for Panes {
             todo: true,
             weather: true,
             order: String::new(),
+            script1: true,
+            script2: true,
+            script3: true,
+            script4: true,
         }
     }
 }
@@ -426,6 +456,62 @@ pub struct Config {
     pub downloads: Downloads,
     pub calendar: Calendar,
     pub agent: Agent,
+    /// Your own panes (`[[script_pane]]`), fed by a command Hytte runs and/or by
+    /// `hytte pane set`. Read through [`Config::script_panes`], which applies the limits.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub script_pane: Vec<ScriptPane>,
+}
+
+/// Most script panes the tab strip takes.
+pub const MAX_SCRIPT_PANES: usize = 4;
+/// Longest tab label, in characters.
+pub const SCRIPT_NAME_CHARS: usize = 16;
+/// Fastest a script pane's command repeats, in seconds.
+pub const SCRIPT_MIN_EVERY: u64 = 30;
+
+/// One `[[script_pane]]`: a tab named `name`, showing what `command` prints (run with
+/// `cmd /c` every `every` seconds while the pane is open) or what scripts send it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScriptPane {
+    pub name: String,
+    /// Empty: the pane only shows what `hytte pane set` sends.
+    pub command: String,
+    pub every: u64,
+}
+impl Default for ScriptPane {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            every: 300,
+        }
+    }
+}
+
+impl Config {
+    /// The script panes Hytte uses: unnamed ones skipped, names cut to
+    /// [`SCRIPT_NAME_CHARS`], repeats of a name dropped, at most [`MAX_SCRIPT_PANES`], and
+    /// `every` no faster than [`SCRIPT_MIN_EVERY`].
+    pub fn script_panes(&self) -> Vec<ScriptPane> {
+        let mut out: Vec<ScriptPane> = vec![];
+        for p in &self.script_pane {
+            let name: String = p.name.trim().chars().take(SCRIPT_NAME_CHARS).collect();
+            let name = name.trim().to_string();
+            if name.is_empty() || out.iter().any(|q| q.name.eq_ignore_ascii_case(&name)) {
+                continue;
+            }
+            out.push(ScriptPane {
+                name,
+                command: p.command.trim().to_string(),
+                every: p.every.max(SCRIPT_MIN_EVERY),
+            });
+            if out.len() == MAX_SCRIPT_PANES {
+                break;
+            }
+        }
+        out
+    }
 }
 
 pub fn data_dir() -> PathBuf {
@@ -455,7 +541,11 @@ pub fn load() -> Config {
 
 /// Settings that are read but are not in a default file (an unset `Option`), or that older
 /// versions wrote and that are ignored now (so nobody is told off for a file Hytte made).
-const ALSO_KNOWN: [(&str, &str); 9] = [
+const ALSO_KNOWN: [(&str, &str); 13] = [
+    ("panes", "script1"),
+    ("panes", "script2"),
+    ("panes", "script3"),
+    ("panes", "script4"),
     ("general", "output_folder"),
     ("downloads", "folder"),
     ("general", "suppress_fullscreen"),
@@ -477,6 +567,22 @@ fn unknown_keys(text: &str) -> Vec<String> {
     };
     let mut out = vec![];
     for (sec, v) in &user {
+        // `[[script_pane]]` is a list (absent from the defaults): check each entry's keys.
+        if sec == "script_pane" {
+            for k in v
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.as_table())
+            {
+                for key in k.keys() {
+                    if !["name", "command", "every"].contains(&key.as_str()) {
+                        out.push(format!("script_pane.{key}"));
+                    }
+                }
+            }
+            continue;
+        }
         let Some(known_sec) = known.get(sec) else {
             out.push(sec.clone());
             continue;
@@ -879,6 +985,49 @@ mod tests {
         assert!(parse("[general\nautostart = ").is_none());
         assert!(with_value("[general\n", "general.autostart", Val::B(true)).is_none());
         assert!(parse("").is_some(), "an empty file is all defaults");
+    }
+
+    #[test]
+    fn script_panes_are_read_with_their_limits() {
+        let text = r#"
+[general]
+skin = "moss"
+
+[[script_pane]]
+name = "  Server status, the long name  "
+command = "curl -s localhost:3000/health"
+every = 5
+
+[[script_pane]]
+name = "Deploys"
+
+[[script_pane]]
+name = "deploys"
+command = "echo repeat"
+
+[[script_pane]]
+name = "   "
+
+[[script_pane]]
+name = "C"
+[[script_pane]]
+name = "D"
+[[script_pane]]
+name = "E"
+"#;
+        let c: Config = toml::from_str(text).unwrap();
+        let p = c.script_panes();
+        let names: Vec<&str> = p.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Server status, t", "Deploys", "C", "D"]);
+        assert_eq!(p[0].every, SCRIPT_MIN_EVERY, "no faster than 30 s");
+        assert_eq!((p[1].command.as_str(), p[1].every), ("", 300));
+        assert_eq!(problem(text, false), None, "a list of panes is not a typo");
+        let typo = "[[script_pane]]\nname = \"x\"\ncomand = \"y\"\n";
+        assert!(problem(typo, false).unwrap().contains("script_pane.comand"));
+        // A file with no panes writes none.
+        assert!(!toml::to_string_pretty(&Config::default())
+            .unwrap()
+            .contains("script_pane"));
     }
 
     #[test]

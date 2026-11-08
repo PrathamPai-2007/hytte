@@ -37,37 +37,39 @@ queue (`CARD_QUEUE_SECS`) and ends at once when the card expires, is dismissed o
 
 ### Task 4: Config and the pane slot
 `[[script_pane]]` (`name`, `command`, `every`) with limits (max 4, `every` ≥ 30). `Panel::Script(u8)`
-in the tab strip, `[panes] order` (`script:<name>`), 1–9 keys and settings arrows. Empty pane
+in the tab strip, `[panes] order` (`script1`–`script4`, by place in the file), 1–9 keys and
+settings arrows. Switches are `[panes] script1`–`script4`, written only when off. Empty pane
 shows "Waiting for output".
-- [ ] Config tests: defaults, limits, unknown keys warned as usual, order parsing with script names
-- [ ] Snapshot: a script pane in the strip
+- [x] Config tests: defaults, limits, unknown keys warned as usual, order parsing with script names
+- [x] Snapshot: a script pane in the strip
 **Files:** `config.rs`, `ui_state.rs`, `tabs.rs`, `render/script.rs`. **Scope:** M
 
 ### Task 5: Push (`hytte pane set`)
 `Cmd` kind `"pane_set"` (`name`, `text` ≤ 2 KB). Daemon ignores unknown names; the CLI checks
 `config.toml` and errors with exit 1. Piped stdin works.
-- [ ] Proto tests; CLI test for the unknown-name message
-- [ ] Live: `echo 3 users | hytte pane set Server` shows on the pane
+- [x] Proto tests; CLI test for the unknown-name message
+- [x] Live: `echo 3 users | hytte pane set Server` shows on the pane
 **Files:** `crates/proto/src/lib.rs`, `cli/mod.rs`, `window/win/actions.rs`. **Scope:** S
 
 ### Task 6: Pull (Hytte runs the command)
 `scriptpane.rs`: one worker thread; runs due panes only while their pane shows (and once at start);
 `cmd /c` hidden, home folder, 10 s timeout, Job object kills the tree. Output cleaned (ANSI,
 control chars, 6 lines, 2 KB, `secrets::mask`). Non-zero exit shown in warn colour.
-- [ ] Unit tests: output cleaning, due check, timeout result
-- [ ] Live: a 1 s command shows; a `timeout /t 60` command is killed at 10 s with no orphan left
-- [ ] Idle with the pane closed: no process spawned, CPU unchanged from the baseline
+- [x] Unit tests: output cleaning, due check, timeout result
+- [x] Live: a 1 s command shows; a `timeout /t 60` command is killed at 10 s with no orphan left
+- [x] Idle with the pane closed: no process spawned, CPU unchanged from the baseline
 **Files:** `scriptpane.rs` (new), `window/win/*.rs`. **Scope:** M
 
 ### Task 7: Pane rendering and settings
 "Updated 3 min ago" line, warn style for failures, long lines ellipsized. The settings window's
 Panes list shows script panes with switches and ▲ ▼ (editing them stays in `config.toml`; a
 "Edit in config.toml" link opens the file).
-- [ ] Snapshots: output, failure, stale, settings list
+- [x] Snapshots: output, failure, stale, settings list
 **Files:** `render/script.rs`, `render/settings_table.rs`. **Scope:** S
 
 ### Checkpoint B
-- [ ] Checks pass; snapshot page reviewed; a pull and a push pane run live together
+- [x] Checks pass; a pull and a push pane run live together
+- [ ] Snapshot page reviewed by the user
 
 ## Phase 3: Accent and key hints
 

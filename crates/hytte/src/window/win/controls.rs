@@ -291,7 +291,7 @@ impl Ui {
         if g.remember_panel && g.start_panel == "last" {
             match self.model.selected {
                 Some(p) => {
-                    let _ = std::fs::write(panel_file(), p.name());
+                    let _ = std::fs::write(panel_file(), p.saved_name());
                 }
                 None => {
                     let _ = std::fs::remove_file(panel_file());

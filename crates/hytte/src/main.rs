@@ -40,6 +40,7 @@ mod proc;
 #[cfg(windows)]
 mod render;
 mod rerun;
+mod scriptpane;
 mod secrets;
 #[cfg(windows)]
 mod settings_win;

@@ -149,6 +149,7 @@ impl Ui {
         self.anim.nav = 0.0;
         self.kick();
         self.weather_refresh();
+        self.script_refresh(hwnd);
         self.sleep_tick(now);
         self.lyrics_tick();
     }

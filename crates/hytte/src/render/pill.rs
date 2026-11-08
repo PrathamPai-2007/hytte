@@ -339,6 +339,7 @@ impl Renderer {
             Scene::ExpNotes => self.exp_notes(fr, w, h),
             Scene::ExpTodo => self.exp_todo(fr, w, h),
             Scene::ExpWeather => self.exp_weather(fr, w, h),
+            Scene::ExpScript(i) => self.exp_script(fr, i, w, h),
             Scene::ExpDrop => self.exp_drop(w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
             Scene::ExpTimer => self.exp_timer(fr, w, h),

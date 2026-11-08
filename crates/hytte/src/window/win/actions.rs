@@ -364,6 +364,12 @@ impl Ui {
         if self.paused || self.gaming {
             return;
         }
+        if c.cmd == "pane_set" {
+            // A name no [[script_pane]] has is ignored (the CLI already said so).
+            let (name, text) = (c.id.unwrap_or_default(), c.text.unwrap_or_default());
+            self.model.script_text(&name, &text, None, now);
+            return;
+        }
         if c.cmd == "card" {
             let id = self.model.card(&c, now);
             if let Some(r) = reply {

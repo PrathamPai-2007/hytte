@@ -303,7 +303,7 @@ pub(super) unsafe extern "system" fn wndproc(
                         ui.kick();
                     }
                 }
-                T_EXPIRE | T_TIMER => ui.after_model_change(hwnd),
+                T_EXPIRE | T_TIMER | T_SCRIPT => ui.after_model_change(hwnd),
                 T_CARET => ui.caret_tick(hwnd),
                 T_PLACE => ui.place_search(),
                 T_WIDE => ui.wide_offer_due(),

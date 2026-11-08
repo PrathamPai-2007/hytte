@@ -99,6 +99,8 @@ pub enum UiEvent {
     /// A script asked for a card or a shelf item (`hytte notify`, `hytte card`, `hytte shelf
     /// add`). A `card --wait` comes with where to send the pressed button's label.
     Cmd(hytte_proto::Cmd, Option<crossbeam_channel::Sender<String>>),
+    /// A script pane's command finished: its name and how it went.
+    Script(String, crate::scriptpane::Run),
     /// A newer version exists: its tag and the first line of its notes.
     UpdateOffer {
         tag: String,
@@ -226,7 +228,13 @@ pub enum Panel {
     Notes,
     Todo,
     Weather,
+    /// One of your `[[script_pane]]`s, by its place in the config (0..4).
+    Script(u8),
 }
+
+/// Script pane keys in `[panes] order`, by slot (the pane's place among `[[script_pane]]`s).
+pub const SCRIPT_KEYS: [&str; crate::config::MAX_SCRIPT_PANES] =
+    ["script1", "script2", "script3", "script4"];
 
 impl Panel {
     pub fn name(self) -> &'static str {
@@ -240,11 +248,13 @@ impl Panel {
             Panel::Notes => "Notes",
             Panel::Todo => "To-do",
             Panel::Weather => "Weather",
+            // The tab shows the pane's own name ([`Model::panel_label`]).
+            Panel::Script(_) => "Script",
         }
     }
 
     /// Every pane, in the order the tab strip has them until the user moves them.
-    pub const ALL: [Panel; 9] = [
+    pub const ALL: [Panel; 13] = [
         Panel::Shelf,
         Panel::Media,
         Panel::Home,
@@ -254,6 +264,10 @@ impl Panel {
         Panel::Tasks,
         Panel::Timer,
         Panel::Power,
+        Panel::Script(0),
+        Panel::Script(1),
+        Panel::Script(2),
+        Panel::Script(3),
     ];
 
     /// The pane's name in `[panes]` (the switch `panes.<key>` and the `order` list).
@@ -268,6 +282,7 @@ impl Panel {
             Panel::Notes => "notes",
             Panel::Todo => "todo",
             Panel::Weather => "weather",
+            Panel::Script(i) => SCRIPT_KEYS[(i as usize).min(SCRIPT_KEYS.len() - 1)],
         }
     }
 
@@ -289,20 +304,20 @@ impl Panel {
         v
     }
 
+    /// From a pane's name ("To-do") or, for script panes, its key ("script2").
     pub fn from_name(s: &str) -> Option<Panel> {
-        [
-            Panel::Tasks,
-            Panel::Shelf,
-            Panel::Media,
-            Panel::Timer,
-            Panel::Power,
-            Panel::Home,
-            Panel::Notes,
-            Panel::Todo,
-            Panel::Weather,
-        ]
-        .into_iter()
-        .find(|p| p.name() == s.trim())
+        Panel::ALL
+            .into_iter()
+            .find(|p| !matches!(p, Panel::Script(_)) && p.name() == s.trim())
+            .or_else(|| Panel::from_key(s).filter(|p| matches!(p, Panel::Script(_))))
+    }
+
+    /// What the pane is saved as between runs: its name, or a script pane's key.
+    pub fn saved_name(self) -> &'static str {
+        match self {
+            Panel::Script(_) => self.key(),
+            _ => self.name(),
+        }
     }
 
     /// The panel an expanded scene shows; None for scenes that aren't panels.
@@ -317,6 +332,7 @@ impl Panel {
             Scene::ExpNotes => Panel::Notes,
             Scene::ExpTodo => Panel::Todo,
             Scene::ExpWeather => Panel::Weather,
+            Scene::ExpScript(i) => Panel::Script(i),
             _ => return None,
         })
     }
@@ -382,6 +398,56 @@ pub enum Tone {
     Info,
     /// Something failed: red (a live card's `error` icon).
     Error,
+}
+
+/// A script pane as the pill knows it: its settings and what it last showed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScriptView {
+    pub name: String,
+    /// Empty: only `hytte pane set` fills it.
+    pub command: String,
+    pub every: Duration,
+    /// The cleaned text it shows.
+    pub text: String,
+    /// When the last run went wrong: "exit 3", "stopped after 10 s". None: fine.
+    pub problem: Option<String>,
+    /// When the text last changed (a run finished or a script pushed).
+    pub updated: Option<Instant>,
+    /// When its command last started, for the "every" schedule.
+    pub ran: Option<Instant>,
+    pub busy: bool,
+}
+
+/// Text rows a script pane shows: its lines, or two for the empty state's hint.
+pub fn script_rows(s: &ScriptView) -> usize {
+    match s.text.lines().count() {
+        0 => 2,
+        n => n,
+    }
+}
+
+/// The quiet line under a script pane: what went wrong, or how fresh the text is and when
+/// the command runs again.
+pub fn script_footer(s: &ScriptView, now: Instant) -> String {
+    if let Some(p) = &s.problem {
+        return p.clone();
+    }
+    let fresh = match s
+        .updated
+        .map(|u| now.saturating_duration_since(u).as_secs())
+    {
+        None => return String::new(),
+        Some(0..60) => "Updated just now".to_string(),
+        Some(t @ 60..3600) => format!("Updated {} min ago", t / 60),
+        Some(t) => format!("Updated {} h ago", t / 3600),
+    };
+    if s.command.is_empty() {
+        return fresh;
+    }
+    match s.every.as_secs() {
+        t if t % 60 == 0 => format!("{fresh} · every {} min", t / 60),
+        t => format!("{fresh} · every {t} s"),
+    }
 }
 
 /// How long a progress card stays without an update.
@@ -507,6 +573,8 @@ pub enum Scene {
     ExpNotes,
     ExpTodo,
     ExpWeather,
+    /// A script pane, by slot.
+    ExpScript(u8),
     ExpDrop,
     ExpChip,
     ExpTimer,
@@ -589,6 +657,8 @@ pub struct Model {
     pub force_until: Option<Instant>,
     pub drop_over: bool,
     pub chip: Option<Chip>,
+    /// Script panes (`[[script_pane]]`), by slot.
+    pub scripts: Vec<ScriptView>,
     /// Live cards (`hytte card`) waiting for the chip, oldest first.
     // ponytail: a chip set directly elsewhere (a download, a notice) replaces a card on it
     // without requeueing; a progress card comes back with its next update. Route every chip
@@ -1361,6 +1431,12 @@ impl Model {
         self.choosing || self.weather_place.is_none()
     }
 
+    /// Height of a script pane without the tab strip: its rows and the footer.
+    pub fn script_h(&self, slot: u8) -> f64 {
+        let n = self.scripts.get(slot as usize).map_or(2, script_rows) as f64;
+        18.0 + n * 18.0 + 16.0 + 12.0
+    }
+
     /// Height of the Weather pane without the tab strip.
     pub fn weather_h(&self) -> f64 {
         if self.choosing_place() {
@@ -1702,6 +1778,94 @@ impl Model {
         }
     }
 
+    /// Apply `[[script_pane]]`s. A pane that keeps its name keeps what it showed.
+    pub fn apply_scripts(&mut self, list: &[crate::config::ScriptPane]) {
+        let old = std::mem::take(&mut self.scripts);
+        self.scripts = list
+            .iter()
+            .map(|p| {
+                let mut v = old
+                    .iter()
+                    .find(|o| o.name == p.name)
+                    .cloned()
+                    .unwrap_or_default();
+                if v.command != p.command {
+                    v.ran = None; // a new command runs at the next chance
+                }
+                v.name = p.name.clone();
+                v.command = p.command.clone();
+                v.every = Duration::from_secs(p.every);
+                v
+            })
+            .collect();
+    }
+
+    /// The tab label of a pane: a script pane's own name, else the pane's name.
+    pub fn panel_label(&self, p: Panel) -> &str {
+        match p {
+            Panel::Script(i) => self
+                .scripts
+                .get(i as usize)
+                .map_or("Script", |s| s.name.as_str()),
+            _ => p.name(),
+        }
+    }
+
+    /// Text for script pane `name` (pushed, or a finished run). False: no such pane.
+    pub fn script_text(
+        &mut self,
+        name: &str,
+        text: &str,
+        problem: Option<String>,
+        now: Instant,
+    ) -> bool {
+        let Some(s) = self
+            .scripts
+            .iter_mut()
+            .find(|s| s.name.eq_ignore_ascii_case(name.trim()))
+        else {
+            return false;
+        };
+        s.text = crate::scriptpane::clean(text);
+        s.problem = problem;
+        s.updated = Some(now);
+        true
+    }
+
+    /// A pane's command finished: show what it printed, and say so when it failed.
+    pub fn script_done(&mut self, name: &str, run: crate::scriptpane::Run, now: Instant) {
+        let problem = match run.code {
+            Some(0) => None,
+            Some(n) => Some(format!("Exited with code {n}")),
+            None => Some(format!(
+                "Stopped after {} s",
+                crate::scriptpane::TIMEOUT.as_secs()
+            )),
+        };
+        self.script_text(name, &run.text, problem, now);
+        if let Some(s) = self.scripts.iter_mut().find(|s| s.name == name) {
+            s.busy = false;
+        }
+    }
+
+    /// Script pane slots whose command should run now (`only`: just the pane showing).
+    /// Marks them busy and started. Each: slot, name, command.
+    pub fn scripts_due(&mut self, only: Option<u8>, now: Instant) -> Vec<(u8, String, String)> {
+        let mut out = vec![];
+        for (i, s) in self.scripts.iter_mut().enumerate() {
+            let i = i as u8;
+            if only.is_some_and(|o| o != i) || s.command.is_empty() || s.busy {
+                continue;
+            }
+            if crate::scriptpane::due(s.ran, s.every, now) {
+                s.busy = true;
+                s.ran = Some(now);
+                out.push((i, s.name.clone(), s.command.clone()));
+            }
+        }
+        out
+    }
+
     /// Whether a live card with this id is on the chip or waiting for it.
     pub fn has_card(&self, id: &str) -> bool {
         self.chip.as_ref().and_then(Chip::card_id) == Some(id)
@@ -1886,6 +2050,11 @@ impl Model {
         if self.panes.power && self.power.is_some() {
             v.push(Panel::Power);
         }
+        v.extend(
+            (0..self.scripts.len())
+                .filter(|i| self.panes.script_on(*i))
+                .map(|i| Panel::Script(i as u8)),
+        );
         let order = Panel::arranged(&self.panes.order);
         v.sort_by_key(|p| order.iter().position(|q| q == p));
         v
@@ -1976,6 +2145,7 @@ impl Model {
                 Panel::Notes => Scene::ExpNotes,
                 Panel::Todo => Scene::ExpTodo,
                 Panel::Weather => Scene::ExpWeather,
+                Panel::Script(i) => Scene::ExpScript(i),
             };
         }
         if self
@@ -2016,6 +2186,7 @@ impl Model {
             Scene::ExpNudge => (360.0, 56.0),
             Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
             Scene::ExpWeather => (380.0, self.weather_h() + tab),
+            Scene::ExpScript(i) => (380.0, self.script_h(i) + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
             Scene::ExpChip => (380.0, 96.0),
@@ -2109,7 +2280,8 @@ impl Model {
             | Scene::ExpSettings
             | Scene::ExpNotes
             | Scene::ExpTodo
-            | Scene::ExpWeather => ([1.0; 3], 0.10),
+            | Scene::ExpWeather
+            | Scene::ExpScript(_) => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
                 Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
                 Some(TaskEvent::Failed) => (RED, 0.9),
@@ -2420,7 +2592,7 @@ mod tests {
         // Unknown names and repeats are ignored; the rest keep their usual order after.
         let a = Panel::arranged("weather, nope,home,weather");
         assert_eq!(&a[..2], &[Panel::Weather, Panel::Home]);
-        assert_eq!(a.len(), 9);
+        assert_eq!(a.len(), Panel::ALL.len());
         assert_eq!(
             move_pane("", "home", -1)
                 .split(',')
@@ -3662,6 +3834,122 @@ bang"
         // The kind survives while it retracts.
         a.set_bubble(None);
         assert_eq!(a.bubble_kind, Some(Bubble::Timer));
+    }
+
+    fn pane(name: &str, command: &str) -> crate::config::ScriptPane {
+        crate::config::ScriptPane {
+            name: name.into(),
+            command: command.into(),
+            every: 60,
+        }
+    }
+
+    #[test]
+    fn script_panes_take_slots_keep_their_text_and_run_on_schedule() {
+        let t0 = Instant::now();
+        let mut m = Model {
+            panes: crate::config::Panes::default(),
+            ..Default::default()
+        };
+        m.apply_scripts(&[pane("Server", "curl x"), pane("Deploys", "")]);
+        let ps = m.panels();
+        assert!(ps.contains(&Panel::Script(0)) && ps.contains(&Panel::Script(1)));
+        assert_eq!(m.panel_label(Panel::Script(1)), "Deploys");
+        assert_eq!(
+            Panel::from_name(Panel::Script(1).saved_name()),
+            Some(Panel::Script(1))
+        );
+        // A switched-off pane leaves the tab strip.
+        m.panes.script2 = false;
+        assert!(!m.panels().contains(&Panel::Script(1)));
+        m.panes.script2 = true;
+        // Only the pane on screen runs, once until its interval passes; push-only never runs.
+        let due = m.scripts_due(Some(0), t0);
+        assert_eq!(due.len(), 1);
+        assert_eq!((due[0].0, due[0].2.as_str()), (0, "curl x"));
+        assert!(
+            m.scripts_due(Some(0), t0 + Duration::from_secs(120))
+                .is_empty(),
+            "busy"
+        );
+        m.script_done(
+            "Server",
+            crate::scriptpane::Run {
+                text: "[32mup[0m
+3 users"
+                    .into(),
+                code: Some(0),
+            },
+            t0 + Duration::from_secs(1),
+        );
+        assert_eq!(
+            m.scripts[0].text,
+            "up
+3 users"
+        );
+        assert!(m
+            .scripts_due(Some(0), t0 + Duration::from_secs(59))
+            .is_empty());
+        assert_eq!(
+            m.scripts_due(Some(0), t0 + Duration::from_secs(60)).len(),
+            1
+        );
+        assert!(
+            m.scripts_due(Some(1), t0).is_empty(),
+            "push-only panes never run"
+        );
+        // A push lands by name, any case; an unknown name is ignored.
+        assert!(m.script_text("deploys", "v2.0 live", None, t0));
+        assert!(!m.script_text("nope", "x", None, t0));
+        // Reloading the config keeps what a pane showed.
+        m.apply_scripts(&[pane("Deploys", ""), pane("Server", "curl x")]);
+        assert_eq!(m.scripts[0].text, "v2.0 live");
+        // Failures say so.
+        m.script_done(
+            "Server",
+            crate::scriptpane::Run {
+                text: "refused".into(),
+                code: Some(7),
+            },
+            t0,
+        );
+        assert_eq!(m.scripts[1].problem.as_deref(), Some("Exited with code 7"));
+        m.script_done(
+            "Server",
+            crate::scriptpane::Run {
+                text: String::new(),
+                code: None,
+            },
+            t0,
+        );
+        assert_eq!(m.scripts[1].problem.as_deref(), Some("Stopped after 10 s"));
+    }
+
+    #[test]
+    fn the_script_footer_says_how_fresh_it_is() {
+        let t0 = Instant::now();
+        let mut s = ScriptView {
+            command: "x".into(),
+            every: Duration::from_secs(300),
+            updated: Some(t0),
+            ..Default::default()
+        };
+        assert_eq!(script_footer(&s, t0), "Updated just now · every 5 min");
+        assert_eq!(
+            script_footer(&s, t0 + Duration::from_secs(185)),
+            "Updated 3 min ago · every 5 min"
+        );
+        s.every = Duration::from_secs(45);
+        assert_eq!(
+            script_footer(&s, t0 + Duration::from_secs(7300)),
+            "Updated 2 h ago · every 45 s"
+        );
+        s.command.clear();
+        assert_eq!(script_footer(&s, t0), "Updated just now");
+        s.updated = None;
+        assert_eq!(script_footer(&s, t0), "");
+        s.problem = Some("Exited with code 1".into());
+        assert_eq!(script_footer(&s, t0), "Exited with code 1");
     }
 
     fn card(id: &str) -> hytte_proto::Cmd {

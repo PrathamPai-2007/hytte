@@ -37,6 +37,7 @@ mod forecast;
 mod frame;
 mod input;
 mod mediactl;
+mod scripts;
 mod shots;
 mod typing;
 mod view;
@@ -65,6 +66,8 @@ const T_SHOT: usize = 8;
 const T_CARET: usize = 9;
 const T_PLACE: usize = 10;
 const T_WIDE: usize = 11;
+/// A script pane on screen is due to run its command again.
+const T_SCRIPT: usize = 12;
 /// Idle this long (no frames) before the working set is trimmed.
 const TRIM_MS: u32 = 30_000;
 
@@ -311,6 +314,8 @@ struct Ui {
     /// Scripts waiting on a live card's button (`hytte card --wait`): card id and where the
     /// label goes. Dropped when the card is gone, which tells the script "no press".
     card_waits: Vec<(String, Sender<String>)>,
+    /// The script panes have had their one run at start.
+    scripts_primed: bool,
     /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
     gpu_retry: u32,
     /// The timer alarm is playing.
@@ -626,6 +631,7 @@ pub fn run_windows(
             ask_shown: None,
             update_offer: None,
             card_waits: vec![],
+            scripts_primed: false,
             gpu_retry: 0,
             ringing: false,
             caret_on: true,
@@ -659,6 +665,7 @@ pub fn run_windows(
         ui.model.weather_place = crate::weather::Place::load();
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
         ui.model.apply_panes(&ui.cfg.panes.clone());
+        ui.model.apply_scripts(&ui.cfg.script_panes());
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())
                 .ok()

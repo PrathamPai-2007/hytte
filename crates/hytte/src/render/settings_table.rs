@@ -546,6 +546,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             name: "Panes",
             rows: crate::ui_state::Panel::arranged(&c.panes.order)
                 .into_iter()
+                // Only the script panes `config.toml` sets up.
+                .filter(|p| match p {
+                    crate::ui_state::Panel::Script(i) => (*i as usize) < c.script_panes().len(),
+                    _ => true,
+                })
                 .map(|p| (pane_switch(p, &c.panes), -1))
                 .collect(),
         },
@@ -784,6 +789,20 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
     ]
 }
 
+/// Script panes in the settings window, by slot (their names live in `config.toml`).
+const SCRIPT_LABELS: [&str; 4] = [
+    "Script pane 1",
+    "Script pane 2",
+    "Script pane 3",
+    "Script pane 4",
+];
+const SCRIPT_SWITCHES: [&str; 4] = [
+    "panes.script1",
+    "panes.script2",
+    "panes.script3",
+    "panes.script4",
+];
+
 /// A pane's switch, labelled for the settings window (which adds the move arrows).
 fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
     use crate::ui_state::Panel::*;
@@ -797,5 +816,9 @@ fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
         Notes => Row::Switch("Notes", "panes.notes", c.notes),
         Todo => Row::Switch("To-do", "panes.todo", c.todo),
         Weather => Row::Switch("Weather", "panes.weather", c.weather),
+        Script(i) => {
+            let i = (i as usize).min(SCRIPT_LABELS.len() - 1);
+            Row::Switch(SCRIPT_LABELS[i], SCRIPT_SWITCHES[i], c.script_on(i))
+        }
     }
 }

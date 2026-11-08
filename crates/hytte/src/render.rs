@@ -37,6 +37,7 @@ mod media;
 mod nudge;
 mod pill;
 mod prims;
+mod script;
 mod settings;
 mod settings_table;
 mod shelf;
@@ -438,6 +439,7 @@ fn panel_glyph(p: Panel) -> char {
         Panel::Notes => '\u{E70B}',
         Panel::Todo => '\u{E73A}',
         Panel::Weather => '\u{E753}',
+        Panel::Script(_) => '\u{E943}',
     }
 }
 

@@ -63,8 +63,10 @@ Tasks are in [todo.md](todo.md).
   replaces the pane's text until the next pull or push. Not kept across restarts.
 - **Both:** one pane type. Last writer wins; the pane shows "updated 3 min ago".
 - **In the code:** `Panel::Script(u8)` (index into the config list), so the existing tab strip,
-  `[panes] order` (names `script:<name>`), 1–9 keys and settings arrows work unchanged. A new
-  `scriptpane.rs` holds the runner (one worker thread, woken by the UI) and pure helpers (output
+  `[panes] order` (keys `script1`–`script4`, by place in the file), 1–9 keys and settings arrows
+  work unchanged. The settings window labels them "Script pane 1"… (its labels are static); the
+  tab shows the pane's own name. A new
+  `scriptpane.rs` holds the runner (a short-lived thread per run, like the weather fetch) and pure helpers (output
   cleaning, due check) with unit tests. Render in `render/script.rs`.
 
 ### Accent skin

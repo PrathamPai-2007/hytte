@@ -254,6 +254,8 @@ pub struct Pressed {
 
 /// Longest snippet `shelf_add` carries.
 pub const MAX_SNIPPET_BYTES: usize = 16 * 1024;
+/// Longest text `pane_set` carries (the pane keeps 2 KB of it).
+pub const MAX_PANE_TEXT_BYTES: usize = 4 * 1024;
 
 impl Cmd {
     pub fn notify(text: impl Into<String>) -> Self {
@@ -292,6 +294,17 @@ impl Cmd {
         }
     }
 
+    /// Text for the script pane called `name` (`hytte pane set`). An empty text empties it.
+    pub fn pane_set(name: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "pane_set".into(),
+            id: Some(name.into()),
+            text: Some(text.into()),
+            ..Default::default()
+        }
+    }
+
     /// Untrusted input: the version, a known command, and sane lengths.
     pub fn validate(&self) -> bool {
         if self.v != PROTOCOL_VERSION {
@@ -299,8 +312,7 @@ impl Cmd {
         }
         let text = self.text.as_deref().map(str::len);
         let path = self.path.as_deref().map(str::len);
-        let card_fields = self.id.is_some()
-            || self.title.is_some()
+        let card_only = self.title.is_some()
             || self.progress.is_some()
             || self.icon.is_some()
             || !self.buttons.is_empty()
@@ -309,11 +321,22 @@ impl Cmd {
             || self.done
             || self.clear
             || self.wait;
-        if card_fields && self.cmd != "card" {
+        if (card_only && self.cmd != "card")
+            || (self.id.is_some() && !matches!(self.cmd.as_str(), "card" | "pane_set"))
+        {
             return false;
         }
         match self.cmd.as_str() {
             "card" => self.card_ok(),
+            // The pane's name rides in `id`.
+            "pane_set" => {
+                self.path.is_none()
+                    && self
+                        .id
+                        .as_ref()
+                        .is_some_and(|n| !n.trim().is_empty() && n.len() <= 64)
+                    && text.is_some_and(|n| n <= MAX_PANE_TEXT_BYTES)
+            }
             "notify" => self.path.is_none() && text.is_some_and(|n| n > 0 && n <= 1024),
             "shelf_add" => match (text, path) {
                 (Some(n), None) => n > 0 && n <= MAX_SNIPPET_BYTES,
@@ -563,6 +586,27 @@ mod tests {
         assert!(c.validate() && c.id.is_none() && c.buttons.is_empty() && !c.wait);
         // A notify line written now is exactly what 1.6 wrote.
         assert_eq!(Cmd::notify("hi").to_line().unwrap().trim(), old);
+    }
+
+    #[test]
+    fn pane_text_is_validated() {
+        let p = Cmd::pane_set("Server", "3 users online");
+        assert!(p.validate());
+        assert!(
+            Cmd::pane_set("Server", "").validate(),
+            "empty text empties the pane"
+        );
+        assert!(!Cmd::pane_set(" ", "x").validate());
+        assert!(!Cmd::pane_set("x".repeat(65), "x").validate());
+        assert!(!Cmd::pane_set("S", "x".repeat(MAX_PANE_TEXT_BYTES + 1)).validate());
+        let mut b = Cmd::pane_set("S", "x");
+        b.progress = Some(3);
+        assert!(!b.validate(), "no card fields on a pane");
+        let mut n = Cmd::notify("x");
+        n.id = Some("a".into());
+        assert!(!n.validate(), "ids belong to cards and panes");
+        let line = p.to_line().unwrap();
+        assert!(serde_json::from_str::<HytteMessage>(line.trim()).is_err());
     }
 
     #[test]

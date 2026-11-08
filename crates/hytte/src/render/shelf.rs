@@ -45,7 +45,7 @@ impl Renderer {
             _ => (Some(p) == cur) as u8 as f32,
         };
         let icon = 26.0;
-        let label = |p: Panel| text_w(p.name()) + 10.0;
+        let label = |p: Panel| text_w(m.panel_label(p)) + 10.0;
         let total: f32 = ps.iter().map(|&p| icon + label(p) * weight(p)).sum();
         let mut x = (w - total) / 2.0;
         let (cy, th) = (h - TAB_H / 2.0 - 2.0, 20.0);
@@ -72,7 +72,7 @@ impl Renderer {
                     );
                 }
                 self.text(
-                    p.name(),
+                    m.panel_label(p),
                     &self.f.small_l,
                     x + icon - 3.0,
                     cy - 8.0,
@@ -108,7 +108,7 @@ impl Renderer {
         }
         // The hovered tab's name, in a small label just above it.
         if let Some((p, tx)) = tip {
-            let lw = text_w(p.name()) + 16.0;
+            let lw = text_w(m.panel_label(p)) + 16.0;
             let (lx, ly) = (
                 (tx - lw / 2.0).clamp(6.0, w - lw - 6.0),
                 cy - th / 2.0 - 24.0,
@@ -116,7 +116,15 @@ impl Renderer {
             let (_, bottom) = self.body_colors();
             self.fill_rr(lx, ly, lw, 20.0, 10.0, self.cc(bottom, 0.96));
             self.stroke_rr(lx, ly, lw, 20.0, 10.0, self.cc(fg, 0.14), 1.0, false);
-            self.text(p.name(), &self.f.btn, lx, ly, lw, 20.0, self.cc(fg, 0.95));
+            self.text(
+                m.panel_label(p),
+                &self.f.btn,
+                lx,
+                ly,
+                lw,
+                20.0,
+                self.cc(fg, 0.95),
+            );
         }
         if !live {
             self.hits.borrow_mut().truncate(n);

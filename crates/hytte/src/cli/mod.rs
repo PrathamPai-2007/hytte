@@ -31,6 +31,7 @@ usage:
   hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
   hytte notify \"text\"                    # show a card on the pill (for your own scripts)
   hytte card --title \"...\" [...]          # a live card: progress, buttons, --wait (hytte card --help)
+  hytte pane set <name> [--text \"...\"]    # text for a [[script_pane]] (or piped in)
   hytte shelf add <file>... | (text on stdin)   # put files or text on the shelf
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
@@ -335,6 +336,58 @@ examples:
   hytte card --id deploy --title Deploy --body \"Uploading...\" --progress 40
   hytte card --id deploy --done --body Live
   hytte card --title \"Restart server?\" --button Restart --button Later --wait";
+
+/// `hytte pane set <name> [--text "..."]`, or the text piped in: what a `[[script_pane]]`
+/// shows until its next run or the next push. Exit 1 when no pane has that name or the pill
+/// isn't running.
+fn cmd_pane(args: &[String]) {
+    use std::io::{IsTerminal, Read};
+    let (name, text) = match args {
+        [set, name] if set == "set" => (name, None),
+        [set, name, flag, text] if set == "set" && flag == "--text" => (name, Some(text.clone())),
+        _ => usage(),
+    };
+    let text = match text {
+        Some(t) => t,
+        None => {
+            let mut stdin = std::io::stdin();
+            if stdin.is_terminal() {
+                usage();
+            }
+            let mut t = String::new();
+            let _ = stdin
+                .by_ref()
+                .take(hytte_proto::MAX_PANE_TEXT_BYTES as u64)
+                .read_to_string(&mut t);
+            t
+        }
+    };
+    // Read only: unlike `config::load`, never writes a default file from the CLI.
+    let text_cfg = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
+    let cfg = crate::config::parse(&text_cfg).unwrap_or_default();
+    let panes = cfg.script_panes();
+    if !panes
+        .iter()
+        .any(|p| p.name.eq_ignore_ascii_case(name.trim()))
+    {
+        let known: Vec<&str> = panes.iter().map(|p| p.name.as_str()).collect();
+        eprintln!(
+            "hytte pane: no [[script_pane]] called \"{name}\" in config.toml{}",
+            if known.is_empty() {
+                String::new()
+            } else {
+                format!(" (there is: {})", known.join(", "))
+            }
+        );
+        std::process::exit(1);
+    }
+    let mut text = text;
+    hytte_proto::cut(&mut text, hytte_proto::MAX_PANE_TEXT_BYTES);
+    if !send_cmd(&hytte_proto::Cmd::pane_set(name.trim(), text)) {
+        eprintln!("hytte: daemon not running (text dropped)");
+        std::process::exit(1);
+    }
+}
 
 fn cmd_notify(args: &[String]) {
     let mut text = args.join(" ");
@@ -677,6 +730,7 @@ pub fn run(args: &[String]) {
         "doctor" => doctor::run(),
         "notify" => cmd_notify(&args[1..]),
         "card" => cmd_card(&args[1..]),
+        "pane" => cmd_pane(&args[1..]),
         "shelf" => cmd_shelf(&args[1..]),
         #[cfg(debug_assertions)]
         "__update" => crate::update::debug_install(),

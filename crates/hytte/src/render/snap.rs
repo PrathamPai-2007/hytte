@@ -1327,3 +1327,161 @@ fn card_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// Script panes: output with the tab strip, a failure, push-only and running empties, a long
+/// output, and the settings window's rows for them.
+#[test]
+#[ignore]
+fn script_snapshots() {
+    use crate::config::ScriptPane;
+    use crate::scriptpane::Run;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let panes = [
+        ScriptPane {
+            name: "Server".into(),
+            command: "curl -s localhost:3000/health".into(),
+            every: 300,
+        },
+        ScriptPane {
+            name: "Deploys".into(),
+            command: String::new(),
+            every: 300,
+        },
+    ];
+    let fresh = || {
+        let mut m = model();
+        m.panes = Config::default().panes;
+        m.apply_scripts(&panes);
+        m
+    };
+    let ok = Run {
+        text: "\x1b[32m● up\x1b[0m  ·  v2.0.0\n3 users online\np95 142 ms".into(),
+        code: Some(0),
+    };
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = fresh();
+        m.script_done(
+            "Server",
+            ok.clone(),
+            now - std::time::Duration::from_secs(190),
+        );
+        m.selected = Some(Panel::Script(0));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("script-output{sfx}"),
+            &m,
+            Scene::ExpScript(0),
+            light,
+        );
+        m.script_done(
+            "Server",
+            Run {
+                text: "curl: (7) Failed to connect to localhost port 3000".into(),
+                code: Some(7),
+            },
+            now,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("script-failed{sfx}"),
+            &m,
+            Scene::ExpScript(0),
+            light,
+        );
+        let mut m = fresh();
+        m.selected = Some(Panel::Script(1));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("script-push-empty{sfx}"),
+            &m,
+            Scene::ExpScript(1),
+            light,
+        );
+        m.script_text(
+            "Deploys",
+            "web  v2.0.0  live\napi  v1.9.3  rolling 60%",
+            None,
+            now,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("script-pushed{sfx}"),
+            &m,
+            Scene::ExpScript(1),
+            light,
+        );
+        let mut m = fresh();
+        m.scripts[0].busy = true;
+        m.selected = Some(Panel::Script(0));
+        shoot(
+            &mut r,
+            &dir,
+            &format!("script-running{sfx}"),
+            &m,
+            Scene::ExpScript(0),
+            light,
+        );
+        let long: String = (1..=12)
+            .map(|i| {
+                format!(
+                    "job {i:02}  passed in {} s, a long line that runs past the edge\n",
+                    i * 3
+                )
+            })
+            .collect();
+        m.script_done(
+            "Server",
+            Run {
+                text: long,
+                code: Some(0),
+            },
+            now,
+        );
+        shoot(
+            &mut r,
+            &dir,
+            &format!("script-long{sfx}"),
+            &m,
+            Scene::ExpScript(0),
+            light,
+        );
+    }
+    // The settings window's rows for the two panes (search narrows the list to them).
+    let mut cfg = Config::default();
+    cfg.script_pane = panes.to_vec();
+    cfg.panes.script2 = false;
+    let mut r = Renderer::offscreen_sized(1720, 900, 2.0).unwrap();
+    let view = SettingsView {
+        mouse: None,
+        pressed: false,
+        light: false,
+        accent: BLUE,
+        scroll: 0.0,
+        scrolling: false,
+        dt: 0.016,
+        open: 1.0,
+        toast: None,
+        query: "script",
+    };
+    let mut hits = vec![];
+    r.draw_settings_window(&cfg, &view, &mut hits);
+    r.draw_settings_window(&cfg, &view, &mut hits);
+    let (pw, ph) = r.px;
+    let px = r.read_back();
+    image::RgbImage::from_fn(pw as u32, ph as u32, |x, y| {
+        let i = ((y as i32 * pw + x as i32) * 4) as usize;
+        image::Rgb([px[i + 2], px[i + 1], px[i]])
+    })
+    .save(dir.join("script-settings.png"))
+    .unwrap();
+    SHOT.with(|v| v.borrow_mut().push("script-settings".to_string()));
+    contact_sheet(&dir);
+}
