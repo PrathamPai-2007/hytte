@@ -2,7 +2,7 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## 2.0.0
+## 1.7.0
 
 This is the panes and cards release. It includes the 1.6.1 change that releases are no longer signed.
 
@@ -18,7 +18,7 @@ This is the panes and cards release. It includes the 1.6.1 change that releases 
 
 **Welcome**
 
-- **A three-card tour, once.** Updaters see what's new in 2.0, fresh installs what Hytte does, the next time they point at the pill (never over games, fullscreen apps, calls, focus or typing). **Done** or **Skip** writes `welcome`, so later 2.x releases show nothing.
+- **A three-card tour, once.** Updaters see what's new in 1.7, fresh installs what Hytte does, the next time they point at the pill (never over games, fullscreen apps, calls, focus or typing). **Done** or **Skip** writes `welcome`, so later 1.7.x releases show nothing.
 
 **Choosing and ordering panes**
 
@@ -60,7 +60,7 @@ This is the panes and cards release. It includes the 1.6.1 change that releases 
 **Look**
 
 - **Skins**: `graphite` (as before), `aurora`, `ember`, `moss`, `dusk`.
-- **`hide_from_capture` is now off for new installs**, so the pill shows in screenshots. Installs from before 2.0 keep what their `config.toml` says.
+- **`hide_from_capture` is now off for new installs**, so the pill shows in screenshots. Installs from before 1.7 keep what their `config.toml` says.
 
 **Also**
 

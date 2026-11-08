@@ -1,4 +1,4 @@
-# Hytte 2.0 tasks
+# Hytte 1.7 tasks
 
 Decisions, risks and checkpoints are in [plan.md](plan.md). "Checks" = fmt, clippy `-D warnings`,
 tests. Every UI change gets an offscreen snapshot. Commits carry no trailers. Nothing is pushed.
@@ -108,28 +108,22 @@ gates as the update chip; waits for the next hover instead of popping the pill o
 ### Checkpoint D
 - [ ] Card words approved by the user
 
-## Phase 5: Docs and launch
+## Phase 5: Docs and landing page
 
 ### Task 11: Docs and manual
-`docs/16-whats-new.md` (2.0 section), `docs/04-ipc-protocol.md` (`card`, `pane_set`),
+`docs/16-whats-new.md` (1.7 section), `docs/04-ipc-protocol.md` (`card`, `pane_set`),
 `docs/05-cli.md` (`hytte card`, `hytte pane set`), `docs/11-configuration-and-files.md`
 (`[[script_pane]]`, `welcome` file), manual pages for live cards, script panes, the accent skin and
 keyboard mode. README "Try it" gains a `hytte card` line.
 - [x] Every new flag and config key appears in docs and manual
 **Scope:** S
 
-### Task 12: Landing page copy for 2.0
+### Task 12: Landing page copy for 1.7
 Feature copy for live cards, script panes and the accent skin; fix the FAQ line about screenshots.
 No layout changes. `npm run build` passes.
 - [x] Builds, lints and typechecks; new status lights checked at desktop and phone width
 - [ ] Built site reviewed by the user locally (not deployed)
 **Files:** `landing-page/src/`. **Scope:** S
 
-### Task 13: Launch video
-Run `/brag` against the updated landing page; MP4 plus a short GIF in `docs/img/`; README links the
-video.
-- [x] `docs/img/hytte-2.0.mp4` (21 s), poster `.jpg`, hook `.gif`; README links it
-- [ ] User watches it and approves; nothing published until the release hold lifts
-
 ### Checkpoint E
-- [ ] Everything on local `main`, checks pass, version 2.0.0; release waits on the hold
+- [ ] Everything on local `main`, checks pass, version 1.7.0; release waits on the hold

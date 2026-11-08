@@ -49,7 +49,7 @@ The first time you point at the pill, three short cards show what it can do. **S
 | **Settings…** | Opens the settings window ([page 7](07-settings.md)). |
 | **Open settings folder** | Opens the folder with `config.toml` and `hytte.log`. |
 | **Check for updates…** | Checks now. |
-| **Help** | Opens this manual (version 2.0 and newer). |
+| **Help** | Opens this manual (version 1.7 and newer). |
 | **Quit** | Closes Hytte. |
 
 Next: [2. The pill](02-the-pill.md)

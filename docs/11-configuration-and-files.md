@@ -15,7 +15,7 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `…\sleep-restore.txt` | `sleep.rs` | Only during a sleep fade: the player and its volume, restored at the next start if Hytte died. |
 | `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; frame telemetry with `HYTTE_PERF=1`. Rolls over at 1 MB. |
 | `…\panel.txt` | `Ui::remember_panel` | With `remember_panel`, the panel the pill last collapsed on. |
-| `…\welcome` | `welcome::finish` | The version whose welcome tour was finished or skipped (`2.0`); no tour shows again until a new major version. |
+| `…\welcome` | `welcome::finish` | The version whose welcome tour was finished or skipped (`1.7`); no tour shows again until a new minor version (1.8, 2.0). |
 | `…\update-skip` | `update.rs` | The release tag the user chose **Later** for (a newer one is still offered). |
 | `…\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted exe path. With autostart off, a copy removes it only if it points at that copy or a missing exe, so a dev build can't switch off the installed one. |
@@ -89,7 +89,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `fullscreen` | `"line"` | Over a maximised window or fullscreen browser / player: `"line"` (3 px bar), `"hide"` (fade out), `"off"`. Games always hide fully unless `"off"` ([section 7](07-window-and-input.md#fullscreen-suppression)). Pre-1.2.2 `suppress_fullscreen = false` / `fullscreen_mode = "hide"` read as `"off"` / `"hide"`. |
 | `finish_peek_secs` | `3` | How long the pill opens for a finished or failed task; `0` = stays closed. |
 | `check_updates` | `true` | Daily update check, first 60 s after start ([section 15](15-updates.md)). The tray item works either way. Live. |
-| `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 2.0; a file that says `true` keeps it. |
+| `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 1.7; a file that says `true` keeps it. |
 | `note_hotkey` | `""` | Global chord that opens Notes with the cursor ready, e.g. `"Win+Alt+J"`. Empty = off. Live. |
 | `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"`, `"dusk"` or `"accent"` (the Windows accent colour; graphite until it is known); anything else is graphite. Live. The settings show it as six colour discs (graphite is named **Slate** there). |
 | `output_folder` | none | Drop Vault results folder; unset or missing = next to the source. |

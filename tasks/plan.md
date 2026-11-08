@@ -1,8 +1,8 @@
-# Implementation Plan: Hytte 2.0
+# Implementation Plan: Hytte 1.7
 
 ## Overview
 
-2.0 is everything already on local `main` (panes, notes, to-do, weather, lyrics, skins, breaks,
+1.7 is everything already on local `main` (panes, notes, to-do, weather, lyrics, skins, breaks,
 unsigned updates) plus five new things that turn the pill from an app into something you build on:
 
 1. **Live cards.** Any script, CI job or app puts a card on the pill, updates it in place, gives it
@@ -12,10 +12,8 @@ unsigned updates) plus five new things that turn the pill from an app into somet
 3. **Accent skin.** A sixth skin that follows the Windows accent colour (which Windows picks from
    the wallpaper when Colours is on Automatic).
 4. **Key hints.** Keyboard mode shows how to drive it, and the hotkey is shown where people look.
-5. **Welcome tour.** Three cards on the pill, shown once: "What's new in 2.0" for updaters,
+5. **Welcome tour.** Three cards on the pill, shown once: "What's new in 1.7" for updaters,
    "What Hytte does" for fresh installs.
-
-Then a **launch video** for the README and landing page.
 
 Out of scope (the old plan, dropped 2026-11-08): notifications in the pill, winget, live test pass
 as a separate phase. Release hold still applies: nothing after 1.6.1 is pushed or tagged until the
@@ -97,20 +95,17 @@ Tasks are in [todo.md](todo.md).
   any Ask or update chip, never while paused, gaming, fullscreen, in a call or during focus.
 - **Who sees which:** a fresh install (no `config.toml` at start) gets "What Hytte does": watch
   commands and agents · drop files, music and timers · point at the pill (or your hotkey). An
-  update from 1.x (`config.toml` exists, no marker) gets "What's new in 2.0": Notes, To-do and
+  update from 1.x (`config.toml` exists, no marker) gets "What's new in 1.7": Notes, To-do and
   Weather · live cards and script panes · skins, including Accent.
-- **Marker:** `%APPDATA%\Hytte\welcome` holding the version seen (`2.0`). Written when the tour is
+- **Marker:** `%APPDATA%\Hytte\welcome` holding the version seen (`1.7`). Written when the tour is
   finished or skipped. A later 2.x shows nothing; 3.0 can reuse it with new cards.
 - **Content lives in one table** (`welcome.rs`) so the words can be changed without touching
   drawing code. Built last among the features so the cards describe what really shipped.
 
-### Launch video
+### Landing page
 
-- Made with the `/brag` skill (Hyperframes), which reads the landing page code. The landing page
-  copy is updated first for the 2.0 features (and the FAQ line that still says the pill hides
-  from screenshots by default). No redesign; the landing redesign stages are separate work.
-- Output: an MP4 (and a short GIF for the README) in `docs/img/`. Not published anywhere until
-  the user says so.
+- Copy updated for the 1.7 features (and the FAQ line that still said the pill hides from
+  screenshots by default). No redesign. Not deployed until the user says so.
 
 ## Risks
 
@@ -121,7 +116,7 @@ Tasks are in [todo.md](todo.md).
 | `--wait` connection held open | Pipe instances used up | Same limit as Ask; card ttl caps the wait at 3600 s; daemon drops the reply side on dismiss |
 | Accent colour too light or too dark | Unreadable pill | Clamp lightness in the derive function; contrast test |
 | Welcome tour shows at a bad time | Annoying first impression | Same gates as the update chip; never auto-opens the pill, it waits for the next hover |
-| Scope creep before release | 2.0 never ships | Each phase ends in a checkpoint; anything new goes to a 2.1 list |
+| Scope creep before release | 1.7 never ships | Each phase ends in a checkpoint; anything new goes to a 1.8 list |
 
 ## Phases and checkpoints
 
@@ -129,8 +124,8 @@ Tasks are in [todo.md](todo.md).
 2. Script panes (Tasks 4–7) → **Checkpoint B**: snapshot page; live run of a pull and a push pane.
 3. Accent skin (Task 8) and key hints (Task 9) → **Checkpoint C**: snapshot page with accents.
 4. Welcome tour (Task 10) → **Checkpoint D**: snapshot page of both tours; words approved.
-5. Docs, landing copy, video (Tasks 11–13) → **Checkpoint E**: user watches the video; release
-   still waits on the hold.
+5. Docs and landing copy (Tasks 11–12) → **Checkpoint E**: release still waits on the hold.
+   (The launch video was dropped on 2026-11-09.)
 
 "Checks" means `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`.
 UI changes get offscreen snapshots (`HYTTE_SNAP_DIR`) shown on one before/after page. Dev builds

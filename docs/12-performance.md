@@ -4,12 +4,12 @@ Hytte runs all day beside everything else, so idle cost matters more than peak s
 
 ## Budgets
 
-| Budget | Target | Last measured (release build, default settings, fresh data folder; rows marked 2.0.0 are from that release) |
+| Budget | Target | Last measured (release build, default settings, fresh data folder; rows marked 1.7.0 are from that release) |
 |---|---|---|
-| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.26 % of one core (78 ms CPU in 30 s, after 45 s settling), 0.36 % with a Focus session running (109 ms); measured on 2.0.0 with every feature on, 120 stored notes, a skin and all three break reminders enabled |
-| Idle memory | < 30 MB goal, 100 MB ceiling | ≈ 10.1 MB private bytes; working set ≈ 5.7 MB after the trim; 32 threads, ~404 handles (2.0.0, same setup) |
+| Idle CPU, collapsed, nothing playing | < 1 % | ≈ 0.26 % of one core (78 ms CPU in 30 s, after 45 s settling), 0.36 % with a Focus session running (109 ms); measured on 1.7.0 with every feature on, 120 stored notes, a skin and all three break reminders enabled |
+| Idle memory | < 30 MB goal, 100 MB ceiling | ≈ 10.1 MB private bytes; working set ≈ 5.7 MB after the trim; 32 threads, ~404 handles (1.7.0, same setup) |
 | Animation | Refresh rate during transitions only | vsync-paced; parks when settled |
-| Frame cost with a running task, 2.0.0 | well under one refresh period | draw + present p50 ≈ 0.9-1.0 ms, p99 ≈ 1.9-3.2 ms (60 Hz, 200 % scaling, WARP, the full tab strip) |
+| Frame cost with a running task, 1.7.0 | well under one refresh period | draw + present p50 ≈ 0.9-1.0 ms, p99 ≈ 1.9-3.2 ms (60 Hz, 200 % scaling, WARP, the full tab strip) |
 | Frame cost while a spring moves | well under one refresh period | draw + present p50 ≈ 2.0 ms, p99 ≈ 2.5–5.8 ms with a spinner in the open pill (60 Hz, 200 % scaling, WARP); draw alone p50 ≈ 1.8 ms; a period is 16.6 ms |
 
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`).

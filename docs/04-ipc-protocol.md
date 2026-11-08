@@ -148,7 +148,7 @@ One-way requests that aren't tasks (`hytte notify`, `hytte shelf add`; [section 
 {"v":1,"cmd":"card","title":"Restart server?","buttons":["Restart","Later"],"ttl":60,"wait":true}
 ```
 
-Card fields on any other command make it invalid; a daemon from before 2.0 drops a `card` line as an unknown command. Cards queue for the chip behind agent asks and the update offer (`Model::cards`, shown from `after_model_change`). With `wait` the connection stays open like an `Ask`: a press writes one line, `{"pressed":"Restart"}`; the card expiring, being dismissed or cleared drops the reply sender, so the client sees a hang-up. The wait is capped at the ttl plus `CARD_QUEUE_SECS` (300 s) for a card stuck in the queue. Buttons never run anything.
+Card fields on any other command make it invalid; a daemon from before 1.7 drops a `card` line as an unknown command. Cards queue for the chip behind agent asks and the update offer (`Model::cards`, shown from `after_model_change`). With `wait` the connection stays open like an `Ask`: a press writes one line, `{"pressed":"Restart"}`; the card expiring, being dismissed or cleared drops the reply sender, so the client sees a hang-up. The wait is capped at the ttl plus `CARD_QUEUE_SECS` (300 s) for a card stuck in the queue. Buttons never run anything.
 
 ### Script pane text: `pane_set`
 

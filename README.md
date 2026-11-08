@@ -70,7 +70,7 @@ Point at the pill to open it. Drop a file on it to park it. Right-click it for a
 
 - **[The manual](manual/README.md)**: every feature, setting and fix, in plain language.
 - **[Developer docs](docs/README.md)**: how Hytte works inside, and how to change it.
-- **[What's new in 2.0](docs/16-whats-new.md)** · [20-second video](docs/img/hytte-2.0.mp4)
+- **[What's new in 1.7](docs/16-whats-new.md)**
 - **[Issues](https://github.com/PrathamPai-2007/hytte/issues)**: something wrong or missing?
 
 ## License

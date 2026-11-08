@@ -1,11 +1,11 @@
 //! The welcome tour: three cards on the pill, shown once. A fresh install gets "what Hytte
-//! does"; an update from 1.x gets "what's new in 2.0". `%APPDATA%\Hytte\welcome` remembers the
-//! version whose tour was finished or skipped, so later 2.x releases show nothing.
+//! does"; an update from 1.6 or older gets "what's new in 1.7". `%APPDATA%\Hytte\welcome` remembers the
+//! version whose tour was finished or skipped, so later 1.7.x releases show nothing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The tour this version shows; a 3.0 can bump it and write new cards.
-pub const VERSION: &str = "2.0";
+/// The tour this version shows; a 1.8 can bump it and write new cards.
+pub const VERSION: &str = "1.7";
 
 /// No `config.toml` (or an empty one) when Hytte started: a fresh install.
 static FRESH: AtomicBool = AtomicBool::new(false);
@@ -22,14 +22,14 @@ pub fn note_start(config_text: Option<&str>) {
 pub enum Tour {
     /// A fresh install: what Hytte does.
     Intro,
-    /// An update from 1.x: what's new in 2.0.
+    /// An update from 1.6 or older: what's new in 1.7.
     WhatsNew,
 }
 
 /// Which tour to show: none once this version's tour was seen (`seen` is the marker's text).
 pub fn which(fresh: bool, seen: Option<&str>) -> Option<Tour> {
-    let major = |v: &str| v.trim().split('.').next().unwrap_or("").to_string();
-    if seen.is_some_and(|s| major(s) == major(VERSION)) {
+    // Major and minor: "1.7" and "1.7.2" are the same tour, "1.8" is a new one.
+    if seen.is_some_and(|s| s.trim().split('.').take(2).eq(VERSION.split('.').take(2))) {
         return None;
     }
     Some(if fresh { Tour::Intro } else { Tour::WhatsNew })
@@ -74,7 +74,7 @@ pub fn card(tour: Tour, step: usize, hotkey: &str) -> (String, String) {
             },
         ),
         (Tour::WhatsNew, 0) => (
-            "New in Hytte 2.0",
+            "New in Hytte 1.7",
             "Notes, To-do and Weather, typed into the pill.".into(),
         ),
         (Tour::WhatsNew, 1) => (
@@ -118,17 +118,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_right_tour_shows_once_per_major_version() {
+    fn the_right_tour_shows_once_per_minor_version() {
         assert_eq!(which(true, None), Some(Tour::Intro));
         assert_eq!(
             which(false, None),
             Some(Tour::WhatsNew),
-            "an update from 1.x"
+            "an update from 1.6"
         );
-        assert_eq!(which(false, Some("2.0")), None, "seen");
-        assert_eq!(which(true, Some("2.0\n")), None);
-        assert_eq!(which(false, Some("2.3")), None, "a later 2.x shows nothing");
-        assert_eq!(which(false, Some("1.9")), Some(Tour::WhatsNew));
+        assert_eq!(which(false, Some("1.7")), None, "seen");
+        assert_eq!(which(true, Some("1.7\n")), None);
+        assert_eq!(
+            which(false, Some("1.7.3")),
+            None,
+            "a later 1.7.x shows nothing"
+        );
+        assert_eq!(which(false, Some("1.8")), Some(Tour::WhatsNew));
+        assert_eq!(which(false, Some("1.6")), Some(Tour::WhatsNew));
         assert_eq!(which(false, Some("")), Some(Tour::WhatsNew));
     }
 
