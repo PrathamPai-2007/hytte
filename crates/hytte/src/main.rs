@@ -59,6 +59,7 @@ mod tray;
 mod ui_state;
 mod update;
 mod weather;
+mod welcome;
 mod window;
 #[cfg(windows)]
 mod winrt;
@@ -96,6 +97,12 @@ fn main() {
         panic!("HYTTE_TEST_PANIC");
     }
 
+    // Before `load` writes a default file: a missing or empty one means a fresh install.
+    welcome::note_start(
+        std::fs::read_to_string(config::config_path())
+            .ok()
+            .as_deref(),
+    );
     let cfg = config::load();
     // A mistake in the file is said once the window is up, and written to the log now.
     let config_problem = std::fs::read_to_string(config::config_path())

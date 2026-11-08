@@ -316,6 +316,8 @@ struct Ui {
     card_waits: Vec<(String, Sender<String>)>,
     /// The script panes have had their one run at start.
     scripts_primed: bool,
+    /// The welcome tour still to show, and the card it is on.
+    welcome: Option<(crate::welcome::Tour, usize)>,
     /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
     gpu_retry: u32,
     /// The timer alarm is playing.
@@ -632,6 +634,7 @@ pub fn run_windows(
             update_offer: None,
             card_waits: vec![],
             scripts_primed: false,
+            welcome: crate::welcome::pending().map(|t| (t, 0)),
             gpu_retry: 0,
             ringing: false,
             caret_on: true,

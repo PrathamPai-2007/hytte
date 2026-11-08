@@ -1588,3 +1588,30 @@ fn accent_and_hint_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// The welcome tour: all six cards (the intro's last one with and without a hotkey).
+#[test]
+#[ignore]
+fn welcome_snapshots() {
+    use crate::welcome::{chip, Tour, STEPS};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        for (tour, tag) in [(Tour::Intro, "intro"), (Tour::WhatsNew, "new")] {
+            for step in 0..STEPS {
+                let mut m = model();
+                m.chip = Some(chip(tour, step, "", now));
+                let name = format!("welcome-{tag}-{}{sfx}", step + 1);
+                shoot(&mut r, &dir, &name, &m, Scene::ExpChip, light);
+            }
+        }
+        let mut m = model();
+        m.chip = Some(chip(Tour::Intro, STEPS - 1, "Ctrl+Alt+F9", now));
+        let name = format!("welcome-intro-3-hotkey{sfx}");
+        shoot(&mut r, &dir, &name, &m, Scene::ExpChip, light);
+    }
+    contact_sheet(&dir);
+}

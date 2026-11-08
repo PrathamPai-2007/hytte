@@ -134,7 +134,14 @@ impl Renderer {
             self.button(label, x, by, bw, 24.0, col, Action::Chip(act.clone()));
             x += bw + 8.0;
         }
-        self.button("Dismiss", x, by, 70.0, 24.0, self.fg(), Action::DismissChip);
+        // The welcome tour ends with Done or Skip; a Dismiss beside them would only hide it.
+        let tour = c
+            .extra
+            .iter()
+            .any(|(_, a)| matches!(a, ChipAction::Welcome(_) | ChipAction::WelcomeSkip));
+        if !tour {
+            self.button("Dismiss", x, by, 70.0, 24.0, self.fg(), Action::DismissChip);
+        }
     }
 
     /// The card shown for a moment after the charger is plugged in (a battery that fills up)

@@ -97,6 +97,24 @@ impl Ui {
             self.model.show_card(now);
             next = self.model.expire(now);
         }
+        // The welcome tour: on the next hover, when nothing else wants the pill.
+        if self.welcome.is_some()
+            && self.hover
+            && self.model.chip.is_none()
+            && self.model.cards.is_empty()
+            && self.asks.is_empty()
+            && self.update_offer.is_none()
+            && !self.model.holding()
+            && !self.quiet()
+            && !self.hidden()
+            && !(self.model.cam || self.model.mic)
+            && self.model.typing.is_none()
+            && self.model.timer_done.is_none()
+            && self.model.nudge.is_none()
+        {
+            self.show_welcome(now);
+            next = self.model.expire(now);
+        }
         // A card that expired or was dismissed answers its waiting script with a hang-up.
         let model = &self.model;
         self.card_waits.retain(|(id, _)| model.has_card(id));

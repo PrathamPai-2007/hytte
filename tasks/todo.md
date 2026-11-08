@@ -98,9 +98,11 @@ fade). Tray gets "Open with keyboard" with the chord when a hotkey is set.
 `welcome.rs` with the two 3-card sets in one table; fresh vs update decided from whether
 `config.toml` existed at start; `%APPDATA%\Hytte\welcome` marker written on Done or Skip; same
 gates as the update chip; waits for the next hover instead of popping the pill open.
-- [ ] Unit tests: which set (fresh, update, already seen, later 2.x)
-- [ ] Snapshots: all six cards
-- [ ] Live: fresh dev profile sees the intro once; a profile with a 1.6 config sees "What's new"
+- [x] Unit tests: which set (fresh, update, already seen, later 2.x)
+- [x] Snapshots: all six cards
+- [x] Live: a profile with an existing config sees "What's new", Next, Next, Done writes the marker
+- [ ] Live fresh profile not run: a fresh start writes the default config, which turns on autostart
+      and PATH for this PC (covered by the unit test instead)
 **Files:** `welcome.rs` (new), `window/win/actions.rs`, `render/cards.rs`, `main.rs`. **Scope:** M
 
 ### Checkpoint D

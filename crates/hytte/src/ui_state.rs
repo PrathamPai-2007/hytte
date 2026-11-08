@@ -384,6 +384,10 @@ pub enum ChipAction {
     UpdateLater(String),
     /// A live card's button (card id, label): reported back to a waiting script, nothing run.
     Card(String, String),
+    /// The welcome tour: show this card next (past the last one: the tour is done).
+    Welcome(usize),
+    /// The welcome tour: skip the rest.
+    WelcomeSkip,
 }
 
 /// The look of a chip's icon.

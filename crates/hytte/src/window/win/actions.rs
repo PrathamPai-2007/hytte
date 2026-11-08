@@ -343,6 +343,24 @@ impl Ui {
                 self.model.dismiss_chip();
                 self.show_ask(Instant::now());
             }
+            ChipAction::Welcome(step) => {
+                self.model.dismiss_chip();
+                match self.welcome.as_mut() {
+                    Some(w) if step < crate::welcome::STEPS => {
+                        w.1 = step;
+                        self.show_welcome(Instant::now());
+                    }
+                    _ => {
+                        self.welcome = None;
+                        crate::welcome::finish();
+                    }
+                }
+            }
+            ChipAction::WelcomeSkip => {
+                self.model.dismiss_chip();
+                self.welcome = None;
+                crate::welcome::finish();
+            }
             ChipAction::Card(id, label) => {
                 if let Some(i) = self.card_waits.iter().position(|w| w.0 == id) {
                     let _ = self.card_waits.remove(i).1.send(label);
@@ -390,6 +408,15 @@ impl Ui {
             op: None,
         };
         push_event(&self.shared, UiEvent::ShelfAdd(job));
+    }
+
+    /// Put the welcome tour's current card on the chip. Unanswered, it folds away after a
+    /// while and comes back on the next hover; only Done or Skip end the tour.
+    pub(super) fn show_welcome(&mut self, now: Instant) {
+        if let Some((tour, step)) = self.welcome {
+            let hotkey = &self.cfg.general.hotkey;
+            self.model.chip = Some(crate::welcome::chip(tour, step, hotkey, now));
+        }
     }
 
     /// Put a waiting update offer on the chip, if nothing else is there and nothing is in
