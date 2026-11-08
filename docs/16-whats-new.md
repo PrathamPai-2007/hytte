@@ -65,7 +65,7 @@ This is the panes and cards release. It includes the 1.6.1 change that releases 
 **Also**
 
 - A user manual, in [`manual/`](../manual/README.md); the tray's **Help** item opens it.
-- **Releases are no longer signed.** Hytte 1.6.0 needs a manual download to move on from it ([section 15](15-updates.md#signing)).
+- **The last signed release.** 1.7.0 still carries `hytte.exe.minisig` so 1.6.0 installs can update to it; later releases drop it ([section 15](15-updates.md#signing)).
 
 For people who change Hytte: the cards-and-panes work adds `scriptpane` (runner and output cleaning), `welcome`, `render/script.rs` and `window/win/scripts.rs`; `hytte_proto::Cmd` gains optional `card` fields, a `pane_set` kind and the `Pressed` reply ([section 4](04-ipc-protocol.md#live-cards-card)); `Panel::Script(u8)` and `Scene::ExpScript(u8)` give script panes four fixed slots. The panes work before it added `textedit`, `jot`, `weather`, `net` (the updater's `curl` moved there), `lyrics`, `sleep`, `breaks`, `skin` and `dnd`, and `render/{jot,weather,nudge}.rs`, `window/win/{typing,forecast,mediactl}.rs`. See [typing, notes and weather in section 6](06-ui-model.md#typing-notes-and-to-dos) and the new recipe in [section 14](14-how-to-recipes.md#add-a-text-field).
 

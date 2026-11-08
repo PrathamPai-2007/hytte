@@ -33,7 +33,7 @@ Windows 10 1803+ ships `curl.exe` in `System32`. Using it by absolute path from 
 
 Hytte is **not** code-signed (no Authenticode certificate), so SmartScreen may warn about a freshly downloaded `hytte.exe`. Updates are not signature-checked: trust rests on HTTPS to GitHub and the `--version` check.
 
-Version 1.6.0 was the exception. It required a minisign signature, so releases up to this one carried `hytte.exe.minisig`. Releases no longer do, so a 1.6.0 install can't update itself and needs a manual download.
+Version 1.6.0 was the exception. It required a minisign signature, so releases up to and including 1.7.0 carry `hytte.exe.minisig`. Later releases won't, so a 1.6.0 install that skipped 1.7.0 needs a manual download.
 
 ## Releasing so the updater can see it
 
