@@ -389,8 +389,14 @@ pub(super) unsafe extern "system" fn wndproc(
             let code = (lparam.0 & 0xFFFF) as u32;
             // Left or right click: the same menu (there is no window to open).
             if code == WM_RBUTTONUP || code == WM_LBUTTONUP {
-                let (paused, auto) = with_ui(|ui| (ui.paused, ui.cfg.general.autostart))
-                    .unwrap_or((false, false));
+                let (paused, auto, hotkey) = with_ui(|ui| {
+                    (
+                        ui.paused,
+                        ui.cfg.general.autostart,
+                        ui.cfg.general.hotkey.clone(),
+                    )
+                })
+                .unwrap_or_default();
                 let terminal = crate::setup::is_set_up();
                 let agents = crate::agents::is_connected();
                 crate::tray::Tray::new(hwnd).popup(
@@ -399,6 +405,7 @@ pub(super) unsafe extern "system" fn wndproc(
                     terminal,
                     agents,
                     monitors().len() > 1,
+                    &hotkey,
                 );
             }
             return LRESULT(0);
@@ -434,6 +441,9 @@ pub(super) unsafe extern "system" fn wndproc(
                 16 => crate::agents::tray(),
                 15 => crate::update::check_now(),
                 18 => open_url("https://github.com/PrathamPai-2007/hytte/blob/main/manual/README.md"),
+                20 => {
+                    with_ui(|ui| ui.toggle_keyboard(hwnd));
+                }
                 17 => {
                     with_ui(|ui| ui.next_monitor());
                 }

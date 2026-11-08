@@ -1485,3 +1485,106 @@ fn script_snapshots() {
     SHOT.with(|v| v.borrow_mut().push("script-settings".to_string()));
     contact_sheet(&dir);
 }
+
+/// The accent skin under several Windows accents, the skin discs, and the key hints.
+#[test]
+#[ignore]
+fn accent_and_hint_snapshots() {
+    use crate::skin::{set_accent, Skin};
+    use crate::ui_state::Field;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let base = || {
+        let mut m = model();
+        m.now = Some(Instant::now());
+        m.panes = Config::default().panes;
+        m.init_jot(&std::path::PathBuf::from(r"Z:\none\jot.json"));
+        m
+    };
+    let accents = [
+        ("blue", [0.0, 0.47, 0.84]),
+        ("yellow", [1.0, 0.73, 0.0]),
+        ("red", [0.91, 0.07, 0.14]),
+        ("green", [0.06, 0.49, 0.06]),
+        ("purple", [0.53, 0.09, 0.6]),
+    ];
+    for (name, a) in accents {
+        set_accent(Some(a));
+        for light in [false, true] {
+            let sfx = if light { "-light" } else { "" };
+            let mut m = base();
+            m.skin = Skin::Accent;
+            shoot(
+                &mut r,
+                &dir,
+                &format!("accent-{name}-home{sfx}"),
+                &m,
+                Scene::ExpHome,
+                light,
+            );
+            shoot(
+                &mut r,
+                &dir,
+                &format!("accent-{name}-idle{sfx}"),
+                &m,
+                Scene::Idle,
+                light,
+            );
+        }
+    }
+    // The skin discs in the pill's own Look tab, with the accent disc last.
+    set_accent(Some(accents[0].1));
+    let mut m = base();
+    m.settings = Some(0);
+    shoot(
+        &mut r,
+        &dir,
+        "accent-look-discs",
+        &m,
+        Scene::ExpSettings,
+        false,
+    );
+    set_accent(None);
+    // Key hints: keyboard mode on Home, on Notes while typing, and over a card.
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = base();
+        m.keyboard = true;
+        shoot(
+            &mut r,
+            &dir,
+            &format!("hint-home{sfx}"),
+            &m,
+            Scene::ExpHome,
+            light,
+        );
+        m.note_edit.set("Call the plumber");
+        m.typing = Some(Field::Note);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("hint-typing{sfx}"),
+            &m,
+            Scene::ExpNotes,
+            light,
+        );
+        m.typing = None;
+        let c = hytte_proto::Cmd {
+            title: Some("Restart the dev server?".into()),
+            buttons: vec!["Restart".into(), "Later".into()],
+            ..hytte_proto::Cmd::card()
+        };
+        m.card(&c, Instant::now());
+        m.show_card(Instant::now());
+        shoot(
+            &mut r,
+            &dir,
+            &format!("hint-card{sfx}"),
+            &m,
+            Scene::ExpChip,
+            light,
+        );
+    }
+    contact_sheet(&dir);
+}

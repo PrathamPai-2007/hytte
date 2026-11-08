@@ -248,6 +248,14 @@ impl Renderer {
                 0.0
             };
         let fit = ((h - 14.0) / 10.0).clamp(0.0, 1.0);
+        // Keyboard mode: the scene and its tabs sit above a line of key hints.
+        let hint = if m.keyboard && crate::ui_state::hinted(an.scene) {
+            crate::ui_state::KB_HINT_H
+        } else {
+            0.0
+        };
+        let full_h = h;
+        let h = h - hint;
         self.morph.set(self.morph_for(fr));
         self.hero_right
             .set(w - 14.0 - pad_r - if m.visible_count() > 1 { 28.0 } else { 0.0 });
@@ -292,6 +300,17 @@ impl Renderer {
         self.content(fr, an.scene, w, h, pad_r);
         self.focus_live.set(false);
         self.tab_strip(fr, w, h, fit);
+        if hint > 0.0 {
+            self.text(
+                m.kb_hint(),
+                &self.f.small_c,
+                0.0,
+                full_h - hint - 2.0,
+                w,
+                hint,
+                self.cc(GRAY, 0.85 * c),
+            );
+        }
         self.morph.set(None);
         // The quick controls spell out the mic state (its tile), not the camera's: keep the dots.
         let home = an.scene == Scene::ExpHome;

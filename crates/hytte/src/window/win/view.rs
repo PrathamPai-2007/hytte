@@ -28,6 +28,7 @@ impl Ui {
     }
 
     pub(super) fn layout(&mut self) {
+        self.model.keyboard = self.kb.is_some();
         let scene = self.model.scene(self.hover, self.sentinel());
         let size = self.model.size(scene);
         let glow = self.model.glow(scene);

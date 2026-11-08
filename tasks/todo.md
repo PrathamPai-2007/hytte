@@ -76,20 +76,21 @@ Panes list shows script panes with switches and ▲ ▼ (editing them stays in `
 ### Task 8: Accent skin
 `Skin::Accent`; accent read through WinRT at start and on `ImmersiveColorSet`; pure derive
 function for body, glow and rim; disc in the Look tab and the settings window.
-- [ ] Unit test: contrast ≥ 4.5:1 for several accents (light, dark, saturated); fallback to graphite
-- [ ] Live: change the Windows accent, the pill follows without a restart
-- [ ] Snapshots: four accents, dark and light pill
+- [x] Unit test: contrast ≥ 4.5:1 for several accents (light, dark, saturated); fallback to graphite
+- [ ] Live: change the Windows accent, the pill follows without a restart (user to check: Hytte doesn't change system settings)
+- [x] Snapshots: four accents, dark and light pill
 **Files:** `skin.rs`, `winrt.rs`, `window/win/wndproc.rs`, `render/settings*.rs`. **Scope:** M
 
 ### Task 9: Key hints
-Hint line in keyboard mode (and the typing variant), fading after 4 s idle; hotkey shown in the
-tray item text when set.
-- [ ] Snapshots: hint line on Home, on a pane, while typing
-- [ ] Live: the tray shows the chord; no hint outside keyboard mode
+Hint line in keyboard mode (typing and card variants); stays while keyboard mode is on (no
+fade). Tray gets "Open with keyboard" with the chord when a hotkey is set.
+- [x] Snapshots: hint line on Home, on a pane, while typing
+- [x] Live: the tray shows the chord; no hint outside keyboard mode
 **Files:** `render/pill.rs`, `window/win/input.rs`, `tray.rs`. **Scope:** S
 
 ### Checkpoint C
-- [ ] Checks pass; snapshot page reviewed
+- [x] Checks pass
+- [ ] Snapshot page reviewed by the user
 
 ## Phase 4: Welcome tour
 

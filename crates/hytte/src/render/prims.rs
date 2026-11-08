@@ -38,7 +38,7 @@ impl Renderer {
         let key = [
             self.light.get() as u8 as f32,
             self.skin.get() as u8 as f32,
-            0.0,
+            self.skin.get().cache_key(),
             0.0,
         ];
         self.grad(Grad::Body, key, &[(0.0, top, 1.0), (1.0, bottom, 1.0)])

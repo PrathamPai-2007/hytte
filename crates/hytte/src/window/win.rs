@@ -830,6 +830,9 @@ fn windows_accent() -> Option<([f32; 3], [f32; 3])> {
     }
     (n >= 32).then(|| {
         let shade = |i: usize| [b[i * 4], b[i * 4 + 1], b[i * 4 + 2]].map(|c| c as f32 / 255.0);
+        // The palette runs light 3, 2, 1, the accent itself, dark 1, 2, 3. The accent skin
+        // takes the accent; every read (at start, on ImmersiveColorSet) passes it on.
+        crate::skin::set_accent(Some(shade(3)));
         (shade(1), shade(4))
     })
 }

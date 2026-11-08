@@ -73,21 +73,22 @@ Tasks are in [todo.md](todo.md).
 
 - `Skin::Accent`, name `accent`, disc in the pill's Look tab and the settings window. Not the
   default.
-- Colour from `UISettings::GetColorValue(UIColorType::Accent)` (WinRT, as `winrt.rs` already
-  does for other calls), read at start and on `WM_SETTINGCHANGE` with `ImmersiveColorSet`
-  (already handled in `wndproc.rs` for the theme). Fallback when the call fails: graphite.
+- Colour from the registry's `Explorer\Accent\AccentPalette` (the accent itself, index 3), which
+  Hytte already read for its button colour; read at start and on `WM_SETTINGCHANGE`
+  (`ImmersiveColorSet`). Fallback when it can't be read: graphite.
 - Body gradient, glow and rim are derived from the accent (darkened for the dark pill, washed out
   for the light one) by a pure function with a unit test that the text stays readable (contrast
   ≥ 4.5:1 against `fg` for a few known accents, including a very light and a very dark one).
-- `Skin` stays `Copy`: the live colour is passed in by the renderer, not stored in the enum.
+- `Skin` stays `Copy`: the live colour sits in one atomic in `skin.rs` (`set_accent`), and the
+  body brush cache is keyed on it.
 
 ### Key hints
 
 - In keyboard mode a faint one-line hint sits under the pill content:
   `← → panes · Tab buttons · Enter press · Esc close` (shorter when typing: `Enter save · Esc
-  cancel`). It fades after 4 s without a key, comes back on the next key.
-- The hotkey is shown in the settings window next to its field (as now) **and** in the tray menu
-  item ("Open with keyboard  Win+Alt+N"), and the first card of the welcome tour mentions it when
+  cancel`; over a card the arrows are left out). It stays while keyboard mode is on.
+- The hotkey is shown in the tray menu as "Open with keyboard  <chord>" (only when one is set;
+  clicking it opens keyboard mode), and the first card of the welcome tour mentions it when
   one is set. No default hotkey (user's choice).
 
 ### Welcome tour

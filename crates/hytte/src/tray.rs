@@ -100,7 +100,16 @@ impl Tray {
         }
     }
 
-    pub fn popup(&self, paused: bool, autostart: bool, terminal: bool, agents: bool, multi: bool) {
+    /// `hotkey`: the keyboard-mode chord, shown beside "Open with keyboard" (empty: no item).
+    pub fn popup(
+        &self,
+        paused: bool,
+        autostart: bool,
+        terminal: bool,
+        agents: bool,
+        multi: bool,
+        hotkey: &str,
+    ) {
         use windows::core::w;
         use windows::Win32::UI::WindowsAndMessaging::*;
         unsafe {
@@ -121,6 +130,12 @@ impl Tray {
             let _ = AppendMenuW(menu, chk(agents), 16, w!("Connect AI agents"));
             if multi {
                 let _ = AppendMenuW(menu, MF_STRING, 17, w!("Move to next monitor"));
+            }
+            if !hotkey.trim().is_empty() {
+                // The tab right-aligns the chord, as menus show shortcuts.
+                let label =
+                    windows::core::HSTRING::from(format!("Open with keyboard\t{}", hotkey.trim()));
+                let _ = AppendMenuW(menu, MF_STRING, 20, &label);
             }
             let _ = AppendMenuW(menu, MF_STRING, 19, w!("Settings…"));
             let _ = AppendMenuW(menu, MF_STRING, 11, w!("Open settings folder"));

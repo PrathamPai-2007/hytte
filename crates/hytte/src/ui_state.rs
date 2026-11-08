@@ -450,6 +450,23 @@ pub fn script_footer(s: &ScriptView, now: Instant) -> String {
     }
 }
 
+/// Height of the key hint line at the bottom of the open pill in keyboard mode.
+pub const KB_HINT_H: f32 = 20.0;
+
+/// Scenes that show the key hints in keyboard mode: the open pill, not the bare or compact
+/// one, nor the brief cards that take no keys.
+pub fn hinted(scene: Scene) -> bool {
+    !matches!(
+        scene,
+        Scene::Sentinel
+            | Scene::Idle
+            | Scene::CompactTask
+            | Scene::CompactMedia
+            | Scene::ExpCharge
+            | Scene::ExpDrop
+    )
+}
+
 /// How long a progress card stays without an update.
 pub const CARD_SILENCE: Duration = Duration::from_secs(30);
 
@@ -768,6 +785,8 @@ pub struct Model {
     pub wide_cache: Vec<(String, Vec<crate::weather::Place>)>,
     /// Show Fahrenheit.
     pub imperial: bool,
+    /// Keyboard mode is on (the hotkey, or typing in a field): the open pill shows key hints.
+    pub keyboard: bool,
     /// `[general] skin`: the pill's colours.
     pub skin: crate::skin::Skin,
     /// The sleep timer ("stop playing in 30 min"), and whether its chips are showing.
@@ -2165,7 +2184,29 @@ impl Model {
     }
 
     /// Target pill size in logical px.
+    /// The pill's size for `scene`, with room for the key hints in keyboard mode.
     pub fn size(&self, scene: Scene) -> (f64, f64) {
+        let (w, h) = self.scene_size(scene);
+        if self.keyboard && hinted(scene) {
+            (w, h + KB_HINT_H as f64)
+        } else {
+            (w, h)
+        }
+    }
+
+    /// The key hint line for keyboard mode. A card takes no arrows (they move the pane under
+    /// it), so its line leaves them out.
+    pub fn kb_hint(&self) -> &'static str {
+        if self.typing.is_some() {
+            "Enter confirm  ·  Esc stop typing"
+        } else if self.chip.is_some() {
+            "Tab buttons  ·  Enter press  ·  Esc close"
+        } else {
+            "← → panes  ·  Tab buttons  ·  Enter press  ·  Esc close"
+        }
+    }
+
+    fn scene_size(&self, scene: Scene) -> (f64, f64) {
         let tab = if self.tabs() { TAB_H as f64 } else { 0.0 };
         match scene {
             Scene::Sentinel => (96.0, 2.5),
