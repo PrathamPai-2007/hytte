@@ -21,6 +21,7 @@ The icons along the bottom switch between panes. Only panes with something to sh
 | **Tasks** | Running commands, agents and dev servers. |
 | **Timer** | A running timer. |
 | **Power** | Battery and power mode, on laptops. |
+| Your own panes | Whatever your scripts show, under the names you give them. See [Your terminal](03-terminal.md#your-own-panes). |
 
 To switch panes, click an icon, swipe sideways on a touchpad, or turn the mouse wheel over the pill. A sideways swipe on the closed pill peeks at the next pane for three seconds.
 
@@ -76,5 +77,7 @@ Set a `hotkey` in [Settings](07-settings.md#editing-configtoml) (for example `"W
 | Tab / Shift+Tab | Move between buttons. |
 | Enter or Space | Press the highlighted button. |
 | Esc or the hotkey | Close the pill and go back to your window. |
+
+While you use the keyboard, a faint line at the bottom of the pill reminds you of these keys. With a hotkey set, the tray menu also has **Open with keyboard**, showing the chord.
 
 Next: [3. Your terminal](03-terminal.md)

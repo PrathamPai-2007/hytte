@@ -108,6 +108,33 @@ fn shoot_at(
     light: bool,
     at: Option<(f32, f32)>,
 ) {
+    let (w, h, px) = render_crop(r, m, scene, light, at);
+    // Premultiplied BGRA over the wallpaper, as an RGB PNG.
+    let bg = if light {
+        [226.0, 230.0, 236.0]
+    } else {
+        [46.0, 52.0, 58.0]
+    };
+    let img = image::RgbImage::from_fn(w as u32, h as u32, |x, y| {
+        let i = ((y * w as u32 + x) * 4) as usize;
+        let a = px[i + 3] as f32 / 255.0;
+        // BGRA -> RGB
+        let ch = |c: usize, b: f32| (px[i + c] as f32 + b * (1.0 - a)).min(255.0) as u8;
+        image::Rgb([ch(2, bg[0]), ch(1, bg[1]), ch(0, bg[2])])
+    });
+    img.save(dir.join(format!("{name}.png"))).unwrap();
+    SHOT.with(|v| v.borrow_mut().push(name.to_string()));
+}
+
+/// Draw one settled scene and read back the pill's box (with its margin and glow) as
+/// premultiplied BGRA rows: (width, height, pixels).
+fn render_crop(
+    r: &mut Renderer,
+    m: &Model,
+    scene: Scene,
+    light: bool,
+    at: Option<(f32, f32)>,
+) -> (i32, i32, Vec<u8>) {
     let mut an = Anim::new(120.0, 24.0);
     an.set_scene(scene, m.size(scene), m.glow(scene));
     for _ in 0..240 {
@@ -133,23 +160,77 @@ fn shoot_at(
     r.draw(&fr, crop, &mut hits);
     // Only the pill's box, read back from the canvas-sized target.
     let (x0, w, h) = (crop.clip.0, crop.clip.2 - crop.clip.0, crop.clip.3);
-    let px = r.read_back();
+    let all = r.read_back();
     let cw = crop.w_px;
-    // Premultiplied BGRA over the wallpaper, as an RGB PNG.
-    let bg = if light {
-        [226.0, 230.0, 236.0]
-    } else {
-        [46.0, 52.0, 58.0]
+    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        let i = ((y * cw + x0) * 4) as usize;
+        px.extend_from_slice(&all[i..i + (w * 4) as usize]);
+    }
+    (w, h, px)
+}
+
+/// Frames for the landing page (`landing-page/public/frames`): the scene at 3x on a
+/// transparent canvas, straight-alpha RGBA, as its `FramePill` expects. Prints each frame's
+/// `[width, height, last painted row]` for the `FRAMES` table.
+#[test]
+#[ignore]
+fn landing_frames() {
+    use crate::config::ScriptPane;
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(3.0).unwrap();
+    let now = Instant::now();
+    let save = |r: &mut Renderer, name: &str, m: &Model, scene: Scene| {
+        let (w, h, px) = render_crop(r, m, scene, false, None);
+        let img = image::RgbaImage::from_fn(w as u32, h as u32, |x, y| {
+            let i = ((y * w as u32 + x) * 4) as usize;
+            let a = px[i + 3];
+            let un = |c: u8| {
+                if a == 0 {
+                    0
+                } else {
+                    (c as u32 * 255 / a as u32).min(255) as u8
+                }
+            };
+            image::Rgba([un(px[i + 2]), un(px[i + 1]), un(px[i]), a])
+        });
+        // One past the last row painted at all down the middle (the glow's end), as the
+        // frames already on the site count it.
+        let mid = (w / 2) as u32;
+        let last = (0..h as u32)
+            .rev()
+            .find(|y| img.get_pixel(mid, *y)[3] > 0)
+            .map_or(0, |y| y + 1);
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        println!("\"{name}\": [{w}, {h}, {last}],");
     };
-    let img = image::RgbImage::from_fn(w as u32, h as u32, |x, y| {
-        let i = ((y as i32 * cw + x0 + x as i32) * 4) as usize;
-        let a = px[i + 3] as f32 / 255.0;
-        // BGRA -> RGB
-        let ch = |c: usize, b: f32| (px[i + c] as f32 + b * (1.0 - a)).min(255.0) as u8;
-        image::Rgb([ch(2, bg[0]), ch(1, bg[1]), ch(0, bg[2])])
-    });
-    img.save(dir.join(format!("{name}.png"))).unwrap();
-    SHOT.with(|v| v.borrow_mut().push(name.to_string()));
+    let mut m = model();
+    let c = hytte_proto::Cmd {
+        id: Some("deploy".into()),
+        title: Some("Deploy".into()),
+        text: Some("Uploading assets…".into()),
+        progress: Some(62),
+        ..hytte_proto::Cmd::card()
+    };
+    m.card(&c, now);
+    m.show_card(now);
+    save(&mut r, "card", &m, Scene::ExpChip);
+    let mut m = model();
+    m.panes = Config::default().panes;
+    m.apply_scripts(&[ScriptPane {
+        name: "Server".into(),
+        command: "curl -s localhost:3000/health".into(),
+        every: 300,
+    }]);
+    m.script_text(
+        "Server",
+        "● up  ·  v2.0.0\n3 users online\np95 142 ms",
+        None,
+        now,
+    );
+    m.selected = Some(Panel::Script(0));
+    save(&mut r, "script-pane", &m, Scene::ExpScript(0));
 }
 
 thread_local! {

@@ -236,6 +236,8 @@ While `Model::holding()`, background alerts are counted in `Held` instead of sho
 
 `skin::Skin` gives the body gradient, the glow colour for scenes with none of their own, and the rim tint. The renderer reads `Model::skin` each frame and keys its cached gradient brushes by it, so a skin costs nothing at idle.
 
+`Skin::Accent` derives all three from the Windows accent (`accent_body`, `accent_glow`), which `windows_accent()` reads from `AccentPalette` at start and on `WM_SETTINGCHANGE` and hands to `skin::set_accent` (one atomic, since `Skin` stays plain data). `Skin::cache_key` puts the colour into the body brush's cache key, so a new accent builds a new brush. A test checks text contrast of at least 4.5:1 for accents from black to white.
+
 ## Tests
 
 `ui_state.rs` has the project's largest test module (scene priority, expiry, thresholds, ignored commands, peeking, panels, fullscreen break-through, timer, mic lock, ambient rules, cross-fade, plug-in card, output line, bubbles, paging, squash, album-art colour). Change or add a test beside any rule you change. They need no Windows APIs.

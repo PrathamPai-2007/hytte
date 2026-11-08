@@ -8,7 +8,7 @@ New here? Read the first two pages, then pick what you need.
 |---|---|
 | [1. Install and first run](01-install.md) | Getting Hytte running in a few minutes. |
 | [2. The pill](02-the-pill.md) | Opening it, moving between panes, and what each look means. |
-| [3. Your terminal](03-terminal.md) | Seeing long commands on the pill. |
+| [3. Your terminal](03-terminal.md) | Seeing long commands on the pill, live cards from your scripts, and your own panes. |
 | [4. AI agents](04-ai-agents.md) | Following Claude Code, Codex and others, and answering their prompts. |
 | [5. Shelf and file actions](05-shelf.md) | Parking files, and one-click image, text and PDF tools. |
 | [6. Everyday tools](06-everyday-tools.md) | Music and lyrics, quick controls, timer and focus mode, notes, to-dos, weather, break reminders, dev servers and alerts. |

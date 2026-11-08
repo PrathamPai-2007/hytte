@@ -115,18 +115,20 @@ gates as the update chip; waits for the next hover instead of popping the pill o
 `docs/05-cli.md` (`hytte card`, `hytte pane set`), `docs/11-configuration-and-files.md`
 (`[[script_pane]]`, `welcome` file), manual pages for live cards, script panes, the accent skin and
 keyboard mode. README "Try it" gains a `hytte card` line.
-- [ ] Every new flag and config key appears in docs and manual
+- [x] Every new flag and config key appears in docs and manual
 **Scope:** S
 
 ### Task 12: Landing page copy for 2.0
 Feature copy for live cards, script panes and the accent skin; fix the FAQ line about screenshots.
 No layout changes. `npm run build` passes.
+- [x] Builds, lints and typechecks; new status lights checked at desktop and phone width
 - [ ] Built site reviewed by the user locally (not deployed)
 **Files:** `landing-page/src/`. **Scope:** S
 
 ### Task 13: Launch video
 Run `/brag` against the updated landing page; MP4 plus a short GIF in `docs/img/`; README links the
 video.
+- [x] `docs/img/hytte-2.0.mp4` (21 s), poster `.jpg`, hook `.gif`; README links it
 - [ ] User watches it and approves; nothing published until the release hold lifts
 
 ### Checkpoint E

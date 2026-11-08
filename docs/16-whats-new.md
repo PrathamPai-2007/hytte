@@ -4,12 +4,26 @@ What changed in each version, newest first. Each version ends with a short note 
 
 ## 2.0.0
 
-This is the panes release. It includes the 1.6.1 change that releases are no longer signed.
+This is the panes and cards release. It includes the 1.6.1 change that releases are no longer signed.
+
+**Live cards and your own panes**
+
+- **Live cards** (`hytte card`). Any script, CI job or app can put a card on the pill with a title, a line of text, a progress bar, an icon (info, ok, warn, error), an **Open** link and up to two buttons. Sending the same `--id` again updates it in place, on the pill or while it waits its turn; a progress card stays until `--done` or 30 s without an update. With `--wait` the command prints the label of the button you press (exit 0), or exits 1 when the card expires, is dismissed or cleared. Buttons only report back; they never run anything. An agent's permission question still wins and puts the card back first in line.
+- **Script panes** (`[[script_pane]]` in `config.toml`, up to four). A tab with your own name, showing what a command prints (Hytte runs it hidden, at most every 30 s, only while that pane is open, plus once at start; stopped with everything it started after 10 s) and/or what scripts send it with `hytte pane set <name>`. Colour codes are stripped, six lines are kept, secrets are masked, and a failed command shows in amber with its exit code. Each has a switch (`[panes] script1`…`script4`) and a place in `[panes] order`.
+
+**Look and keys**
+
+- **Accent skin.** A sixth disc that follows the Windows accent colour (which Windows picks from your wallpaper when Colours is on Automatic), kept as dark or light as the other skins so text reads, and changing with the accent while Hytte runs.
+- **Key hints.** In keyboard mode a faint line under the tabs says which keys do what (and, while typing, Enter and Esc). With a `hotkey` set, the tray has **Open with keyboard** showing the chord.
+
+**Welcome**
+
+- **A three-card tour, once.** Updaters see what's new in 2.0, fresh installs what Hytte does, the next time they point at the pill (never over games, fullscreen apps, calls, focus or typing). **Done** or **Skip** writes `welcome`, so later 2.x releases show nothing.
 
 **Choosing and ordering panes**
 
 - **Every pane but the quick controls has a switch and a place.** `[panes]` now has `media`, `shelf`, `tasks`, `timer` and `power` besides `notes`, `todo` and `weather`, and the settings window's **Panes** section lists all nine with **▲ ▼** to put them in your order (`[panes] order`). The quick controls (Home) are the starting point and cannot be switched off, but can be moved.
-- **Pill skin** moved to Look and feel (it was hidden under Behaviour), is in the pill's own settings pane in place of Open delay, and shows five colour discs instead of names that did not fit (graphite is called Slate there).
+- **Pill skin** moved to Look and feel (it was hidden under Behaviour), is in the pill's own settings pane in place of Open delay, and shows colour discs instead of names that did not fit (graphite is called Slate there).
 - **New defaults** for fresh installs: pill opacity when open 80 % (was 70 %) and lyrics on. Existing installs keep what their `config.toml` says.
 - **Tray → Settings…** opens the settings window, so hiding the Home pane never hides the settings.
 - **The settings pane has a clear blue "More settings" button** that opens the settings window, instead of an icon nobody read as that. The window's search box now shows that it has focus (border and caret).
@@ -53,7 +67,7 @@ This is the panes release. It includes the 1.6.1 change that releases are no lon
 - A user manual, in [`manual/`](../manual/README.md); the tray's **Help** item opens it.
 - **Releases are no longer signed.** Hytte 1.6.0 needs a manual download to move on from it ([section 15](15-updates.md#signing)).
 
-For people who change Hytte: new modules `textedit`, `jot`, `weather`, `net` (the updater's `curl` moved there), `lyrics`, `sleep`, `breaks`, `skin` and `dnd`, and `render/{jot,weather,nudge}.rs`, `window/win/{typing,forecast,mediactl}.rs`. See [typing, notes and weather in section 6](06-ui-model.md#typing-notes-and-to-dos) and the new recipe in [section 14](14-how-to-recipes.md#add-a-text-field).
+For people who change Hytte: the cards-and-panes work adds `scriptpane` (runner and output cleaning), `welcome`, `render/script.rs` and `window/win/scripts.rs`; `hytte_proto::Cmd` gains optional `card` fields, a `pane_set` kind and the `Pressed` reply ([section 4](04-ipc-protocol.md#live-cards-card)); `Panel::Script(u8)` and `Scene::ExpScript(u8)` give script panes four fixed slots. The panes work before it added `textedit`, `jot`, `weather`, `net` (the updater's `curl` moved there), `lyrics`, `sleep`, `breaks`, `skin` and `dnd`, and `render/{jot,weather,nudge}.rs`, `window/win/{typing,forecast,mediactl}.rs`. See [typing, notes and weather in section 6](06-ui-model.md#typing-notes-and-to-dos) and the new recipe in [section 14](14-how-to-recipes.md#add-a-text-field).
 
 ## 1.6.1
 

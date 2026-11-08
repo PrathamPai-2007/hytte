@@ -139,6 +139,25 @@ One-way requests that aren't tasks (`hytte notify`, `hytte shelf add`; [section 
 
 `cmd` is `"notify"` or `"shelf_add"`. `text`: 1–1024 B for `notify`, up to 16 KiB for `shelf_add`. `path` (`shelf_add` only): absolute, ≤ 1024 B, exactly one of `text` / `path`. No `task_id` or `name`, so it never parses as the other types, and the daemon replies nothing. Paused or in game mode it does nothing (a shelf add would open the pill); a `notify` card never covers another card; shelf work uses the drop worker (`UiEvent::ShelfAdd`).
 
+### Live cards: `card`
+
+`hytte card` sends `cmd: "card"` with optional fields: `id` (1–128 B; the same id updates the card in place), `title` (≤ 128 B), `text` (the body, ≤ 1024 B), `progress` (0–100), `icon` (`info`, `ok`, `warn`, `error`), `buttons` (0–2 labels, ≤ 24 B each), `open` (an http(s) URL or an absolute path), `ttl` (1–3600 s, default 10), `done`, `clear` (needs `id`) and `wait` (needs a button).
+
+```json
+{"v":1,"cmd":"card","id":"deploy","title":"Deploy","text":"Uploading…","progress":40}
+{"v":1,"cmd":"card","title":"Restart server?","buttons":["Restart","Later"],"ttl":60,"wait":true}
+```
+
+Card fields on any other command make it invalid; a daemon from before 2.0 drops a `card` line as an unknown command. Cards queue for the chip behind agent asks and the update offer (`Model::cards`, shown from `after_model_change`). With `wait` the connection stays open like an `Ask`: a press writes one line, `{"pressed":"Restart"}`; the card expiring, being dismissed or cleared drops the reply sender, so the client sees a hang-up. The wait is capped at the ttl plus `CARD_QUEUE_SECS` (300 s) for a card stuck in the queue. Buttons never run anything.
+
+### Script pane text: `pane_set`
+
+```json
+{"v":1,"cmd":"pane_set","id":"Deploys","text":"web v2.0.0 live"}
+```
+
+`id` is the `[[script_pane]]` name (1–64 B, any case), `text` up to 4 KiB (the pane keeps 2 KiB after cleaning; empty empties it). A name no pane has is ignored by the daemon; `hytte pane set` checks `config.toml` first and says so.
+
 ## Writing your own client
 
 Any program can use the pipe directly. In PowerShell:

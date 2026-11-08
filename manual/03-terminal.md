@@ -62,4 +62,49 @@ hytte ports                                                   # list dev servers
 hytte kill :3000                                              # stop what's on port 3000 (asks first)
 ```
 
+### Live cards
+
+A card that keeps up with your script: a progress bar, an icon and buttons.
+
+```powershell
+hytte card --id deploy --title Deploy --body "Uploading..." --progress 40
+hytte card --id deploy --body "Almost there" --progress 90   # same --id: updates it
+hytte card --id deploy --done --body Live                    # tick, full bar
+hytte card --title "CI failed" --icon error --open https://ci.example.com
+```
+
+To ask a question, add buttons and `--wait`. The command waits until you press one, prints its name, and exits 0. If you don't answer, it exits 1 when the card goes (after a minute, or `--ttl` seconds).
+
+```powershell
+$answer = hytte card --title "Restart the server?" --button Restart --button Later --wait
+if ($answer -eq "Restart") { npm run restart }
+```
+
+The buttons only tell your script what you pressed. They never run anything themselves. `hytte card --help` lists every option.
+
+## Your own panes
+
+Add up to four panes of your own in `config.toml` (Tray → **Open settings folder**):
+
+```toml
+[[script_pane]]
+name = "Server"
+command = "curl -s localhost:3000/health"
+every = 300          # seconds between runs, 30 at least
+
+[[script_pane]]
+name = "Deploys"     # no command: your scripts fill it
+```
+
+A pane with a `command` runs it, hidden, while the pane is open (and once when Hytte starts), and shows the first six lines it prints. A command that fails shows in amber with its exit code; one that takes longer than 10 seconds is stopped. Nothing runs while the pane is closed.
+
+Any script can also send a pane text:
+
+```powershell
+hytte pane set Deploys --text "web v2.0.0 live"
+git log -3 --oneline | hytte pane set Deploys
+```
+
+The pane shows that text until its next run or the next `hytte pane set`. Each pane has a switch in [Settings](07-settings.md#choosing-and-ordering-panes) and can be moved along the tab strip.
+
 Next: [4. AI agents](04-ai-agents.md)

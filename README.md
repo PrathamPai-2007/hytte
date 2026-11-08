@@ -24,11 +24,13 @@ It never steals focus, idles at almost no CPU, and uses about 10 MB of RAM. It i
 - **Plays music for you:** controls, a timeline, lyrics that follow the song, and a sleep timer.
 - **Quick controls:** mute microphones and speakers, keep the PC awake, per-app volume.
 - **Timer and focus sessions** that switch on Windows Do Not Disturb and tell you what you missed.
+- **Live cards from your scripts:** progress, icons and buttons, and `--wait` to ask a question and get the answer back.
+- **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts.
 - **Notes, a to-do list and the weather**, typed straight into the pill.
 - **Break reminders** for your eyes, your back and your water bottle.
 - **Alerts** for downloads, runaway CPU or memory, your next meeting, camera and microphone use, and battery.
 - **Gets out of the way** of games and fullscreen apps, and can stay out of screenshots and screen shares.
-- **Updates itself.** Five colour skins, and every pane can be switched off or reordered.
+- **Updates itself.** Six colour skins, one following your Windows accent colour, and every pane can be switched off or reordered.
 
 ## Install
 
@@ -58,6 +60,7 @@ cargo build --release     # hytte.exe ends up in target\release\
 ```powershell
 hytte run -- npm run build        # watch one command on the pill
 hytte notify "Backup finished"    # a card from your own script
+hytte card --title "Deploy" --progress 40 --id deploy   # a live card you can update
 hytte doctor                      # check your setup and how to fix it
 ```
 
@@ -67,7 +70,7 @@ Point at the pill to open it. Drop a file on it to park it. Right-click it for a
 
 - **[The manual](manual/README.md)**: every feature, setting and fix, in plain language.
 - **[Developer docs](docs/README.md)**: how Hytte works inside, and how to change it.
-- **[What's new in 2.0](docs/16-whats-new.md)**
+- **[What's new in 2.0](docs/16-whats-new.md)** · [20-second video](docs/img/hytte-2.0.mp4)
 - **[Issues](https://github.com/PrathamPai-2007/hytte/issues)**: something wrong or missing?
 
 ## License

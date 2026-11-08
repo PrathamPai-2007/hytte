@@ -15,6 +15,7 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `…\sleep-restore.txt` | `sleep.rs` | Only during a sleep fade: the player and its volume, restored at the next start if Hytte died. |
 | `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; frame telemetry with `HYTTE_PERF=1`. Rolls over at 1 MB. |
 | `…\panel.txt` | `Ui::remember_panel` | With `remember_panel`, the panel the pill last collapsed on. |
+| `…\welcome` | `welcome::finish` | The version whose welcome tour was finished or skipped (`2.0`); no tour shows again until a new major version. |
 | `…\update-skip` | `update.rs` | The release tag the user chose **Later** for (a newer one is still offered). |
 | `…\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted exe path. With autostart off, a copy removes it only if it points at that copy or a missing exe, so a dev build can't switch off the installed one. |
@@ -90,7 +91,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `check_updates` | `true` | Daily update check, first 60 s after start ([section 15](15-updates.md)). The tray item works either way. Live. |
 | `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 2.0; a file that says `true` keeps it. |
 | `note_hotkey` | `""` | Global chord that opens Notes with the cursor ready, e.g. `"Win+Alt+J"`. Empty = off. Live. |
-| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"` or `"dusk"`; anything else is graphite. Live. The settings show it as five colour discs (graphite is named **Slate** there). |
+| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"`, `"dusk"` or `"accent"` (the Windows accent colour; graphite until it is known); anything else is graphite. Live. The settings show it as six colour discs (graphite is named **Slate** there). |
 | `output_folder` | none | Drop Vault results folder; unset or missing = next to the source. |
 | `allow_list` / `deny_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"` / always get game mode while in front. |
 
@@ -128,6 +129,10 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
 | `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
 | `[panes] order` | `""` | The tab order as names ("home,media,..."). Set by the arrows in the settings window; names left out keep their usual place after those listed. |
+| `[panes] script1` … `script4` | `true` | Switch for each `[[script_pane]]`, by its place in the file; written only when off. Their keys in `order` are the same names. |
+| `[[script_pane]] name` | none | The tab's label (cut to 16 characters; unnamed and repeated names are skipped; at most four panes). |
+| `[[script_pane]] command` | `""` | Run with `cmd /c`, hidden, in your home folder, while the pane is open (and once at start); stopped after 10 s with everything it started. Empty: only `hytte pane set` fills the pane. |
+| `[[script_pane]] every` | `300` | Seconds between runs while the pane is open; 30 at least. |
 | `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
 | `[media] lyrics` | `true` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
 | `[media] lyrics_live` | `true` | Follow the song line by line when the lyrics are timed; off shows the words as a list. |

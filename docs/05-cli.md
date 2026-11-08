@@ -99,6 +99,20 @@ One-way `Cmd` requests ([section 4](04-ipc-protocol.md#script-commands-notify-an
 - `hytte notify "Build finished"` shows a card (words joined; over 1024 bytes cut). Nothing shows while paused or in game mode.
 - `hytte shelf add <file>...` shelves files (made absolute; a missing file exits 2). With no files and text piped in, the text becomes a snippet: `git diff | hytte shelf add` (≤ 16 KiB; more exits 2 and says to use a file).
 
+### `hytte card [options]`
+
+A live card ([section 4](04-ipc-protocol.md#live-cards-card)). `--title`, `--body`, `--id`, `--progress N`, `--done`, `--icon info|ok|warn|error`, `--button L` (twice at most), `--open URL|PATH`, `--ttl S`, `--clear`, `--wait`. `build_card` parses and validates, so a mistake exits 2 with the reason and the usage (`hytte card --help`). Without `--wait` it exits 1 only when there is no pill. With `--wait` (ttl 60 unless given) it prints the pressed label and exits 0, or exits 1 with no press.
+
+```powershell
+hytte card --id deploy --title Deploy --body "Uploading..." --progress 40
+hytte card --id deploy --done --body Live
+$a = hytte card --title "Restart server?" --button Restart --button Later --wait
+```
+
+### `hytte pane set <name> [--text "..."]`
+
+Text for a `[[script_pane]]` (`pane_set`); with no `--text`, piped input (up to 4 KiB). It reads `config.toml` (never writes it) and exits 1 with the pane names there are when none matches; exits 1 when there is no pill.
+
 ### `hytte doctor` (`cli/doctor.rs`)
 
 One line per check: `ok`, `warn` or `FAIL`, with a `fix:` line under the last two; exits 1 if anything failed.

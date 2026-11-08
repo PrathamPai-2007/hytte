@@ -33,6 +33,8 @@ It lists what's working and how to fix what isn't.
 2. Run `hytte run -- ping -n 6 localhost` and watch the task appear.
 3. Drag a file to the top of the screen and drop it on the pill. Drag it back out when you want it.
 
+The first time you point at the pill, three short cards show what it can do. **Skip** ends them; they don't come back.
+
 ## The tray menu
 
 <img src="../docs/img/tray.png" alt="The tray menu" width="260">
