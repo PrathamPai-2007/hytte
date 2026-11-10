@@ -1,11 +1,10 @@
-//! The welcome tour: three cards on the pill, shown once. A fresh install gets "what Hytte
-//! does"; an update from 1.7 or older gets "what's new in 1.8". `%APPDATA%\Hytte\welcome` remembers the
-//! version whose tour was finished or skipped, so later 1.8.x releases show nothing.
+//! The welcome tour: three cards on the pill, shown once, to a fresh install only. Updating
+//! users get nothing. `%APPDATA%\Hytte\welcome` remembers that the tour was finished or skipped.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The tour this version shows; a 1.9 can bump it and write new cards.
-pub const VERSION: &str = "1.8";
+/// What the marker file holds.
+const SEEN: &str = "seen";
 
 /// No `config.toml` (or an empty one) when Hytte started: a fresh install.
 static FRESH: AtomicBool = AtomicBool::new(false);
@@ -22,17 +21,11 @@ pub fn note_start(config_text: Option<&str>) {
 pub enum Tour {
     /// A fresh install: what Hytte does.
     Intro,
-    /// An update from 1.7 or older: what's new in 1.8.
-    WhatsNew,
 }
 
-/// Which tour to show: none once this version's tour was seen (`seen` is the marker's text).
+/// Which tour to show: only a fresh install that hasn't seen it (`seen` is the marker's text).
 pub fn which(fresh: bool, seen: Option<&str>) -> Option<Tour> {
-    // Major and minor: "1.8" and "1.8.2" are the same tour, "1.9" is a new one.
-    if seen.is_some_and(|s| s.trim().split('.').take(2).eq(VERSION.split('.').take(2))) {
-        return None;
-    }
-    Some(if fresh { Tour::Intro } else { Tour::WhatsNew })
+    (fresh && seen.is_none()).then_some(Tour::Intro)
 }
 
 fn marker() -> std::path::PathBuf {
@@ -47,7 +40,7 @@ pub fn pending() -> Option<Tour> {
 
 /// The tour was finished or skipped: don't show it again.
 pub fn finish() {
-    let _ = std::fs::write(marker(), VERSION);
+    let _ = std::fs::write(marker(), SEEN);
 }
 
 /// Cards in a tour.
@@ -60,11 +53,11 @@ pub fn card(tour: Tour, step: usize, hotkey: &str) -> (String, String) {
     let (title, body): (&str, String) = match (tour, step) {
         (Tour::Intro, 0) => (
             "Welcome to Hytte",
-            "It tracks long commands and AI agents for you.".into(),
+            "A small pill at the top of your screen.".into(),
         ),
         (Tour::Intro, 1) => (
-            "Park, play, time",
-            "Drop files on it. Music, timers and notes live here.".into(),
+            "What it does",
+            "Keeps your tasks, music, timers and files close.".into(),
         ),
         (Tour::Intro, _) => (
             "Open it",
@@ -72,18 +65,6 @@ pub fn card(tour: Tour, step: usize, hotkey: &str) -> (String, String) {
                 "" => "Point at the pill. Right-click it for a timer.".into(),
                 k => format!("Point at the pill, or press {k}."),
             },
-        ),
-        (Tour::WhatsNew, 0) => (
-            "New in Hytte 1.8",
-            "Agents get their own pane, with files and context.".into(),
-        ),
-        (Tour::WhatsNew, 1) => (
-            "Panes you can press",
-            "Script panes show rows and run actions; try packs.".into(),
-        ),
-        (Tour::WhatsNew, _) => (
-            "Small moments",
-            "Bluetooth and camera cards. Clipboard is opt-in.".into(),
         ),
     };
     (format!("{title}  ·  {n}"), body)
@@ -118,23 +99,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_right_tour_shows_once_per_minor_version() {
+    fn only_a_fresh_install_sees_the_tour_once() {
         assert_eq!(which(true, None), Some(Tour::Intro));
-        assert_eq!(
-            which(false, None),
-            Some(Tour::WhatsNew),
-            "an update from 1.7"
-        );
-        assert_eq!(which(false, Some("1.8")), None, "seen");
-        assert_eq!(which(true, Some("1.8\n")), None);
-        assert_eq!(
-            which(false, Some("1.8.3")),
-            None,
-            "a later 1.8.x shows nothing"
-        );
-        assert_eq!(which(false, Some("1.9")), Some(Tour::WhatsNew));
-        assert_eq!(which(false, Some("1.7")), Some(Tour::WhatsNew));
-        assert_eq!(which(false, Some("")), Some(Tour::WhatsNew));
+        assert_eq!(which(true, Some("seen")), None);
+        assert_eq!(which(false, None), None, "an update shows nothing");
+        assert_eq!(which(false, Some("1.7")), None);
     }
 
     #[test]
@@ -149,7 +118,7 @@ mod tests {
 
     #[test]
     fn every_card_has_words_that_fit() {
-        for tour in [Tour::Intro, Tour::WhatsNew] {
+        for tour in [Tour::Intro] {
             for step in 0..STEPS {
                 for key in ["", "Ctrl+Alt+F9"] {
                     let (t, b) = card(tour, step, key);
@@ -167,7 +136,7 @@ mod tests {
     fn cards_step_on_and_the_last_one_is_done() {
         use crate::ui_state::ChipAction;
         let now = std::time::Instant::now();
-        let first = chip(Tour::WhatsNew, 0, "", now);
+        let first = chip(Tour::Intro, 0, "", now);
         let acts: Vec<_> = first.extra.iter().map(|e| (e.0.as_str(), &e.1)).collect();
         assert_eq!(
             acts,
@@ -176,7 +145,7 @@ mod tests {
                 ("Skip", &ChipAction::WelcomeSkip)
             ]
         );
-        let last = chip(Tour::WhatsNew, STEPS - 1, "", now);
+        let last = chip(Tour::Intro, STEPS - 1, "", now);
         assert_eq!(last.extra.len(), 1);
         assert_eq!(last.extra[0], ("Done".into(), ChipAction::Welcome(STEPS)));
     }

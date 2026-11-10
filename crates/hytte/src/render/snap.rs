@@ -1657,7 +1657,7 @@ fn welcome_snapshots() {
     let now = Instant::now();
     for light in [false, true] {
         let sfx = if light { "-light" } else { "" };
-        for (tour, tag) in [(Tour::Intro, "intro"), (Tour::WhatsNew, "new")] {
+        for (tour, tag) in [(Tour::Intro, "intro")] {
             for step in 0..STEPS {
                 let mut m = model();
                 m.chip = Some(chip(tour, step, "", now));

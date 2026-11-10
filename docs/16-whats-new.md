@@ -37,6 +37,7 @@ The agents, platform and moments release, with the first native ARM64 build.
 
 **Changes you will notice**
 
+- **The welcome tour is for fresh installs only.** Updating from an older version shows no "what's new" cards; this page is where changes are listed.
 - **The in-pill settings pane is gone.** The gear on Home opens the settings window.
 - **Cards that arrive while another shows now wait their turn** (most urgent first: an agent's ask, an update, a live card, an alert, news), instead of being dropped. A same-keyed card (a second "download finished" for the same file) replaces its older one; at most eight wait, and one that waited over 30 s is dropped.
 

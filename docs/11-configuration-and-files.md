@@ -15,7 +15,7 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `…\sleep-restore.txt` | `sleep.rs` | Only during a sleep fade: the player and its volume, restored at the next start if Hytte died. |
 | `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; frame telemetry with `HYTTE_PERF=1`. Rolls over at 1 MB. |
 | `…\panel.txt` | `Ui::remember_panel` | With `remember_panel`, the panel the pill last collapsed on. |
-| `…\welcome` | `welcome::finish` | The version whose welcome tour was finished or skipped (`1.7`); no tour shows again until a new minor version (1.8, 2.0). |
+| `…\welcome` | `welcome::finish` | Present once the welcome tour (fresh installs only) was finished or skipped. |
 | `…\update-skip` | `update.rs` | The release tag the user chose **Later** for (a newer one is still offered). |
 | `…\path.txt` | `setup::ensure_on_path` | The folder last added to `PATH`, so a stale entry can be removed after Hytte moves. |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Hytte` | `config::ensure_autostart` | Present only while autostart is on: the quoted exe path. With autostart off, a copy removes it only if it points at that copy or a missing exe, so a dev build can't switch off the installed one. |
