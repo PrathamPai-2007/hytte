@@ -83,6 +83,26 @@ jobs:
           New-Item -ItemType Directory $arm | Out-Null
           Copy-Item hytte-arm64.exe (Join-Path $arm "hytte.exe")
           Compress-Archive (Join-Path $arm "hytte.exe") "hytte-$v-arm64.zip"
+      # 1.6.0 installs only run a download whose minisign signature checks out against the public
+      # key built into that exe, and 1.6.1 and later never check. Releases keep signing the x64
+      # exe (harmless, and it keeps any 1.6.0 install able to update). The secret key lives only in
+      # this repository's secrets.
+      - name: Sign hytte.exe
+        shell: pwsh
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          if (-not $env:MINISIGN_SECRET_KEY) { throw "the MINISIGN_SECRET_KEY secret is not set" }
+          cargo install rsign2 --version 0.6.7 --locked
+          $key = Join-Path $env:RUNNER_TEMP "hytte.key"
+          Set-Content -Path $key -Value $env:MINISIGN_SECRET_KEY -Encoding ascii
+          rsign sign -W -s $key -x hytte.exe.minisig -t "hytte.exe" hytte.exe
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          Remove-Item $key
+          # What was just signed must verify with the key every 1.6.0 install trusts.
+          $pub = "RWRhYIiFU0f4WrWEqRoBmoQycFtz0quv7vxbJLiej9Q6XuKDS/hCx/ZP"
+          rsign verify hytte.exe -x hytte.exe.minisig -P $pub
+          if ($LASTEXITCODE -ne 0) { throw "the signature doesn't verify with the 1.6.0 public key" }
       # hytte.exe / hytte-arm64.exe on their own are what the in-app updater downloads; the zips
       # are for people, winget and Scoop.
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -95,6 +115,7 @@ jobs:
             hytte-*-arm64.zip
             hytte.exe
             hytte-arm64.exe
+            hytte.exe.minisig
           generate_release_notes: true
 
   # The winget and Scoop manifests need the SHA-256 of the zips that were just published. Take

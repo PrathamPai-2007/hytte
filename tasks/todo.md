@@ -20,14 +20,13 @@ Built and checked (fmt, clippy `-D warnings`, 303 tests, snapshots, ARM64 `cargo
   Explorer's Ctrl+C with Hytte running (the clipboard format reading was run live against the real clipboard),
   a password manager copy, the idle-cost comparison against 1.7 (the Desktop Hytte is running and was left alone).
 - Task 21 wording is mine, not yet approved. Task 22: no tag, no push, hashes in both manifests are
-  placeholders until the release job fills them, `gh secret delete MINISIGN_SECRET_KEY` still waits for you.
+  placeholders until the release job fills them, the release keeps signing (decided 2026-11-10), so `MINISIGN_SECRET_KEY` stays.
 
 ## Phase 0: Release plumbing
 
-### Task 1: Drop release signing (1.7.1 leftover)
-Remove the Sign step and `hytte.exe.minisig` from `release.yml` and section 15 of the docs.
-- [ ] Dry-run release passes with no signing step
-- [ ] User runs or approves `gh secret delete MINISIGN_SECRET_KEY` after the next release
+### Task 1: Drop release signing (1.7.1 leftover) - reversed
+Decided 2026-11-10: keep the Sign step and `hytte.exe.minisig` (harmless, keeps 1.6.0 installs updating). The secret stays.
+- [x] Sign step restored in `release.yml`, docs say so
 **Files:** `.github/workflows/release.yml`, `docs/15-updates.md`. **Scope:** XS
 
 ### Task 2: ARM64 build

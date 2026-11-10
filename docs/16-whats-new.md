@@ -33,7 +33,7 @@ The agents, platform and moments release, with the first native ARM64 build.
 
 - **ARM64.** Releases carry `hytte-arm64.exe` and `hytte-<v>-arm64.zip`; the in-app updater picks its own architecture, and the x64 asset names did not change. Built and tested on GitHub's ARM runner; not tried on real ARM hardware.
 - **Scoop.** `bucket/hytte.json` in this repository. Under Scoop Hytte doesn't update itself (the card says `scoop update hytte`), skips PATH setup, and autostart and agent hooks point at `current`.
-- **No more signing.** The release workflow's Sign step is gone ([section 15](15-updates.md#signing)).
+- **Signing continues.** `hytte.exe.minisig` still ships, so a 1.6.0 install can still update ([section 15](15-updates.md#signing)).
 
 **Changes you will notice**
 
