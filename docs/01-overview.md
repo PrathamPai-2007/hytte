@@ -59,7 +59,7 @@ crates/hytte/                     builds hytte.exe
   src/render.rs + render/            Direct2D / DirectWrite drawing, one file per pane
   src/settings_win.rs                the big settings window
   src/gpu.rs                         D3D11 + DirectComposition swap chain
-  src/ui_state.rs, animation.rs      pure UI model, spring physics
+  src/ui_state/, animation.rs       pure UI model, spring physics
   src/pipe_server.rs, tasks.rs       pipe listener, task registry
   src/ports, media, privacy, mic, hog, downloads, calendar, power, tabs .rs   background workers
   src/weather, lyrics, net .rs       weather and lyrics lookups, and the curl wrapper they share

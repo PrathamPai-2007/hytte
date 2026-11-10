@@ -2,7 +2,7 @@
 
 Every **task** arrives over one named pipe. This section covers the wire format, how the daemon defends itself, and a task's life from first message to disappearance.
 
-Code: `crates/proto/src/lib.rs` (messages), `pipe_server.rs` (server), `tasks.rs` (registry), `Model::apply_task` in `ui_state.rs` (UI side).
+Code: `crates/proto/src/lib.rs` (messages), `pipe_server.rs` (server), `tasks.rs` (registry), `Model::apply_task` in `ui_state/tasks.rs` (UI side).
 
 ## The pipe
 

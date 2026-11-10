@@ -2,7 +2,7 @@
 
 One frame from start to finish, then the spring physics and the rules that keep an idle pill at zero frames per second.
 
-Code: `Ui::frame` in `window.rs`, `render.rs` (and `render/`), `animation.rs`, `Anim` in `ui_state.rs`.
+Code: `Ui::frame` in `window.rs`, `render.rs` (and `render/`), `animation.rs`, `Anim` in `ui_state/anim.rs`.
 
 ## Reaching the screen
 

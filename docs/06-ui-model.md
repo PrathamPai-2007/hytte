@@ -1,8 +1,26 @@
 # 6. The UI model
 
-`crates/hytte/src/ui_state.rs` decides *what* the pill shows. It is plain Rust with no Win32 calls, so almost all of it is unit-tested. The window layer ([section 7](07-window-and-input.md)) feeds it events and ticks; the renderer ([section 8](08-rendering-and-animation.md)) reads it to draw.
+`crates/hytte/src/ui_state/` decides *what* the pill shows. It is plain Rust with no Win32 calls, so almost all of it is unit-tested. The window layer ([section 7](07-window-and-input.md)) feeds it events and ticks; the renderer ([section 8](08-rendering-and-animation.md)) reads it to draw.
 
 Parts: **`UiEvent`** (worker → UI messages), **`Model`** (what the pill knows), **`Anim`** (animation state).
+
+The module is split by what each file owns. `Model` and `UiEvent` are in `mod.rs`; every other file adds an `impl Model` block and its own types, and `mod.rs` re-exports them, so `crate::ui_state::X` paths didn't change.
+
+| File | Holds |
+|---|---|
+| `mod.rs` | `UiEvent`, the `Model` struct, shared constants, `Awake`, `Nudge`; `expire`, `set_idle`, `set_power`, `peek`, `apply_panes`. |
+| `scene.rs` | `Scene`, `Panel`, `Bubble`; which pane shows (`panels`, `panel`, `scene`, `forced`), `size`, `glow`, `ambient`. |
+| `cards.rs` | `Chip`, `Card`, `ChipAction`, `Tone`, `Held`; `card`, `show_card`, `dismiss_chip`, the ask click guard. |
+| `tasks.rs` | `TaskView`; `apply_task`, `upsert`, `rows`, `set_ports`, server rows, `AGENT_CLIS`. |
+| `media.rs` | `MediaInfo`, `ArtBitmap`, `LyricState`; media, lyrics, sleep timer. |
+| `notes.rs` | `Field`; the Notes and To-do lists and their text fields. |
+| `weather.rs` | the forecast and the place chooser. |
+| `script.rs` | `ScriptView`; script panes. |
+| `shelf.rs`, `timer.rs` | shelf paging; the timer and calendar heads-up. |
+| `anim.rs` | `Anim` (springs), `Swipe`. |
+| `tests/` | the tests, by topic, with shared builders in `tests/mod.rs`. |
+
+Private helpers are `pub(super)`, visible across these files and nowhere else.
 
 ## `UiEvent`
 
@@ -240,6 +258,6 @@ While `Model::holding()`, background alerts are counted in `Held` instead of sho
 
 ## Tests
 
-`ui_state.rs` has the project's largest test module (scene priority, expiry, thresholds, ignored commands, peeking, panels, fullscreen break-through, timer, mic lock, ambient rules, cross-fade, plug-in card, output line, bubbles, paging, squash, album-art colour). Change or add a test beside any rule you change. They need no Windows APIs.
+`ui_state/tests/` is the project's largest test suite (scene priority, expiry, thresholds, ignored commands, peeking, panels, fullscreen break-through, timer, mic lock, ambient rules, cross-fade, plug-in card, output line, bubbles, paging, squash, album-art colour). Change or add a test beside any rule you change. They need no Windows APIs.
 
 Next: [7. Window, input and timers](07-window-and-input.md)

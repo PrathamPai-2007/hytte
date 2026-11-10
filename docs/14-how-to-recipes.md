@@ -45,7 +45,7 @@ Example: warn when the disk is nearly full, with a button that opens Storage set
    self.model.chip = Some(c);
    ```
    Create it only when `self.model.chip.is_none()`, so you never replace a card being read.
-3. If no `ChipAction` fits, add a variant in `ui_state.rs` and handle it in `Ui::chip_action`. Keep it safe: `OpenUrl` passes only `http` / `https` to the shell, and `KillPid` needs a second click.
+3. If no `ChipAction` fits, add a variant in `ui_state/cards.rs` and handle it in `Ui::chip_action`. Keep it safe: `OpenUrl` passes only `http` / `https` to the shell, and `KillPid` needs a second click.
 4. Test the rule that decides *when* the card appears (a pure function or `Model`).
 
 ## Add a setting
@@ -76,7 +76,7 @@ Don't bump `PROTOCOL_VERSION` for an optional field.
 
 Example: "Clipboard history".
 
-1. **Model** (`ui_state.rs`): add `Panel::Clipboard` and `Scene::ExpClipboard`; add the panel to `Model::panels()` at its priority position with its content condition; map it in `Model::scene()` (the `hover || peeking` branch); give the scene a size in `Model::size()` (include `tab` if it shows the tab strip) and a glow in `Model::glow()`.
+1. **Model** (`ui_state/scene.rs`): add `Panel::Clipboard` and `Scene::ExpClipboard`; add the panel to `Model::panels()` at its priority position with its content condition; map it in `Model::scene()` (the `hover || peeking` branch); give the scene a size in `Model::size()` (include `tab` if it shows the tab strip) and a glow in `Model::glow()`.
 2. **Renderer** (`render/`): add `Scene::ExpClipboard => self.exp_clipboard(fr, w, h)` to `Renderer::content`; map it in `Panel::of` (that puts it in the tab strip); write `exp_clipboard` with `cc(...)` colours, registering clicks with `hit()` / `button()`.
 3. **Ambient** (`Model::ambient`): only if it animates continuously, with a stop condition.
 4. **Tests:** extend `panels_and_selection` and `scene_priority`.
@@ -88,7 +88,7 @@ A small related feature can share a pane, as dev servers share Tasks: `panels()`
 
 Example: a "snippet name" field.
 
-1. Add a variant to `ui_state::Field` and a `TextEdit` for it in `Model` (give it a limit in `init_jot`); extend `edit_ref` / `edit_mut` and, in `window/win/typing.rs`, `field_panel` (the pane it lives in).
+1. Add a variant to `ui_state::Field` and a `TextEdit` for it in `Model` (give it a limit in `init_jot`, `ui_state/notes.rs`); extend `edit_ref` / `edit_mut` and, in `window/win/typing.rs`, `field_panel` (the pane it lives in).
 2. Draw it with `Renderer::text_field(fr, field, (x, y, w, h), "hint", right)`; it registers the `Action::Field` click for you.
 3. React in `Ui::enter_field` (Enter) and, for changes as it is typed, in `Ui::edited`.
 4. Keep the draft rules in `Model::end_typing` in mind (an edit of an existing item is dropped, a draft stays).
