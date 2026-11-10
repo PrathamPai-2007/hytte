@@ -260,3 +260,11 @@ While `Model::holding()`, background alerts are counted in `Held` instead of sho
 `ui_state/tests/` is the project's largest test suite (scene priority, expiry, thresholds, ignored commands, peeking, panels, fullscreen break-through, timer, mic lock, ambient rules, cross-fade, plug-in card, output line, bubbles, paging, squash, album-art colour). Change or add a test beside any rule you change. They need no Windows APIs.
 
 Next: [7. Window, input and timers](07-window-and-input.md)
+
+### The card queue
+
+One chip shows at a time (`Model::chip`). Anything else waits in `Model::cards`, most urgent first: an agent's **ask**, an **update** offer, a script's **live card**, an **alert** (download finished, a hog, a heads-up, a Bluetooth or camera card), then plain **news** (`Prio` in `ui_state/cards.rs`). `Model::push_chip` shows a chip at once when the slot is free and nothing more urgent waits, else queues it; a chip whose `key` matches the one on screen or waiting replaces it. `Model::interrupt` is for the result of something you just did (a drop, a copied clip, an action's result): it takes the slot unless an ask or update is on it, and what it displaced goes back to the front. An ask takes the slot the same way (`requeue_card`). At most eight wait (`MAX_WAITING`; the least urgent, newest goes); one that is not a live card and has waited 30 s (`WAIT_STALE`, or its own hold if longer) is dropped unseen. `after_model_change` shows the next waiting chip when the slot is free and the pill isn't paused or in a game.
+
+### The Agents pane
+
+`Panel::Agents` / `Scene::ExpAgents` (`ui_state/agents.rs`, `render/agents.rs`). `Model::agents_layout` is the pane's one description: it returns each row's box (`y`, `h`), its detail line (`AgentDetail::Asking` / `Step`) and its meta line ("1 file · 1 subagent · 84k context"), and `size` takes the pane's height from the same value the renderer draws. Rows are the tasks with `source == "agent"` while `[panes] agents` is on; `rows()` (the Tasks pane) leaves them out then. `TaskView::agent` (`AgentStats`) counts distinct files, subagent launches and the latest context for the current turn and starts over on a new prompt.

@@ -111,6 +111,10 @@ To list another port, add it to `watch`, or set `show_all = true` ([Settings](07
 | **Resource hogs:** an app using over 70 % of the CPU for 30 seconds, or over 4 GB of memory. | **Kill** (asks twice), **Ignore** | `[hog] enabled = false` |
 | **Next meeting**, 10 minutes before it starts. Off by default, because titles are private. | **Join**, when there's a link | Turn on with `[calendar] enabled = true` |
 | **Camera and mic dots** while an app uses them. | | Always on |
+| **Camera or microphone starts:** a 3-second card naming the app (not when it stops; not during Focus or quiet hours). | | `[moments] privacy = false` |
+| **A Bluetooth device connects:** "Pixel Buds connected", with its battery when it reports one. | | `[moments] bluetooth = false` |
+
+If another card is showing when an alert arrives, it waits its turn instead of being lost. A card that has waited over 30 seconds is dropped.
 
 ## Battery
 

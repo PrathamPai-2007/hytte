@@ -67,6 +67,8 @@ Two rules hold everywhere:
 | Port watcher | a condvar: woken on demand, otherwise every `poll_secs`; the resource-hog sampler (`hog.rs`) shares its tick |
 | Downloads watcher | `ReadDirectoryChangesW` on Downloads (off with `[downloads] enabled = false`) |
 | Calendar watcher | a store-changed channel, timing out when the next event is due (only with `[calendar] enabled`) |
+| Bluetooth watcher | WinRT `DeviceWatcher` callbacks; the thread parks. Started only when `[moments] bluetooth` is on |
+| Pane packs watcher | `FindFirstChangeNotificationW` on `%APPDATA%\Hytte\panes` (with subfolders) |
 | Drop Vault workers (2), terminal tabs | their job / command channels |
 | Short-lived | media command, thumbnail loader, shelf staging, place search, forecast, lyrics lookup, sleep fade, Start Menu shortcut, PATH setup, update install, manual update check, terminal setup |
 | Update checker | a 60 s sleep, then one check a day (`check_updates`) |

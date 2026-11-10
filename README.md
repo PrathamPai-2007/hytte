@@ -39,6 +39,7 @@ You need **Windows 11 (22H2 or newer, 64-bit)**.
 1. Download `hytte.exe` from the [latest release](https://github.com/PrathamPai-2007/hytte/releases/latest).
 2. Put it somewhere permanent that you can write to, such as `C:\Tools\Hytte\hytte.exe` (not `Program Files`: Hytte updates itself in place).
 3. Run it. The pill appears and a tray icon is added.
+   On an ARM PC take `hytte-arm64.exe`. With Scoop: `scoop bucket add hytte https://github.com/PrathamPai-2007/hytte`, then `scoop install hytte`.
 4. Tray icon → **Set up terminal integration** (tracks your commands) and **Connect AI agents** (if you use them).
 
 `hytte.exe` isn't code-signed, so SmartScreen may warn the first time: choose **More info**, then **Run anyway**.

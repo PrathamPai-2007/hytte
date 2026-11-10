@@ -16,6 +16,14 @@ Images dragged straight from a browser aren't supported yet, so save them first.
 
 A Win+Shift+S screenshot lands on the shelf automatically. It leaves after a minute, or about two seconds after you paste it with Ctrl+V. Only Hytte's own copy is deleted, never a file you saved from the Snipping Tool.
 
+## Files you copy
+
+Turn on **Put files I copy with Ctrl+C on the shelf** in [Settings](07-settings.md) (`[shelf] shelve_copied = true`) and files you copy in Explorer land on the shelf, as links to the originals. Cutting (Ctrl+X) doesn't count, and neither does anything an app marks private. It's off by default.
+
+## Clipboard history
+
+**Keep a short clipboard history** (`[clipboard] history = true`, off by default) lists the last texts you copied under the shelf tiles; click one to copy it back. It keeps 20 clips of up to 4 KB in memory only (nothing is written to disk) and forgets them when you lock the PC, when it sleeps and when you switch the setting off. Text that looks like a password or token, anything a password manager copied (KeePass, KeePassXC, 1Password and Bitwarden are on the `ignore_apps` list) and anything an app marks as private are never kept. Windows has its own history too, on **Win+V**.
+
 ## File actions
 
 Click a tile to see what you can do with it. Results are saved next to the original, and your original is never overwritten.

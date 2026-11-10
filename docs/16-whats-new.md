@@ -2,6 +2,46 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
+## 1.8.0
+
+The agents, platform and moments release, with the first native ARM64 build.
+
+**Agents**
+
+- **An Agents pane** (`[panes] agents`, on by default). Each coding agent has a row: its name, the project folder, what it is doing (or what it asked, in amber), how long it has waited, and a line of what it has done this turn: files edited, subagents started, context size in tokens. Click a row to jump to its terminal. Agents leave the Tasks pane, which keeps commands, downloads and dev servers; switch the pane off and they list in Tasks again. The compact pill, the peek and the wait glow are unchanged.
+- **The finished-reply card gets a quiet second line**, "Edited 4 files · 84k context", when Hytte knows it.
+- **The hooks are the same.** The CLI adds optional `file`, `subagent`, `context` and project (`cwd`) fields to a tool or done report (an older daemon ignores them); the pill counts per turn, starting over with each prompt. Context is the last turn's input from Claude Code's transcript.
+- **Allow / Deny for Gemini CLI, Cursor and Antigravity: not built.** Their hooks run on every tool call (not only when a prompt would show), and Cursor ignores an "allow" answer. The findings are in `tasks/agent-hooks-research.md`.
+
+**Panes as a platform**
+
+- **Rows.** A script pane whose output (or `hytte pane set --json`) is `{"rows": [...]}` shows up to six rows: `text`, `value`, `progress` (0 to 100), `tone` (`good`, `warn`, `bad`) and `action`.
+- **Named actions** (`[[action]]`: `name`, `command`, `confirm`, `timeout`). A row's `action`, or a card button written `Label:name` (`hytte card --button "Restart:restart-api"`), runs that command hidden in a Job object, stopped with its children at the timeout (60 s by default, 600 at most), and says how it went on a card. `confirm = true` makes the first click say "Sure?". Nothing on the pipe can carry a command, only a name from your file.
+- **Pane packs.** A folder in `%APPDATA%\Hytte\panes\<name>\` with a `pane.toml` is a pane and its actions. A card shows its command with **Run** and **Ignore** before anything runs; the answer is tied to a hash of the file, so an edit asks again. Packs take the slots `[[script_pane]]`s leave (four in all); their actions are called `<folder>-<name>`. Three examples are in `examples/panes/`.
+
+**System moments** (`[moments]`)
+
+- **Bluetooth.** A card, "Pixel Buds connected", with the battery when the device reports one. Two WinRT device watchers; devices already connected at start stay quiet and a device that flaps within 15 s is one card. No thread starts while it is off.
+- **Camera and microphone.** A three-second card naming the app when one starts using them (not when it stops), quiet during Focus and quiet hours.
+
+**Clipboard** (both off by default)
+
+- **Files you copy** (`[shelf] shelve_copied`). Explorer's Ctrl+C (Preferred DropEffect says copy, not cut) puts the files on the shelf by reference.
+- **A text history** (`[clipboard] history`) under the shelf tiles: 20 clips of at most 4 KB, in memory only, cleared on lock, sleep and switch-off. Skipped: what Hytte copied itself, anything an app marked private (password managers), programs in `ignore_apps` (KeePass, KeePassXC, 1Password, Bitwarden), and text `secrets::mask` would change.
+
+**Reach**
+
+- **ARM64.** Releases carry `hytte-arm64.exe` and `hytte-<v>-arm64.zip`; the in-app updater picks its own architecture, and the x64 asset names did not change. Built and tested on GitHub's ARM runner; not tried on real ARM hardware.
+- **Scoop.** `bucket/hytte.json` in this repository. Under Scoop Hytte doesn't update itself (the card says `scoop update hytte`), skips PATH setup, and autostart and agent hooks point at `current`.
+- **No more signing.** The release workflow's Sign step is gone ([section 15](15-updates.md#signing)).
+
+**Changes you will notice**
+
+- **The in-pill settings pane is gone.** The gear on Home opens the settings window.
+- **Cards that arrive while another shows now wait their turn** (most urgent first: an agent's ask, an update, a live card, an alert, news), instead of being dropped. A same-keyed card (a second "download finished" for the same file) replaces its older one; at most eight wait, and one that waited over 30 s is dropped.
+
+For people who change Hytte: `ui_state.rs` is split into `ui_state/` (`scene`, `cards`, `tasks`, `agents`, `media`, `notes`, `weather`, `script`, `shelf`, `timer`, `actions`, `anim` and `tests/`; [section 6](06-ui-model.md)); new crate files `clipboard`, `bluetooth` and `packs`; `Chip` gains `prio`, `key` and `note`; `HytteMessage` gains optional `context`, `file` and `subagent`; `Run` gains `rows`; `Config` gains `[moments]`, `[clipboard]`, `[[action]]` and `[shelf] shelve_copied`; `windows-collections` is a direct dependency. The agent pane's layout (`Model::agents_layout`) is read by both `size` and the renderer: the model for new panes. The release workflow has an `arm64` job and a `manifests` job that fills both the winget and the Scoop hashes.
+
 ## 1.7.0
 
 This is the panes and cards release. It includes the 1.6.1 change that releases are no longer signed.

@@ -107,4 +107,33 @@ git log -3 --oneline | hytte pane set Deploys
 
 The pane shows that text until its next run or the next `hytte pane set`. Each pane has a switch in [Settings](07-settings.md#choosing-and-ordering-panes) and can be moved along the tab strip.
 
+### Rows and buttons
+
+A pane (and `hytte pane set --json`) can print JSON instead of text:
+
+```json
+{"rows": [
+  {"text": "api", "value": "up 3d", "tone": "good", "action": "restart-api"},
+  {"text": "disk", "value": "82%", "progress": 82, "tone": "warn"}
+]}
+```
+
+Up to six rows, each with `text` or `value` (or both), a `progress` bar (0 to 100), a `tone` (`good`, `warn`, `bad`) and an `action`. Anything that isn't valid rows shows as plain text, as before.
+
+An `action` names an `[[action]]` in `config.toml`; clicking the row runs it:
+
+```toml
+[[action]]
+name = "restart-api"
+command = "docker restart api"
+confirm = true      # the first click says "Sure?", the second runs it
+timeout = 60        # seconds before it is stopped, with everything it started
+```
+
+A card button can run one too: `hytte card --title "api is down" --button "Restart:restart-api" --button Later`. A card tells you how it went. A script can press only the buttons you wrote: nothing it sends can name a command of its own.
+
+### Pane packs
+
+A folder in `%APPDATA%\Hytte\panes\` with a `pane.toml` is a ready-made pane with its own actions. Copy one in and Hytte shows a card with the command and **Run** / **Ignore**; nothing runs until you press Run, and editing the folder asks again. Three examples (your pull requests, Docker containers, CI status) are in the repository's `examples/panes/` folder. Packs share the four-pane limit; your own `[[script_pane]]`s come first.
+
 Next: [4. AI agents](04-ai-agents.md)

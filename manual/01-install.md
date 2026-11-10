@@ -8,6 +8,8 @@ You need **Windows 11 (22H2 or newer, 64-bit)**.
 2. Put it somewhere permanent that you can write to, such as `C:\Tools\Hytte\hytte.exe`. Avoid `Program Files`, because Hytte can't update itself there.
 3. Double-click it. The pill appears at the top of your screen and an icon appears in the tray.
 
+**On ARM?** Download `hytte-arm64.exe` instead (the in-app updater picks the right one itself). **Using Scoop?** `scoop bucket add hytte https://github.com/PrathamPai-2007/hytte` then `scoop install hytte`; update with `scoop update hytte` (Hytte then doesn't update itself).
+
 Windows may warn you the first time, because `hytte.exe` isn't code-signed. Choose **More info**, then **Run anyway**.
 
 Hytte adds itself to your `PATH`, so the `hytte` command works in any terminal you open from now on. It also adds a Start Menu shortcut and starts with Windows. To stop that, untick **Launch at startup** in the tray menu.

@@ -114,6 +114,8 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `screenshot_secs` | `60` | A screenshot leaves the shelf (PNG deleted) after this long; `0` keeps it. Only for screenshots taken while Hytte runs. |
 | `delete_after_paste` | `true` | Delete a screenshot ~2 s after you Ctrl+V it while still on the clipboard. Only Hytte's own copy, only while still on the shelf. An older file may say `false` explicitly; that is respected. |
 
+| `shelve_copied` | `false` | Files you copy in Explorer (Ctrl+C; `Preferred DropEffect` says copy, not cut) go on the shelf **by reference**, whatever `mode` says. Apps that put a file list on the clipboard without a drop effect, and apps that mark their copy private, are skipped. Live. |
+
 ### Other sections
 
 | Section / key | Default | Meaning |
@@ -133,6 +135,13 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[[script_pane]] name` | none | The tab's label (cut to 16 characters; unnamed and repeated names are skipped; at most four panes). |
 | `[[script_pane]] command` | `""` | Run with `cmd /c`, hidden, in your home folder, while the pane is open (and once at start); stopped after 10 s with everything it started. Empty: only `hytte pane set` fills the pane. |
 | `[[script_pane]] every` | `300` | Seconds between runs while the pane is open; 30 at least. |
+| `[panes] agents` | `true` | The Agents pane (coding agents listed apart from terminal tasks). Off: agents list in Tasks. |
+| `[moments] bluetooth` / `privacy` | `true` / `true` | A card when a Bluetooth device connects (with its battery when it reports one) / a 3 s card naming the app that starts using the camera or microphone (not during Focus or quiet hours). Bluetooth starts its watcher the first time it is on. |
+| `[clipboard] history` | `false` | A text history under the shelf tiles: 20 clips, 4 KB each, memory only, cleared on lock, sleep and switch-off; never text `secrets::mask` would change. |
+| `[clipboard] ignore_apps` | `keepass`, `keepassxc`, `1password`, `bitwarden` | Programs whose copies are never kept (exe name, any case, `.exe` optional). |
+| `[[action]] name` / `command` | none | A command a card button (`Label:name`) or a script pane row (`"action": "name"`) may run, hidden, in your home folder. A name is letters, digits, `-` and `_` (40 at most); repeats and empty commands are skipped; 32 actions at most. |
+| `[[action]] confirm` / `timeout` | `false` / `60` | `true`: the first click arms ("Sure?"), the second runs. Seconds until it is stopped with everything it started (1 to 600). |
+| `%APPDATA%\Hytte\panes\<name>\pane.toml` | none | A pane pack: `name`, `command`, `every` and its own `[[action]]`s ([section 16](16-whats-new.md#180)). Runs only after you press **Run** on the card; `.approved` / `.ignored` in its folder hold a hash of the file you saw. |
 | `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
 | `[media] lyrics` | `true` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
 | `[media] lyrics_live` | `true` | Follow the song line by line when the lyrics are timed; off shows the words as a list. |
