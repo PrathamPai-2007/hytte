@@ -1,7 +1,7 @@
 # Hytte winget manifest. Single-file reference manifest;
 # split into version/installer/locale files when submitting to winget-pkgs.
 PackageIdentifier: Hytte.Hytte
-PackageVersion: 1.7.0
+PackageVersion: 1.8.0
 PackageLocale: en-US
 Publisher: Hytte
 PackageName: Hytte
@@ -23,15 +23,15 @@ MinimumOSVersion: 10.0.22621.0
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.7.0/hytte-1.7.0-x64.zip
-    InstallerSha256: D03AA9431BB77F7F03028E11455AFA477169DC1A60ABDFDC1F8B7B5A70E99AA0
+    InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.8.0/hytte-1.8.0-x64.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: hytte.exe
         PortableCommandAlias: hytte
   - Architecture: arm64
     InstallerType: zip
-    InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.7.0/hytte-1.7.0-arm64.zip
+    InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.8.0/hytte-1.8.0-arm64.zip
     InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
     NestedInstallerType: portable
     NestedInstallerFiles:

@@ -4,6 +4,24 @@ Decisions, assumptions, risks and checkpoints are in [plan.md](plan.md). "Checks
 `-D warnings`, tests. Every UI change gets an offscreen snapshot. Branch `v1.8`. Commits carry no
 trailers. Nothing is pushed or tagged without the user's go-ahead.
 
+## Status (2026-11-10, branch `v1.8`, nothing pushed or tagged)
+
+Built and checked (fmt, clippy `-D warnings`, 303 tests, snapshots, ARM64 `cargo check`): tasks 1 to 4, 6 to
+10, 12 to 19, 20, 21, and the version bump of 22. Version is 1.8.0 everywhere (`version.ps1 check` passes).
+
+**Not done, or not verified, on purpose:**
+- Task 5 (a `layout` per pane): not retrofitted to Tasks and Notes. Their sizes already come from `Model`
+  and the renderer reads the same values; the new Agents pane is built the intended way
+  (`Model::agents_layout` feeds both `size` and the renderer).
+- Task 11: researched, nothing built (`agent-hooks-research.md`): none of the three has a hook that fires only
+  when a prompt would show.
+- Needs a person or hardware: the dry-run release and both CI runners (ARM64 never run), a real `scoop install`,
+  Bluetooth with earbuds (the watcher itself was run live and lists the connected phone), the camera card,
+  Explorer's Ctrl+C with Hytte running (the clipboard format reading was run live against the real clipboard),
+  a password manager copy, the idle-cost comparison against 1.7 (the Desktop Hytte is running and was left alone).
+- Task 21 wording is mine, not yet approved. Task 22: no tag, no push, hashes in both manifests are
+  placeholders until the release job fills them, `gh secret delete MINISIGN_SECRET_KEY` still waits for you.
+
 ## Phase 0: Release plumbing
 
 ### Task 1: Drop release signing (1.7.1 leftover)
