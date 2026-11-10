@@ -142,7 +142,6 @@ fn render_crop(
     }
     let fr = Frame {
         model: m,
-        cfg: &Config::default(),
         anim: &an,
         now: Instant::now(),
         dt: 1.0 / 60.0,
@@ -273,7 +272,7 @@ fn settings_rows_write_valid_config() {
     let cfg = Config::default();
     let mut keys = std::collections::HashSet::new();
     for sec in settings_table(&cfg) {
-        for (row, _) in sec.rows {
+        for row in sec.rows {
             let writes: Vec<(&str, Val)> = match row {
                 Row::Switch(_, k, _) => vec![(k, Val::B(true)), (k, Val::B(false))],
                 Row::Pick(_, k, opts, ..) | Row::PickCustom(_, k, opts, ..) => {
@@ -302,7 +301,7 @@ fn settings_rows_write_valid_config() {
 fn resets_write_the_default() {
     let cfg = Config::default();
     for sec in settings_table(&cfg) {
-        for (row, _) in sec.rows {
+        for row in sec.rows {
             let Some(Action::Set(k, v)) = row.set_action() else {
                 continue;
             };
@@ -312,9 +311,8 @@ fn resets_write_the_default() {
             let again = settings_table(&back)
                 .into_iter()
                 .flat_map(|s| s.rows)
-                .find(|(r, _)| r.key() == k)
-                .unwrap()
-                .0;
+                .find(|r| r.key() == k)
+                .unwrap();
             assert!((again.at() - row.at()).abs() < 0.004, "{k}");
         }
     }
@@ -561,23 +559,6 @@ fn snapshots() {
     ));
     shoot(&mut r, &dir, "home-active", &m, Scene::ExpHome, false);
     m.timer = None;
-    for (g, name) in [
-        (0, "settings-look"),
-        (1, "settings-behaviour"),
-        (2, "settings-features"),
-    ] {
-        m.settings = Some(g);
-        shoot(&mut r, &dir, name, &m, Scene::ExpSettings, false);
-    }
-    shoot(
-        &mut r,
-        &dir,
-        "settings-features-light",
-        &m,
-        Scene::ExpSettings,
-        true,
-    );
-    m.settings = None;
     shoot(&mut r, &dir, "sentinel", &m, Scene::Sentinel, false);
 
     let mut m = model();
@@ -1614,18 +1595,6 @@ fn accent_and_hint_snapshots() {
             );
         }
     }
-    // The skin discs in the pill's own Look tab, with the accent disc last.
-    set_accent(Some(accents[0].1));
-    let mut m = base();
-    m.settings = Some(0);
-    shoot(
-        &mut r,
-        &dir,
-        "accent-look-discs",
-        &m,
-        Scene::ExpSettings,
-        false,
-    );
     set_accent(None);
     // Key hints: keyboard mode on Home, on Notes while typing, and over a card.
     for light in [false, true] {

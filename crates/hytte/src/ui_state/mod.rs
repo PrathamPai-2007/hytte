@@ -266,8 +266,6 @@ pub struct Model {
     pub focus_done: u32,
     /// `[timer] rounds`: how many dots a focus cycle has.
     pub rounds: u32,
-    /// The settings pane is open, on this group (see `SETTINGS_GROUPS`).
-    pub settings: Option<u8>,
     /// The per-app volume list under the volume bar is open, and what it shows.
     pub apps_open: bool,
     pub apps: Vec<crate::mic::AppVol>,
@@ -352,8 +350,6 @@ pub struct Nudge {
     pub kind: crate::breaks::Kind,
     pub since: Instant,
 }
-
-pub const SETTINGS_GROUPS: [&str; 3] = ["Look", "Behaviour", "Features"];
 
 impl Model {
     /// New battery reading. Switching between battery and AC starts the plug-in or unplug card.

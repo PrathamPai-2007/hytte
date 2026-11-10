@@ -1,76 +1,8 @@
-//! The settings pane and its rows.
+//! The rows of the settings window.
 
 use super::*;
 
 impl Renderer {
-    /// Settings: a header (back, the group switch, open the config file) over up to five
-    /// rows. Each row is a switch or a short choice that writes `config.toml` on click.
-    pub(super) fn exp_settings(&self, fr: &Frame, w: f32, _h: f32) {
-        use crate::ui_state::SETTINGS_GROUPS;
-        let c = fr.cfg;
-        let group = fr.model.settings.unwrap_or(0);
-        let (fg, acc) = (self.fg(), self.accent.get());
-        let back = Action::Settings(None);
-        self.round_btn(28.0, 23.0, 13.0, fg, back, |cx, cy, col| {
-            self.glyph_s('\u{E72B}', cx, cy, col)
-        });
-        let (sx, sw) = (50.0, w - 100.0);
-        self.fill_rr(sx, 10.0, sw, 26.0, 13.0, self.cc(fg, 0.06));
-        let seg = sw / SETTINGS_GROUPS.len() as f32;
-        for (i, name) in SETTINGS_GROUPS.iter().enumerate() {
-            let x = sx + i as f32 * seg;
-            let on = i as u8 == group;
-            let hov = self.hit(x, 10.0, seg, 26.0, Action::Settings(Some(i as u8)));
-            if on {
-                self.fill_rr(x + 2.0, 12.0, seg - 4.0, 22.0, 11.0, self.cc(acc, 0.26));
-            } else if hov {
-                self.fill_rr(x + 2.0, 12.0, seg - 4.0, 22.0, 11.0, self.cc(fg, 0.07));
-            }
-            let a = if on || hov { 1.0 } else { 0.66 };
-            self.text(name, &self.f.btn, x, 10.0, seg, 26.0, self.cc(fg, a));
-        }
-
-        let rows: Vec<Row> = settings_table(c)
-            .into_iter()
-            .flat_map(|s| s.rows)
-            .filter(|(_, q)| *q == group as i8)
-            .map(|(r, _)| match r {
-                // The pane has no room for a slider: steps, the last being the slider's end.
-                Row::Glow(v) => pick_f(
-                    "Glow",
-                    "general.glow_strength",
-                    &[
-                        ("Off", 0.0),
-                        ("Soft", 0.6),
-                        ("Normal", 1.2),
-                        ("Max", GLOW_MAX as f64),
-                    ],
-                    v as f64,
-                ),
-                r => r,
-            })
-            .map(|r| match pane_label(r.key()) {
-                Some(l) => r.relabel(l),
-                None => r,
-            })
-            .collect();
-        let n = rows.len();
-        for (i, row) in rows.into_iter().enumerate() {
-            self.setting_row(row, None, 46.0 + i as f32 * 32.0, w, 0.0);
-        }
-        let _ = n;
-        // The rest of the settings live in their own window: a button that says so.
-        self.primary(
-            "More settings  ›",
-            16.0,
-            46.0 + 5.0 * 32.0 + 6.0,
-            w - 32.0,
-            30.0,
-            acc,
-            Action::OpenConfig,
-        );
-    }
-
     /// `key`'s value eased towards `target` (settings window only: the pill's pane snaps).
     /// The first sight of a key starts at the target, so nothing animates on open.
     pub(super) fn ease(&self, key: &str, target: f32) -> f32 {

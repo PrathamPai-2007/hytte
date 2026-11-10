@@ -148,7 +148,6 @@ impl Ui {
             }
             Action::TimerDismiss => self.model.timer_done = None,
             Action::TimerClose => self.model.timer_panel = false,
-            Action::Settings(g) => self.model.settings = g,
             Action::Pin => {
                 self.model.pinned = !self.model.pinned;
                 // Unpinned with the pointer already away: let it close as usual.
@@ -183,10 +182,7 @@ impl Ui {
                 }
                 Err(e) => crate::logging::line(&format!("settings: {e}")),
             },
-            Action::OpenConfig => {
-                self.model.settings = None;
-                crate::settings_win::open(&self.cfg);
-            }
+            Action::OpenConfig => crate::settings_win::open(&self.cfg),
             Action::Rerun(id) => self.rerun(&id),
             Action::ShelfScroll(by) => self.model.scroll_shelf(by),
             Action::SetPowerMode(m) => {

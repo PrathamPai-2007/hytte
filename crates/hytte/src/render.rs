@@ -123,7 +123,6 @@ pub enum Action {
     /// Bring the media app (AppUserModelId) to the front.
     FocusMedia(String),
     /// Open the settings pane on this group, or close it (None).
-    Settings(Option<u8>),
     /// Move a pane (`panes.<key>`) earlier (-1) or later (1) in the tab order.
     PaneMove(&'static str, i8),
     /// Write one `section.key` to `config.toml`; it applies straight away.
@@ -216,8 +215,6 @@ pub struct Crop {
 
 pub struct Frame<'a> {
     pub model: &'a Model,
-    /// The settings in force (the settings pane shows them).
-    pub cfg: &'a Config,
     pub anim: &'a Anim,
     pub now: Instant,
     pub dt: f32,
@@ -727,7 +724,7 @@ impl Renderer {
         if !q.is_empty() {
             for s in &mut sections {
                 if !s.name.to_lowercase().contains(&q) {
-                    s.rows.retain(|(r, _)| {
+                    s.rows.retain(|r| {
                         r.label().to_lowercase().contains(&q)
                             || help(r.key()).to_lowercase().contains(&q)
                     });
@@ -741,7 +738,7 @@ impl Renderer {
             settings_table(&Config::default())
                 .into_iter()
                 .flat_map(|s| s.rows)
-                .map(|(r, _)| (r.key(), (r.at(), r.set_action())))
+                .map(|r| (r.key(), (r.at(), r.set_action())))
                 .collect();
         let mut tops: Vec<f32> = Vec::with_capacity(sections.len());
         let mut y = if side > 0.0 { 30.0 } else { 74.0 };
@@ -817,7 +814,7 @@ impl Renderer {
                     false,
                 );
                 let mut ry = top + 4.0;
-                for (k, (row, _)) in sec.rows.into_iter().enumerate() {
+                for (k, row) in sec.rows.into_iter().enumerate() {
                     if k > 0 {
                         self.line((22.0, ry), (cw - 22.0, ry), self.cc(fg, 0.05), 1.0);
                     }

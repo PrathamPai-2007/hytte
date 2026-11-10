@@ -54,7 +54,7 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | Navigation | `selected: Option<Panel>`, `peek_until`, `force_until`, `drop_over` |
 | Results | `chip`, `chip_armed`, `hog_ignore` (exes muted this session) |
 | Calendar / Timer | `calendar`, `calendar_seen`; `timer`, `timer_panel`, `timer_min`, `timer_done`, `timer_last`, `timer_break`, `focus_done`, `rounds` |
-| Settings / Look | `settings` (pane open, on a group of `SETTINGS_GROUPS`: Look, Behaviour, Features; hovering away, picking a pane or Back closes it); `art_accent`, `adaptive_glow`, `glow_gain`, `body_alpha` |
+| Look | `art_accent`, `adaptive_glow`, `glow_gain`, `body_alpha` |
 | Clock | `now`: last time the model advanced; visibility rules compare against it |
 | Notes and to-do | `jot` (the `jot::Store`), `jot_dirty` (the window layer saves), `typing: Option<Field>`, `note_edit` / `todo_edit` / `place_edit` (`textedit::TextEdit`), `note_keep`, `jot_edit` (an existing item being edited), `jot_undo`, `jot_first` |
 | Weather | `weather_place`, `forecast`, `weather_busy` / `weather_err` / `weather_retry`, `choosing`, `places`, `place_sel`, `places_busy` / `places_err` / `places_for`, `imperial` |
@@ -82,7 +82,6 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | 3 | A card (chip) exists | `ExpChip` |
 | 4 | Timer just finished (`timer_done`) | `ExpTimerDone` |
 | 5 | Timer setup card open (`timer_panel`) | `ExpTimer` |
-| 6 | Settings pane open (`settings`) | `ExpSettings` |
 | 6a | A break reminder is up (`nudge`), hovered or not | `ExpNudge` |
 | 7 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()` (`ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower`, `ExpHome`) |
 | 8 | Charger plugged / unplugged < 3 s ago (`charge_since`, `charge_in`) | `ExpCharge` |
@@ -108,7 +107,7 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | `ExpShelf` | 380 × 118 (136 with a tile selected) |
 | `ExpTimer` | 380 × 96 running, 152 setup card |
 | `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a one-line card) / 114 |
-| `ExpCharge` / `ExpSettings` | 300 × 52 / 380 × 252 (no tab strip) |
+| `ExpCharge` | 300 × 52 (no tab strip) |
 | `ExpNudge` | 360 × 56 (no tab strip) |
 | `ExpNotes` / `ExpTodo` | 380 × (12 + 34 field + 8 + 30 per row shown, 1 to 4, plus one for the Undo row, + 8) + tab strip; the wheel scrolls longer lists (`JOT_ROWS` = 4) |
 | `ExpWeather` | 380 × 148 with a forecast, 120 while loading, `38 + 34 + 4 + 28 × suggestions + 8` for the place chooser (one more row while "search more widely" is offered, 16 more under OpenStreetMap results), + tab strip |

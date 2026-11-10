@@ -83,10 +83,7 @@ fn a_break_nudge_sits_below_cards_and_ends_by_itself() {
         Scene::ExpNudge,
         "hovering doesn't hide it"
     );
-    // A card, the finished-timer card and the settings pane are never covered by it.
-    m.settings = Some(0);
-    assert_eq!(m.scene(false, false), Scene::ExpSettings);
-    m.settings = None;
+    // A card and the finished-timer card are never covered by it.
     m.timer_done = Some((crate::timer::TimerKind::Focus, t0));
     assert_eq!(m.scene(false, false), Scene::ExpTimerDone);
     m.timer_done = None;

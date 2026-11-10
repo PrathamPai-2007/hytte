@@ -165,8 +165,6 @@ pub enum Scene {
     ExpTimerDone,
     /// The charger was just plugged in.
     ExpCharge,
-    /// Settings (from the gear on Home). Not a pane: no tab, not in the swipe rotation.
-    ExpSettings,
 }
 
 /// A second, smaller pill that splits off beside a compact one when two live activities
@@ -338,9 +336,6 @@ impl Model {
         if self.timer_panel {
             return Scene::ExpTimer;
         }
-        if self.settings.is_some() {
-            return Scene::ExpSettings;
-        }
         if self.nudge.is_some() {
             return Scene::ExpNudge;
         }
@@ -426,7 +421,6 @@ impl Model {
             Scene::ExpTimerDone if self.focus_summary.is_some() => (380.0, 134.0),
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
-            Scene::ExpSettings => (380.0, 252.0),
             // Running: ring + controls. Not running: the setup card.
             Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
             Scene::ExpTimer => (380.0, 152.0 + tab),
@@ -510,7 +504,6 @@ impl Model {
             Scene::CompactMedia
             | Scene::ExpMedia
             | Scene::ExpHome
-            | Scene::ExpSettings
             | Scene::ExpNotes
             | Scene::ExpTodo
             | Scene::ExpWeather

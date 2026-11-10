@@ -55,7 +55,7 @@ Example: `[ports] open_https = false`.
 1. Add the field to the right struct in `config.rs` with `#[serde(default)] pub open_https: bool,`. For a non-zero default use `#[serde(default = "fn_name")]` **and** update that struct's `impl Default`.
 2. Read it through `self.cfg` on the UI thread so a live edit applies at once. If you derive state from it at startup or pass a clone to a worker, refresh that in `Ui::apply_config` ([section 11](11-configuration-and-files.md#live-reload)).
 3. Document it in [section 11](11-configuration-and-files.md#every-setting) (and the README settings block if users commonly change it).
-4. To offer it in the settings window add a row to `render::settings_table` (`pick_i` / `pick_f` / `pick_s` for steps, `Row::Switch` for a switch); use `-1` unless it belongs in the pill's pane (five rows per page). A test checks every row's key is one `config.toml` accepts. Number rows get a `Custom` step automatically; add a sentence to `render::help` (hover note, the note "Custom" writes, and what search matches) and a short name to `pane_label` if it's in the pane. A file-only string can use `pick_s_custom` (see `settings_win::custom`).
+4. To offer it in the settings window add a row to `render::settings_table` (`pick_i` / `pick_f` / `pick_s` for steps, `Row::Switch` for a switch). A test checks every row's key is one `config.toml` accepts. Number rows get a `Custom` step automatically; add a sentence to `render::help` (hover note, the note "Custom" writes, and what search matches) and a short name to `pane_label` if it's in the pane. A file-only string can use `pick_s_custom` (see `settings_win::custom`).
 
 Never rename or remove a key without keeping the old name readable (`#[serde(alias = "old")]`).
 

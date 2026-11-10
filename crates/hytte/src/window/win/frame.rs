@@ -229,7 +229,6 @@ impl Ui {
             self.crop_w = crop.w_log;
             let fr = Frame {
                 model: &self.model,
-                cfg: &self.cfg,
                 anim: &self.anim,
                 now,
                 dt,

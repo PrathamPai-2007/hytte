@@ -47,8 +47,8 @@ for example \"22:30-06:00\". Leave it empty (\"\") for no quiet hours.".into(),
     let default = crate::render::settings_table(&Config::default())
         .into_iter()
         .flat_map(|s| s.rows)
-        .find(|(r, _)| r.key() == id)
-        .and_then(|(r, _)| match r.set_action() {
+        .find(|r| r.key() == id)
+        .and_then(|r| match r.set_action() {
             Some(Action::Set(_, v)) => Some(v),
             _ => None,
         })?;

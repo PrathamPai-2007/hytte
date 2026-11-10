@@ -1,14 +1,8 @@
 # 7. Settings
 
-## The settings pane
-
-Click the **gear** on the Home pane (or, if you have hidden Home, the tray icon → **Settings…**). The pane covers the common settings, such as theme, opacity, glow and feature switches. The blue **More settings** button at its bottom opens the full window.
-
-<img src="../docs/img/settings-pane.png" alt="The settings pane inside the pill" width="420">
-
 ## The settings window
 
-The **More settings** button on the settings pane opens the full window; so does tray → **Settings…**. It has every switch and slider.
+Click the **gear** on the Home pane (or, if you have hidden Home, the tray icon → **Settings…**). It opens the settings window, which has every switch and slider.
 
 - **Type** to search.
 - **Rest the pointer** on a setting for an explanation.

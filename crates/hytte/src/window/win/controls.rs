@@ -66,7 +66,6 @@ impl Ui {
             _ => 0.0,
         };
         self.model.timer_panel = false;
-        self.model.settings = None;
         self.model.close_media_extras();
         self.model.selected = Some(p);
         match p {
@@ -223,7 +222,7 @@ impl Ui {
             self.model.timer_min = crate::timer::nudge(self.model.timer_min, steps);
             return;
         }
-        if notched && self.model.settings.is_none() {
+        if notched {
             self.page(-steps.signum());
         }
     }

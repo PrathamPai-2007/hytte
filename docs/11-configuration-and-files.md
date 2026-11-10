@@ -59,7 +59,7 @@ Lowering `[shelf] max_items` keeps existing tiles and only limits new ones. `add
 
 ### Writing the file
 
-Hytte writes `config.toml` only to create it on first run (`config::save`), for the tray's **Launch at startup**, the settings pane and the settings window. The last three use `config::set`, which edits one key with `toml_edit` so comments, order and other keys are kept; an unparseable file isn't touched (the pane says so). **Custom** on a file-only setting (`quiet_hours`) uses `config::ensure_noted`, which adds the key if missing with a comment above saying what it takes, once, before opening the file. Writes go through a temp file and rename, so the watcher never sees half a file.
+Hytte writes `config.toml` only to create it on first run (`config::save`), for the tray's **Launch at startup** and the settings window. The last two use `config::set`, which edits one key with `toml_edit` so comments, order and other keys are kept; an unparseable file isn't touched (a card says so). **Custom** on a file-only setting (`quiet_hours`) uses `config::ensure_noted`, which adds the key if missing with a comment above saying what it takes, once, before opening the file. Writes go through a temp file and rename, so the watcher never sees half a file.
 
 ## Every setting
 

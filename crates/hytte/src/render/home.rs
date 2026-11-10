@@ -103,7 +103,7 @@ impl Renderer {
             by + bh / 2.0,
             16.0,
             self.fg(),
-            Action::Settings(Some(0)),
+            Action::OpenConfig,
             |cx, cy, c| self.glyph('\u{E713}', cx, cy, 16.0, c),
         );
         let hov = self.hit(bx, by, bw, bh, Action::Volume);
