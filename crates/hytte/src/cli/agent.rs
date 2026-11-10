@@ -25,6 +25,12 @@ pub struct Opts {
     detail: Option<String>,
     /// Print `{}` when done: Gemini, Antigravity and Cursor read a hook's stdout as JSON.
     ack: bool,
+    /// A file the tool call changes (from the hook JSON).
+    file: Option<String>,
+    /// The tool call launches a subagent.
+    subagent: bool,
+    /// Context size in tokens (from the Claude Code transcript).
+    context: Option<u64>,
 }
 
 fn parse(args: &[String]) -> Opts {
@@ -34,6 +40,9 @@ fn parse(args: &[String]) -> Opts {
         message: None,
         detail: None,
         ack: false,
+        file: None,
+        subagent: false,
+        context: None,
     };
     let mut i = 0;
     while i < args.len() {
@@ -87,8 +96,68 @@ fn payload_from_stdin() -> Option<serde_json::Value> {
     serde_json::from_str(buf.trim()).ok()
 }
 
-fn tool_from_stdin() -> Option<String> {
-    describe_tool(&payload_from_stdin()?)
+/// The file a `PreToolUse` payload is about to change (Edit, MultiEdit, Write, NotebookEdit), as
+/// the full path the tool was given.
+pub fn touched_file(payload: &serde_json::Value) -> Option<String> {
+    if !matches!(
+        payload.get("tool_name")?.as_str()?,
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit"
+    ) {
+        return None;
+    }
+    let input = payload.get("tool_input")?;
+    ["file_path", "notebook_path"]
+        .iter()
+        .find_map(|k| input.get(k)?.as_str())
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned)
+}
+
+/// Whether a `PreToolUse` payload launches a subagent (Claude Code's `Task` / `Agent` tool).
+pub fn launches_subagent(payload: &serde_json::Value) -> bool {
+    matches!(
+        payload.get("tool_name").and_then(|t| t.as_str()),
+        Some("Task" | "Agent")
+    )
+}
+
+/// The last `bytes` of a file as text (the start may cut a line; callers skip what doesn't parse).
+fn read_tail(path: &std::path::Path, bytes: u64) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(bytes))).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Tokens in the context of a Claude Code transcript's last assistant turn: its input, counting
+/// what came from the prompt cache. Looks at the last 64 KB first, then the last 512 KB (a turn
+/// with a huge tool result can push the previous one out of the first).
+pub fn context_in_transcript(path: &std::path::Path) -> Option<u64> {
+    let usage = |text: &str| {
+        text.lines().rev().find_map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).ok()?;
+            if v.get("type")?.as_str()? != "assistant" {
+                return None;
+            }
+            let u = v.get("message")?.get("usage")?;
+            let n = |k: &str| u.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
+            let total =
+                n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens");
+            (total > 0).then_some(total)
+        })
+    };
+    read_tail(path, 64 * 1024)
+        .and_then(|t| usage(&t))
+        .or_else(|| read_tail(path, 512 * 1024).and_then(|t| usage(&t)))
+}
+
+fn context_of(payload: &serde_json::Value) -> Option<u64> {
+    context_in_transcript(std::path::Path::new(
+        payload.get("transcript_path")?.as_str()?,
+    ))
 }
 
 /// What a permission request asks, for the pill. A command the pill can't show in full is
@@ -208,14 +277,7 @@ pub fn final_answer(payload: &serde_json::Value) -> Option<String> {
 
 /// The text of the last assistant entry in a Claude Code JSONL transcript (its last 512 KB).
 fn last_reply_in_transcript(path: &std::path::Path) -> Option<String> {
-    use std::io::{Seek, SeekFrom};
-    let mut f = std::fs::File::open(path).ok()?;
-    let len = f.metadata().ok()?.len();
-    f.seek(SeekFrom::Start(len.saturating_sub(512 * 1024)))
-        .ok()?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf).ok()?;
-    String::from_utf8_lossy(&buf)
+    read_tail(path, 512 * 1024)?
         .lines()
         .rev()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
@@ -242,6 +304,9 @@ pub fn build(event: TaskEvent, o: &Opts) -> HytteMessage {
     m.pid = Some(o.pid);
     m.message = o.message.clone();
     m.line = o.detail.clone();
+    m.file = o.file.clone();
+    m.subagent = o.subagent;
+    m.context = o.context;
     m
 }
 
@@ -315,8 +380,13 @@ fn report(
         "resume" => TaskEvent::Resumed,
         // A tool call is progress of an agent that is working: no detail, nothing to say.
         "tool" => {
-            if o.detail.is_none() {
-                o.detail = tool_from_stdin();
+            if let Some(p) = payload_from_stdin() {
+                if o.detail.is_none() {
+                    o.detail = describe_tool(&p);
+                }
+                o.file = touched_file(&p);
+                o.subagent = launches_subagent(&p);
+                o.context = context_of(&p);
             }
             if o.detail.is_none() {
                 return;
@@ -324,9 +394,11 @@ fn report(
             TaskEvent::Progress
         }
         "done" => {
+            let payload = payload_from_stdin();
             if o.message.is_none() {
-                o.message = payload_from_stdin().as_ref().and_then(final_answer);
+                o.message = payload.as_ref().and_then(final_answer);
             }
+            o.context = payload.as_ref().and_then(context_of);
             TaskEvent::Done
         }
         "fail" => TaskEvent::Failed,
@@ -386,6 +458,9 @@ mod tests {
             message: Some("approve?".into()),
             detail: None,
             ack: false,
+            file: None,
+            subagent: false,
+            context: None,
         };
         let m = build(TaskEvent::NeedsInput, &o);
         assert_eq!(m.task_id, "agent:Claude Code:7");
@@ -466,11 +541,88 @@ mod tests {
             message: None,
             detail: Some("Editing render.rs".into()),
             ack: false,
+            file: None,
+            subagent: false,
+            context: None,
         };
         let m = build(TaskEvent::Progress, &o);
         assert_eq!(m.line.as_deref(), Some("Editing render.rs"));
         assert_eq!(m.task_id, "agent:Claude Code:7");
         assert!(m.validate());
+    }
+
+    #[test]
+    fn files_and_subagents_come_from_the_tool_payload() {
+        let v = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        for tool in ["Edit", "MultiEdit", "Write"] {
+            let p =
+                serde_json::json!({"tool_name": tool, "tool_input": {"file_path": r"C:\src\a.rs"}});
+            assert_eq!(touched_file(&p).as_deref(), Some(r"C:\src\a.rs"), "{tool}");
+        }
+        let nb = v(r#"{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"n.ipynb"}}"#);
+        assert_eq!(touched_file(&nb).as_deref(), Some("n.ipynb"));
+        // Reading or running things changes nothing the pill should count.
+        for p in [
+            r#"{"tool_name":"Read","tool_input":{"file_path":"a.rs"}}"#,
+            r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#,
+            r#"{"tool_name":"Edit","tool_input":{}}"#,
+            r#"{"tool_name":"Write","tool_input":{"file_path":""}}"#,
+            r#"{"nothing":1}"#,
+        ] {
+            assert_eq!(touched_file(&v(p)), None, "{p}");
+        }
+        assert!(launches_subagent(&v(r#"{"tool_name":"Task"}"#)));
+        assert!(launches_subagent(&v(r#"{"tool_name":"Agent"}"#)));
+        assert!(!launches_subagent(&v(r#"{"tool_name":"Bash"}"#)));
+        // And they ride the message.
+        let o = Opts {
+            file: Some("a.rs".into()),
+            subagent: true,
+            context: Some(1234),
+            ..parse(&[])
+        };
+        let m = build(TaskEvent::Progress, &o);
+        assert_eq!(
+            (m.file.as_deref(), m.subagent, m.context),
+            (Some("a.rs"), true, Some(1234))
+        );
+        assert!(m.validate());
+    }
+
+    #[test]
+    fn context_is_the_last_assistant_turns_input() {
+        let f = std::env::temp_dir().join("hytte-context.jsonl");
+        let line = |input: u64, create: u64, read: u64| {
+            format!(
+                r#"{{"type":"assistant","message":{{"usage":{{"input_tokens":{input},"cache_creation_input_tokens":{create},"cache_read_input_tokens":{read},"output_tokens":999}}}}}}"#
+            )
+        };
+        std::fs::write(
+            &f,
+            [
+                line(5, 100, 1000),
+                r#"{"type":"user","message":{"content":"hi"}}"#.to_string(),
+                line(6, 1_200, 82_000),
+                r#"{"type":"system","subtype":"stop"}"#.to_string(),
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        assert_eq!(context_in_transcript(&f), Some(83_206));
+        // A transcript with no usage (or none at all) says nothing.
+        std::fs::write(&f, r#"{"type":"assistant","message":{"content":[]}}"#).unwrap();
+        assert_eq!(context_in_transcript(&f), None);
+        assert_eq!(
+            context_in_transcript(&std::env::temp_dir().join("no-such-file")),
+            None
+        );
+        // A big turn after the usage line (a huge tool result) pushes it past the first 64 KB.
+        let big = format!(
+            r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
+            "x".repeat(100_000)
+        );
+        std::fs::write(&f, [line(1, 2, 3), big].join("\n")).unwrap();
+        assert_eq!(context_in_transcript(&f), Some(6));
     }
 
     #[test]

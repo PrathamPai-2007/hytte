@@ -579,6 +579,7 @@ fn snapshots() {
             exit_code: None,
             line: line.map(Into::into),
             cwd: Some(r"C:\src\app".into()),
+            agent: Default::default(),
             updated: now,
         })
     };

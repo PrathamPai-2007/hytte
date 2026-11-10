@@ -188,6 +188,7 @@ fn a_cut_command_is_not_rerunnable() {
         line: None,
         source: "run".into(),
         cwd: Some("C:/x".into()),
+        agent: Default::default(),
         started: now,
         changed: now,
         visible_after: now,

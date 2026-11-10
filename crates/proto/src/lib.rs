@@ -69,6 +69,16 @@ pub struct HytteMessage {
     /// The latest line of the command's output, for the live ticker. Additive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
+    /// An agent's context size in tokens (its last turn's input, from the transcript). Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
+    /// A file the agent is about to change (Edit, Write ...): the pill counts the distinct ones.
+    /// Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// The agent is launching a subagent: the pill counts launches. Additive.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subagent: bool,
 }
 
 impl HytteMessage {
@@ -88,6 +98,9 @@ impl HytteMessage {
             message: None,
             cwd: None,
             line: None,
+            context: None,
+            file: None,
+            subagent: false,
         }
     }
 
@@ -100,6 +113,7 @@ impl HytteMessage {
             (&mut self.cwd, 1024),
             (&mut self.source, 16),
             (&mut self.line, 512),
+            (&mut self.file, 1024),
         ] {
             if let Some(s) = f {
                 cut(s, max);
@@ -132,6 +146,7 @@ impl HytteMessage {
             || self.cwd.as_ref().is_some_and(|c| c.len() > 1024)
             || self.source.as_ref().is_some_and(|c| c.len() > 16)
             || self.line.as_ref().is_some_and(|l| l.len() > 512)
+            || self.file.as_ref().is_some_and(|f| f.len() > 1024)
         {
             return false;
         }
@@ -444,6 +459,42 @@ mod tests {
         let new = r#"{"v":1,"task_id":"a","event":"NeedsInput","message":"approve?","pid":42,"source":"agent"}"#;
         let m: HytteMessage = serde_json::from_str(new).unwrap();
         assert_eq!((m.event, m.pid), (TaskEvent::NeedsInput, Some(42)));
+        assert_eq!(
+            (m.context, m.file.as_deref(), m.subagent),
+            (None, None, false)
+        );
+    }
+
+    #[test]
+    fn agent_details_are_optional_and_unknown_fields_are_ignored() {
+        let mut m = HytteMessage::start("agent:x:1", "Claude Code");
+        m.event = TaskEvent::Progress;
+        m.context = Some(84_000);
+        m.file = Some(r"C:\src\main.rs".into());
+        m.subagent = true;
+        let line = m.to_line().unwrap();
+        let back: HytteMessage = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(back.context, Some(84_000));
+        assert_eq!(back.file.as_deref(), Some(r"C:\src\main.rs"));
+        assert!(back.subagent && back.validate());
+        // Nothing extra is written for a plain message, so an older daemon sees what it knew.
+        let plain = HytteMessage::start("t", "x").to_line().unwrap();
+        assert!(
+            !plain.contains("context") && !plain.contains("file") && !plain.contains("subagent")
+        );
+        // And a future field an old daemon doesn't know is no reason to reject the message.
+        let future = r#"{"v":1,"task_id":"t","event":"Start","label":"x","from_the_future":[1,2]}"#;
+        assert!(serde_json::from_str::<HytteMessage>(future)
+            .unwrap()
+            .validate());
+        let long = HytteMessage {
+            file: Some("f".repeat(2000)),
+            ..HytteMessage::start("t", "x")
+        };
+        assert!(!long.validate());
+        assert!(HytteMessage::validate(
+            &serde_json::from_str(&long.to_line().unwrap()).unwrap()
+        ));
     }
 
     #[test]

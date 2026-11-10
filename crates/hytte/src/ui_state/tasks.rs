@@ -2,6 +2,51 @@
 
 use super::*;
 
+/// What an agent has done this turn, from its hooks: it starts over with each prompt.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentStats {
+    /// Context size in tokens, as of its last report.
+    pub context: Option<u64>,
+    /// The distinct files it changed (at most [`MAX_FILES`] are remembered).
+    pub files: Vec<String>,
+    /// Subagents it has launched.
+    pub subagents: u32,
+}
+
+/// Distinct files remembered per agent turn.
+pub const MAX_FILES: usize = 500;
+
+impl AgentStats {
+    /// Fold one hook report in.
+    fn take(&mut self, i: crate::tasks::AgentInfo) {
+        if i.context.is_some() {
+            self.context = i.context;
+        }
+        if let Some(f) = i.file {
+            if self.files.len() < MAX_FILES && !self.files.contains(&f) {
+                self.files.push(f);
+            }
+        }
+        self.subagents += i.subagent as u32;
+    }
+
+    /// "Edited 4 files · 84k context", or only the part that is known; None when neither is.
+    pub fn line(&self) -> Option<String> {
+        let files = match self.files.len() {
+            0 => None,
+            1 => Some("Edited 1 file".to_string()),
+            n => Some(format!("Edited {n} files")),
+        };
+        let context = self.context.filter(|c| *c > 0).map(|c| match c {
+            0..1000 => format!("{c} context"),
+            1000..1_000_000 => format!("{}k context", (c + 500) / 1000),
+            _ => format!("{:.1}M context", c as f64 / 1e6),
+        });
+        let parts: Vec<String> = [files, context].into_iter().flatten().collect();
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskView {
     pub id: String,
@@ -19,6 +64,8 @@ pub struct TaskView {
     /// Who reported it ("run", "shell", "agent") and the folder it ran in: what Rerun needs.
     pub source: String,
     pub cwd: Option<String>,
+    /// An agent's files, subagents and context (empty for everything else).
+    pub agent: AgentStats,
     pub started: Instant,
     pub changed: Instant,
     /// Hidden until this instant (shell hooks: fast commands never show).
@@ -125,6 +172,22 @@ impl Model {
         if shell && (self.ignore.contains(&name) || AGENT_CLIS.contains(&name.as_str())) {
             return;
         }
+        let existing = self.tasks.iter().position(|t| t.id == s.task_id);
+        // What an agent did this turn: a new prompt (or a row that had finished) starts it over.
+        let mut agent = existing
+            .map(|i| self.tasks[i].agent.clone())
+            .unwrap_or_default();
+        if s.event == TaskEvent::Start
+            || existing.is_some_and(|i| {
+                matches!(
+                    self.tasks[i].event,
+                    TaskEvent::Done | TaskEvent::Failed | TaskEvent::Lost
+                )
+            })
+        {
+            agent = AgentStats::default();
+        }
+        agent.take(s.agent.clone());
         // An agent's turn ended with a reply: its first line on a card for the "Open on
         // finish" time, Copy takes all of it. A pending ask or warning (amber) keeps the card.
         if s.source == "agent"
@@ -145,13 +208,18 @@ impl Model {
                 first,
                 self.chip.as_ref().is_some_and(|c| c.tone == Tone::Warn),
             ) {
-                let mut c = Chip::new(format!("{}: {first}", s.label), now);
+                let mut text = format!("{}: {first}", s.label);
+                if let Some(stats) = agent.line() {
+                    text = format!("{text}\n{stats}");
+                }
+                let mut c = Chip::new(text, now);
                 c.copy = Some(msg.to_string());
                 c.hold = self.finish_peek;
-                self.chip = Some(c);
+                c.prio = Prio::Alert;
+                c.key = Some(format!("agent-done:{}", s.task_id));
+                self.push_chip(c, now);
             }
         }
-        let existing = self.tasks.iter().position(|t| t.id == s.task_id);
         // A command the user stopped (Ctrl+C, window closed) is not an error: never shown.
         // A shell command that ended before the threshold is not shown either.
         if terminal {
@@ -196,6 +264,7 @@ impl Model {
             t.line = s.line.or(t.line.take());
             t.pid = s.pid.or(t.pid);
             t.cwd = s.cwd.or(t.cwd.take());
+            t.agent = agent;
             if !same_wait {
                 t.changed = now;
             }
@@ -213,6 +282,7 @@ impl Model {
                 line: s.line,
                 source: s.source,
                 cwd: s.cwd,
+                agent,
                 started: now,
                 changed: now,
                 visible_after: now + Duration::from_millis(s.delay_ms as u64),

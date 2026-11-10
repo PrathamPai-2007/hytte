@@ -6,6 +6,17 @@ use hytte_proto::{HytteMessage, TaskEvent};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+/// What an agent's hook reported besides its state: all optional, all from one hook call.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentInfo {
+    /// Context size in tokens.
+    pub context: Option<u64>,
+    /// A file the agent is about to change.
+    pub file: Option<String>,
+    /// The agent is launching a subagent.
+    pub subagent: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskState {
     pub task_id: String,
@@ -23,9 +34,12 @@ pub struct TaskState {
     pub line: Option<String>,
     /// Folder the command runs in (for Rerun).
     pub cwd: Option<String>,
+    pub agent: AgentInfo,
     pub updated: Instant,
 }
 
+// A handful of these per second at most: boxing the state would only add indirection.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum TaskUpdate {
     Upsert(TaskState),
@@ -81,6 +95,11 @@ pub fn spawn_registry(
                         exit_code: msg.exit_code,
                         line: msg.line.clone(),
                         cwd: msg.cwd.clone(),
+                        agent: AgentInfo {
+                            context: msg.context,
+                            file: msg.file.clone(),
+                            subagent: msg.subagent,
+                        },
                         updated: Instant::now(),
                     };
                     // Only a shell hook's pid is the terminal that stays; `hytte run` sends its own,

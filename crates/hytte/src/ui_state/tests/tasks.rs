@@ -209,3 +209,145 @@ fn attention_outranks_and_peeks() {
         "attention persists after the peek"
     );
 }
+
+fn agent_update(
+    event: TaskEvent,
+    message: Option<&str>,
+    info: crate::tasks::AgentInfo,
+    now: Instant,
+) -> TaskUpdate {
+    TaskUpdate::Upsert(TaskState {
+        task_id: "agent:Claude Code:7".into(),
+        label: "Claude Code".into(),
+        source: "agent".into(),
+        pid: Some(7),
+        message: message.map(Into::into),
+        agent: info,
+        ..match st("x", event, now) {
+            TaskUpdate::Upsert(s) => TaskState {
+                stderr_tail: None,
+                duration_ms: None,
+                ..s
+            },
+            _ => unreachable!(),
+        }
+    })
+}
+
+fn touched(file: &str) -> crate::tasks::AgentInfo {
+    crate::tasks::AgentInfo {
+        file: Some(file.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn an_agent_turn_counts_distinct_files_subagents_and_context() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_task(
+        agent_update(TaskEvent::Resumed, None, Default::default(), t0),
+        t0,
+    );
+    for f in ["a.rs", "b.rs", "a.rs"] {
+        m.apply_task(agent_update(TaskEvent::Progress, None, touched(f), t0), t0);
+    }
+    let sub = crate::tasks::AgentInfo {
+        subagent: true,
+        context: Some(84_000),
+        ..Default::default()
+    };
+    m.apply_task(agent_update(TaskEvent::Progress, None, sub, t0), t0);
+    // A report with no context keeps the last one.
+    m.apply_task(
+        agent_update(TaskEvent::Progress, None, Default::default(), t0),
+        t0,
+    );
+    let a = &m.tasks[0].agent;
+    assert_eq!(
+        (a.files.len(), a.subagents, a.context),
+        (2, 1, Some(84_000))
+    );
+    assert_eq!(a.line().as_deref(), Some("Edited 2 files · 84k context"));
+}
+
+#[test]
+fn a_new_prompt_starts_the_count_over() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_task(
+        agent_update(TaskEvent::Progress, None, touched("a.rs"), t0),
+        t0,
+    );
+    m.apply_task(
+        agent_update(TaskEvent::Done, None, Default::default(), t0),
+        t0,
+    );
+    assert_eq!(
+        m.tasks[0].agent.files.len(),
+        1,
+        "the finished row still shows its turn"
+    );
+    m.apply_task(
+        agent_update(TaskEvent::Resumed, None, touched("b.rs"), t0),
+        t0,
+    );
+    assert_eq!(m.tasks[0].agent.files, ["b.rs"]);
+}
+
+#[test]
+fn the_context_line_names_only_what_is_known() {
+    let line = |files: usize, context: Option<u64>| {
+        AgentStats {
+            files: (0..files).map(|i| format!("f{i}")).collect(),
+            context,
+            subagents: 0,
+        }
+        .line()
+    };
+    assert_eq!(line(0, None), None);
+    assert_eq!(line(1, None).as_deref(), Some("Edited 1 file"));
+    assert_eq!(line(0, Some(84_000)).as_deref(), Some("84k context"));
+    assert_eq!(
+        line(4, Some(84_499)).as_deref(),
+        Some("Edited 4 files · 84k context")
+    );
+    assert_eq!(line(0, Some(950)).as_deref(), Some("950 context"));
+    assert_eq!(line(0, Some(1_250_000)).as_deref(), Some("1.2M context"));
+    assert_eq!(line(0, Some(0)), None);
+}
+
+#[test]
+fn the_finished_card_carries_the_line_when_something_is_known() {
+    let t0 = Instant::now();
+    let mut m = Model {
+        finish_peek: Duration::from_secs(8),
+        ..Default::default()
+    };
+    m.apply_task(
+        agent_update(TaskEvent::Progress, None, touched("a.rs"), t0),
+        t0,
+    );
+    let ctx = crate::tasks::AgentInfo {
+        context: Some(84_000),
+        ..Default::default()
+    };
+    m.apply_task(
+        agent_update(TaskEvent::Done, Some("All done."), ctx, t0),
+        t0,
+    );
+    assert_eq!(
+        m.chip.as_ref().unwrap().summary,
+        "Claude Code: All done.\nEdited 1 file · 84k context"
+    );
+    // Nothing known: the card is as it was.
+    let mut m = Model {
+        finish_peek: Duration::from_secs(8),
+        ..Default::default()
+    };
+    m.apply_task(
+        agent_update(TaskEvent::Done, Some("All done."), Default::default(), t0),
+        t0,
+    );
+    assert_eq!(m.chip.as_ref().unwrap().summary, "Claude Code: All done.");
+}

@@ -26,6 +26,7 @@ bang"
         exit_code: None,
         line: None,
         cwd: None,
+        agent: Default::default(),
         updated: now,
     })
 }
@@ -45,6 +46,7 @@ pub(super) fn shell(id: &str, label: &str, ev: TaskEvent, delay: u32, now: Insta
         exit_code: None,
         line: None,
         cwd: None,
+        agent: Default::default(),
         updated: now,
     })
 }

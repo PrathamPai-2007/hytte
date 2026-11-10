@@ -321,6 +321,7 @@ mod win {
             exit_code: None,
             line: None,
             cwd: None,
+            agent: Default::default(),
             updated: Instant::now(),
         }
     }
