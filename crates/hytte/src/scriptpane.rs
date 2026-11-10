@@ -10,12 +10,109 @@ pub const MAX_BYTES: usize = 2048;
 /// A command still running after this is stopped, with everything it started.
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
-/// What one run of a pane's command left: its cleaned output and how it ended
-/// (`None`: stopped at the time limit).
-#[derive(Debug, Clone, PartialEq)]
+/// What one run of a pane's command left: its cleaned output (or, when it printed rows as
+/// JSON, the rows) and how it ended (`None`: stopped at the time limit).
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Run {
     pub text: String,
+    /// Set when the output was `{"rows": [...]}`: `text` is then empty.
+    pub rows: Option<Vec<Row>>,
     pub code: Option<i32>,
+}
+
+/// Rows a script pane shows when its output is JSON.
+pub const MAX_ROWS: usize = 6;
+/// Longest row text, value and action name, in characters.
+pub const ROW_TEXT_CHARS: usize = 80;
+pub const ROW_VALUE_CHARS: usize = 24;
+pub const ACTION_NAME_CHARS: usize = 40;
+
+/// The colour of a row's value and dot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowTone {
+    #[default]
+    Plain,
+    Good,
+    Warn,
+    Bad,
+}
+
+/// One row of a script pane: `{"text": "api", "value": "up", "progress": 40, "tone": "good",
+/// "action": "restart-api"}`. Only `text` or `value` is needed.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Row {
+    pub text: String,
+    pub value: String,
+    pub progress: Option<u8>,
+    pub tone: RowTone,
+    /// The name of a `[[action]]` in `config.toml`; clicking the row runs it.
+    pub action: Option<String>,
+}
+
+/// A valid action name: letters, digits, `-` and `_`, up to [`ACTION_NAME_CHARS`].
+pub fn valid_action_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().count() <= ACTION_NAME_CHARS
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// One clean line, at most `max` characters.
+fn one_line(s: &str, max: usize) -> String {
+    let c = clean(s);
+    let first = c.lines().next().unwrap_or("").trim();
+    if first.chars().count() > max {
+        format!(
+            "{}…",
+            first.chars().take(max - 1).collect::<String>().trim_end()
+        )
+    } else {
+        first.to_string()
+    }
+}
+
+/// Rows from a script's output, when that output is a JSON object with a `rows` array. Anything
+/// else (plain text, broken JSON, JSON without `rows`) is None and shows as text. Rows past
+/// [`MAX_ROWS`] and rows with neither text nor value are dropped; every string is cleaned like
+/// plain output and cut to its limit, a progress past 100 is 100, and an unknown tone is plain.
+pub fn parse_rows(raw: &str) -> Option<Vec<Row>> {
+    let raw = raw.trim();
+    if !raw.starts_with('{') {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let list = v.get("rows")?.as_array()?;
+    let text = |r: &serde_json::Value, k: &str, max: usize| match r.get(k) {
+        Some(serde_json::Value::String(s)) => one_line(s, max),
+        Some(serde_json::Value::Number(n)) => one_line(&n.to_string(), max),
+        _ => String::new(),
+    };
+    let rows = list
+        .iter()
+        .filter(|r| r.is_object())
+        .map(|r| Row {
+            text: text(r, "text", ROW_TEXT_CHARS),
+            value: text(r, "value", ROW_VALUE_CHARS),
+            progress: r
+                .get("progress")
+                .and_then(|p| p.as_f64())
+                .map(|p| p.clamp(0.0, 100.0).round() as u8),
+            tone: match r.get("tone").and_then(|t| t.as_str()) {
+                Some("good") => RowTone::Good,
+                Some("warn") => RowTone::Warn,
+                Some("bad") => RowTone::Bad,
+                _ => RowTone::Plain,
+            },
+            action: r
+                .get("action")
+                .and_then(|a| a.as_str())
+                .filter(|a| valid_action_name(a))
+                .map(str::to_owned),
+        })
+        .filter(|r| !r.text.is_empty() || !r.value.is_empty())
+        .take(MAX_ROWS)
+        .collect();
+    Some(rows)
 }
 
 /// The pane's command is due: never run, or last run `every` ago.
@@ -108,6 +205,7 @@ pub fn run(command: &str, limit: Duration) -> Run {
             return Run {
                 text: clean(&format!("Couldn't start it: {e}")),
                 code: Some(-1),
+                ..Default::default()
             }
         }
     };
@@ -185,17 +283,26 @@ pub fn run(command: &str, limit: Duration) -> Run {
     } else {
         out
     };
-    Run {
-        text: clean(&String::from_utf8_lossy(&pick)),
-        code,
+    let shown = String::from_utf8_lossy(&pick);
+    match parse_rows(&shown) {
+        Some(rows) => Run {
+            rows: Some(rows),
+            code,
+            ..Default::default()
+        },
+        None => Run {
+            text: clean(&shown),
+            code,
+            ..Default::default()
+        },
     }
 }
 
 #[cfg(not(windows))]
 pub fn run(_command: &str, _limit: Duration) -> Run {
     Run {
-        text: String::new(),
         code: Some(-1),
+        ..Default::default()
     }
 }
 
@@ -219,6 +326,104 @@ mod tests {
         let c = clean(&huge);
         assert!(c.len() <= MAX_BYTES && c.is_char_boundary(c.len()));
         assert_eq!(clean(""), "");
+    }
+
+    #[test]
+    fn json_rows_are_parsed_cleaned_and_limited() {
+        let r = parse_rows(
+            r#"{"rows":[
+                {"text":"api","value":"up","tone":"good","progress":40,"action":"restart-api"},
+                {"text":"db","value":12.5,"tone":"nope","progress":250},
+                {"value":"only a value"},
+                {"text":""},
+                {"text":"bad action","action":"rm -rf /"},
+                "not an object"
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(r.len(), 4);
+        assert_eq!(
+            r[0],
+            Row {
+                text: "api".into(),
+                value: "up".into(),
+                progress: Some(40),
+                tone: RowTone::Good,
+                action: Some("restart-api".into()),
+            }
+        );
+        assert_eq!(
+            (r[1].value.as_str(), r[1].progress, r[1].tone),
+            ("12.5", Some(100), RowTone::Plain)
+        );
+        assert_eq!(
+            (r[2].text.as_str(), r[2].value.as_str()),
+            ("", "only a value")
+        );
+        // A name that isn't a plain identifier never becomes an action.
+        assert_eq!(r[3].action, None);
+        // At most six rows.
+        let many = format!(
+            r#"{{"rows":[{}]}}"#,
+            (0..20)
+                .map(|i| format!(r#"{{"text":"r{i}"}}"#))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        assert_eq!(parse_rows(&many).unwrap().len(), MAX_ROWS);
+        // Text is cleaned like plain output: colour codes and control characters go, one line, cut.
+        let long = format!(
+            r#"{{"rows":[{{"text":"\u001b[31mred\u001b[0m\nsecond line"}},{{"text":"{}"}}]}}"#,
+            "x".repeat(300)
+        );
+        let r = parse_rows(&long).unwrap();
+        assert_eq!(r[0].text, "red");
+        assert_eq!(r[1].text.chars().count(), ROW_TEXT_CHARS);
+        assert!(r[1].text.ends_with('…'));
+    }
+
+    #[test]
+    fn anything_that_is_not_rows_stays_text() {
+        for s in [
+            "",
+            "hello",
+            "3 users online",
+            "{not json",
+            r#"{"other": 1}"#,
+            r#"{"rows": "no"}"#,
+            r#"[{"text":"a"}]"#,
+        ] {
+            assert_eq!(parse_rows(s), None, "{s}");
+        }
+        // Valid but empty: rows mode with nothing to show.
+        assert_eq!(parse_rows(r#"{"rows":[]}"#), Some(vec![]));
+    }
+
+    /// The action timeout kills the whole tree: nothing it started is left running.
+    #[cfg(windows)]
+    #[test]
+    fn a_timed_out_command_leaves_no_process_behind() {
+        // A marker address no other test pings, so only this test's processes match.
+        let slow = run("ping -n 60 127.0.0.77 >nul", Duration::from_millis(900));
+        assert_eq!(slow.code, None);
+        std::thread::sleep(Duration::from_millis(500));
+        let left = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*127.0.0.77*' -and $_.Name -like 'ping*' } | Measure-Object).Count",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&left.stdout).trim(), "0");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_command_can_print_rows() {
+        let r = run(r#"echo {"rows":[{"text":"a","value":"1"}]}"#, TIMEOUT);
+        assert_eq!(r.rows.as_ref().map(|r| r.len()), Some(1), "{r:?}");
+        assert_eq!(r.text, "");
     }
 
     #[test]

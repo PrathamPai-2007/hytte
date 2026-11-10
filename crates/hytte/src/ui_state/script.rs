@@ -11,6 +11,8 @@ pub struct ScriptView {
     pub every: Duration,
     /// The cleaned text it shows.
     pub text: String,
+    /// Or, when the script gave `{"rows": [...]}`, these rows (then `text` is empty).
+    pub rows: Vec<crate::scriptpane::Row>,
     /// When the last run went wrong: "exit 3", "stopped after 10 s". None: fine.
     pub problem: Option<String>,
     /// When the text last changed (a run finished or a script pushed).
@@ -25,6 +27,40 @@ pub fn script_rows(s: &ScriptView) -> usize {
     match s.text.lines().count() {
         0 => 2,
         n => n,
+    }
+}
+
+/// Height of one row of a pane that shows rows, and what a progress bar adds.
+pub const SCRIPT_ROW_H: f32 = 26.0;
+pub const SCRIPT_BAR_H: f32 = 5.0;
+
+/// Where each of a rows pane's rows goes: top and height, from the top of the pane's content.
+pub fn script_row_boxes(rows: &[crate::scriptpane::Row]) -> Vec<(f32, f32)> {
+    let mut y = 10.0;
+    rows.iter()
+        .map(|r| {
+            let h = SCRIPT_ROW_H
+                + if r.progress.is_some() {
+                    SCRIPT_BAR_H
+                } else {
+                    0.0
+                };
+            let b = (y, h);
+            y += h;
+            b
+        })
+        .collect()
+}
+
+/// Where the footer of a script pane starts: under the last row or text line.
+pub fn script_footer_y(s: &ScriptView) -> f32 {
+    if s.rows.is_empty() {
+        18.0 + script_rows(s) as f32 * 18.0
+    } else {
+        script_row_boxes(&s.rows)
+            .last()
+            .map_or(10.0, |(y, h)| y + h)
+            + 6.0
     }
 }
 
@@ -55,8 +91,11 @@ pub fn script_footer(s: &ScriptView, now: Instant) -> String {
 impl Model {
     /// Height of a script pane without the tab strip: its rows and the footer.
     pub fn script_h(&self, slot: u8) -> f64 {
-        let n = self.scripts.get(slot as usize).map_or(2, script_rows) as f64;
-        18.0 + n * 18.0 + 16.0 + 12.0
+        self.scripts
+            .get(slot as usize)
+            .map_or(18.0 + 2.0 * 18.0, |s| script_footer_y(s) as f64)
+            + 16.0
+            + 12.0
     }
 
     /// Apply `[[script_pane]]`s. A pane that keeps its name keeps what it showed.
@@ -107,7 +146,17 @@ impl Model {
         else {
             return false;
         };
-        s.text = crate::scriptpane::clean(text);
+        // Pushed text may be rows too (`hytte pane set --json`).
+        match crate::scriptpane::parse_rows(text) {
+            Some(rows) => {
+                s.rows = rows;
+                s.text.clear();
+            }
+            None => {
+                s.rows.clear();
+                s.text = crate::scriptpane::clean(text);
+            }
+        }
         s.problem = problem;
         s.updated = Some(now);
         true
@@ -123,7 +172,20 @@ impl Model {
                 crate::scriptpane::TIMEOUT.as_secs()
             )),
         };
-        self.script_text(name, &run.text, problem, now);
+        match run.rows {
+            // A run that printed rows already was parsed on its worker thread.
+            Some(rows) => {
+                if let Some(s) = self.scripts.iter_mut().find(|s| s.name == name) {
+                    s.rows = rows;
+                    s.text.clear();
+                    s.problem = problem;
+                    s.updated = Some(now);
+                }
+            }
+            None => {
+                self.script_text(name, &run.text, problem, now);
+            }
+        }
         if let Some(s) = self.scripts.iter_mut().find(|s| s.name == name) {
             s.busy = false;
         }

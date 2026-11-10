@@ -31,7 +31,7 @@ usage:
   hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
   hytte notify \"text\"                    # show a card on the pill (for your own scripts)
   hytte card --title \"...\" [...]          # a live card: progress, buttons, --wait (hytte card --help)
-  hytte pane set <name> [--text \"...\"]    # text for a [[script_pane]] (or piped in)
+  hytte pane set <name> [--json] [--text \"...\"]   # text for a [[script_pane]] (or piped in); --json: {\"rows\": [...]}
   hytte shelf add <file>... | (text on stdin)   # put files or text on the shelf
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
@@ -337,14 +337,27 @@ examples:
   hytte card --id deploy --done --body Live
   hytte card --title \"Restart server?\" --button Restart --button Later --wait";
 
-/// `hytte pane set <name> [--text "..."]`, or the text piped in: what a `[[script_pane]]`
-/// shows until its next run or the next push. Exit 1 when no pane has that name or the pill
-/// isn't running.
+/// `hytte pane set <name> [--json] [--text "..."]`, or the text piped in: what a
+/// `[[script_pane]]` shows until its next run or the next push. With `--json` the text must be
+/// `{"rows": [{"text": "...", "value": "...", "progress": 40, "tone": "good", "action": "name"}]}`;
+/// it is checked here so a typo is said to you, not dropped by the pill. Exit 1 when no pane has
+/// that name or the pill isn't running.
 fn cmd_pane(args: &[String]) {
     use std::io::{IsTerminal, Read};
-    let (name, text) = match args {
-        [set, name] if set == "set" => (name, None),
-        [set, name, flag, text] if set == "set" && flag == "--text" => (name, Some(text.clone())),
+    let (name, json, text) = match args {
+        [set, name, rest @ ..] if set == "set" => {
+            let mut json = false;
+            let mut text = None;
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match a.as_str() {
+                    "--json" => json = true,
+                    "--text" => text = Some(it.next().unwrap_or_else(|| usage()).clone()),
+                    _ => usage(),
+                }
+            }
+            (name, json, text)
+        }
         _ => usage(),
     };
     let text = match text {
@@ -383,6 +396,12 @@ fn cmd_pane(args: &[String]) {
     }
     let mut text = text;
     hytte_proto::cut(&mut text, hytte_proto::MAX_PANE_TEXT_BYTES);
+    if json && crate::scriptpane::parse_rows(&text).is_none() {
+        eprintln!(
+            "hytte pane: --json wants {{\"rows\": [{{\"text\": \"...\", \"value\": \"...\"}}]}} (nothing sent)"
+        );
+        std::process::exit(1);
+    }
     if !send_cmd(&hytte_proto::Cmd::pane_set(name.trim(), text)) {
         eprintln!("hytte: daemon not running (text dropped)");
         std::process::exit(1);

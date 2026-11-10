@@ -139,8 +139,16 @@ impl Renderer {
             x += 70.0;
         }
         for (label, act) in &c.extra {
-            let armed = matches!(act, ChipAction::KillPid(..)) && fr.model.chip_armed.is_some();
-            let label = if armed { "Kill?" } else { label.as_str() };
+            let armed = match act {
+                ChipAction::KillPid(..) => fr.model.chip_armed.is_some(),
+                ChipAction::Action(name) => fr.model.action_armed(name),
+                _ => false,
+            };
+            let label = match (armed, act) {
+                (true, ChipAction::Action(_)) => "Sure?",
+                (true, _) => "Kill?",
+                _ => label.as_str(),
+            };
             let bw = (label.chars().count() as f32 * 6.6 + 26.0).max(62.0);
             let col = match act {
                 ChipAction::KillPid(..) | ChipAction::Answer(_, false) => RED,

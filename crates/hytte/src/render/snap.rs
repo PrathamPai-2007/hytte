@@ -1423,6 +1423,7 @@ fn script_snapshots() {
     let ok = Run {
         text: "\x1b[32m● up\x1b[0m  ·  v2.0.0\n3 users online\np95 142 ms".into(),
         code: Some(0),
+        ..Default::default()
     };
     for light in [false, true] {
         let sfx = if light { "-light" } else { "" };
@@ -1446,6 +1447,7 @@ fn script_snapshots() {
             Run {
                 text: "curl: (7) Failed to connect to localhost port 3000".into(),
                 code: Some(7),
+                ..Default::default()
             },
             now,
         );
@@ -1505,6 +1507,7 @@ fn script_snapshots() {
             Run {
                 text: long,
                 code: Some(0),
+                ..Default::default()
             },
             now,
         );
@@ -1817,4 +1820,76 @@ fn agent_snapshots() {
         Scene::ExpChip,
         true,
     );
+}
+
+/// Script panes that show rows: values, progress, tones, a clickable row, an armed one.
+#[test]
+#[ignore]
+fn script_row_snapshots() {
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let mut m = model();
+    m.now = Some(now);
+    m.apply_scripts(&[crate::config::ScriptPane {
+        name: "Stack".into(),
+        command: String::new(),
+        every: 300,
+    }]);
+    m.panes.script1 = true;
+    let json = r#"{"rows":[
+        {"text":"api","value":"up 3d","tone":"good","action":"restart-api"},
+        {"text":"worker","value":"2 failed","tone":"bad","progress":35},
+        {"text":"db","value":"82% disk","tone":"warn","progress":82},
+        {"text":"cache","value":"ok"},
+        {"text":"Deploy to production with a very long name that gets cut off","value":"idle"}
+    ]}"#;
+    m.script_text("Stack", json, None, now);
+    shoot(&mut r, &dir, "script-rows", &m, Scene::ExpScript(0), false);
+    shoot(
+        &mut r,
+        &dir,
+        "script-rows-light",
+        &m,
+        Scene::ExpScript(0),
+        true,
+    );
+    m.armed_action = Some((
+        "restart-api".into(),
+        now + std::time::Duration::from_secs(3),
+    ));
+    shoot(
+        &mut r,
+        &dir,
+        "script-rows-armed",
+        &m,
+        Scene::ExpScript(0),
+        false,
+    );
+
+    // A card whose button runs an action.
+    let mut m = model();
+    m.now = Some(now);
+    m.apply_actions(&[crate::config::NamedAction {
+        name: "restart-api".into(),
+        command: "x".into(),
+        confirm: true,
+        timeout: 60,
+    }]);
+    let c = hytte_proto::Cmd {
+        title: Some("api is down".into()),
+        text: Some("health check failed 3 times".into()),
+        buttons: vec!["Restart:restart-api".into(), "Later".into()],
+        icon: Some("error".into()),
+        ..hytte_proto::Cmd::card()
+    };
+    m.card(&c, now);
+    m.show_card(now);
+    shoot(&mut r, &dir, "card-action", &m, Scene::ExpChip, false);
+    m.armed_action = Some((
+        "restart-api".into(),
+        now + std::time::Duration::from_secs(3),
+    ));
+    shoot(&mut r, &dir, "card-action-armed", &m, Scene::ExpChip, false);
 }

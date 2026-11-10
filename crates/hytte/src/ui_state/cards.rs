@@ -21,6 +21,8 @@ pub enum ChipAction {
     UpdateLater(String),
     /// A live card's button (card id, label): reported back to a waiting script, nothing run.
     Card(String, String),
+    /// A card button written `Label:name`, where `name` is one of your `[[action]]`s: runs it.
+    Action(String),
     /// The welcome tour: show this card next (past the last one: the tour is done).
     Welcome(usize),
     /// The welcome tour: skip the rest.
@@ -127,7 +129,7 @@ impl Chip {
 
     /// Apply a `card` command to this card: only the fields it carries change, and the hold
     /// starts again (a progress card is "30 s of silence", not 30 s in all).
-    fn apply_card(&mut self, c: &hytte_proto::Cmd, now: Instant) {
+    fn apply_card(&mut self, c: &hytte_proto::Cmd, actions: &[String], now: Instant) {
         let Some(k) = self.card.as_mut() else { return };
         if let Some(t) = &c.title {
             k.title = t.trim().to_string();
@@ -167,8 +169,12 @@ impl Chip {
             }
             for b in &c.buttons {
                 let b = b.trim().to_string();
-                self.extra
-                    .push((b.clone(), ChipAction::Card(id.clone(), b)));
+                match split_action(&b, actions) {
+                    Some((label, name)) => self.extra.push((label, ChipAction::Action(name))),
+                    None => self
+                        .extra
+                        .push((b.clone(), ChipAction::Card(id.clone(), b))),
+                }
             }
         }
         let running = self.card.as_ref().is_some_and(|k| k.progress.is_some()) && !c.done;
@@ -290,6 +296,7 @@ impl Model {
             self.cards.retain(|k| k.card_id() != Some(id.as_str()));
             return id;
         }
+        let actions = &self.action_names;
         let slot = if on_chip {
             self.chip.as_mut()
         } else {
@@ -298,7 +305,7 @@ impl Model {
                 .find(|k| k.card_id() == Some(id.as_str()))
         };
         match slot {
-            Some(k) => k.apply_card(c, now),
+            Some(k) => k.apply_card(c, actions, now),
             None => {
                 let mut k = Chip::new("", now);
                 k.prio = Prio::Card;
@@ -309,7 +316,7 @@ impl Model {
                     body: String::new(),
                     progress: None,
                 });
-                k.apply_card(c, now);
+                k.apply_card(c, actions, now);
                 self.enqueue(k);
             }
         }

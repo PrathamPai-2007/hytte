@@ -35,6 +35,7 @@ fn script_panes_take_slots_keep_their_text_and_run_on_schedule() {
 3 users"
                 .into(),
             code: Some(0),
+            ..Default::default()
         },
         t0 + Duration::from_secs(1),
     );
@@ -66,6 +67,7 @@ fn script_panes_take_slots_keep_their_text_and_run_on_schedule() {
         crate::scriptpane::Run {
             text: "refused".into(),
             code: Some(7),
+            ..Default::default()
         },
         t0,
     );
@@ -75,6 +77,7 @@ fn script_panes_take_slots_keep_their_text_and_run_on_schedule() {
         crate::scriptpane::Run {
             text: String::new(),
             code: None,
+            ..Default::default()
         },
         t0,
     );
@@ -335,4 +338,147 @@ fn the_task_list_scrolls_past_four_rows() {
     // Rows leaving keeps the window valid.
     m.task_first = 9;
     assert_eq!(m.rows().len(), 4);
+}
+
+fn rows_json(n: usize) -> String {
+    let rows: Vec<String> = (0..n)
+        .map(|i| {
+            format!(
+                r#"{{"text":"svc{i}","value":"up","tone":"good","progress":{}}}"#,
+                i * 10
+            )
+        })
+        .collect();
+    format!(r#"{{"rows":[{}]}}"#, rows.join(","))
+}
+
+#[test]
+fn a_pane_shows_rows_pushed_as_json_and_falls_back_to_text() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_scripts(&[pane("Stack", "")]);
+    assert!(m.script_text("Stack", &rows_json(3), None, t0));
+    let s = &m.scripts[0];
+    assert_eq!((s.rows.len(), s.text.as_str()), (3, ""));
+    // Rows are taller than text lines, and the footer sits under the last one.
+    let boxes = script_row_boxes(&s.rows);
+    assert_eq!(boxes[0], (10.0, SCRIPT_ROW_H + SCRIPT_BAR_H));
+    assert_eq!(script_footer_y(s), boxes[2].0 + boxes[2].1 + 6.0);
+    assert_eq!(m.script_h(0), script_footer_y(&m.scripts[0]) as f64 + 28.0);
+    // Plain text afterwards replaces the rows; broken JSON is just text.
+    m.script_text("Stack", "all fine", None, t0);
+    assert_eq!(
+        (m.scripts[0].rows.len(), m.scripts[0].text.as_str()),
+        (0, "all fine")
+    );
+    m.script_text("Stack", "{not json", None, t0);
+    assert_eq!(m.scripts[0].text, "{not json");
+    // A run that printed rows (parsed on its worker thread) shows them.
+    let run = crate::scriptpane::Run {
+        rows: crate::scriptpane::parse_rows(&rows_json(2)),
+        code: Some(0),
+        ..Default::default()
+    };
+    m.script_done("Stack", run, t0);
+    assert_eq!(
+        (m.scripts[0].rows.len(), m.scripts[0].problem.clone()),
+        (2, None)
+    );
+    // And a failing one says so beside them.
+    let run = crate::scriptpane::Run {
+        rows: crate::scriptpane::parse_rows(&rows_json(1)),
+        code: Some(3),
+        ..Default::default()
+    };
+    m.script_done("Stack", run, t0);
+    assert_eq!(m.scripts[0].problem.as_deref(), Some("Exited with code 3"));
+}
+
+#[test]
+fn a_card_button_names_an_action_only_when_config_has_it() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_actions(&[crate::config::NamedAction {
+        name: "restart-api".into(),
+        command: "x".into(),
+        ..Default::default()
+    }]);
+    let c = hytte_proto::Cmd {
+        buttons: vec![
+            "Restart:restart-api".into(),
+            "Open: docs".into(),
+            "Wipe:no-such-action".into(),
+            "Later".into(),
+        ],
+        ..card("srv")
+    };
+    m.card(&c, t0);
+    m.show_card(t0);
+    let extra = &m.chip.as_ref().unwrap().extra;
+    assert_eq!(
+        extra[0],
+        ("Restart".into(), ChipAction::Action("restart-api".into()))
+    );
+    // Everything else is an ordinary button that only reports back to a waiting script.
+    for (i, label) in ["Open: docs", "Wipe:no-such-action", "Later"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            extra[i + 1],
+            (
+                label.to_string(),
+                ChipAction::Card("srv".into(), label.to_string())
+            )
+        );
+    }
+}
+
+#[test]
+fn an_action_that_needs_confirming_arms_first_and_runs_on_the_second_click() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    assert_eq!(m.press_action("wipe", true, t0), Press::Arm);
+    m.now = Some(t0);
+    assert!(m.action_armed("wipe") && !m.action_armed("other"));
+    // The armed state fades after a few seconds, and a late second click only arms again.
+    m.expire(t0 + KILL_CONFIRM);
+    assert!(!m.action_armed("wipe"));
+    assert_eq!(m.press_action("wipe", true, t0 + KILL_CONFIRM), Press::Arm);
+    let t1 = t0 + KILL_CONFIRM + Duration::from_secs(1);
+    assert_eq!(m.press_action("wipe", true, t1), Press::Run);
+    assert!(!m.action_armed("wipe"));
+    // Running: more clicks do nothing until it finishes.
+    assert_eq!(m.press_action("wipe", true, t1), Press::Busy);
+    m.action_finished("wipe");
+    assert_eq!(m.press_action("wipe", true, t1), Press::Arm);
+    // No confirm: runs at once.
+    assert_eq!(m.press_action("ping", false, t1), Press::Run);
+    // The arming deadline is something the timer must wake for.
+    let mut m = Model::default();
+    m.press_action("wipe", true, t0);
+    assert_eq!(m.expire(t0), Some(t0 + KILL_CONFIRM));
+}
+
+#[test]
+fn a_finished_action_says_how_it_went() {
+    let t0 = Instant::now();
+    let run = |code, text: &str| crate::scriptpane::Run {
+        text: text.into(),
+        code,
+        ..Default::default()
+    };
+    let ok = action_card("restart-api", &run(Some(0), "api restarted\nextra"), 60, t0);
+    assert_eq!(
+        (ok.summary.as_str(), ok.tone, ok.note.as_deref()),
+        ("restart-api finished", Tone::Done, Some("api restarted"))
+    );
+    let bad = action_card("restart-api", &run(Some(3), ""), 60, t0);
+    assert_eq!(
+        (bad.summary.as_str(), bad.tone, bad.note),
+        ("restart-api failed (exit 3)", Tone::Warn, None)
+    );
+    let slow = action_card("restart-api", &run(None, ""), 45, t0);
+    assert_eq!(slow.summary, "restart-api stopped after 45 s");
+    assert_eq!(slow.key.as_deref(), Some("action:restart-api"));
 }

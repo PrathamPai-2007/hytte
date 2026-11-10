@@ -19,6 +19,9 @@ impl Ui {
                 }
             }
             Action::Chip(a) => self.chip_action(a),
+            Action::Named(name) => {
+                self.run_named(&name);
+            }
             Action::CopyText(s) => set_clipboard(hwnd, &s),
             Action::OpenPath(p) => {
                 let _ = std::process::Command::new("explorer").arg(p).spawn();
@@ -357,11 +360,46 @@ impl Ui {
                 self.welcome = None;
                 crate::welcome::finish();
             }
+            ChipAction::Action(name) => {
+                if self.run_named(&name) {
+                    self.model.dismiss_chip();
+                }
+            }
             ChipAction::Card(id, label) => {
                 if let Some(i) = self.card_waits.iter().position(|w| w.0 == id) {
                     let _ = self.card_waits.remove(i).1.send(label);
                 }
                 self.model.dismiss_chip();
+            }
+        }
+    }
+
+    /// Run the `[[action]]` called `name`: the first click of one that needs confirming only
+    /// arms it. The command runs on a worker (hidden, in a Job, stopped at its timeout) and its
+    /// result comes back as `UiEvent::ActionDone`. True when it started.
+    pub(super) fn run_named(&mut self, name: &str) -> bool {
+        use crate::ui_state::Press;
+        let now = Instant::now();
+        let Some(a) = self.cfg.named_action(name) else {
+            // A name config.toml doesn't have (a script asked for it, or it was removed).
+            let mut c = Chip::new(format!("No action called \"{name}\" in config.toml"), now);
+            c.tone = crate::ui_state::Tone::Warn;
+            self.model.interrupt(c, now);
+            return false;
+        };
+        match self.model.press_action(&a.name, a.confirm, now) {
+            Press::Arm | Press::Busy => false,
+            Press::Run => {
+                let sh = self.shared.clone();
+                std::thread::spawn(move || {
+                    crate::proc::eco_thread();
+                    let run = crate::scriptpane::run(
+                        &a.command,
+                        std::time::Duration::from_secs(a.timeout),
+                    );
+                    push_event(&sh, UiEvent::ActionDone(a.name, run));
+                });
+                true
             }
         }
     }

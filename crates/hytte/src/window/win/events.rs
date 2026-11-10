@@ -215,6 +215,15 @@ impl Ui {
                 }
                 UiEvent::Forecast(r) => self.model.forecast_result(r, now),
                 UiEvent::Script(name, run) => self.model.script_done(&name, run, now),
+                UiEvent::ActionDone(name, run) => {
+                    self.model.action_finished(&name);
+                    let timeout = self
+                        .cfg
+                        .named_action(&name)
+                        .map_or(crate::config::ACTION_TIMEOUT, |a| a.timeout);
+                    let c = crate::ui_state::action_card(&name, &run, timeout, now);
+                    self.model.interrupt(c, now);
+                }
                 UiEvent::Lyrics(key, r) => self.model.lyrics_result(key, r),
                 UiEvent::Places(seq, q, r) if seq == self.place_seq => {
                     self.model.places_result(q, r);
@@ -299,6 +308,7 @@ impl Ui {
         self.model.rounds = new.timer.rounds;
         self.model.apply_panes(&new.panes);
         self.model.apply_scripts(&new.script_panes());
+        self.model.apply_actions(&new.named_actions());
         self.model.skin = crate::skin::Skin::from_name(&new.general.skin);
         self.model.lyrics_on = new.media.lyrics;
         self.model.lyrics_still = !new.media.lyrics_live;

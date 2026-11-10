@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod actions;
 mod agents;
 mod anim;
 mod cards;
@@ -25,6 +26,7 @@ mod tests;
 mod timer;
 mod weather;
 
+pub use actions::*;
 pub use agents::*;
 pub use anim::*;
 pub use cards::*;
@@ -142,6 +144,8 @@ pub enum UiEvent {
     Cmd(hytte_proto::Cmd, Option<crossbeam_channel::Sender<String>>),
     /// A script pane's command finished: its name and how it went.
     Script(String, crate::scriptpane::Run),
+    /// An `[[action]]` finished: its name and how it went.
+    ActionDone(String, crate::scriptpane::Run),
     /// A newer version exists: its tag and the first line of its notes.
     UpdateOffer {
         tag: String,
@@ -223,6 +227,12 @@ pub struct Model {
     pub card_seq: u64,
     /// A chip's Kill button was clicked once and waits for a second click until then.
     pub chip_armed: Option<Instant>,
+    /// Names of the `[[action]]`s, so a card button `Label:name` can tell an action from text.
+    pub action_names: Vec<String>,
+    /// An action whose first click is in: it runs on the next one before the instant.
+    pub armed_action: Option<(String, Instant)>,
+    /// Actions running now (one at a time per name).
+    pub running_actions: Vec<String>,
     /// Exe names (lower-cased) the resource-hog alert is muted for, for this session.
     pub hog_ignore: std::collections::HashSet<String>,
     /// The next calendar event and when its heads-up is due (None once shown or if none).
@@ -415,6 +425,9 @@ impl Model {
         if self.peek_until.is_some_and(|p| now >= p) {
             self.peek_until = None;
         }
+        if self.armed_action.as_ref().is_some_and(|(_, t)| now >= *t) {
+            self.armed_action = None;
+        }
         if self.kill_armed.is_some_and(|(_, t)| now >= t) {
             self.kill_armed = None;
         }
@@ -483,6 +496,9 @@ impl Model {
         }
         if let Some(d) = waiting {
             keep(d);
+        }
+        if let Some((_, t)) = &self.armed_action {
+            keep(*t);
         }
         if let Some(t) = self.chip_armed {
             keep(t);

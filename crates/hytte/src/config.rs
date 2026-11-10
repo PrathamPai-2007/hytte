@@ -463,6 +463,40 @@ pub struct Config {
     /// `hytte pane set`. Read through [`Config::script_panes`], which applies the limits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub script_pane: Vec<ScriptPane>,
+    /// Commands a card button or a script pane row may run by name (`[[action]]`). Read through
+    /// [`Config::named_actions`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub action: Vec<NamedAction>,
+}
+
+/// Most `[[action]]`s Hytte keeps.
+pub const MAX_ACTIONS: usize = 32;
+/// How long an action may run unless it says otherwise, and the longest it may ask for (seconds).
+pub const ACTION_TIMEOUT: u64 = 60;
+pub const ACTION_MAX_TIMEOUT: u64 = 600;
+
+/// One `[[action]]`: a command with a name. A card button written `Label:name` (`hytte card
+/// --button "Restart:restart-api"`) or a script pane row with `"action": "name"` runs it, hidden,
+/// in a Job object, stopped after `timeout` seconds. Nothing that arrives on the pipe carries a
+/// command, only a name from this list, so a script can press your buttons but not add its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NamedAction {
+    pub name: String,
+    pub command: String,
+    /// The first click arms it ("Sure?"), the second runs it.
+    pub confirm: bool,
+    pub timeout: u64,
+}
+impl Default for NamedAction {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            confirm: false,
+            timeout: ACTION_TIMEOUT,
+        }
+    }
 }
 
 /// Most script panes the tab strip takes.
@@ -514,6 +548,42 @@ impl Config {
             }
         }
         out
+    }
+}
+
+impl Config {
+    /// The actions Hytte uses: a name that isn't letters, digits, `-` and `_`, an empty command
+    /// and repeats of a name (any case) skipped, at most [`MAX_ACTIONS`], `timeout` between 1 s
+    /// and [`ACTION_MAX_TIMEOUT`].
+    pub fn named_actions(&self) -> Vec<NamedAction> {
+        let mut out: Vec<NamedAction> = vec![];
+        for a in &self.action {
+            let name = a.name.trim().to_string();
+            let command = a.command.trim().to_string();
+            if !crate::scriptpane::valid_action_name(&name)
+                || command.is_empty()
+                || out.iter().any(|b| b.name.eq_ignore_ascii_case(&name))
+            {
+                continue;
+            }
+            out.push(NamedAction {
+                name,
+                command,
+                confirm: a.confirm,
+                timeout: a.timeout.clamp(1, ACTION_MAX_TIMEOUT),
+            });
+            if out.len() == MAX_ACTIONS {
+                break;
+            }
+        }
+        out
+    }
+
+    /// The action called `name` (any case), if there is one.
+    pub fn named_action(&self, name: &str) -> Option<NamedAction> {
+        self.named_actions()
+            .into_iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name.trim()))
     }
 }
 
@@ -948,6 +1018,60 @@ pub fn ensure_start_menu() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actions_are_sanitised_and_limited() {
+        let cfg = parse(
+            r#"
+            [[action]]
+            name = "restart-api"
+            command = "docker restart api"
+            confirm = true
+
+            [[action]]
+            name = "Restart-API"
+            command = "dupe, same name"
+
+            [[action]]
+            name = "has space"
+            command = "x"
+
+            [[action]]
+            name = "empty"
+            command = "  "
+
+            [[action]]
+            name = "slow"
+            command = "x"
+            timeout = 99999
+
+            [[action]]
+            name = "instant"
+            command = "x"
+            timeout = 0
+            "#,
+        )
+        .unwrap();
+        let a = cfg.named_actions();
+        let names: Vec<&str> = a.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["restart-api", "slow", "instant"]);
+        assert!(a[0].confirm && a[0].timeout == ACTION_TIMEOUT);
+        assert_eq!(a[1].timeout, ACTION_MAX_TIMEOUT);
+        assert_eq!(a[2].timeout, 1);
+        assert!(cfg.named_action("RESTART-API").is_some() && cfg.named_action("nope").is_none());
+        let many: String = (0..50)
+            .map(|i| {
+                format!(
+                    "[[action]]
+name = \"a{i}\"
+command = \"x\"
+"
+                )
+            })
+            .collect();
+        assert_eq!(parse(&many).unwrap().named_actions().len(), MAX_ACTIONS);
+        assert!(Config::default().named_actions().is_empty());
+    }
 
     #[test]
     fn autostart_edit_keeps_comments_and_other_keys() {

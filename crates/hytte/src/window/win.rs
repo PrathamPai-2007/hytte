@@ -669,6 +669,7 @@ pub fn run_windows(
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
         ui.model.apply_panes(&ui.cfg.panes.clone());
         ui.model.apply_scripts(&ui.cfg.script_panes());
+        ui.model.apply_actions(&ui.cfg.named_actions());
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())
                 .ok()
