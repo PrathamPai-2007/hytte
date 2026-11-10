@@ -87,7 +87,23 @@ impl Renderer {
             40.0,
             self.cc(self.fg(), 0.95),
         );
-        let by = if c.one_line() { 44.0 } else { 60.0 };
+        let (mut by, note_y) = if c.one_line() {
+            (44.0, 31.0)
+        } else {
+            (60.0, 49.0)
+        };
+        if let Some(n) = &c.note {
+            self.text(
+                n,
+                &self.f.small,
+                46.0,
+                note_y,
+                w - 46.0 - 20.0,
+                14.0,
+                self.cc(GRAY, 0.85),
+            );
+            by += crate::ui_state::CHIP_NOTE_H;
+        }
         // A live card's progress: a thin bar between the text and the buttons.
         if let Some(p) = c.card.as_ref().and_then(|k| k.progress) {
             let (bx, bw) = (46.0, w - 46.0 - 20.0);

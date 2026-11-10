@@ -31,6 +31,9 @@ pub struct Opts {
     subagent: bool,
     /// Context size in tokens (from the Claude Code transcript).
     context: Option<u64>,
+    /// The project folder: the hook's `cwd`, else where this hook was started (a hook runs in the
+    /// agent's project).
+    cwd: Option<String>,
 }
 
 fn parse(args: &[String]) -> Opts {
@@ -43,6 +46,9 @@ fn parse(args: &[String]) -> Opts {
         file: None,
         subagent: false,
         context: None,
+        cwd: std::env::current_dir()
+            .ok()
+            .map(|p| p.display().to_string()),
     };
     let mut i = 0;
     while i < args.len() {
@@ -152,6 +158,15 @@ pub fn context_in_transcript(path: &std::path::Path) -> Option<u64> {
     read_tail(path, 64 * 1024)
         .and_then(|t| usage(&t))
         .or_else(|| read_tail(path, 512 * 1024).and_then(|t| usage(&t)))
+}
+
+/// The project folder a hook payload names (Claude Code puts `cwd` in every one).
+fn cwd_of(payload: &serde_json::Value) -> Option<String> {
+    payload
+        .get("cwd")?
+        .as_str()
+        .filter(|c| !c.is_empty())
+        .map(str::to_owned)
 }
 
 fn context_of(payload: &serde_json::Value) -> Option<u64> {
@@ -304,6 +319,7 @@ pub fn build(event: TaskEvent, o: &Opts) -> HytteMessage {
     m.pid = Some(o.pid);
     m.message = o.message.clone();
     m.line = o.detail.clone();
+    m.cwd = o.cwd.clone();
     m.file = o.file.clone();
     m.subagent = o.subagent;
     m.context = o.context;
@@ -384,6 +400,7 @@ fn report(
                 if o.detail.is_none() {
                     o.detail = describe_tool(&p);
                 }
+                o.cwd = cwd_of(&p).or(o.cwd.take());
                 o.file = touched_file(&p);
                 o.subagent = launches_subagent(&p);
                 o.context = context_of(&p);
@@ -399,6 +416,7 @@ fn report(
                 o.message = payload.as_ref().and_then(final_answer);
             }
             o.context = payload.as_ref().and_then(context_of);
+            o.cwd = payload.as_ref().and_then(cwd_of).or(o.cwd.take());
             TaskEvent::Done
         }
         "fail" => TaskEvent::Failed,
@@ -461,6 +479,7 @@ mod tests {
             file: None,
             subagent: false,
             context: None,
+            cwd: None,
         };
         let m = build(TaskEvent::NeedsInput, &o);
         assert_eq!(m.task_id, "agent:Claude Code:7");
@@ -544,6 +563,7 @@ mod tests {
             file: None,
             subagent: false,
             context: None,
+            cwd: None,
         };
         let m = build(TaskEvent::Progress, &o);
         assert_eq!(m.line.as_deref(), Some("Editing render.rs"));
@@ -575,6 +595,11 @@ mod tests {
         assert!(launches_subagent(&v(r#"{"tool_name":"Agent"}"#)));
         assert!(!launches_subagent(&v(r#"{"tool_name":"Bash"}"#)));
         // And they ride the message.
+        assert_eq!(
+            cwd_of(&serde_json::json!({"cwd": r"C:\src\hytte"})).as_deref(),
+            Some(r"C:\src\hytte")
+        );
+        assert_eq!(cwd_of(&serde_json::json!({"cwd": ""})), None);
         let o = Opts {
             file: Some("a.rs".into()),
             subagent: true,

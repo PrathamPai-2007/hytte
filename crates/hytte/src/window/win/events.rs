@@ -10,6 +10,10 @@ impl Ui {
         for e in events {
             match e {
                 UiEvent::Task(mut u) => {
+                    // The pane a row lives in is known only once it is in the model.
+                    let mut peek_for_input = None;
+                    let agent_row =
+                        matches!(&u, crate::tasks::TaskUpdate::Upsert(s) if s.source == "agent");
                     if let crate::tasks::TaskUpdate::Upsert(s) = &mut u {
                         // Downloads switched off in settings: its watcher may still run.
                         if s.source == "download" && !self.cfg.downloads.enabled {
@@ -23,7 +27,7 @@ impl Ui {
                         }
                         if s.event == hytte_proto::TaskEvent::NeedsInput {
                             let until = now + Duration::from_secs(self.cfg.agent.peek_secs);
-                            self.model.peek(Panel::Tasks, until);
+                            peek_for_input = Some(until);
                             // An agent waiting on you shows even over a maximised terminal.
                             self.model.force_until = Some(until);
                             if self.cfg.agent.sound && !self.quiet() {
@@ -57,6 +61,14 @@ impl Ui {
                         _ => None,
                     };
                     self.model.apply_task(u, now);
+                    let pane = if agent_row {
+                        self.model.agent_panel()
+                    } else {
+                        Panel::Tasks
+                    };
+                    if let Some(until) = peek_for_input {
+                        self.model.peek(pane, until);
+                    }
                     // Open the pill on the result, unless the task was hidden (a short
                     // shell command, or Ctrl-C) and so never made it into the list.
                     let secs = self.cfg.general.finish_peek_secs;
@@ -72,8 +84,7 @@ impl Ui {
                                 self.model.held.done += 1;
                             }
                         } else if secs > 0 {
-                            self.model
-                                .peek(Panel::Tasks, now + Duration::from_secs(secs));
+                            self.model.peek(pane, now + Duration::from_secs(secs));
                         }
                     }
                 }

@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod agents;
 mod anim;
 mod cards;
 mod media;
@@ -24,6 +25,7 @@ mod tests;
 mod timer;
 mod weather;
 
+pub use agents::*;
 pub use anim::*;
 pub use cards::*;
 pub use media::*;
@@ -388,7 +390,7 @@ impl Model {
         // A row that finished while the user was away starts its hold when they come back.
         let (away, back) = (self.away, self.back);
         let from = move |c: Instant| back.map_or(c, |b| b.max(c));
-        if self.visible_count() <= self.row_cap() {
+        if self.shell_count() <= self.row_cap() {
             self.task_first = 0;
         }
         self.tasks.retain(|t| match t.event {

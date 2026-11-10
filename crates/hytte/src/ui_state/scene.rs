@@ -6,6 +6,7 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
     Tasks,
+    Agents,
     Shelf,
     Media,
     Timer,
@@ -26,6 +27,7 @@ impl Panel {
     pub fn name(self) -> &'static str {
         match self {
             Panel::Tasks => "Tasks",
+            Panel::Agents => "Agents",
             Panel::Shelf => "Shelf",
             Panel::Media => "Media",
             Panel::Timer => "Timer",
@@ -40,13 +42,14 @@ impl Panel {
     }
 
     /// Every pane, in the order the tab strip has them until the user moves them.
-    pub const ALL: [Panel; 13] = [
+    pub const ALL: [Panel; 14] = [
         Panel::Shelf,
         Panel::Media,
         Panel::Home,
         Panel::Notes,
         Panel::Todo,
         Panel::Weather,
+        Panel::Agents,
         Panel::Tasks,
         Panel::Timer,
         Panel::Power,
@@ -60,6 +63,7 @@ impl Panel {
     pub fn key(self) -> &'static str {
         match self {
             Panel::Tasks => "tasks",
+            Panel::Agents => "agents",
             Panel::Shelf => "shelf",
             Panel::Media => "media",
             Panel::Timer => "timer",
@@ -110,6 +114,7 @@ impl Panel {
     pub fn of(scene: Scene) -> Option<Panel> {
         Some(match scene {
             Scene::ExpTasks => Panel::Tasks,
+            Scene::ExpAgents => Panel::Agents,
             Scene::ExpShelf => Panel::Shelf,
             Scene::ExpMedia => Panel::Media,
             Scene::ExpTimer => Panel::Timer,
@@ -123,6 +128,9 @@ impl Panel {
         })
     }
 }
+
+/// Extra height of a card that carries a [`Chip::note`].
+pub const CHIP_NOTE_H: f32 = 16.0;
 
 /// Height of the key hint line at the bottom of the open pill in keyboard mode.
 pub const KB_HINT_H: f32 = 20.0;
@@ -148,6 +156,7 @@ pub enum Scene {
     CompactTask,
     CompactMedia,
     ExpTasks,
+    ExpAgents,
     ExpMedia,
     ExpShelf,
     ExpHome,
@@ -250,8 +259,11 @@ impl Model {
             v.push(Panel::Weather);
         }
         // Terminal tasks and the dev servers they run share one pane.
-        if self.panes.tasks && (self.visible_count() > 0 || !self.ports.is_empty()) {
+        if self.panes.tasks && (self.shell_count() > 0 || !self.ports.is_empty()) {
             v.push(Panel::Tasks);
+        }
+        if self.agent_count() > 0 {
+            v.push(Panel::Agents);
         }
         if self.panes.timer && self.timer.is_some() {
             v.push(Panel::Timer);
@@ -300,8 +312,12 @@ impl Model {
             // Unpicked: what the collapsed pill shows (a task, music), else the quick controls,
             // else the first pane left.
             _ => {
-                let want = if self.visible_count() > 0 {
-                    Panel::Tasks
+                let want = if let Some(t) = self.primary() {
+                    if self.in_agents(t) {
+                        Panel::Agents
+                    } else {
+                        Panel::Tasks
+                    }
                 } else if self.media.as_ref().is_some_and(|m| m.playing) {
                     Panel::Media
                 } else {
@@ -343,6 +359,7 @@ impl Model {
         if hover || peeking {
             return match self.panel() {
                 Panel::Tasks => Scene::ExpTasks,
+                Panel::Agents => Scene::ExpAgents,
                 Panel::Shelf => Scene::ExpShelf,
                 Panel::Media => Scene::ExpMedia,
                 Panel::Timer => Scene::ExpTimer,
@@ -416,8 +433,15 @@ impl Model {
             Scene::ExpWeather => (380.0, self.weather_h() + tab),
             Scene::ExpScript(i) => (380.0, self.script_h(i) + tab),
             Scene::ExpDrop => (380.0, 116.0),
-            Scene::ExpChip if self.chip.as_ref().is_some_and(Chip::one_line) => (380.0, 80.0),
-            Scene::ExpChip => (380.0, 96.0),
+            Scene::ExpChip => {
+                let note = self.chip.as_ref().is_some_and(|c| c.note.is_some());
+                let base = if self.chip.as_ref().is_some_and(Chip::one_line) {
+                    80.0
+                } else {
+                    96.0
+                };
+                (380.0, base + if note { CHIP_NOTE_H as f64 } else { 0.0 })
+            }
             Scene::ExpTimerDone if self.focus_summary.is_some() => (380.0, 134.0),
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
@@ -429,6 +453,11 @@ impl Model {
                 136.0 + 32.0 * (self.shelf_chip_lines() - 1) as f64 + tab,
             ),
             Scene::ExpShelf => (380.0, 118.0 + tab),
+            Scene::ExpAgents => (
+                380.0,
+                (self.agents_layout().height + tab)
+                    .min(290.0 + (self.row_cap() as f64 - 4.0).max(0.0) * 50.0),
+            ),
             Scene::ExpTasks => {
                 let rows = self.rows();
                 let (up, down) = self.rows_hidden();
@@ -508,13 +537,15 @@ impl Model {
             | Scene::ExpTodo
             | Scene::ExpWeather
             | Scene::ExpScript(_) => ([1.0; 3], 0.10),
-            Scene::CompactTask | Scene::ExpTasks => match self.primary().map(|t| t.event) {
-                Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
-                Some(TaskEvent::Failed) => (RED, 0.9),
-                Some(TaskEvent::Done) => (GREEN, 0.6),
-                Some(TaskEvent::Lost) => ([0.7; 3], 0.3),
-                _ => (BLUE, 0.45),
-            },
+            Scene::CompactTask | Scene::ExpTasks | Scene::ExpAgents => {
+                match self.primary().map(|t| t.event) {
+                    Some(TaskEvent::NeedsInput) => (AMBER, 1.0),
+                    Some(TaskEvent::Failed) => (RED, 0.9),
+                    Some(TaskEvent::Done) => (GREEN, 0.6),
+                    Some(TaskEvent::Lost) => ([0.7; 3], 0.3),
+                    _ => (BLUE, 0.45),
+                }
+            }
         }
     }
 

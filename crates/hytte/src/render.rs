@@ -28,6 +28,7 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
 use windows_numerics::{Matrix3x2, Vector2};
 
+mod agents;
 /// Logical canvas size (the window), pill hangs from the top centre.
 mod cards;
 mod compact;
@@ -431,6 +432,7 @@ fn panel_glyph(p: Panel) -> char {
         Panel::Media => '\u{EC4F}',
         Panel::Home => '\u{E80F}',
         Panel::Tasks => '\u{E756}',
+        Panel::Agents => '\u{E99A}',
         Panel::Timer => '\u{E916}',
         Panel::Power => '\u{E83F}',
         Panel::Notes => '\u{E70B}',

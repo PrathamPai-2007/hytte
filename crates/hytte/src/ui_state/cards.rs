@@ -84,6 +84,8 @@ pub struct Chip {
     /// file) instead of queueing behind it.
     pub key: Option<String>,
     pub summary: String,
+    /// A quiet line under the text ("Edited 4 files · 84k context"); the card grows to hold it.
+    pub note: Option<String>,
     pub open: Option<PathBuf>,
     pub copy: Option<String>,
     pub since: Instant,
@@ -107,6 +109,7 @@ impl Chip {
             prio: Prio::Info,
             key: None,
             summary: summary.into(),
+            note: None,
             open: None,
             copy: None,
             since,

@@ -336,10 +336,10 @@ fn the_finished_card_carries_the_line_when_something_is_known() {
         agent_update(TaskEvent::Done, Some("All done."), ctx, t0),
         t0,
     );
-    assert_eq!(
-        m.chip.as_ref().unwrap().summary,
-        "Claude Code: All done.\nEdited 1 file · 84k context"
-    );
+    let c = m.chip.as_ref().unwrap();
+    assert_eq!(c.summary, "Claude Code: All done.");
+    assert_eq!(c.note.as_deref(), Some("Edited 1 file · 84k context"));
+    assert_eq!(m.size(Scene::ExpChip).1, 80.0 + CHIP_NOTE_H as f64);
     // Nothing known: the card is as it was.
     let mut m = Model {
         finish_peek: Duration::from_secs(8),
@@ -349,5 +349,156 @@ fn the_finished_card_carries_the_line_when_something_is_known() {
         agent_update(TaskEvent::Done, Some("All done."), Default::default(), t0),
         t0,
     );
-    assert_eq!(m.chip.as_ref().unwrap().summary, "Claude Code: All done.");
+    let c = m.chip.as_ref().unwrap();
+    assert_eq!(
+        (c.summary.as_str(), c.note.as_deref()),
+        ("Claude Code: All done.", None)
+    );
+    assert_eq!(m.size(Scene::ExpChip).1, 80.0);
+}
+
+fn agent_in(
+    id: &str,
+    project: &str,
+    event: TaskEvent,
+    msg: Option<&str>,
+    now: Instant,
+) -> TaskUpdate {
+    let TaskUpdate::Upsert(base) = agent_update(event, msg, Default::default(), now) else {
+        unreachable!()
+    };
+    TaskUpdate::Upsert(TaskState {
+        task_id: id.into(),
+        cwd: Some(format!(r"C:\src\{project}")),
+        ..base
+    })
+}
+
+#[test]
+fn the_agents_pane_shows_only_with_an_agent_and_takes_the_agents_off_the_task_list() {
+    let t0 = Instant::now();
+    let mut m = no_extra_panes();
+    m.now = Some(t0);
+    assert!(!m.panels().contains(&Panel::Agents));
+    m.apply_task(agent_in("a1", "hytte", TaskEvent::Progress, None, t0), t0);
+    assert!(m.panels().contains(&Panel::Agents));
+    // The only row is an agent: the Tasks pane has nothing of its own to list.
+    assert!(m.rows().is_empty() && !m.panels().contains(&Panel::Tasks));
+    assert_eq!(m.agent_count(), 1);
+    // A terminal command lists in Tasks, the agent stays in Agents.
+    m.apply_task(st("build", TaskEvent::Start, t0), t0);
+    m.expire(t0);
+    assert_eq!(m.rows().len(), 1);
+    assert_eq!(m.agent_tasks().len(), 1);
+    assert!(m.panels().contains(&Panel::Tasks) && m.panels().contains(&Panel::Agents));
+    // What the collapsed pill shows opens its own pane: a waiting agent leads.
+    m.apply_task(
+        agent_in("a1", "hytte", TaskEvent::NeedsInput, Some("Run tests?"), t0),
+        t0,
+    );
+    assert_eq!(m.panel(), Panel::Agents);
+    // Switched off, agents go back to the Tasks pane as before.
+    m.panes.agents = false;
+    assert!(!m.panels().contains(&Panel::Agents));
+    assert_eq!(m.rows().len(), 2);
+    assert_eq!(m.agent_panel(), Panel::Tasks);
+}
+
+#[test]
+fn agent_rows_put_the_waiting_ones_first_and_say_what_each_is_doing() {
+    let t0 = Instant::now();
+    let mut m = no_extra_panes();
+    m.now = Some(t0);
+    let t1 = t0 + Duration::from_secs(5);
+    m.apply_task(agent_in("a", "api", TaskEvent::Progress, None, t0), t0);
+    m.apply_task(
+        agent_in("b", "web", TaskEvent::NeedsInput, Some("Allow rm?"), t0),
+        t0,
+    );
+    let mut busy = agent_in("c", "docs", TaskEvent::Progress, None, t1);
+    if let TaskUpdate::Upsert(s) = &mut busy {
+        s.line = Some("Editing src/main.rs".into());
+        s.agent.file = Some("src/main.rs".into());
+        s.agent.context = Some(84_000);
+    }
+    m.apply_task(busy, t1);
+    m.expire(t1);
+    let lay = m.agents_layout();
+    let ids: Vec<&str> = lay.rows.iter().map(|r| r.task.id.as_str()).collect();
+    assert_eq!(ids[0], "b", "waiting first");
+    let by = |id: &str| lay.rows.iter().find(|r| r.task.id == id).unwrap();
+    assert_eq!(
+        by("b").detail,
+        Some(AgentDetail::Asking("web · Allow rm?".into()))
+    );
+    assert_eq!(
+        by("c").detail,
+        Some(AgentDetail::Step("docs · Editing src/main.rs".into()))
+    );
+    assert_eq!(by("c").meta.as_deref(), Some("1 file · 84k context"));
+    // Quiet agents say their project; no stats, no meta line.
+    assert_eq!(by("a").detail, Some(AgentDetail::Step("api".into())));
+    assert_eq!(by("a").meta, None);
+    // The boxes tile the pane and the pane's height is what they take.
+    let mut y = AGENT_PAD_H / 2.0;
+    for r in &lay.rows {
+        assert_eq!(r.y, y);
+        y += r.h;
+    }
+    assert_eq!(lay.height, (y + AGENT_PAD_H / 2.0) as f64);
+    assert_eq!(
+        m.size(Scene::ExpAgents).1,
+        lay.height + m.tabs() as u8 as f64 * TAB_H as f64
+    );
+    assert_eq!(lay.hidden, 0);
+}
+
+#[test]
+fn more_agents_than_rows_fold_into_a_count() {
+    let t0 = Instant::now();
+    let mut m = no_extra_panes();
+    m.now = Some(t0);
+    for i in 0..6 {
+        m.apply_task(
+            agent_in(&format!("a{i}"), "p", TaskEvent::Progress, None, t0),
+            t0,
+        );
+    }
+    let lay = m.agents_layout();
+    assert_eq!((lay.rows.len(), lay.hidden), (4, 2));
+}
+
+#[test]
+fn a_project_is_the_last_folder_of_the_path() {
+    let t = |cwd: Option<&str>| {
+        let now = Instant::now();
+        TaskView {
+            cwd: cwd.map(Into::into),
+            ..TaskView {
+                id: "t".into(),
+                label: "Claude Code".into(),
+                event: TaskEvent::Start,
+                progress: None,
+                duration_ms: None,
+                exit_code: None,
+                stderr: vec![],
+                pid: None,
+                attention: None,
+                line: None,
+                source: "agent".into(),
+                cwd: None,
+                agent: Default::default(),
+                started: now,
+                changed: now,
+                visible_after: now,
+            }
+        }
+    };
+    assert_eq!(
+        project_of(&t(Some(r"C:\src\hytte\"))).as_deref(),
+        Some("hytte")
+    );
+    assert_eq!(project_of(&t(Some("/home/me/app"))).as_deref(), Some("app"));
+    assert_eq!(project_of(&t(Some(r"C:\"))), None);
+    assert_eq!(project_of(&t(None)), None);
 }

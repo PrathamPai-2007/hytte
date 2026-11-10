@@ -1666,3 +1666,155 @@ fn welcome_snapshots() {
     }
     contact_sheet(&dir);
 }
+
+/// The Agents pane: one agent working, one waiting beside two working, long names.
+#[test]
+#[ignore]
+fn agent_snapshots() {
+    use crate::tasks::{AgentInfo, TaskState, TaskUpdate};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let agent = |id: &str,
+                 label: &str,
+                 project: &str,
+                 ev: TaskEvent,
+                 line: Option<&str>,
+                 msg: Option<&str>,
+                 info: AgentInfo| {
+        TaskUpdate::Upsert(TaskState {
+            task_id: id.into(),
+            label: label.into(),
+            progress: None,
+            event: ev,
+            duration_ms: Some(83_000),
+            stderr_tail: None,
+            source: "agent".into(),
+            pid: Some(4242),
+            delay_ms: 0,
+            message: msg.map(Into::into),
+            exit_code: None,
+            line: line.map(Into::into),
+            cwd: Some(format!(r"C:\src\{project}")),
+            agent: info,
+            updated: now,
+        })
+    };
+    let busy = |files: &[&str], subagents: u32, context: u64| AgentInfo {
+        file: files.first().map(|f| f.to_string()),
+        subagent: subagents > 0,
+        context: Some(context),
+    };
+    let t0 = now - std::time::Duration::from_secs(120);
+
+    let mut m = model();
+    m.now = Some(now);
+    m.tasks.clear();
+    m.panes.agents = true;
+    m.apply_task(
+        agent(
+            "a",
+            "Claude Code",
+            "hytte",
+            TaskEvent::Progress,
+            Some("Editing render/agents.rs"),
+            None,
+            busy(&["render/agents.rs"], 0, 84_000),
+        ),
+        t0,
+    );
+    m.expire(now);
+    shoot(&mut r, &dir, "agents-one", &m, Scene::ExpAgents, false);
+
+    m.apply_task(
+        agent(
+            "b",
+            "Codex",
+            "billing-service",
+            TaskEvent::NeedsInput,
+            None,
+            Some("Allow: git push origin main?"),
+            Default::default(),
+        ),
+        now,
+    );
+    m.apply_task(
+        agent(
+            "c",
+            "Gemini CLI",
+            "docs",
+            TaskEvent::Progress,
+            Some("Running: cargo test"),
+            None,
+            busy(&[], 2, 1_250_000),
+        ),
+        t0,
+    );
+    m.expire(now);
+    shoot(&mut r, &dir, "agents-three", &m, Scene::ExpAgents, false);
+    shoot(
+        &mut r,
+        &dir,
+        "agents-three-light",
+        &m,
+        Scene::ExpAgents,
+        true,
+    );
+
+    let mut m = model();
+    m.now = Some(now);
+    m.tasks.clear();
+    m.apply_task(
+        agent(
+            "d",
+            "Claude Code",
+            "a-very-long-project-folder-name-that-will-not-fit",
+            TaskEvent::NeedsInput,
+            None,
+            Some("Allow: rm -rf node_modules && npm install --legacy-peer-deps --force"),
+            busy(&["a.rs", "b.rs"], 1, 190_000),
+        ),
+        t0,
+    );
+    m.expire(now);
+    shoot(&mut r, &dir, "agents-long", &m, Scene::ExpAgents, false);
+
+    // The reply card of a finished turn, with what the agent did.
+    let mut m = model();
+    m.now = Some(now);
+    m.finish_peek = std::time::Duration::from_secs(8);
+    m.apply_task(
+        agent(
+            "e",
+            "Claude Code",
+            "hytte",
+            TaskEvent::Progress,
+            Some("Editing cards.rs"),
+            None,
+            busy(&["cards.rs"], 0, 60_000),
+        ),
+        t0,
+    );
+    m.apply_task(
+        agent(
+            "e",
+            "Claude Code",
+            "hytte",
+            TaskEvent::Done,
+            None,
+            Some("The card queue is in; alerts wait their turn now."),
+            busy(&[], 0, 84_000),
+        ),
+        now,
+    );
+    shoot(&mut r, &dir, "agent-done-card", &m, Scene::ExpChip, false);
+    shoot(
+        &mut r,
+        &dir,
+        "agent-done-card-light",
+        &m,
+        Scene::ExpChip,
+        true,
+    );
+}

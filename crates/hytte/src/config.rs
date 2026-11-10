@@ -344,6 +344,8 @@ pub struct Panes {
     pub media: bool,
     pub shelf: bool,
     pub tasks: bool,
+    /// The Agents pane: coding agents listed apart from terminal tasks.
+    pub agents: bool,
     pub timer: bool,
     pub power: bool,
     pub notes: bool,
@@ -385,6 +387,7 @@ impl Default for Panes {
             media: true,
             shelf: true,
             tasks: true,
+            agents: true,
             timer: true,
             power: true,
             notes: true,

@@ -29,22 +29,6 @@ impl AgentStats {
         }
         self.subagents += i.subagent as u32;
     }
-
-    /// "Edited 4 files · 84k context", or only the part that is known; None when neither is.
-    pub fn line(&self) -> Option<String> {
-        let files = match self.files.len() {
-            0 => None,
-            1 => Some("Edited 1 file".to_string()),
-            n => Some(format!("Edited {n} files")),
-        };
-        let context = self.context.filter(|c| *c > 0).map(|c| match c {
-            0..1000 => format!("{c} context"),
-            1000..1_000_000 => format!("{}k context", (c + 500) / 1000),
-            _ => format!("{:.1}M context", c as f64 / 1e6),
-        });
-        let parts: Vec<String> = [files, context].into_iter().flatten().collect();
-        (!parts.is_empty()).then(|| parts.join(" · "))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +57,11 @@ pub struct TaskView {
 }
 
 impl TaskView {
+    /// An AI coding agent's row (reported by its hooks), as opposed to a command.
+    pub fn is_agent(&self) -> bool {
+        self.source == "agent"
+    }
+
     pub fn running(&self) -> bool {
         matches!(
             self.event,
@@ -208,11 +197,8 @@ impl Model {
                 first,
                 self.chip.as_ref().is_some_and(|c| c.tone == Tone::Warn),
             ) {
-                let mut text = format!("{}: {first}", s.label);
-                if let Some(stats) = agent.line() {
-                    text = format!("{text}\n{stats}");
-                }
-                let mut c = Chip::new(text, now);
+                let mut c = Chip::new(format!("{}: {first}", s.label), now);
+                c.note = agent.line();
                 c.copy = Some(msg.to_string());
                 c.hold = self.finish_peek;
                 c.prio = Prio::Alert;
@@ -347,8 +333,13 @@ impl Model {
         }
     }
 
+    /// The Tasks pane's rows: commands and downloads (agents too, while the Agents pane is off).
     pub fn rows(&self) -> Vec<&TaskView> {
-        let mut v: Vec<&TaskView> = self.tasks.iter().filter(|t| self.visible(t)).collect();
+        let mut v: Vec<&TaskView> = self
+            .tasks
+            .iter()
+            .filter(|t| self.visible(t) && !self.in_agents(t))
+            .collect();
         v.sort_by(|a, b| Self::row_order(a, b));
         let first = self.task_first.min(v.len().saturating_sub(self.row_cap()));
         v.drain(..first);
@@ -358,7 +349,7 @@ impl Model {
 
     /// Rows scrolled off above and below the ones shown.
     pub fn rows_hidden(&self) -> (usize, usize) {
-        let n = self.visible_count();
+        let n = self.shell_count();
         let first = self.task_first.min(n.saturating_sub(self.row_cap()));
         (first, n.saturating_sub(first + self.row_cap()))
     }
@@ -366,7 +357,7 @@ impl Model {
     /// Wheel over the task list: `by` rows down (negative = up). False when the list is
     /// already at that end, so the wheel can page the panes instead.
     pub fn scroll_tasks(&mut self, by: i32) -> bool {
-        let max = self.visible_count().saturating_sub(self.row_cap()) as i32;
+        let max = self.shell_count().saturating_sub(self.row_cap()) as i32;
         let first = self.task_first.min(max as usize) as i32;
         let next = (first + by).clamp(0, max);
         self.task_first = next as usize;
@@ -389,8 +380,17 @@ impl Model {
         self.task_for_port(p).filter(|t| t.rerunnable())
     }
 
+    /// Every row the pill has to show, in either pane (the compact pill and its count use this).
     pub fn visible_count(&self) -> usize {
         self.tasks.iter().filter(|t| self.visible(t)).count()
+    }
+
+    /// The rows the Tasks pane lists.
+    pub fn shell_count(&self) -> usize {
+        self.tasks
+            .iter()
+            .filter(|t| self.visible(t) && !self.in_agents(t))
+            .count()
     }
 
     /// Height of the Servers section under the tasks (header + rows), 0 without ports.

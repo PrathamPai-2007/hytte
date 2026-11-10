@@ -6,7 +6,7 @@ impl Renderer {
     pub(super) fn exp_tasks(&self, fr: &Frame, w: f32, _h: f32) {
         let now = fr.now;
         let mut y = 10.0;
-        for (row, t) in fr.model.rows().into_iter().enumerate() {
+        for t in fr.model.rows() {
             let cy = y + 17.0;
             let finished = !t.running();
             let right_w = 74.0;
@@ -37,7 +37,7 @@ impl Renderer {
                 self.fill_rr(8.0, y + 9.0, 2.5, 18.0, 1.25, self.cc(col, 0.9));
             }
             // The first row is the compact task's twin: its icon and label slide in from there.
-            let first = row == 0;
+            let first = fr.model.primary().is_some_and(|p| p.id == t.id);
             let (ic, saved) = if first {
                 self.hero(
                     [20.0, 14.5, 0.0, 0.0],
