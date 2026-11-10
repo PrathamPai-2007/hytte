@@ -24,11 +24,12 @@ impl Ui {
         } else {
             vec![]
         };
-        for (_, name, command) in due {
+        for (_, name, command, dir) in due {
             let sh = self.shared.clone();
             std::thread::spawn(move || {
                 crate::proc::eco_thread();
-                let run = crate::scriptpane::run(&command, crate::scriptpane::TIMEOUT);
+                let run =
+                    crate::scriptpane::run_in(&command, crate::scriptpane::TIMEOUT, dir.as_deref());
                 push_event(&sh, UiEvent::Script(name, run));
             });
         }

@@ -360,6 +360,19 @@ impl Ui {
                 self.welcome = None;
                 crate::welcome::finish();
             }
+            ChipAction::PackAnswer(folder, hash, run) => {
+                // The file may have changed since the card went up: an answer is for what was shown.
+                if let Some(p) = self
+                    .packs
+                    .iter()
+                    .find(|p| p.folder == folder && p.hash == hash)
+                {
+                    crate::packs::answer(&p.path, &hash, run);
+                    self.packs = crate::packs::scan();
+                    self.refresh_panes();
+                }
+                self.model.dismiss_chip();
+            }
             ChipAction::Action(name) => {
                 if self.run_named(&name) {
                     self.model.dismiss_chip();
@@ -374,13 +387,82 @@ impl Ui {
         }
     }
 
+    /// What the panes and actions are now: `config.toml`'s, then those of approved packs.
+    pub(super) fn refresh_panes(&mut self) {
+        let (panes, actions) = crate::packs::effective(
+            self.cfg.script_panes(),
+            self.cfg.named_actions(),
+            &self.packs,
+        );
+        self.model.apply_scripts(&panes);
+        self.model.apply_actions(&actions);
+        self.actions = actions;
+    }
+
+    /// The action called `name` (any case), from `config.toml` or an approved pack.
+    pub(super) fn named_action(&self, name: &str) -> Option<crate::config::NamedAction> {
+        self.actions
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name.trim()))
+            .cloned()
+    }
+
+    /// A card for each new or changed pack that has not been answered (with its command shown),
+    /// or whose `pane.toml` has a mistake. Each is asked once a session.
+    pub(super) fn ask_packs(&mut self, now: Instant) {
+        use crate::packs::State;
+        for p in self.packs.clone() {
+            let key = format!("{}:{}", p.folder, p.hash);
+            if self.packs_asked.contains(&key) {
+                continue;
+            }
+            let mut c = match &p.state {
+                State::Pending => {
+                    let mut c = Chip::new(format!("Run the pane \"{}\"?", p.name), now);
+                    let mut shown: String = p.command.chars().take(60).collect();
+                    if p.command.chars().count() > 60 {
+                        shown.push('…');
+                    }
+                    if !p.actions.is_empty() {
+                        shown = format!("{shown}  +{} action(s)", p.actions.len());
+                    }
+                    c.note = Some(shown);
+                    c.extra = vec![
+                        (
+                            "Run".into(),
+                            ChipAction::PackAnswer(p.folder.clone(), p.hash.clone(), true),
+                        ),
+                        (
+                            "Ignore".into(),
+                            ChipAction::PackAnswer(p.folder.clone(), p.hash.clone(), false),
+                        ),
+                    ];
+                    c.open = Some(p.path.clone());
+                    c
+                }
+                State::Bad(why) => {
+                    let mut c = Chip::new(format!("Pane pack \"{}\": {why}", p.folder), now);
+                    c.open = Some(p.path.join("pane.toml"));
+                    c
+                }
+                _ => continue,
+            };
+            self.packs_asked.push(key.clone());
+            c.tone = crate::ui_state::Tone::Warn;
+            c.prio = crate::ui_state::Prio::Alert;
+            c.hold = Duration::from_secs(60);
+            c.key = Some(format!("pack:{}", p.folder));
+            self.model.push_chip(c, now);
+        }
+    }
+
     /// Run the `[[action]]` called `name`: the first click of one that needs confirming only
     /// arms it. The command runs on a worker (hidden, in a Job, stopped at its timeout) and its
     /// result comes back as `UiEvent::ActionDone`. True when it started.
     pub(super) fn run_named(&mut self, name: &str) -> bool {
         use crate::ui_state::Press;
         let now = Instant::now();
-        let Some(a) = self.cfg.named_action(name) else {
+        let Some(a) = self.named_action(name) else {
             // A name config.toml doesn't have (a script asked for it, or it was removed).
             let mut c = Chip::new(format!("No action called \"{name}\" in config.toml"), now);
             c.tone = crate::ui_state::Tone::Warn;
@@ -393,9 +475,10 @@ impl Ui {
                 let sh = self.shared.clone();
                 std::thread::spawn(move || {
                     crate::proc::eco_thread();
-                    let run = crate::scriptpane::run(
+                    let run = crate::scriptpane::run_in(
                         &a.command,
                         std::time::Duration::from_secs(a.timeout),
+                        a.dir.as_deref(),
                     );
                     push_event(&sh, UiEvent::ActionDone(a.name, run));
                 });

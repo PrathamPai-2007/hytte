@@ -23,6 +23,9 @@ pub enum ChipAction {
     Card(String, String),
     /// A card button written `Label:name`, where `name` is one of your `[[action]]`s: runs it.
     Action(String),
+    /// Your answer to a new pane pack: its folder, the hash of the `pane.toml` you saw, and
+    /// whether to run it.
+    PackAnswer(String, String, bool),
     /// The welcome tour: show this card next (past the last one: the tour is done).
     Welcome(usize),
     /// The welcome tour: skip the rest.

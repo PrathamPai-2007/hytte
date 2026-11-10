@@ -30,6 +30,7 @@ mod lyrics;
 mod media;
 mod mic;
 mod net;
+mod packs;
 mod perf;
 mod pipe_server;
 mod ports;
@@ -151,6 +152,7 @@ fn main() {
     downloads::spawn_watcher(cfg.downloads.clone(), ui_tx.clone());
     calendar::spawn_watcher(cfg.calendar.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
+    packs::spawn_watcher(ui_tx.clone());
     update::spawn_checker(cfg.general.check_updates, ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();

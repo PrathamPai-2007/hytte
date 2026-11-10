@@ -482,3 +482,34 @@ fn a_finished_action_says_how_it_went() {
     assert_eq!(slow.summary, "restart-api stopped after 45 s");
     assert_eq!(slow.key.as_deref(), Some("action:restart-api"));
 }
+
+#[test]
+fn a_packs_rows_name_their_actions_with_the_packs_prefix() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_scripts(&[crate::config::ScriptPane {
+        name: "PRs".into(),
+        command: "x".into(),
+        pack: Some("github-prs".into()),
+        dir: Some(r"C:\p\github-prs".into()),
+        ..Default::default()
+    }]);
+    let json = r##"{"rows":[{"text":"#12","action":"open"},{"text":"#13"}]}"##;
+    m.script_text("PRs", json, None, t0);
+    assert_eq!(
+        m.scripts[0].rows[0].action.as_deref(),
+        Some("github-prs-open")
+    );
+    assert_eq!(m.scripts[0].rows[1].action, None);
+    // Its command runs in the pack's folder.
+    let due = m.scripts_due(None, t0);
+    assert_eq!(
+        due[0].3.as_deref(),
+        Some(std::path::Path::new(r"C:\p\github-prs"))
+    );
+    // A pane from config.toml keeps the names it was given.
+    let mut n = Model::default();
+    n.apply_scripts(&[pane("Mine", "")]);
+    n.script_text("Mine", json, None, t0);
+    assert_eq!(n.scripts[0].rows[0].action.as_deref(), Some("open"));
+}

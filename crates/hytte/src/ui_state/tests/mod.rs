@@ -94,6 +94,7 @@ pub(super) fn pane(name: &str, command: &str) -> crate::config::ScriptPane {
         name: name.into(),
         command: command.into(),
         every: 60,
+        ..Default::default()
     }
 }
 

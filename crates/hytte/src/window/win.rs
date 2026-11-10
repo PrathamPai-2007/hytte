@@ -316,6 +316,11 @@ struct Ui {
     card_waits: Vec<(String, Sender<String>)>,
     /// The script panes have had their one run at start.
     scripts_primed: bool,
+    /// Pane packs on disk, and the actions now in force (config plus approved packs).
+    packs: Vec<crate::packs::Pack>,
+    actions: Vec<crate::config::NamedAction>,
+    /// Packs already asked about this session (folder:hash), so a dismissed card stays gone.
+    packs_asked: Vec<String>,
     /// The welcome tour still to show, and the card it is on.
     welcome: Option<(crate::welcome::Tour, usize)>,
     /// GPU rebuild backoff in ms; 0 while the renderer is healthy.
@@ -634,6 +639,9 @@ pub fn run_windows(
             update_offer: None,
             card_waits: vec![],
             scripts_primed: false,
+            packs: vec![],
+            actions: vec![],
+            packs_asked: vec![],
             welcome: crate::welcome::pending().map(|t| (t, 0)),
             gpu_retry: 0,
             ringing: false,
@@ -668,8 +676,7 @@ pub fn run_windows(
         ui.model.weather_place = crate::weather::Place::load();
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
         ui.model.apply_panes(&ui.cfg.panes.clone());
-        ui.model.apply_scripts(&ui.cfg.script_panes());
-        ui.model.apply_actions(&ui.cfg.named_actions());
+        ui.refresh_panes();
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())
                 .ok()

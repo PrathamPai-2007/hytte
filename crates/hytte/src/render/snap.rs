@@ -221,6 +221,7 @@ fn landing_frames() {
         name: "Server".into(),
         command: "curl -s localhost:3000/health".into(),
         every: 300,
+        ..Default::default()
     }]);
     m.script_text(
         "Server",
@@ -1407,11 +1408,13 @@ fn script_snapshots() {
             name: "Server".into(),
             command: "curl -s localhost:3000/health".into(),
             every: 300,
+            ..Default::default()
         },
         ScriptPane {
             name: "Deploys".into(),
             command: String::new(),
             every: 300,
+            ..Default::default()
         },
     ];
     let fresh = || {
@@ -1836,6 +1839,7 @@ fn script_row_snapshots() {
         name: "Stack".into(),
         command: String::new(),
         every: 300,
+        ..Default::default()
     }]);
     m.panes.script1 = true;
     let json = r#"{"rows":[
@@ -1876,6 +1880,7 @@ fn script_row_snapshots() {
         command: "x".into(),
         confirm: true,
         timeout: 60,
+        ..Default::default()
     }]);
     let c = hytte_proto::Cmd {
         title: Some("api is down".into()),

@@ -146,6 +146,8 @@ pub enum UiEvent {
     Script(String, crate::scriptpane::Run),
     /// An `[[action]]` finished: its name and how it went.
     ActionDone(String, crate::scriptpane::Run),
+    /// The pane packs on disk changed (or were read for the first time).
+    Packs(Vec<crate::packs::Pack>),
     /// A newer version exists: its tag and the first line of its notes.
     UpdateOffer {
         tag: String,

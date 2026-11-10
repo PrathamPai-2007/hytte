@@ -487,6 +487,9 @@ pub struct NamedAction {
     /// The first click arms it ("Sure?"), the second runs it.
     pub confirm: bool,
     pub timeout: u64,
+    /// The folder it runs in: a pane pack's own. Not a config setting.
+    #[serde(skip)]
+    pub dir: Option<PathBuf>,
 }
 impl Default for NamedAction {
     fn default() -> Self {
@@ -495,6 +498,7 @@ impl Default for NamedAction {
             command: String::new(),
             confirm: false,
             timeout: ACTION_TIMEOUT,
+            dir: None,
         }
     }
 }
@@ -515,6 +519,12 @@ pub struct ScriptPane {
     /// Empty: the pane only shows what `hytte pane set` sends.
     pub command: String,
     pub every: u64,
+    /// For a pane that comes from a pack: the prefix of its actions. Not a config setting.
+    #[serde(skip)]
+    pub pack: Option<String>,
+    /// For a pane that comes from a pack: the folder its command runs in.
+    #[serde(skip)]
+    pub dir: Option<PathBuf>,
 }
 impl Default for ScriptPane {
     fn default() -> Self {
@@ -522,6 +532,8 @@ impl Default for ScriptPane {
             name: String::new(),
             command: String::new(),
             every: 300,
+            pack: None,
+            dir: None,
         }
     }
 }
@@ -542,6 +554,8 @@ impl Config {
                 name,
                 command: p.command.trim().to_string(),
                 every: p.every.max(SCRIPT_MIN_EVERY),
+                pack: None,
+                dir: None,
             });
             if out.len() == MAX_SCRIPT_PANES {
                 break;
@@ -571,19 +585,13 @@ impl Config {
                 command,
                 confirm: a.confirm,
                 timeout: a.timeout.clamp(1, ACTION_MAX_TIMEOUT),
+                dir: None,
             });
             if out.len() == MAX_ACTIONS {
                 break;
             }
         }
         out
-    }
-
-    /// The action called `name` (any case), if there is one.
-    pub fn named_action(&self, name: &str) -> Option<NamedAction> {
-        self.named_actions()
-            .into_iter()
-            .find(|a| a.name.eq_ignore_ascii_case(name.trim()))
     }
 }
 
@@ -1058,7 +1066,6 @@ mod tests {
         assert!(a[0].confirm && a[0].timeout == ACTION_TIMEOUT);
         assert_eq!(a[1].timeout, ACTION_MAX_TIMEOUT);
         assert_eq!(a[2].timeout, 1);
-        assert!(cfg.named_action("RESTART-API").is_some() && cfg.named_action("nope").is_none());
         let many: String = (0..50)
             .map(|i| {
                 format!(

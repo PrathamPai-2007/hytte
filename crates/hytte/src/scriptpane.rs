@@ -180,8 +180,14 @@ pub fn clean(s: &str) -> String {
 /// Run `command` with `cmd /c`, hidden, in the user's home folder, for at most `limit`.
 /// The process and everything it starts live in a Job object, so a hung script and its
 /// children are all stopped at the limit. Shows stdout, or stderr when stdout is empty.
-#[cfg(windows)]
+#[cfg(all(windows, test))]
 pub fn run(command: &str, limit: Duration) -> Run {
+    run_in(command, limit, None)
+}
+
+/// [`run`] in `dir` (a pane pack's folder) instead of the home folder.
+#[cfg(windows)]
+pub fn run_in(command: &str, limit: Duration, dir: Option<&std::path::Path>) -> Run {
     use std::io::Read;
     use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
@@ -191,9 +197,10 @@ pub fn run(command: &str, limit: Duration) -> Run {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let home = std::env::var_os("USERPROFILE").unwrap_or_else(|| ".".into());
+    let cwd: std::path::PathBuf = dir.map_or_else(|| home.into(), Into::into);
     let child = Command::new("cmd")
         .raw_arg(format!("/d /s /c \"{command}\""))
-        .current_dir(home)
+        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -299,7 +306,7 @@ pub fn run(command: &str, limit: Duration) -> Run {
 }
 
 #[cfg(not(windows))]
-pub fn run(_command: &str, _limit: Duration) -> Run {
+pub fn run_in(_command: &str, _limit: Duration, _dir: Option<&std::path::Path>) -> Run {
     Run {
         code: Some(-1),
         ..Default::default()

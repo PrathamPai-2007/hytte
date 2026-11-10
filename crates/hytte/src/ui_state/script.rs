@@ -20,6 +20,9 @@ pub struct ScriptView {
     /// When its command last started, for the "every" schedule.
     pub ran: Option<Instant>,
     pub busy: bool,
+    /// From a pack: the prefix its rows' action names get, and the folder its command runs in.
+    pub pack: Option<String>,
+    pub dir: Option<PathBuf>,
 }
 
 /// Text rows a script pane shows: its lines, or two for the empty state's hint.
@@ -28,6 +31,27 @@ pub fn script_rows(s: &ScriptView) -> usize {
         0 => 2,
         n => n,
     }
+}
+
+/// A script pane command that is due: slot, pane name, command and the folder to run it in.
+pub type ScriptJob = (u8, String, String, Option<PathBuf>);
+
+/// A pack's rows name their actions as the pack knows them; the pill knows them as
+/// `<pack>-<name>`. Names that can't be made valid that way lose their action.
+fn scope_actions(
+    mut rows: Vec<crate::scriptpane::Row>,
+    pack: Option<&str>,
+) -> Vec<crate::scriptpane::Row> {
+    if let Some(p) = pack {
+        for r in &mut rows {
+            r.action = r
+                .action
+                .take()
+                .map(|a| format!("{p}-{a}"))
+                .filter(|a| crate::scriptpane::valid_action_name(a));
+        }
+    }
+    rows
 }
 
 /// Height of one row of a pane that shows rows, and what a progress bar adds.
@@ -115,6 +139,8 @@ impl Model {
                 v.name = p.name.clone();
                 v.command = p.command.clone();
                 v.every = Duration::from_secs(p.every);
+                v.pack = p.pack.clone();
+                v.dir = p.dir.clone();
                 v
             })
             .collect();
@@ -149,7 +175,7 @@ impl Model {
         // Pushed text may be rows too (`hytte pane set --json`).
         match crate::scriptpane::parse_rows(text) {
             Some(rows) => {
-                s.rows = rows;
+                s.rows = scope_actions(rows, s.pack.as_deref());
                 s.text.clear();
             }
             None => {
@@ -176,7 +202,7 @@ impl Model {
             // A run that printed rows already was parsed on its worker thread.
             Some(rows) => {
                 if let Some(s) = self.scripts.iter_mut().find(|s| s.name == name) {
-                    s.rows = rows;
+                    s.rows = scope_actions(rows, s.pack.as_deref());
                     s.text.clear();
                     s.problem = problem;
                     s.updated = Some(now);
@@ -193,7 +219,7 @@ impl Model {
 
     /// Script pane slots whose command should run now (`only`: just the pane showing).
     /// Marks them busy and started. Each: slot, name, command.
-    pub fn scripts_due(&mut self, only: Option<u8>, now: Instant) -> Vec<(u8, String, String)> {
+    pub fn scripts_due(&mut self, only: Option<u8>, now: Instant) -> Vec<ScriptJob> {
         let mut out = vec![];
         for (i, s) in self.scripts.iter_mut().enumerate() {
             let i = i as u8;
@@ -203,7 +229,7 @@ impl Model {
             if crate::scriptpane::due(s.ran, s.every, now) {
                 s.busy = true;
                 s.ran = Some(now);
-                out.push((i, s.name.clone(), s.command.clone()));
+                out.push((i, s.name.clone(), s.command.clone(), s.dir.clone()));
             }
         }
         out
