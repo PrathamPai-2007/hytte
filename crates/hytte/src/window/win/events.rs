@@ -91,26 +91,31 @@ impl Ui {
                     }
                 }
                 UiEvent::DownloadDone { name, path } => {
-                    if self.model.chip.is_none() && self.cfg.downloads.enabled {
+                    if self.cfg.downloads.enabled {
                         let mut c = Chip::new(format!("{name} finished downloading"), now);
+                        c.prio = crate::ui_state::Prio::Alert;
+                        c.key = Some(format!("download:{}", path.display()));
                         c.open = Some(path.clone());
                         c.extra = vec![("Shelve".into(), ChipAction::Shelve(path))];
-                        self.model.chip = Some(c);
+                        self.model.push_chip(c, now);
                     }
                 }
                 UiEvent::Hog(_) if self.model.holding() => self.model.held.warnings += 1,
                 UiEvent::Hog(a) => {
-                    // Never over another card, and never for a process the user muted.
+                    // Never over another card (it waits its turn), and never for a process the
+                    // user muted.
                     let muted = self.model.hog_ignore.contains(&a.exe.to_ascii_lowercase());
-                    if !muted && self.model.chip.is_none() {
+                    if !muted {
                         let mut c = Chip::new(a.summary(), now);
+                        c.prio = crate::ui_state::Prio::Alert;
+                        c.key = Some(format!("hog:{}", a.exe.to_ascii_lowercase()));
                         c.tone = crate::ui_state::Tone::Warn;
                         c.hold = Duration::from_secs(20);
                         c.extra = vec![
                             ("Kill".into(), ChipAction::KillPid(a.pid, a.exe.clone())),
                             ("Ignore".into(), ChipAction::IgnoreExe(a.exe)),
                         ];
-                        self.model.chip = Some(c);
+                        self.model.push_chip(c, now);
                     }
                 }
                 UiEvent::ShelfAdd(job) => {
@@ -139,7 +144,7 @@ impl Ui {
                         let mut c =
                             Chip::new(format!("Too big to copy to the shelf (limit {mb} MB)"), now);
                         c.tone = crate::ui_state::Tone::Warn;
-                        self.model.chip = Some(c);
+                        self.model.interrupt(c, now);
                     }
                     self.add_staged(staged, now);
                 }
@@ -172,11 +177,14 @@ impl Ui {
                 }
                 UiEvent::DropDone(r) => {
                     self.anim.squash();
-                    self.model.chip = Some(Chip {
-                        open: r.open,
-                        copy: r.copy,
-                        ..Chip::new(r.summary, now)
-                    });
+                    self.model.interrupt(
+                        Chip {
+                            open: r.open,
+                            copy: r.copy,
+                            ..Chip::new(r.summary, now)
+                        },
+                        now,
+                    );
                 }
                 UiEvent::SetClipboard(s) => set_clipboard(hwnd, &s),
                 UiEvent::DragEnter => self.model.drop_over = true,
@@ -187,7 +195,7 @@ impl Ui {
                     c.tone = crate::ui_state::Tone::Warn;
                     c.hold = Duration::from_secs(12);
                     c.open = Some(crate::config::config_path());
-                    self.model.chip = Some(c);
+                    self.model.interrupt(c, now);
                 }
                 UiEvent::Cmd(c, reply) => self.run_cmd(c, reply, now),
                 UiEvent::UpdateOffer { tag, note } => {
@@ -214,7 +222,7 @@ impl Ui {
                 UiEvent::Notice(text, tone) => {
                     let mut c = Chip::new(text, now);
                     c.tone = tone;
-                    self.model.chip = Some(c);
+                    self.model.interrupt(c, now);
                 }
                 // Nowhere to show it: dropping `reply` sends the agent to its terminal prompt now.
                 UiEvent::Ask { .. } if self.paused || self.gaming => {}

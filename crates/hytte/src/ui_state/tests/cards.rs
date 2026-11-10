@@ -169,3 +169,158 @@ fn an_agent_reply_comes_as_a_card_with_copy() {
     m.apply_task(done(Some("Quiet reply")), t0);
     assert!(m.chip.is_none());
 }
+
+fn chip_of(text: &str, prio: Prio, now: Instant) -> Chip {
+    let mut c = Chip::new(text, now);
+    c.prio = prio;
+    c
+}
+
+fn waiting(m: &Model) -> Vec<&str> {
+    m.cards.iter().map(|c| c.summary.as_str()).collect()
+}
+
+#[test]
+fn an_alert_that_arrives_over_a_card_waits_instead_of_being_dropped() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.push_chip(chip_of("download one", Prio::Alert, t0), t0);
+    assert_eq!(m.chip.as_ref().unwrap().summary, "download one");
+    m.push_chip(chip_of("download two", Prio::Alert, t0), t0);
+    assert_eq!(waiting(&m), ["download two"]);
+    // The first folds away on its hold, then the waiting one takes the slot.
+    let t1 = t0 + CHIP_HOLD;
+    m.expire(t1);
+    assert!(m.chip.is_none());
+    m.show_card(t1);
+    assert_eq!(m.chip.as_ref().unwrap().summary, "download two");
+    // Its hold counts from when it was shown, not from when it arrived.
+    assert_eq!(m.chip.as_ref().unwrap().since, t1);
+}
+
+#[test]
+fn waiting_chips_go_most_urgent_first_and_equal_ones_in_turn() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.push_chip(chip_of("on screen", Prio::Info, t0), t0);
+    for (text, prio) in [
+        ("news", Prio::Info),
+        ("alert a", Prio::Alert),
+        ("update", Prio::Update),
+        ("alert b", Prio::Alert),
+        ("card", Prio::Card),
+        ("ask", Prio::Ask),
+    ] {
+        m.push_chip(chip_of(text, prio, t0), t0);
+    }
+    assert_eq!(
+        waiting(&m),
+        ["ask", "update", "card", "alert a", "alert b", "news"]
+    );
+}
+
+#[test]
+fn a_new_chip_does_not_jump_a_more_urgent_one_that_waits() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.cards.push_back(chip_of("ask", Prio::Ask, t0));
+    m.push_chip(chip_of("news", Prio::Info, t0), t0);
+    assert!(m.chip.is_none(), "the slot is free but the ask is first");
+    assert_eq!(waiting(&m), ["ask", "news"]);
+}
+
+#[test]
+fn an_ask_takes_the_slot_and_what_it_displaced_comes_back_after() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.push_chip(chip_of("download", Prio::Alert, t0), t0);
+    m.push_chip(chip_of("another", Prio::Alert, t0), t0);
+    // What the window does for an ask: put the shown chip back, then show the ask.
+    m.requeue_card();
+    m.chip = Some(chip_of("allow?", Prio::Ask, t0));
+    assert_eq!(waiting(&m), ["download", "another"]);
+    // Plain news is not worth showing twice.
+    let mut n = Model::default();
+    n.push_chip(chip_of("saved", Prio::Info, t0), t0);
+    n.requeue_card();
+    assert!(n.cards.is_empty());
+}
+
+#[test]
+fn a_result_interrupts_news_but_not_an_ask_or_an_update() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.push_chip(chip_of("download", Prio::Alert, t0), t0);
+    m.interrupt(chip_of("copied", Prio::Info, t0), t0);
+    assert_eq!(m.chip.as_ref().unwrap().summary, "copied");
+    assert_eq!(waiting(&m), ["download"]);
+    m.chip = Some(chip_of("allow?", Prio::Ask, t0));
+    m.interrupt(chip_of("saved", Prio::Info, t0), t0);
+    assert_eq!(m.chip.as_ref().unwrap().summary, "allow?");
+    assert_eq!(waiting(&m), ["download", "saved"]);
+}
+
+#[test]
+fn a_chip_with_the_same_key_replaces_the_old_one() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    let keyed = |text: &str, key: &str, now: Instant| {
+        let mut c = chip_of(text, Prio::Alert, now);
+        c.key = Some(key.into());
+        c
+    };
+    m.push_chip(keyed("busy 1", "hog:node", t0), t0);
+    let t1 = t0 + Duration::from_secs(4);
+    m.push_chip(keyed("busy 2", "hog:node", t1), t1);
+    assert_eq!(m.chip.as_ref().unwrap().summary, "busy 2");
+    assert_eq!(m.chip.as_ref().unwrap().since, t1, "the hold starts again");
+    assert!(m.cards.is_empty());
+    // And while waiting.
+    m.push_chip(keyed("file a", "dl:a", t1), t1);
+    m.push_chip(keyed("file b", "dl:b", t1), t1);
+    m.push_chip(keyed("file a, again", "dl:a", t1), t1);
+    assert_eq!(waiting(&m), ["file b", "file a, again"]);
+}
+
+#[test]
+fn at_most_eight_wait_and_the_least_urgent_newest_goes() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.push_chip(chip_of("on screen", Prio::Alert, t0), t0);
+    for i in 0..12 {
+        m.push_chip(chip_of(&format!("n{i}"), Prio::Info, t0), t0);
+    }
+    assert_eq!(m.cards.len(), MAX_WAITING);
+    assert_eq!(m.cards.back().unwrap().summary, "n7");
+    // An urgent one still gets in, pushing the last news out.
+    m.push_chip(chip_of("ask", Prio::Ask, t0), t0);
+    assert_eq!(m.cards.len(), MAX_WAITING);
+    assert_eq!(m.cards.front().unwrap().summary, "ask");
+    assert_eq!(m.cards.back().unwrap().summary, "n6");
+}
+
+#[test]
+fn waiting_alerts_go_stale_but_live_cards_do_not() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.push_chip(chip_of("on screen", Prio::Alert, t0), t0);
+    m.push_chip(chip_of("short", Prio::Alert, t0), t0);
+    m.card(
+        &hytte_proto::Cmd {
+            text: Some("deploy".into()),
+            ..card("deploy")
+        },
+        t0,
+    );
+    assert_eq!(m.cards.len(), 2);
+    // The next deadline includes the waiting alert's.
+    let next = m.expire(t0 + Duration::from_secs(1)).unwrap();
+    assert!(next <= t0 + WAIT_STALE, "{next:?}");
+    // It outlasts the chip on screen, then shows.
+    m.expire(t0 + CHIP_HOLD);
+    assert!(waiting(&m).contains(&"short"));
+    // Left waiting past WAIT_STALE it is stale; the live card stays for its script.
+    m.expire(t0 + WAIT_STALE);
+    assert!(m.has_card("deploy"));
+    assert!(!waiting(&m).contains(&"short"));
+}

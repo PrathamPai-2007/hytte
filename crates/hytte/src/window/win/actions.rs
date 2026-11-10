@@ -122,7 +122,7 @@ impl Ui {
                 if let (true, Some(text)) = (was_focus, self.model.held.take_summary()) {
                     let mut c = Chip::new(text, Instant::now());
                     c.tone = crate::ui_state::Tone::Info;
-                    self.model.chip = Some(c);
+                    self.model.interrupt(c, Instant::now());
                 }
             }
             Action::NudgeSnooze => {
@@ -179,7 +179,7 @@ impl Ui {
                     );
                     c.tone = crate::ui_state::Tone::Warn;
                     c.open = Some(crate::config::config_path());
-                    self.model.chip = Some(c);
+                    self.model.interrupt(c, Instant::now());
                 }
                 Err(e) => crate::logging::line(&format!("settings: {e}")),
             },
@@ -397,9 +397,8 @@ impl Ui {
             return;
         }
         if c.cmd == "notify" {
-            if self.model.chip.is_none() {
-                self.model.chip = Some(Chip::new(c.text.unwrap_or_default(), now));
-            }
+            self.model
+                .push_chip(Chip::new(c.text.unwrap_or_default(), now), now);
             return;
         }
         let job = DropJob {
@@ -436,6 +435,7 @@ impl Ui {
         let mut c = Chip::new(text, now);
         c.tone = crate::ui_state::Tone::Info;
         c.hold = Duration::from_secs(45);
+        c.prio = crate::ui_state::Prio::Update;
         c.extra = vec![
             ("Update".into(), ChipAction::InstallUpdate),
             ("Later".into(), ChipAction::UpdateLater(tag)),
@@ -459,6 +459,7 @@ impl Ui {
         let mut c = Chip::new(summary, *at);
         c.tone = crate::ui_state::Tone::Warn;
         c.hold = wait;
+        c.prio = crate::ui_state::Prio::Ask;
         self.model.requeue_card();
         c.extra = vec![
             ("Allow".into(), ChipAction::Answer(*id, true)),

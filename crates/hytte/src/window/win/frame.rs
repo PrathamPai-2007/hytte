@@ -145,21 +145,18 @@ impl Ui {
         // A calendar heads-up that has come due becomes a card (never over another one).
         // Switched off in settings: a due heads-up is dropped, not saved for later.
         let calendar = self.cfg.calendar.enabled;
-        if self.model.chip.is_none() || !calendar {
-            if let Some(ev) = self.model.calendar_due(now).filter(|_| calendar) {
-                let text = crate::calendar::summary(
-                    &ev.subject,
-                    ev.start_ms,
-                    crate::timer::now_ms() as i64,
-                );
-                let mut c = Chip::new(text, now);
-                c.tone = crate::ui_state::Tone::Info;
-                c.hold = Duration::from_secs(60);
-                if let Some(url) = ev.url {
-                    c.extra = vec![("Join".into(), ChipAction::OpenUrl(url))];
-                }
-                self.model.chip = Some(c);
+        if let Some(ev) = self.model.calendar_due(now).filter(|_| calendar) {
+            let text =
+                crate::calendar::summary(&ev.subject, ev.start_ms, crate::timer::now_ms() as i64);
+            let mut c = Chip::new(text, now);
+            c.prio = crate::ui_state::Prio::Alert;
+            c.key = Some("calendar".into());
+            c.tone = crate::ui_state::Tone::Info;
+            c.hold = Duration::from_secs(60);
+            if let Some(url) = ev.url {
+                c.extra = vec![("Join".into(), ChipAction::OpenUrl(url))];
             }
+            self.model.push_chip(c, now);
         }
         self.request_thumbs();
         self.layout();

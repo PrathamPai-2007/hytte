@@ -413,6 +413,7 @@ impl Model {
         if self.chip.is_none() || self.chip_armed.is_some_and(|t| now >= t) {
             self.chip_armed = None;
         }
+        let waiting = self.expire_waiting(now);
         if self.peek_until.is_some_and(|p| now >= p) {
             self.peek_until = None;
         }
@@ -481,6 +482,9 @@ impl Model {
         }
         if let Some(c) = &self.chip {
             keep(c.since + c.hold);
+        }
+        if let Some(d) = waiting {
+            keep(d);
         }
         if let Some(t) = self.chip_armed {
             keep(t);

@@ -53,8 +53,36 @@ pub struct Card {
     pub progress: Option<u8>,
 }
 
+/// How urgent a chip is. The chip slot shows one at a time; the rest wait in [`Model::cards`],
+/// most urgent first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Prio {
+    /// News and the result of something you did.
+    #[default]
+    Info,
+    /// A download finished, a process is hogging the CPU, a heads-up.
+    Alert,
+    /// A script's live card (`hytte card`).
+    Card,
+    /// A new version is on offer.
+    Update,
+    /// An agent is waiting for your answer.
+    Ask,
+}
+
+/// A chip that has waited this long for the slot (or its own hold, if longer) is dropped unseen.
+pub const WAIT_STALE: Duration = Duration::from_secs(30);
+
+/// At most this many chips wait for the slot; past it the least urgent, newest one is dropped.
+pub const MAX_WAITING: usize = 8;
+
 #[derive(Debug, Clone)]
 pub struct Chip {
+    /// What it is when the slot is busy: see [`Prio`].
+    pub prio: Prio,
+    /// A chip with the same key replaces this one (a second "download finished" for the same
+    /// file) instead of queueing behind it.
+    pub key: Option<String>,
     pub summary: String,
     pub open: Option<PathBuf>,
     pub copy: Option<String>,
@@ -76,6 +104,8 @@ impl Chip {
 
     pub fn new(summary: impl Into<String>, since: Instant) -> Self {
         Self {
+            prio: Prio::Info,
+            key: None,
             summary: summary.into(),
             open: None,
             copy: None,
@@ -191,6 +221,53 @@ impl Model {
         self.chip = None;
     }
 
+    /// Where `c` goes among the waiting chips: after the last one at least as urgent.
+    fn queue_at(&self, c: &Chip) -> usize {
+        self.cards
+            .iter()
+            .position(|k| k.prio < c.prio)
+            .unwrap_or(self.cards.len())
+    }
+
+    /// Put `c` in line, most urgent first, first come first served within a level.
+    fn enqueue(&mut self, c: Chip) {
+        let at = self.queue_at(&c);
+        self.cards.insert(at, c);
+        self.cards.truncate(MAX_WAITING);
+    }
+
+    /// Show `c` now if the slot is free (and nothing more urgent waits), else let it wait its
+    /// turn. A chip with the same `key` as the one on screen or waiting replaces it. The caller
+    /// shows waiting chips with [`Model::show_card`] when the way is clear.
+    pub fn push_chip(&mut self, c: Chip, now: Instant) {
+        if let Some(key) = &c.key {
+            if let Some(shown) = self.chip.as_mut().filter(|k| k.key.as_ref() == Some(key)) {
+                *shown = c;
+                shown.since = now;
+                return;
+            }
+            self.cards.retain(|k| k.key.as_ref() != Some(key));
+        }
+        let free = self.chip.is_none() && self.cards.front().is_none_or(|f| f.prio <= c.prio);
+        if free {
+            self.chip = Some(c);
+            self.chip_armed = None;
+        } else {
+            self.enqueue(c);
+        }
+    }
+
+    /// The result of something you just did: it takes the slot now, unless an update offer or
+    /// an ask is on it. What it displaces waits at the front, except plain news.
+    pub fn interrupt(&mut self, c: Chip, now: Instant) {
+        if self.chip.as_ref().is_some_and(|k| k.prio >= Prio::Update) {
+            return self.push_chip(c, now);
+        }
+        self.requeue_card();
+        self.chip = Some(c);
+        self.chip_armed = None;
+    }
+
     /// A script's live card (`hytte card`): update the card with its id wherever it is (on the
     /// chip or queued), or queue a new one. `clear` takes it away. Returns the card's id.
     /// The caller shows queued cards with [`Model::show_card`] when nothing is in the way.
@@ -221,6 +298,7 @@ impl Model {
             Some(k) => k.apply_card(c, now),
             None => {
                 let mut k = Chip::new("", now);
+                k.prio = Prio::Card;
                 k.tone = Tone::Info;
                 k.card = Some(Card {
                     id: id.clone(),
@@ -229,7 +307,7 @@ impl Model {
                     progress: None,
                 });
                 k.apply_card(c, now);
-                self.cards.push_back(k);
+                self.enqueue(k);
             }
         }
         id
@@ -246,13 +324,27 @@ impl Model {
         }
     }
 
-    /// Something urgent takes the chip: a card on it goes back to the front of the queue
-    /// instead of being lost.
+    /// Something more urgent takes the chip: what is on it goes back to the front of the queue
+    /// instead of being lost (plain news is not worth showing twice).
     pub fn requeue_card(&mut self) {
-        if self.chip.as_ref().is_some_and(|c| c.card.is_some()) {
-            self.cards.extend(self.chip.take());
-            self.cards.rotate_right(1);
+        if self.chip.as_ref().is_some_and(|c| c.prio > Prio::Info) {
+            if let Some(c) = self.chip.take() {
+                self.cards.push_front(c);
+            }
         }
+    }
+
+    /// Waiting chips that aren't live cards go stale: after [`WAIT_STALE`] (or their own hold,
+    /// if longer) counted from when they arrived, nobody needs to hear about them any more.
+    /// Returns the next such deadline.
+    pub(super) fn expire_waiting(&mut self, now: Instant) -> Option<Instant> {
+        let stale = |k: &Chip| k.since + k.hold.max(WAIT_STALE);
+        self.cards.retain(|k| k.card.is_some() || now < stale(k));
+        self.cards
+            .iter()
+            .filter(|k| k.card.is_none())
+            .map(stale)
+            .min()
     }
 
     /// Whether a live card with this id is on the chip or waiting for it.
