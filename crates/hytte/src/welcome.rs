@@ -1,11 +1,11 @@
 //! The welcome tour: three cards on the pill, shown once. A fresh install gets "what Hytte
-//! does"; an update from 1.6 or older gets "what's new in 1.7". `%APPDATA%\Hytte\welcome` remembers the
-//! version whose tour was finished or skipped, so later 1.7.x releases show nothing.
+//! does"; an update from 1.7 or older gets "what's new in 1.8". `%APPDATA%\Hytte\welcome` remembers the
+//! version whose tour was finished or skipped, so later 1.8.x releases show nothing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The tour this version shows; a 1.8 can bump it and write new cards.
-pub const VERSION: &str = "1.7";
+/// The tour this version shows; a 1.9 can bump it and write new cards.
+pub const VERSION: &str = "1.8";
 
 /// No `config.toml` (or an empty one) when Hytte started: a fresh install.
 static FRESH: AtomicBool = AtomicBool::new(false);
@@ -22,13 +22,13 @@ pub fn note_start(config_text: Option<&str>) {
 pub enum Tour {
     /// A fresh install: what Hytte does.
     Intro,
-    /// An update from 1.6 or older: what's new in 1.7.
+    /// An update from 1.7 or older: what's new in 1.8.
     WhatsNew,
 }
 
 /// Which tour to show: none once this version's tour was seen (`seen` is the marker's text).
 pub fn which(fresh: bool, seen: Option<&str>) -> Option<Tour> {
-    // Major and minor: "1.7" and "1.7.2" are the same tour, "1.8" is a new one.
+    // Major and minor: "1.8" and "1.8.2" are the same tour, "1.9" is a new one.
     if seen.is_some_and(|s| s.trim().split('.').take(2).eq(VERSION.split('.').take(2))) {
         return None;
     }
@@ -74,16 +74,16 @@ pub fn card(tour: Tour, step: usize, hotkey: &str) -> (String, String) {
             },
         ),
         (Tour::WhatsNew, 0) => (
-            "New in Hytte 1.7",
-            "Notes, To-do and Weather, typed into the pill.".into(),
+            "New in Hytte 1.8",
+            "Agents get their own pane, with files and context.".into(),
         ),
         (Tour::WhatsNew, 1) => (
-            "Your cards and panes",
-            "Scripts can add live cards and panes (hytte card).".into(),
+            "Panes you can press",
+            "Script panes show rows and run actions; try packs.".into(),
         ),
         (Tour::WhatsNew, _) => (
-            "Make it yours",
-            "New skins, and Accent follows your Windows colour.".into(),
+            "Small moments",
+            "Bluetooth and camera cards. Clipboard is opt-in.".into(),
         ),
     };
     (format!("{title}  ·  {n}"), body)
@@ -123,17 +123,17 @@ mod tests {
         assert_eq!(
             which(false, None),
             Some(Tour::WhatsNew),
-            "an update from 1.6"
+            "an update from 1.7"
         );
-        assert_eq!(which(false, Some("1.7")), None, "seen");
-        assert_eq!(which(true, Some("1.7\n")), None);
+        assert_eq!(which(false, Some("1.8")), None, "seen");
+        assert_eq!(which(true, Some("1.8\n")), None);
         assert_eq!(
-            which(false, Some("1.7.3")),
+            which(false, Some("1.8.3")),
             None,
-            "a later 1.7.x shows nothing"
+            "a later 1.8.x shows nothing"
         );
-        assert_eq!(which(false, Some("1.8")), Some(Tour::WhatsNew));
-        assert_eq!(which(false, Some("1.6")), Some(Tour::WhatsNew));
+        assert_eq!(which(false, Some("1.9")), Some(Tour::WhatsNew));
+        assert_eq!(which(false, Some("1.7")), Some(Tour::WhatsNew));
         assert_eq!(which(false, Some("")), Some(Tour::WhatsNew));
     }
 
