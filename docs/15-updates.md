@@ -13,7 +13,7 @@ One check at a time (`BUSY`).
 
 ## What a check does
 
-1. **Ask GitHub.** `curl.exe` fetches `https://api.github.com/repos/PrathamPai-2007/hytte/releases/latest` (latest published, non-draft release). `release_from_json` takes `tag_name` and the URL of the asset named exactly `hytte.exe`; a release without it is an error.
+1. **Ask GitHub.** `curl.exe` fetches `https://api.github.com/repos/PrathamPai-2007/hytte/releases/latest` (latest published, non-draft release). `release_from_json` takes `tag_name` and the URL of this build's asset: `hytte.exe` on x64, `hytte-arm64.exe` on ARM64 (`ASSET`, picked by `cfg!(target_arch)`). A release without it is an error, so an ARM64 install is offered nothing from a release that predates ARM64 builds.
 2. **Compare.** `parse` turns `v1.2.3` (optional `v`, optional ignored `-suffix`) into `(1, 2, 3)`, compared numerically; `v1.2` or `latest` is not a version. Not newer than `CARGO_PKG_VERSION` ends the check.
 3. **Offer it.** The release goes into `OFFER` and the pill gets `UiEvent::UpdateOffer { tag, note }`. `Ui::show_update` shows a chip, "Hytte X is available", with the first real line of the release notes (no heading, bullet or "by @user" tail, ≤ 140 chars; `first_note`), and **Update** / **Later**. No message box, no focus change. It waits if another card is up or Hytte is paused or a game is in front, and folds away after 45 s (the next daily check offers again). **Later** (`ChipAction::UpdateLater`) writes the tag to `%APPDATA%\Hytte\update-skip`.
 4. **Install** (`update::install_pending` on **Update**; work in `install`), on a worker thread. A card says "Updating to X…"; any failure becomes a card:
@@ -33,11 +33,15 @@ Windows 10 1803+ ships `curl.exe` in `System32`. Using it by absolute path from 
 
 Hytte is **not** code-signed (no Authenticode certificate), so SmartScreen may warn about a freshly downloaded `hytte.exe`. Updates are not signature-checked: trust rests on HTTPS to GitHub and the `--version` check.
 
-Version 1.6.0 was the exception. It required a minisign signature, so releases up to and including 1.7.0 carry `hytte.exe.minisig`. Later releases won't, so a 1.6.0 install that skipped 1.7.0 needs a manual download.
+Version 1.6.0 was the exception. It required a minisign signature, so releases up to and including 1.7.0 carry `hytte.exe.minisig`. 1.8.0 and later don't (the release workflow has no signing step), so a 1.6.0 install that skipped 1.7.0 needs a manual download.
+
+## Scoop installs
+
+Under Scoop (`...\scooppps\hytte\<version>\`, `setup::is_scoop`) Hytte never replaces its own exe: Scoop owns the files. A newer release becomes a plain card, "Hytte X is out. Run: scoop update hytte", shown once per version (the same `update-skip` file). Two more differences: PATH setup is skipped (Scoop's shim is already on PATH), and autostart, the Start Menu shortcut and agent hooks are written with `setup::stable_exe`, which swaps the version folder for `current` so they survive an update. The bucket manifest is `bucket/hytte.json`; its `pre_install` stops Hytte so `scoop update` can replace the exe. `hytte doctor` says when it is a Scoop install.
 
 ## Releasing so the updater can see it
 
-The release workflow ([section 13](13-testing-and-release.md#how-a-release-is-built)) uploads `hytte.exe` as its own asset next to the zip and refuses to publish if the exe's `--version` doesn't match the tag. A release tagged `v1.2.0` must be built from a commit whose `crates/hytte/Cargo.toml` says `1.2.0`. Drafts and pre-releases are never returned by `releases/latest`, so never offered.
+The release workflow ([section 13](13-testing-and-release.md#how-a-release-is-built)) uploads `hytte.exe` and `hytte-arm64.exe` as their own assets next to the two zips and refuses to publish if the exe's `--version` doesn't match the tag. A release tagged `v1.2.0` must be built from a commit whose `crates/hytte/Cargo.toml` says `1.2.0`. Drafts and pre-releases are never returned by `releases/latest`, so never offered.
 
 ## Testing an update
 
@@ -72,6 +76,6 @@ Check that:
 
 To see the chip, run the daemon from `inst` with the variable set and use the tray's **Check for updates…** (quit any installed Hytte first).
 
-The unit tests in `update.rs` cover the version parser, the release-notes line and the release JSON.
+The unit tests in `update.rs` cover the version parser, the release-notes line, the release JSON and the per-architecture asset.
 
 Back to the [index](README.md).

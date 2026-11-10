@@ -116,6 +116,11 @@ pub fn checks() -> Vec<Line> {
         exe.as_ref()
             .map_or("(unknown path)".into(), |p| p.display().to_string())
     )));
+    if crate::setup::is_scoop() {
+        v.push(Line::ok(
+            "installed with Scoop (update with `scoop update hytte`; Hytte doesn't self-update)",
+        ));
+    }
     v.push(daemon_line());
 
     // PATH: shell hooks and scripts call `hytte` by name.

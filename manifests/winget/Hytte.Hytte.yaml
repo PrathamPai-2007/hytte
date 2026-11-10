@@ -29,5 +29,13 @@ Installers:
     NestedInstallerFiles:
       - RelativeFilePath: hytte.exe
         PortableCommandAlias: hytte
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.7.0/hytte-1.7.0-arm64.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: hytte.exe
+        PortableCommandAlias: hytte
 ManifestType: singleton
 ManifestVersion: 1.6.0

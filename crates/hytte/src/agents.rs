@@ -316,7 +316,7 @@ fn apply(t: &Target, exe: &str, undo: bool) -> String {
 }
 
 fn this_exe() -> Option<String> {
-    std::env::current_exe().ok().map(|p| exe_cmd(&p))
+    crate::setup::stable_exe().map(|p| exe_cmd(&p))
 }
 
 /// Connect (or with `undo`, disconnect) every installed agent; one line per agent.

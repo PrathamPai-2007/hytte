@@ -16,7 +16,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const API: &str = "https://api.github.com/repos/PrathamPai-2007/hytte/releases/latest";
-const ASSET: &str = "hytte.exe";
+/// The release asset for this build: the x64 exe keeps its old name (so every older install
+/// still finds it); an ARM64 build takes the ARM64 one.
+const ASSET: &str = if cfg!(target_arch = "aarch64") {
+    "hytte-arm64.exe"
+} else {
+    "hytte.exe"
+};
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
 /// One check at a time.
@@ -72,8 +78,8 @@ fn first_note(body: &str) -> String {
     }
 }
 
-/// The release's tag and its `hytte.exe` download, from the GitHub API's JSON.
-fn release_from_json(body: &[u8]) -> Result<Release, String> {
+/// The release's tag and the download named `asset`, from the GitHub API's JSON.
+fn release_from_json(body: &[u8], asset_name: &str) -> Result<Release, String> {
     let v: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("unexpected reply from GitHub: {e}"))?;
     let tag = v["tag_name"].as_str().ok_or("the release has no tag")?;
@@ -85,7 +91,8 @@ fn release_from_json(body: &[u8]) -> Result<Release, String> {
             .find(|a| a["name"] == name)
             .and_then(|a| a["browser_download_url"].as_str())
     };
-    let url = asset(ASSET).ok_or_else(|| format!("release {tag} has no {ASSET} to download"))?;
+    let url = asset(asset_name)
+        .ok_or_else(|| format!("release {tag} has no {asset_name} to download"))?;
     Ok(Release {
         tag: tag.into(),
         url: url.into(),
@@ -105,7 +112,7 @@ fn latest() -> Result<Release, String> {
     } else {
         API.into()
     };
-    release_from_json(&curl(&api, None)?)
+    release_from_json(&curl(&api, None)?, ASSET)
 }
 
 /// What `exe --version` prints, e.g. "hytte 2.0.1". A download that hangs is killed after 10 s.
@@ -218,7 +225,14 @@ fn run_check(manual: bool) {
         }
         return;
     }
-    if !manual && std::fs::read_to_string(skip_file()).is_ok_and(|s| s.trim() == r.tag) {
+    if crate::setup::is_scoop() {
+        // Scoop owns the files: say how to update, once per version.
+        let shown = r.tag.trim_start_matches('v');
+        skip(&r.tag);
+        notice(
+            format!("Hytte {shown} is out. Run: scoop update hytte"),
+            Tone::Info,
+        );
         return;
     }
     let (tag, note) = (r.tag.clone(), r.note.clone());
@@ -322,12 +336,41 @@ mod tests {
     }
 
     #[test]
+    fn each_architecture_takes_its_own_asset() {
+        let body = br#"{"tag_name":"v1.8.0","assets":[
+            {"name":"hytte.exe","browser_download_url":"https://x/x64"},
+            {"name":"hytte-arm64.exe","browser_download_url":"https://x/arm"}]}"#;
+        assert_eq!(
+            release_from_json(body, "hytte.exe").unwrap().url,
+            "https://x/x64"
+        );
+        assert_eq!(
+            release_from_json(body, "hytte-arm64.exe").unwrap().url,
+            "https://x/arm"
+        );
+        // A release from before ARM64 builds offers an ARM64 install nothing.
+        let old =
+            br#"{"tag_name":"v1.7.0","assets":[{"name":"hytte.exe","browser_download_url":"u"}]}"#;
+        assert!(release_from_json(old, "hytte-arm64.exe")
+            .unwrap_err()
+            .contains("no hytte-arm64.exe"));
+        assert_eq!(
+            ASSET,
+            if cfg!(target_arch = "aarch64") {
+                "hytte-arm64.exe"
+            } else {
+                "hytte.exe"
+            }
+        );
+    }
+
+    #[test]
     fn release_json_finds_the_exe_asset() {
         let body = br#"{"tag_name":"v2.1.0","assets":[
             {"name":"hytte-2.1.0-x64.zip","browser_download_url":"https://x/zip"},
             {"name":"hytte.exe","browser_download_url":"https://x/exe"}]}"#;
         assert_eq!(
-            release_from_json(body),
+            release_from_json(body, "hytte.exe"),
             Ok(Release {
                 tag: "v2.1.0".into(),
                 url: "https://x/exe".into(),
@@ -336,7 +379,9 @@ mod tests {
         );
         // Pre-1.0 releases only had the zip.
         let old = br#"{"tag_name":"v1.3.0","assets":[{"name":"hytte-1.3.0-x64.zip","browser_download_url":"u"}]}"#;
-        assert!(release_from_json(old).unwrap_err().contains("no hytte.exe"));
-        assert!(release_from_json(b"<html>").is_err());
+        assert!(release_from_json(old, "hytte.exe")
+            .unwrap_err()
+            .contains("no hytte.exe"));
+        assert!(release_from_json(b"<html>", "hytte.exe").is_err());
     }
 }

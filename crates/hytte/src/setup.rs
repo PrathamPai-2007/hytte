@@ -444,10 +444,50 @@ pub fn message(text: &str, ask: bool) -> bool {
     sys::message(text, ask)
 }
 
+const SCOOP_MARK: &str = "\\scoop\\apps\\hytte\\";
+
+/// Whether `exe` lives in a Scoop install (`...\scoop\apps\hytte\<version or current>\`), in
+/// either slash form and any case.
+pub fn is_scoop_path(exe: &str) -> bool {
+    exe.replace('/', "\\")
+        .to_ascii_lowercase()
+        .contains(SCOOP_MARK)
+}
+
+/// `exe` with a Scoop version folder swapped for `current`, the junction Scoop keeps pointing at
+/// the newest version, so autostart and agent hooks survive `scoop update`. Anything else is
+/// returned unchanged.
+pub fn stable_path(exe: &str) -> String {
+    let flat = exe.replace('/', "\\");
+    let Some(at) = flat.to_ascii_lowercase().find(SCOOP_MARK) else {
+        return exe.to_string();
+    };
+    let start = at + SCOOP_MARK.len();
+    let Some(end) = flat[start..].find('\\') else {
+        return exe.to_string();
+    };
+    format!("{}current{}", &flat[..start], &flat[start + end..])
+}
+
+/// This exe's path, as something that stays valid across updates.
+pub fn stable_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(PathBuf::from(stable_path(&exe.display().to_string())))
+}
+
+/// Running from a Scoop install: Scoop owns updates and PATH.
+pub fn is_scoop() -> bool {
+    std::env::current_exe().is_ok_and(|e| is_scoop_path(&e.display().to_string()))
+}
+
 /// Puts the folder holding `hytte.exe` on the user's PATH, and drops the entry a moved install left
-/// behind. Returns whether PATH changed. Skipped under `cargo run` and when `hytte` already resolves.
+/// behind. Returns whether PATH changed. Skipped under `cargo run`, under Scoop (its shim is
+/// already on PATH) and when `hytte` already resolves.
 #[cfg(windows)]
 pub fn ensure_on_path() -> Result<bool, String> {
+    if is_scoop() {
+        return Ok(false);
+    }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let Some(dir) = exe.parent() else {
         return Ok(false);
@@ -659,6 +699,31 @@ pub fn tray_setup() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scoop_installs_are_recognised_and_pinned_to_current() {
+        let v = r"C:\Users\me\scoop\apps\hytte\1.8.0\hytte.exe";
+        assert!(is_scoop_path(v));
+        assert!(is_scoop_path(
+            r"c:\users\me\SCOOP\apps\Hytte\current\hytte.exe"
+        ));
+        assert!(is_scoop_path(
+            "C:/Users/me/scoop/apps/hytte/1.8.0/hytte.exe"
+        ));
+        assert!(is_scoop_path(
+            r"C:\ProgramData\scoop\apps\hytte\1.8.0\hytte.exe"
+        ));
+        assert!(!is_scoop_path(r"C:\Users\me\AppData\Local\Hytte\hytte.exe"));
+        assert!(!is_scoop_path(
+            r"C:\Users\me\scoop\apps\other\1.0\hytte.exe"
+        ));
+        assert_eq!(
+            stable_path(v),
+            r"C:\Users\me\scoop\apps\hytte\current\hytte.exe"
+        );
+        let plain = r"C:\Tools\hytte.exe";
+        assert_eq!(stable_path(plain), plain);
+    }
 
     #[test]
     fn path_append_is_idempotent_and_case_insensitive() {

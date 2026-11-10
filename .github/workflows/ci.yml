@@ -19,6 +19,30 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  # The ARM64 build, on a real ARM runner: it must compile, pass the tests and run.
+  arm64:
+    runs-on: windows-11-arm
+    env:
+      # rust-toolchain.toml pins the x64 host; here the host is ARM64.
+      RUSTUP_TOOLCHAIN: stable-aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Rust
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest https://win.rustup.rs/aarch64 -OutFile rustup-init.exe
+            ./rustup-init.exe -y --default-toolchain none --profile minimal
+            Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.cargo\bin"
+            $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+          }
+          rustup toolchain install stable-aarch64-pc-windows-msvc --profile minimal -c clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build --release -p hytte
+      - run: ./target/release/hytte.exe --version
+
   # Known-vulnerable dependencies (RustSec). Its own job: a new advisory shouldn't hide
   # whether the code itself builds and passes.
   audit:

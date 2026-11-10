@@ -46,18 +46,18 @@ Anything needing a real desktop: drawing, hover timing, drag and drop, focus, fu
 
 ## How a release is built
 
-Two workflows in `.github/workflows/`, both on `windows-latest` with a Rust cache:
+Two workflows in `.github/workflows/`, with a Rust cache:
 
-- **`ci.yml`** on every push and pull request to `main`: `scripts/version.ps1 check` (same version in both `Cargo.toml` files, `Cargo.lock` and the winget manifest), fmt, clippy, tests, and a separate `audit` job (`cargo audit`). Both workflows are read-only (`contents: read`) except jobs that publish or push, and every action is pinned by commit SHA (tag in a comment): bump them on purpose.
+- **`ci.yml`** on every push and pull request to `main`: `scripts/version.ps1 check` (same version in both `Cargo.toml` files, `Cargo.lock`, the winget manifest and the Scoop manifest), fmt, clippy, tests, an `arm64` job (clippy, tests, a release build and `--version` on a real `windows-11-arm` runner) and a separate `audit` job (`cargo audit`). Both workflows are read-only (`contents: read`) except jobs that publish or push, and every action is pinned by commit SHA (tag in a comment): bump them on purpose. `rust-toolchain.toml` pins the x64 host, so the ARM jobs set `RUSTUP_TOOLCHAIN=stable-aarch64-pc-windows-msvc`.
 - **`release.yml`** on a pushed `v*` tag, or by hand (**Run workflow** with a tag; GitHub creates the tag on publish):
-  1. `version.ps1 check <tag>` (a mismatching tag fails before building), then the same three checks;
-  2. `cargo build --release --workspace`; check `hytte.exe --version` says the tag's version;
-  3. zip `hytte.exe` into `hytte-<version>-x64.zip`;
-  4. create the GitHub release "Hytte v<version>" with two assets: the zip, for people, and the bare **`hytte.exe`**, which the in-app updater downloads. Release notes are generated from the commits.
+  1. the `arm64` job builds and tests on the ARM runner, checks `--version` says the tag's version and hands `hytte-arm64.exe` to the next job;
+  2. the `build` job: `version.ps1 check <tag>` (a mismatching tag fails before building), then fmt, clippy and tests, then `cargo build --release --workspace`; check `hytte.exe --version` says the tag's version;
+  3. zip into `hytte-<version>-x64.zip` and `hytte-<version>-arm64.zip` (each holds `hytte.exe`);
+  4. create the GitHub release "Hytte v<version>" with four assets: the two zips, for people, winget and Scoop, and the bare **`hytte.exe`** (x64) and **`hytte-arm64.exe`**, which the in-app updater downloads. Release notes are generated from the commits.
 
 A **dry run** (*dry_run* ticked) does everything except publishing and committing.
 
-After publishing, a second job (`winget`) downloads the published zip, writes its SHA-256 into `manifests/winget/Hytte.Hytte.yaml` (`scripts/version.ps1 hash`) and commits that to `main` as "winget: InstallerSha256 for X". Pull before the next release. It refuses to run if the manifest on `main` is for another version than the tag.
+After publishing, a second job (`manifests`) downloads the published zips, writes their SHA-256 into `manifests/winget/Hytte.Hytte.yaml` and `bucket/hytte.json` (`scripts/version.ps1 hash`, once per zip) and commits that to `main` as "manifests: hashes for X". Pull before the next release.
 
 ### Cutting a release
 
@@ -66,7 +66,7 @@ scripts/release.ps1 1.4.0          # bump, check, commit "Release 1.4.0", tag v1
 git push origin main v1.4.0        # starts the release workflow
 ```
 
-`release.ps1` refuses unless the tree is clean, you're on `main`, `main` equals `origin/main` and the tag doesn't exist. `-SkipChecks` skips local checks (CI repeats them); `-Push` pushes for you. `scripts/version.ps1` has `check [tag]`, `set <version>` (the winget hash becomes zeros until the release job fills it) and `hash <zip>`.
+`release.ps1` refuses unless the tree is clean, you're on `main`, `main` equals `origin/main` and the tag doesn't exist. `-SkipChecks` skips local checks (CI repeats them); `-Push` pushes for you. `scripts/version.ps1` has `check [tag]`, `set <version>` (the winget and Scoop hashes become zeros until the release job fills them) and `hash <zip>`.
 
 Releases before the single-exe version were renumbered `v0.1.0`–`v0.4.0`; `v1.0.0` is the first merged `hytte.exe`.
 
@@ -74,8 +74,21 @@ Releases before the single-exe version were renumbered `v0.1.0`–`v0.4.0`; `v1.
 
 `manifests/winget/Hytte.Hytte.yaml` is a single-file reference manifest for a **portable zip** install. It exposes `hytte` as the command alias and requires Windows 11 22H2 (`10.0.22621.0`). Version, `InstallerUrl` and `InstallerSha256` are kept by the release tooling, so nothing is edited by hand. Before submitting to `winget-pkgs`, split it into the version / installer / locale files it expects. Microsoft runs a Defender scan and a CLA check on every submission; an unsigned exe can be flagged as a false positive, which is cleared by submitting the installer to Microsoft Defender as incorrectly detected.
 
+## Scoop
+
+`bucket/hytte.json` is a Scoop manifest for both architectures, with `checkver` and `autoupdate` so the community tooling can bump it too. Use it straight from a checkout:
+
+```powershell
+scoop bucket add hytte C:\path	o\Hytte
+scoop install hytte/hytte
+```
+
+Version, urls and hashes are kept by the release tooling like the winget manifest's. How Hytte behaves when installed this way is in [section 15](15-updates.md#scoop-installs).
+
+## ARM64
+
+Releases carry a native ARM64 build (`hytte-arm64.exe`, `hytte-<v>-arm64.zip`). The x64 asset names don't change, so every older install keeps updating. It is built and tested on GitHub's `windows-11-arm` runner and compiles from the same code; no ARM-only code exists. It has not been run on physical hardware by the maintainer.
+
 ## Code signing
 
 Binaries are unsigned, so SmartScreen may warn on first run. Signing would be a release-workflow step between building and zipping.
-
-Next: [14. How-to recipes](14-how-to-recipes.md)

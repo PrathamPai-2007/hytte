@@ -862,7 +862,7 @@ pub fn ensure_autostart(enable: bool) {
             ) == ERROR_SUCCESS
             {
                 if enable {
-                    if let Ok(exe) = std::env::current_exe() {
+                    if let Some(exe) = crate::setup::stable_exe() {
                         let v: Vec<u16> =
                             format!("\"{}\"\0", exe.display()).encode_utf16().collect();
                         let name: Vec<u16> = "Hytte\0".encode_utf16().collect();
@@ -892,8 +892,8 @@ pub fn ensure_autostart(enable: bool) {
                     ) == ERROR_SUCCESS;
                     let set = String::from_utf16_lossy(&buf[..(len as usize / 2).min(buf.len())]);
                     let set = set.trim_end_matches('\0').trim().trim_matches('"');
-                    let mine = std::env::current_exe()
-                        .is_ok_and(|e| e.display().to_string().eq_ignore_ascii_case(set));
+                    let mine = crate::setup::stable_exe()
+                        .is_some_and(|e| e.display().to_string().eq_ignore_ascii_case(set));
                     if read && (mine || !std::path::Path::new(set).is_file()) {
                         let _ = RegDeleteValueW(hkey, windows::core::PCWSTR(name.as_ptr()));
                     }
