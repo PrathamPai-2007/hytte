@@ -208,7 +208,7 @@ impl Ui {
 }
 
 /// Text on the clipboard, if any.
-fn clipboard_text(hwnd: HWND) -> Option<String> {
+pub(super) fn clipboard_text(hwnd: HWND) -> Option<String> {
     let bytes = unsafe { clipboard_bytes(hwnd, 13) }?;
     let units: Vec<u16> = bytes
         .as_chunks::<2>()

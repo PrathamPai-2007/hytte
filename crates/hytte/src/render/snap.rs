@@ -1898,3 +1898,42 @@ fn script_row_snapshots() {
     ));
     shoot(&mut r, &dir, "card-action-armed", &m, Scene::ExpChip, false);
 }
+
+/// The Shelf pane with the clipboard history: tiles and clips, clips only, a long list.
+#[test]
+#[ignore]
+fn clip_snapshots() {
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let mut m = model();
+    m.now = Some(now);
+    m.panes.shelf = true;
+    m.apply_clipboard(true);
+    for t in [
+        "cargo test --workspace -- --nocapture",
+        "https://github.com/PrathamPai-2007/hytte/releases/tag/v1.7.0",
+        "multi line\ntext that\nspans lines",
+        r"C:\Users\prath\Desktop\projects\Hytte\crates\hytte\src\clipboard.rs",
+    ] {
+        m.add_clip(t);
+    }
+    shoot(&mut r, &dir, "clips-only", &m, Scene::ExpShelf, false);
+    shoot(&mut r, &dir, "clips-only-light", &m, Scene::ExpShelf, true);
+    for (i, name) in ["notes.txt", "photo.png", "report.pdf"].iter().enumerate() {
+        m.shelf.push(crate::shelf::ShelfItem {
+            id: i as u64 + 1,
+            path: format!(r"C:\x\{name}").into(),
+            name: (*name).into(),
+            is_dir: false,
+            owned: false,
+        });
+    }
+    shoot(&mut r, &dir, "clips-and-tiles", &m, Scene::ExpShelf, false);
+    for i in 0..14 {
+        m.add_clip(&format!("clip number {i}"));
+    }
+    m.scroll_clips(2);
+    shoot(&mut r, &dir, "clips-scrolled", &m, Scene::ExpShelf, false);
+}

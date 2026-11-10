@@ -19,6 +19,14 @@ impl Ui {
                 }
             }
             Action::Chip(a) => self.chip_action(a),
+            Action::CopyClip(i) => {
+                if let Some(t) = self.model.clips.get(i).map(str::to_owned) {
+                    // Hytte's own write: on_clipboard skips it, so it is not recorded again.
+                    set_clipboard(hwnd, &t);
+                    self.anim.squash();
+                }
+            }
+            Action::ClipScroll(by) => self.model.scroll_clips(by),
             Action::Named(name) => {
                 self.run_named(&name);
             }

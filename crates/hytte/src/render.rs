@@ -78,6 +78,10 @@ pub enum Action {
     ShelfTile(u64),
     /// Scroll the shelf row by this many tiles.
     ShelfScroll(i32),
+    /// Put the clipboard history's clip at this place back on the clipboard.
+    CopyClip(usize),
+    /// Scroll the clipboard history by this many rows.
+    ClipScroll(i32),
     RemoveShelf(u64),
     /// Run a Drop Vault transform on a shelf item.
     ShelfOp(u64, crate::transforms::Conv),

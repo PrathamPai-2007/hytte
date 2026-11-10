@@ -470,3 +470,67 @@ fn drop_breaks_through_fullscreen_suppression() {
     m.expire(t0 + Duration::from_secs(5));
     assert_eq!(m.scene(false, true), Scene::Sentinel);
 }
+
+fn shelf_item(id: u64) -> crate::shelf::ShelfItem {
+    crate::shelf::ShelfItem {
+        id,
+        name: format!("f{id}.txt"),
+        path: format!(r"C:\x\f{id}.txt").into(),
+        is_dir: false,
+        owned: false,
+    }
+}
+
+#[test]
+fn clips_show_in_the_shelf_pane_only_when_the_history_is_on() {
+    let mut m = no_extra_panes();
+    m.panes.shelf = true;
+    // Off: clips offered to the model are not kept, and the Shelf pane stays away.
+    m.add_clip("hello");
+    assert!(!m.clips_shown() && !m.panels().contains(&Panel::Shelf));
+    m.apply_clipboard(true);
+    m.add_clip("hello");
+    m.add_clip("world");
+    assert!(m.clips_shown());
+    // Clips alone are enough for the pane; it is as tall as its block and the tab strip.
+    assert!(m.panels().contains(&Panel::Shelf));
+    let (_, h) = m.size(Scene::ExpShelf);
+    assert_eq!(h, 10.0 + m.clips_h() + m.tabs() as u8 as f64 * TAB_H as f64);
+    assert_eq!(
+        m.clips_h(),
+        (CLIP_HEAD_H + 2.0 * CLIP_ROW_H + CLIP_PAD_H) as f64
+    );
+    // With tiles the block goes under them.
+    m.shelf.push(shelf_item(1));
+    let (_, h2) = m.size(Scene::ExpShelf);
+    assert_eq!(
+        h2,
+        118.0 + m.clips_h() + m.tabs() as u8 as f64 * TAB_H as f64
+    );
+    // Switching it off forgets everything.
+    m.apply_clipboard(false);
+    assert!(!m.clips_shown() && m.clips.len() == 0);
+    assert_eq!(
+        m.size(Scene::ExpShelf).1,
+        118.0 + m.tabs() as u8 as f64 * TAB_H as f64
+    );
+}
+
+#[test]
+fn the_clip_list_scrolls_within_its_rows() {
+    let mut m = no_extra_panes();
+    m.apply_clipboard(true);
+    for i in 0..12 {
+        m.add_clip(&format!("clip {i}"));
+    }
+    let rows = crate::clipboard::CLIP_ROWS;
+    assert_eq!(m.clip_view(), (0, rows));
+    m.scroll_clips(100);
+    assert_eq!(m.clip_view(), (12 - rows, rows));
+    m.scroll_clips(-100);
+    assert_eq!(m.clip_view().0, 0);
+    // A new clip brings the list back to the newest.
+    m.scroll_clips(3);
+    m.add_clip("fresh");
+    assert_eq!(m.clip_view().0, 0);
+}

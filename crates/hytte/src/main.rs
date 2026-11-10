@@ -16,6 +16,7 @@ mod bluetooth;
 mod breaks;
 mod calendar;
 mod cli;
+mod clipboard;
 mod config;
 mod convert;
 mod dnd;

@@ -241,7 +241,7 @@ impl Model {
 
     pub fn panels(&self) -> Vec<Panel> {
         let mut v = vec![];
-        if self.panes.shelf && !self.shelf.is_empty() {
+        if self.panes.shelf && (!self.shelf.is_empty() || self.clips_shown()) {
             v.push(Panel::Shelf);
         }
         if self.panes.media && self.media.is_some() {
@@ -448,11 +448,13 @@ impl Model {
             // Running: ring + controls. Not running: the setup card.
             Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
             Scene::ExpTimer => (380.0, 152.0 + tab),
-            Scene::ExpShelf if self.shelf_sel.is_some() => (
+            Scene::ExpShelf => (
                 380.0,
-                136.0 + 32.0 * (self.shelf_chip_lines() - 1) as f64 + tab,
+                self.shelf_tiles_h()
+                    + self.clips_h()
+                    + if self.shelf.is_empty() { 10.0 } else { 0.0 }
+                    + tab,
             ),
-            Scene::ExpShelf => (380.0, 118.0 + tab),
             Scene::ExpAgents => (
                 380.0,
                 (self.agents_layout().height + tab)

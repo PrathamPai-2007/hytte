@@ -356,9 +356,20 @@ pub(super) unsafe extern "system" fn wndproc(
             // Clicked or tabbed elsewhere: keyboard mode ends without stealing focus back.
             with_ui(|ui| ui.end_keyboard(false));
         }
+        WM_WTSSESSION_CHANGE => {
+            // The PC was locked: the clipboard history is forgotten.
+            if wparam.0 as u32 == windows::Win32::UI::WindowsAndMessaging::WTS_SESSION_LOCK {
+                with_ui(|ui| ui.model.clips.clear());
+            }
+            return LRESULT(0);
+        }
         WM_POWERBROADCAST => {
             // Power source / charge level changed, or the PC resumed.
             crate::power::poke();
+            if wparam.0 as u32 == PBT_APMSUSPEND {
+                // Going to sleep: the clipboard history is forgotten.
+                with_ui(|ui| ui.model.clips.clear());
+            }
             if wparam.0 as u32 == PBT_APMRESUMEAUTOMATIC {
                 // The foreground may have changed fullscreen state while asleep.
                 post(WM_FG);

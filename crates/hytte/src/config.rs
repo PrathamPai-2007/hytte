@@ -209,6 +209,8 @@ pub struct Shelf {
     pub screenshot_secs: u64,
     /// Remove a screenshot from the shelf (and delete its copy) once it has been pasted.
     pub delete_after_paste: bool,
+    /// Put files you copy (Ctrl+C, not cut) on the shelf, by reference. Off unless switched on.
+    pub shelve_copied: bool,
 }
 impl Default for Shelf {
     fn default() -> Self {
@@ -220,6 +222,27 @@ impl Default for Shelf {
             screenshots: true,
             screenshot_secs: 60,
             delete_after_paste: true,
+            shelve_copied: false,
+        }
+    }
+}
+
+/// `[clipboard]`: a short text history under the shelf tiles. Off unless switched on; kept in
+/// memory only (never written to disk) and cleared on lock, sleep and when switched off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Clipboard {
+    pub history: bool,
+    /// Programs whose copies are never kept (their exe name, any case, with or without `.exe`).
+    pub ignore_apps: Vec<String>,
+}
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self {
+            history: false,
+            ignore_apps: ["keepass", "keepassxc", "1password", "bitwarden"]
+                .map(String::from)
+                .to_vec(),
         }
     }
 }
@@ -460,6 +483,7 @@ pub struct Config {
     pub calendar: Calendar,
     pub agent: Agent,
     pub moments: Moments,
+    pub clipboard: Clipboard,
     /// Your own panes (`[[script_pane]]`), fed by a command Hytte runs and/or by
     /// `hytte pane set`. Read through [`Config::script_panes`], which applies the limits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

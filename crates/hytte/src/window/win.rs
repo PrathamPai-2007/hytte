@@ -316,6 +316,8 @@ struct Ui {
     card_waits: Vec<(String, Sender<String>)>,
     /// The script panes have had their one run at start.
     scripts_primed: bool,
+    /// The clipboard sequence number last looked at (the same change is not read twice).
+    clip_seq: u32,
     /// Pane packs on disk, and the actions now in force (config plus approved packs).
     packs: Vec<crate::packs::Pack>,
     actions: Vec<crate::config::NamedAction>,
@@ -582,6 +584,11 @@ pub fn run_windows(
         shared.hwnd.store(hwnd.0 as isize, Ordering::Relaxed);
         // WM_CLIPBOARDUPDATE: Snipping Tool screenshots go on the shelf.
         let _ = AddClipboardFormatListener(hwnd);
+        // Locking the PC forgets the clipboard history (WM_WTSSESSION_CHANGE).
+        let _ = windows::Win32::System::RemoteDesktop::WTSRegisterSessionNotification(
+            hwnd,
+            windows::Win32::System::RemoteDesktop::NOTIFY_FOR_THIS_SESSION,
+        );
         // Power changes arrive as WM_POWERBROADCAST and wake the power worker.
         for g in [&GUID_ACDC_POWER_SOURCE, &GUID_BATTERY_PERCENTAGE_REMAINING] {
             let _ =
@@ -639,6 +646,7 @@ pub fn run_windows(
             update_offer: None,
             card_waits: vec![],
             scripts_primed: false,
+            clip_seq: 0,
             packs: vec![],
             actions: vec![],
             packs_asked: vec![],
@@ -677,6 +685,7 @@ pub fn run_windows(
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
         ui.model.apply_panes(&ui.cfg.panes.clone());
         ui.refresh_panes();
+        ui.model.apply_clipboard(ui.cfg.clipboard.history);
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())
                 .ok()

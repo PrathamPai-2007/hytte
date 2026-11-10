@@ -34,6 +34,7 @@ pub use media::*;
 pub use notes::*;
 pub use scene::*;
 pub use script::*;
+pub use shelf::*;
 pub use tasks::*;
 // Private to this module tree: the weather glow helper `scene` uses.
 use weather::*;
@@ -146,6 +147,8 @@ pub enum UiEvent {
     Script(String, crate::scriptpane::Run),
     /// An `[[action]]` finished: its name and how it went.
     ActionDone(String, crate::scriptpane::Run),
+    /// Files copied in Explorer, to go on the shelf by reference (`[shelf] shelve_copied`).
+    ShelfCopied(Vec<PathBuf>),
     /// A Bluetooth device connected: its name and battery percentage when it has one.
     Bluetooth {
         name: String,
@@ -234,6 +237,11 @@ pub struct Model {
     pub card_seq: u64,
     /// A chip's Kill button was clicked once and waits for a second click until then.
     pub chip_armed: Option<Instant>,
+    /// `[clipboard] history`: the text clips (newest first), whether it is on, and the first
+    /// one in view. Memory only.
+    pub clips: crate::clipboard::History,
+    pub clips_on: bool,
+    pub clip_off: usize,
     /// Names of the `[[action]]`s, so a card button `Label:name` can tell an action from text.
     pub action_names: Vec<String>,
     /// An action whose first click is in: it runs on the next one before the instant.

@@ -203,6 +203,21 @@ impl Ui {
                         self.model.push_chip(chip, now);
                     }
                 }
+                UiEvent::ShelfCopied(paths) => {
+                    // By reference whatever `[shelf] mode` says: a copy of everything you
+                    // press Ctrl+C on would fill the disk.
+                    let mut cfg = self.cfg.shelf.clone();
+                    cfg.mode = "reference".into();
+                    let existing = crate::shelf::paths(&self.model.shelf);
+                    let room = crate::shelf::room(&cfg, &self.model.shelf);
+                    let sh = self.shared.clone();
+                    std::thread::spawn(move || {
+                        let staged = crate::shelf::stage(&cfg, &paths, None, &existing, room);
+                        if !staged.is_empty() {
+                            push_event(&sh, UiEvent::ShelfStaged(staged));
+                        }
+                    });
+                }
                 UiEvent::Bluetooth { name, battery } => {
                     if !self.model.holding() && !self.quiet() {
                         let (text, note) = crate::bluetooth::card_text(&name, battery);
@@ -350,6 +365,7 @@ impl Ui {
         let general = new.general != self.cfg.general;
         crate::settings_win::refresh(&new);
         crate::bluetooth::configure(new.moments.bluetooth, None);
+        self.model.apply_clipboard(new.clipboard.history);
         self.cfg = new;
         self.refresh_panes();
         if hotkey_changed {

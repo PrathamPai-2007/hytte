@@ -184,6 +184,8 @@ pub fn help(key: &str) -> &'static str {
         "panes.tasks" => "Shows terminal tasks and dev servers in the tab strip.",
         "panes.timer" => "Shows the Timer pane while a timer runs.",
         "panes.power" => "Shows the Battery pane when the PC has a battery.",
+        "clipboard.history" => "Shows your last copied texts under the shelf tiles, to copy back. Off by default. Kept only in memory, forgotten on lock, sleep and switch-off, and never texts that look like passwords or come from a password manager. Windows has its own history on Win+V.",
+        "shelf.shelve_copied" => "Files you copy (Ctrl+C, not cut) in Explorer go on the shelf by reference. Off by default.",
         "moments.bluetooth" => "A short card with the name (and battery, if it reports one) when earbuds, a mouse or a keyboard connects.",
         "moments.privacy" => "A three-second card naming the app that starts using the camera or microphone. Not during Focus or quiet hours.",
         "panes.agents" => "Lists Claude Code, Codex and other coding agents in their own pane, apart from terminal tasks.",
@@ -417,6 +419,14 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             ],
         },
         Section {
+            name: "Clipboard",
+            rows: vec![sw(
+                "Keep a short clipboard history",
+                "clipboard.history",
+                c.clipboard.history,
+            )],
+        },
+        Section {
             name: "Moments",
             rows: vec![
                 sw(
@@ -556,6 +566,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     "Add new screenshots to the shelf",
                     "shelf.screenshots",
                     sh.screenshots,
+                ),
+                sw(
+                    "Put files I copy with Ctrl+C on the shelf",
+                    "shelf.shelve_copied",
+                    sh.shelve_copied,
                 ),
             ],
         },

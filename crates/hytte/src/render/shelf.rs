@@ -271,7 +271,7 @@ impl Renderer {
                     x += cw + 6.0;
                 }
             }
-        } else {
+        } else if !m.shelf.is_empty() {
             self.text(
                 "Drag a tile out to drop it anywhere",
                 &self.f.small_c,
@@ -281,6 +281,88 @@ impl Renderer {
                 16.0,
                 self.cc(GRAY, 0.7),
             );
+        }
+        if m.clips_shown() {
+            self.clip_block(m, w);
+        }
+    }
+
+    /// The clipboard block under the tiles (or alone): a header and the clips in view, each a
+    /// row that puts its text back on the clipboard.
+    fn clip_block(&self, m: &Model, w: f32) {
+        use crate::ui_state::{CLIP_HEAD_H, CLIP_ROW_H};
+        let fg = self.fg();
+        // Under the tiles' own part; alone, from the top of the pane.
+        let top = if m.shelf.is_empty() {
+            10.0
+        } else {
+            m.shelf_tiles_h() as f32
+        };
+        let (off, shown) = m.clip_view();
+        if !m.shelf.is_empty() {
+            self.line(
+                (16.0, top - 2.0),
+                (w - 16.0, top - 2.0),
+                self.cc(fg, 0.07),
+                1.0,
+            );
+        }
+        self.text(
+            "Clipboard",
+            &self.f.small,
+            18.0,
+            top + 2.0,
+            120.0,
+            16.0,
+            self.cc(GRAY, 0.85),
+        );
+        let n = m.clips.len();
+        if n > shown {
+            for (on, by, icon, x) in [
+                (off > 0, -1, '\u{E70E}', w - 54.0),
+                (off + shown < n, 1, '\u{E70D}', w - 30.0),
+            ] {
+                if on {
+                    let hov = self.hit(x - 4.0, top, 24.0, 20.0, Action::ClipScroll(by));
+                    self.glyph_s(
+                        icon,
+                        x + 8.0,
+                        top + 10.0,
+                        self.cc(fg, if hov { 0.95 } else { 0.5 }),
+                    );
+                }
+            }
+        }
+        for i in 0..shown {
+            let idx = off + i;
+            let Some(text) = m.clips.get(idx) else { break };
+            let y = top + CLIP_HEAD_H + i as f32 * CLIP_ROW_H;
+            let hov = self.hit(10.0, y, w - 20.0, CLIP_ROW_H - 2.0, Action::CopyClip(idx));
+            if hov {
+                self.fill_rr(10.0, y, w - 20.0, CLIP_ROW_H - 2.0, 8.0, self.cc(fg, 0.07));
+            }
+            let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            self.label(
+                &crate::secrets::mask(&one),
+                &self.f.small,
+                18.0,
+                y + 3.0,
+                w - 36.0 - if hov { 44.0 } else { 0.0 },
+                16.0,
+                self.cc(fg, if hov { 0.95 } else { 0.75 }),
+                hov,
+            );
+            if hov {
+                self.text(
+                    "Copy",
+                    &self.f.small_r,
+                    w - 62.0,
+                    y + 3.0,
+                    44.0,
+                    16.0,
+                    self.cc(self.accent.get(), 0.95),
+                );
+            }
         }
     }
 }

@@ -3,26 +3,83 @@
 use super::*;
 
 impl Ui {
-    /// The clipboard changed: a screenshot from the Snipping Tool (Win+Shift+S) goes on
-    /// the shelf as a PNG. Other apps' images are left alone, and nothing is shelved over
-    /// a game or while paused (the shelf would pop open).
+    /// The clipboard changed. Three things may want it, each off unless switched on: files
+    /// copied in Explorer go on the shelf (`shelve_copied`), text goes into the clipboard
+    /// history (`history`), and a Snipping Tool screenshot goes on the shelf as a PNG
+    /// (`screenshots`). What Hytte wrote itself is never read back, an app that marked its
+    /// copy private is left alone, and nothing happens over a game or while paused (the shelf
+    /// would pop open).
     pub(super) fn on_clipboard(&mut self, hwnd: HWND) {
         const CF_DIB: u32 = 8;
-        if !self.cfg.shelf.screenshots || self.gaming || self.paused {
+        const CF_UNICODETEXT: u32 = 13;
+        const CF_HDROP: u32 = 15;
+        let shelf = &self.cfg.shelf;
+        let (files, history, shots) = (
+            shelf.shelve_copied,
+            self.cfg.clipboard.history,
+            shelf.screenshots,
+        );
+        if !(files || history || shots) || self.gaming || self.paused {
+            return;
+        }
+        // One look per change (Windows sends several for some copies).
+        let seq = unsafe { GetClipboardSequenceNumber() };
+        if std::mem::replace(&mut self.clip_seq, seq) == seq {
+            return;
+        }
+        let owner = unsafe { GetClipboardOwner() }.ok();
+        // Hytte's own write (a clip copied back): never read again.
+        if owner == Some(hwnd) {
             return;
         }
         let mut pid = 0u32;
-        unsafe {
-            let Ok(owner) = GetClipboardOwner() else {
-                return;
-            };
-            GetWindowThreadProcessId(owner, Some(&mut pid));
+        if let Some(o) = owner {
+            unsafe { GetWindowThreadProcessId(o, Some(&mut pid)) };
         }
-        let snip = crate::proc::exe_name(pid).is_some_and(|e| {
+        let exe = crate::proc::exe_name(pid);
+        let avail = |f: u32| f != 0 && unsafe { IsClipboardFormatAvailable(f) }.is_ok();
+        let named = |n: windows::core::PCWSTR| unsafe { RegisterClipboardFormatW(n) };
+        let dword = |f: u32| {
+            avail(f)
+                .then(|| unsafe { clipboard_bytes(hwnd, f) })
+                .flatten()
+                .and_then(|b| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?)))
+        };
+        let history_flag = named(windows::core::w!("CanIncludeInClipboardHistory"));
+        let formats = crate::clipboard::Formats {
+            hdrop: (files && avail(CF_HDROP))
+                .then(|| unsafe { clipboard_bytes(hwnd, CF_HDROP) })
+                .flatten(),
+            effect: dword(named(windows::core::w!("Preferred DropEffect"))),
+            excluded: avail(named(windows::core::w!(
+                "ExcludeClipboardContentFromMonitorProcessing"
+            ))) || avail(named(windows::core::w!("Clipboard Viewer Ignore"))),
+            history_off: dword(history_flag) == Some(0),
+            text: (history && avail(CF_UNICODETEXT))
+                .then(|| super::typing::clipboard_text(hwnd))
+                .flatten(),
+        };
+        if files {
+            let paths = crate::clipboard::files_to_shelve(&formats);
+            if !paths.is_empty() {
+                push_event(&self.shared, UiEvent::ShelfCopied(paths));
+            }
+        }
+        if history {
+            let ignore = &self.cfg.clipboard.ignore_apps;
+            if let Some(t) = crate::clipboard::clip_to_record(&formats, exe.as_deref(), ignore) {
+                self.model.add_clip(&t);
+                self.after_model_change(hwnd);
+            }
+        }
+        if !shots {
+            return;
+        }
+        let snip = exe.is_some_and(|e| {
             let e = e.to_ascii_lowercase();
             e == "snippingtool.exe" || e == "screenclippinghost.exe"
         });
-        if !snip || unsafe { IsClipboardFormatAvailable(CF_DIB) }.is_err() {
+        if !snip || !avail(CF_DIB) {
             return;
         }
         let Some(dib) = (unsafe { clipboard_bytes(hwnd, CF_DIB) }) else {
@@ -34,7 +91,7 @@ impl Ui {
             dib.hash(&mut h);
             h.finish()
         };
-        self.snip_seq = unsafe { GetClipboardSequenceNumber() };
+        self.snip_seq = seq;
         // The same picture again (the Snipping Tool touches the clipboard more than once):
         // not a new screenshot, but still the one on the clipboard, so a paste still counts.
         if std::mem::replace(&mut self.last_snip, hash) == hash {
