@@ -19,11 +19,14 @@ Your own settings are kept, and the original file is saved as `<file>.hytte-back
 | Antigravity | working, done |
 | Cursor | working, done |
 
+**Allow / Deny** needs a hook that fires only when the agent is about to ask you. Gemini CLI, Antigravity and Cursor don't have one (their hooks run on every tool call, and Cursor ignores an "allow" answer), so their prompts stay in the terminal.
+
 ## Day to day
 
+- **Agents pane:** every agent has a row in the **Agents** tab: its project, what it is doing or asking, how long it has waited, and what it has done this turn (files edited, subagents started, context size). Click a row to jump to its terminal. Turn the tab off in [Settings](07-settings.md) and agents list with your terminal tasks again.
 - **Working:** the agent appears by name, with its current step where the agent reports one, such as `Editing src/main.rs`.
 - **Waiting for you:** the pill glows amber and beeps, even over a maximised terminal. Click it to jump to the agent's terminal.
-- **Done:** a card shows the first line of the reply, with **Copy**.
+- **Done:** a card shows the first line of the reply, with **Copy**, and a quiet line such as "Edited 4 files · 84k context" when Hytte knows it.
 
 To silence the beep, turn it off in [Settings](07-settings.md) or set quiet hours.
 
