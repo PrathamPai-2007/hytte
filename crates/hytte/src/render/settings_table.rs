@@ -420,11 +420,29 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
         },
         Section {
             name: "Clipboard",
-            rows: vec![sw(
-                "Keep a short clipboard history",
-                "clipboard.history",
-                c.clipboard.history,
-            )],
+            rows: vec![
+                sw(
+                    "Keep a short clipboard history",
+                    "clipboard.history",
+                    c.clipboard.history,
+                ),
+                pick_i(
+                    "Forget a clip after",
+                    "clipboard.expire_secs",
+                    &[
+                        ("30 s", 30),
+                        ("2 min", 120),
+                        ("10 min", 600),
+                        ("Lock or sleep", 0),
+                    ],
+                    c.clipboard.expire_secs as i64,
+                ),
+                sw(
+                    "Forget them when the clipboard is emptied",
+                    "clipboard.clear_when_emptied",
+                    c.clipboard.clear_when_emptied,
+                ),
+            ],
         },
         Section {
             name: "Moments",

@@ -82,6 +82,9 @@ pub enum Action {
     CopyClip(usize),
     /// Scroll the clipboard history by this many rows.
     ClipScroll(i32),
+    /// Forget the clip at this place / every clip.
+    DeleteClip(usize),
+    ClearClips,
     RemoveShelf(u64),
     /// Run a Drop Vault transform on a shelf item.
     ShelfOp(u64, crate::transforms::Conv),

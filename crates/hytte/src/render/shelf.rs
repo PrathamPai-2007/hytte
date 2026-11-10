@@ -317,6 +317,18 @@ impl Renderer {
             self.cc(GRAY, 0.85),
         );
         let n = m.clips.len();
+        {
+            let hov = self.hit(w - 114.0, top, 50.0, 20.0, Action::ClearClips);
+            self.text(
+                "Clear",
+                &self.f.small_r,
+                w - 112.0,
+                top + 2.0,
+                44.0,
+                16.0,
+                self.cc(fg, if hov { 0.95 } else { 0.5 }),
+            );
+        }
         if n > shown {
             for (on, by, icon, x) in [
                 (off > 0, -1, '\u{E70E}', w - 54.0),
@@ -347,7 +359,7 @@ impl Renderer {
                 &self.f.small,
                 18.0,
                 y + 3.0,
-                w - 36.0 - if hov { 44.0 } else { 0.0 },
+                w - 36.0 - if hov { 70.0 } else { 0.0 },
                 16.0,
                 self.cc(fg, if hov { 0.95 } else { 0.75 }),
                 hov,
@@ -356,11 +368,18 @@ impl Renderer {
                 self.text(
                     "Copy",
                     &self.f.small_r,
-                    w - 62.0,
+                    w - 88.0,
                     y + 3.0,
                     44.0,
                     16.0,
                     self.cc(self.accent.get(), 0.95),
+                );
+                let del = self.hit(w - 38.0, y, 26.0, CLIP_ROW_H - 2.0, Action::DeleteClip(idx));
+                self.glyph_s(
+                    '\u{E711}',
+                    w - 25.0,
+                    y + 11.0,
+                    self.cc(fg, if del { 0.95 } else { 0.5 }),
                 );
             }
         }

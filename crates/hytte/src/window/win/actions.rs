@@ -27,6 +27,8 @@ impl Ui {
                 }
             }
             Action::ClipScroll(by) => self.model.scroll_clips(by),
+            Action::DeleteClip(i) => self.model.remove_clip(i),
+            Action::ClearClips => self.model.clear_clips(),
             Action::Named(name) => {
                 self.run_named(&name);
             }

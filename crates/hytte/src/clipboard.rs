@@ -9,6 +9,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 /// Clips kept, and the longest one (bytes). A longer text is skipped, not cut: a clip that
 /// pasted back wrong would be worse than none.
@@ -107,12 +108,17 @@ pub fn clip_to_record(f: &Formats, owner_exe: Option<&str>, ignore: &[String]) -
 /// The clipboard history: newest first, repeats move to the front, at most [`MAX_CLIPS`].
 /// Never written anywhere.
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct History(VecDeque<String>);
+pub struct History(VecDeque<(String, Instant)>);
 
 impl History {
     pub fn add(&mut self, text: &str) {
-        self.0.retain(|t| t != text);
-        self.0.push_front(text.to_string());
+        self.add_at(text, Instant::now());
+    }
+
+    /// `add`, with the time the clip was copied (a repeat starts its time over).
+    pub fn add_at(&mut self, text: &str, at: Instant) {
+        self.0.retain(|(t, _)| t != text);
+        self.0.push_front((text.to_string(), at));
         self.0.truncate(MAX_CLIPS);
     }
 
@@ -120,12 +126,26 @@ impl History {
         self.0.clear();
     }
 
+    /// Forget clip `i` (a no-op when there is none).
+    pub fn remove(&mut self, i: usize) {
+        self.0.remove(i);
+    }
+
+    /// Forget clips older than `ttl` (zero keeps them all); the instant the next one is due.
+    pub fn expire(&mut self, ttl: Duration, now: Instant) -> Option<Instant> {
+        if ttl.is_zero() {
+            return None;
+        }
+        self.0.retain(|(_, at)| now.duration_since(*at) < ttl);
+        self.0.iter().map(|(_, at)| *at + ttl).min()
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     pub fn get(&self, i: usize) -> Option<&str> {
-        self.0.get(i).map(String::as_str)
+        self.0.get(i).map(|(t, _)| t.as_str())
     }
 }
 
@@ -349,5 +369,35 @@ mod tests {
         assert_eq!(h.len(), MAX_CLIPS);
         h.clear();
         assert_eq!((h.len(), h.get(0)), (0, None));
+    }
+
+    #[test]
+    fn clips_can_be_removed_and_expire() {
+        let t0 = Instant::now();
+        let mut h = History::default();
+        h.add_at("a", t0);
+        h.add_at("b", t0 + Duration::from_secs(60));
+        h.add_at("c", t0 + Duration::from_secs(100));
+        h.remove(1);
+        assert_eq!((h.get(0), h.get(1), h.len()), (Some("c"), Some("a"), 2));
+        let ttl = Duration::from_secs(120);
+        // Nothing is due yet; the next one is "a" at 120 s.
+        assert_eq!(h.expire(ttl, t0 + Duration::from_secs(110)), Some(t0 + ttl));
+        // "a" is 130 s old: gone; "c" stays and is the next due.
+        let due = h.expire(ttl, t0 + Duration::from_secs(130));
+        assert_eq!((h.len(), h.get(0)), (1, Some("c")));
+        assert_eq!(due, Some(t0 + Duration::from_secs(220)));
+        // Zero keeps everything.
+        assert_eq!(
+            h.expire(Duration::ZERO, t0 + Duration::from_secs(9999)),
+            None
+        );
+        assert_eq!(h.len(), 1);
+        // A repeat starts its time over.
+        h.add_at("c", t0 + Duration::from_secs(200));
+        assert_eq!(
+            h.expire(ttl, t0 + Duration::from_secs(300)),
+            Some(t0 + Duration::from_secs(320))
+        );
     }
 }

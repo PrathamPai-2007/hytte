@@ -242,6 +242,8 @@ pub struct Model {
     pub clips: crate::clipboard::History,
     pub clips_on: bool,
     pub clip_off: usize,
+    /// How long a clip is kept (zero: until lock, sleep or quit).
+    pub clip_ttl: Duration,
     /// Names of the `[[action]]`s, so a card button `Label:name` can tell an action from text.
     pub action_names: Vec<String>,
     /// An action whose first click is in: it runs on the next one before the instant.
@@ -478,8 +480,13 @@ impl Model {
         {
             self.jot_undo = None;
         }
+        let clip_due = self.clips.expire(self.clip_ttl, now);
+        self.scroll_clips(0);
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
+        if let Some(d) = clip_due {
+            keep(d);
+        }
         if let Some(d) = self.jot.next_deadline() {
             keep(now + Duration::from_millis(d.saturating_sub(wall)));
         }

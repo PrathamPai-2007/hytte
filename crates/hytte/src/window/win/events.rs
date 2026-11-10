@@ -365,7 +365,8 @@ impl Ui {
         let general = new.general != self.cfg.general;
         crate::settings_win::refresh(&new);
         crate::bluetooth::configure(new.moments.bluetooth, None);
-        self.model.apply_clipboard(new.clipboard.history);
+        self.model
+            .apply_clipboard(new.clipboard.history, new.clipboard.expire_secs);
         self.cfg = new;
         self.refresh_panes();
         if hotkey_changed {

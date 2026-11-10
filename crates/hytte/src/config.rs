@@ -235,11 +235,17 @@ pub struct Clipboard {
     pub history: bool,
     /// Programs whose copies are never kept (their exe name, any case, with or without `.exe`).
     pub ignore_apps: Vec<String>,
+    /// Seconds a clip is kept before it is forgotten (0: until lock, sleep or quit).
+    pub expire_secs: u64,
+    /// Forget the whole history when the Windows clipboard is emptied.
+    pub clear_when_emptied: bool,
 }
 impl Default for Clipboard {
     fn default() -> Self {
         Self {
             history: false,
+            expire_secs: 120,
+            clear_when_emptied: false,
             ignore_apps: ["keepass", "keepassxc", "1password", "bitwarden"]
                 .map(String::from)
                 .to_vec(),

@@ -9,12 +9,27 @@ pub const CLIP_PAD_H: f32 = 8.0;
 
 impl Model {
     /// `[clipboard] history` as the config has it now: off forgets every clip.
-    pub fn apply_clipboard(&mut self, on: bool) {
+    pub fn apply_clipboard(&mut self, on: bool, ttl_secs: u64) {
         self.clips_on = on;
+        self.clip_ttl = Duration::from_secs(ttl_secs);
         if !on {
-            self.clips.clear();
-            self.clip_off = 0;
+            self.clear_clips();
         }
+    }
+
+    /// Forget every clip (the Clear link, lock, sleep, an emptied clipboard).
+    pub fn clear_clips(&mut self) {
+        self.clips.clear();
+        self.clip_off = 0;
+    }
+
+    /// Forget clip `i`.
+    pub fn remove_clip(&mut self, i: usize) {
+        if i < self.clips.len() {
+            self.clips.remove(i);
+        }
+        // Stay within what is left.
+        self.scroll_clips(0);
     }
 
     /// A clip taken from the clipboard (after the rules said it may be kept).

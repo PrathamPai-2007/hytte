@@ -27,6 +27,16 @@ impl Ui {
         if std::mem::replace(&mut self.clip_seq, seq) == seq {
             return;
         }
+        // Emptied (a "clear clipboard" tool, or an app that gave it up): forget the history too,
+        // when `clear_when_emptied` says so.
+        if history
+            && self.cfg.clipboard.clear_when_emptied
+            && unsafe { CountClipboardFormats() } == 0
+        {
+            self.model.clear_clips();
+            self.after_model_change(hwnd);
+            return;
+        }
         let owner = unsafe { GetClipboardOwner() }.ok();
         // Hytte's own write (a clip copied back): never read again.
         if owner == Some(hwnd) {

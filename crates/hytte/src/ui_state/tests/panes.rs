@@ -488,7 +488,7 @@ fn clips_show_in_the_shelf_pane_only_when_the_history_is_on() {
     // Off: clips offered to the model are not kept, and the Shelf pane stays away.
     m.add_clip("hello");
     assert!(!m.clips_shown() && !m.panels().contains(&Panel::Shelf));
-    m.apply_clipboard(true);
+    m.apply_clipboard(true, 0);
     m.add_clip("hello");
     m.add_clip("world");
     assert!(m.clips_shown());
@@ -508,7 +508,7 @@ fn clips_show_in_the_shelf_pane_only_when_the_history_is_on() {
         118.0 + m.clips_h() + m.tabs() as u8 as f64 * TAB_H as f64
     );
     // Switching it off forgets everything.
-    m.apply_clipboard(false);
+    m.apply_clipboard(false, 0);
     assert!(!m.clips_shown() && m.clips.len() == 0);
     assert_eq!(
         m.size(Scene::ExpShelf).1,
@@ -519,7 +519,7 @@ fn clips_show_in_the_shelf_pane_only_when_the_history_is_on() {
 #[test]
 fn the_clip_list_scrolls_within_its_rows() {
     let mut m = no_extra_panes();
-    m.apply_clipboard(true);
+    m.apply_clipboard(true, 0);
     for i in 0..12 {
         m.add_clip(&format!("clip {i}"));
     }
@@ -533,4 +533,29 @@ fn the_clip_list_scrolls_within_its_rows() {
     m.scroll_clips(3);
     m.add_clip("fresh");
     assert_eq!(m.clip_view().0, 0);
+}
+
+#[test]
+fn a_clip_can_be_deleted_cleared_and_expires() {
+    let mut m = no_extra_panes();
+    m.panes.shelf = true;
+    m.apply_clipboard(true, 120);
+    for i in 0..8 {
+        m.add_clip(&format!("clip {i}"));
+    }
+    m.scroll_clips(100);
+    m.remove_clip(0);
+    assert_eq!((m.clips.len(), m.clips.get(0)), (7, Some("clip 6")));
+    // The view stays inside what is left.
+    let (off, shown) = m.clip_view();
+    assert!(off + shown <= 7);
+    m.remove_clip(99); // nothing there: no panic
+    assert_eq!(m.clips.len(), 7);
+    // Expiry: past the ttl every clip is gone and the pane has no block.
+    let later = Instant::now() + Duration::from_secs(121);
+    m.expire(later);
+    assert!(!m.clips_shown() && m.clips.len() == 0);
+    m.add_clip("again");
+    m.clear_clips();
+    assert!(!m.clips_shown());
 }

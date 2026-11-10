@@ -685,7 +685,8 @@ pub fn run_windows(
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
         ui.model.apply_panes(&ui.cfg.panes.clone());
         ui.refresh_panes();
-        ui.model.apply_clipboard(ui.cfg.clipboard.history);
+        ui.model
+            .apply_clipboard(ui.cfg.clipboard.history, ui.cfg.clipboard.expire_secs);
         if ui.cfg.general.remember_panel && ui.cfg.general.start_panel == "last" {
             ui.model.selected = std::fs::read_to_string(panel_file())
                 .ok()

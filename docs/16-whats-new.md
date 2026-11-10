@@ -27,7 +27,7 @@ The agents, platform and moments release, with the first native ARM64 build.
 **Clipboard** (both off by default)
 
 - **Files you copy** (`[shelf] shelve_copied`). Explorer's Ctrl+C (Preferred DropEffect says copy, not cut) puts the files on the shelf by reference.
-- **A text history** (`[clipboard] history`) under the shelf tiles: 20 clips of at most 4 KB, in memory only, cleared on lock, sleep and switch-off. Skipped: what Hytte copied itself, anything an app marked private (password managers), programs in `ignore_apps` (KeePass, KeePassXC, 1Password, Bitwarden), and text `secrets::mask` would change.
+- **A text history** (`[clipboard] history`) under the shelf tiles: 20 clips of at most 4 KB, in memory only, cleared on lock, sleep and switch-off, and each clip after `expire_secs` (2 minutes). Hover a clip for **×**; **Clear** forgets all; `clear_when_emptied` (off) follows an emptied clipboard. Skipped: what Hytte copied itself, anything an app marked private (password managers), programs in `ignore_apps` (KeePass, KeePassXC, 1Password, Bitwarden), and text `secrets::mask` would change.
 
 **Reach**
 

@@ -138,6 +138,8 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[panes] agents` | `true` | The Agents pane (coding agents listed apart from terminal tasks). Off: agents list in Tasks. |
 | `[moments] bluetooth` / `privacy` | `true` / `true` | A card when a Bluetooth device connects (with its battery when it reports one) / a 3 s card naming the app that starts using the camera or microphone (not during Focus or quiet hours). Bluetooth starts its watcher the first time it is on. |
 | `[clipboard] history` | `false` | A text history under the shelf tiles: 20 clips, 4 KB each, memory only, cleared on lock, sleep and switch-off; never text `secrets::mask` would change. |
+| `[clipboard] expire_secs` | `120` | Seconds before a clip is forgotten; `0` keeps it until lock, sleep or switch-off. Live. |
+| `[clipboard] clear_when_emptied` | `false` | Forget the whole history when the Windows clipboard is emptied. Live. |
 | `[clipboard] ignore_apps` | `keepass`, `keepassxc`, `1password`, `bitwarden` | Programs whose copies are never kept (exe name, any case, `.exe` optional). |
 | `[[action]] name` / `command` | none | A command a card button (`Label:name`) or a script pane row (`"action": "name"`) may run, hidden, in your home folder. A name is letters, digits, `-` and `_` (40 at most); repeats and empty commands are skipped; 32 actions at most. |
 | `[[action]] confirm` / `timeout` | `false` / `60` | `true`: the first click arms ("Sure?"), the second runs. Seconds until it is stopped with everything it started (1 to 600). |

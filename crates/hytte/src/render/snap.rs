@@ -1910,7 +1910,7 @@ fn clip_snapshots() {
     let mut m = model();
     m.now = Some(now);
     m.panes.shelf = true;
-    m.apply_clipboard(true);
+    m.apply_clipboard(true, 0);
     for t in [
         "cargo test --workspace -- --nocapture",
         "https://github.com/PrathamPai-2007/hytte/releases/tag/v1.7.0",

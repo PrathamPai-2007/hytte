@@ -359,7 +359,7 @@ pub(super) unsafe extern "system" fn wndproc(
         WM_WTSSESSION_CHANGE => {
             // The PC was locked: the clipboard history is forgotten.
             if wparam.0 as u32 == windows::Win32::UI::WindowsAndMessaging::WTS_SESSION_LOCK {
-                with_ui(|ui| ui.model.clips.clear());
+                with_ui(|ui| ui.model.clear_clips());
             }
             return LRESULT(0);
         }
@@ -368,7 +368,7 @@ pub(super) unsafe extern "system" fn wndproc(
             crate::power::poke();
             if wparam.0 as u32 == PBT_APMSUSPEND {
                 // Going to sleep: the clipboard history is forgotten.
-                with_ui(|ui| ui.model.clips.clear());
+                with_ui(|ui| ui.model.clear_clips());
             }
             if wparam.0 as u32 == PBT_APMRESUMEAUTOMATIC {
                 // The foreground may have changed fullscreen state while asleep.
