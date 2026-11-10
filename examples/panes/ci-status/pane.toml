@@ -1,0 +1,7 @@
+name = "CI"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File runs.ps1"
+every = 120
+
+[[action]]
+name = "open"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File open.ps1"

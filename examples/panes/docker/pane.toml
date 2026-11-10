@@ -1,0 +1,10 @@
+name = "Docker"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File containers.ps1"
+every = 60
+
+# Needs one more click ("Sure?") before it runs.
+[[action]]
+name = "restart-unhealthy"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File restart-unhealthy.ps1"
+confirm = true
+timeout = 120

@@ -1,0 +1,8 @@
+name = "My PRs"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File prs.ps1"
+every = 300
+
+# A row's "action" names this one; Hytte calls it github-prs-open.
+[[action]]
+name = "open"
+command = "start https://github.com/pulls"
