@@ -146,6 +146,11 @@ pub enum UiEvent {
     Script(String, crate::scriptpane::Run),
     /// An `[[action]]` finished: its name and how it went.
     ActionDone(String, crate::scriptpane::Run),
+    /// A Bluetooth device connected: its name and battery percentage when it has one.
+    Bluetooth {
+        name: String,
+        battery: Option<u8>,
+    },
     /// The pane packs on disk changed (or were read for the first time).
     Packs(Vec<crate::packs::Pack>),
     /// A newer version exists: its tag and the first line of its notes.

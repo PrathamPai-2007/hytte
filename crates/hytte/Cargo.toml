@@ -12,6 +12,8 @@ path = "src/main.rs"
 hytte-proto = { path = "../proto" }
 windows = { workspace = true }
 windows-core = "0.62.2"
+# The collections the Bluetooth watcher passes to WinRT (already in the tree through `windows`).
+windows-collections = "0.3"
 windows-numerics = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }

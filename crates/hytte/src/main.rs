@@ -12,6 +12,7 @@
 
 mod agents;
 mod animation;
+mod bluetooth;
 mod breaks;
 mod calendar;
 mod cli;
@@ -153,6 +154,7 @@ fn main() {
     calendar::spawn_watcher(cfg.calendar.clone(), ui_tx.clone());
     config::spawn_watcher(ui_tx.clone());
     packs::spawn_watcher(ui_tx.clone());
+    bluetooth::configure(cfg.moments.bluetooth, Some(ui_tx.clone()));
     update::spawn_checker(cfg.general.check_updates, ui_tx.clone());
 
     let (drop_tx, drop_rx) = unbounded::<drop::DropJob>();

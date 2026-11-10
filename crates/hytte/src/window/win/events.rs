@@ -182,9 +182,38 @@ impl Ui {
                 UiEvent::Speaker(_) => {}
                 UiEvent::Power(p) => self.model.set_power(p, now),
                 UiEvent::Privacy(c, m, app) => {
+                    // A brief card when something starts (not when it stops), unless a Focus
+                    // session or quiet hours want silence.
+                    let text = crate::ui_state::privacy_start(
+                        (self.model.cam, self.model.mic),
+                        (c, m),
+                        app.as_deref(),
+                    );
                     self.model.cam = c;
                     self.model.mic = m;
                     self.model.privacy_app = app;
+                    if let Some(text) = text.filter(|_| {
+                        self.cfg.moments.privacy && !self.model.holding() && !self.quiet()
+                    }) {
+                        let mut chip = Chip::new(text, now);
+                        chip.tone = crate::ui_state::Tone::Info;
+                        chip.hold = Duration::from_secs(3);
+                        chip.prio = crate::ui_state::Prio::Alert;
+                        chip.key = Some("privacy".into());
+                        self.model.push_chip(chip, now);
+                    }
+                }
+                UiEvent::Bluetooth { name, battery } => {
+                    if !self.model.holding() && !self.quiet() {
+                        let (text, note) = crate::bluetooth::card_text(&name, battery);
+                        let mut chip = Chip::new(text, now);
+                        chip.note = note;
+                        chip.tone = crate::ui_state::Tone::Info;
+                        chip.hold = Duration::from_secs(5);
+                        chip.prio = crate::ui_state::Prio::Alert;
+                        chip.key = Some(format!("bluetooth:{name}"));
+                        self.model.push_chip(chip, now);
+                    }
                 }
                 UiEvent::DropDone(r) => {
                     self.anim.squash();
@@ -320,6 +349,7 @@ impl Ui {
             || new.general.pill_scale != self.cfg.general.pill_scale;
         let general = new.general != self.cfg.general;
         crate::settings_win::refresh(&new);
+        crate::bluetooth::configure(new.moments.bluetooth, None);
         self.cfg = new;
         self.refresh_panes();
         if hotkey_changed {

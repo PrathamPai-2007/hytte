@@ -139,6 +139,7 @@ dependencies = [
  "toml 0.8.23",
  "toml_edit",
  "windows",
+ "windows-collections",
  "windows-core",
  "windows-numerics",
 ]

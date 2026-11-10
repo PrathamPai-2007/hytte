@@ -61,6 +61,8 @@ windows = { version = "0.62.2", features = [
     "Media_Ocr",
     "UI_ViewManagement",
     "ApplicationModel_Appointments",
+    "Devices_Bluetooth",
+    "Devices_Enumeration",
 ] }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: agent settings files keep their key order when Hytte adds its hooks.

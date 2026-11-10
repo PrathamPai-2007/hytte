@@ -459,6 +459,7 @@ pub struct Config {
     pub downloads: Downloads,
     pub calendar: Calendar,
     pub agent: Agent,
+    pub moments: Moments,
     /// Your own panes (`[[script_pane]]`), fed by a command Hytte runs and/or by
     /// `hytte pane set`. Read through [`Config::script_panes`], which applies the limits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -467,6 +468,25 @@ pub struct Config {
     /// [`Config::named_actions`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub action: Vec<NamedAction>,
+}
+
+/// `[moments]`: short cards for things that happen to the PC.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Moments {
+    /// A card when earbuds, a mouse or another Bluetooth device connects (with its battery when
+    /// it reports one).
+    pub bluetooth: bool,
+    /// A brief card naming the app that starts using the camera or microphone.
+    pub privacy: bool,
+}
+impl Default for Moments {
+    fn default() -> Self {
+        Self {
+            bluetooth: true,
+            privacy: true,
+        }
+    }
 }
 
 /// Most `[[action]]`s Hytte keeps.

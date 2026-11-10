@@ -184,6 +184,8 @@ pub fn help(key: &str) -> &'static str {
         "panes.tasks" => "Shows terminal tasks and dev servers in the tab strip.",
         "panes.timer" => "Shows the Timer pane while a timer runs.",
         "panes.power" => "Shows the Battery pane when the PC has a battery.",
+        "moments.bluetooth" => "A short card with the name (and battery, if it reports one) when earbuds, a mouse or a keyboard connects.",
+        "moments.privacy" => "A three-second card naming the app that starts using the camera or microphone. Not during Focus or quiet hours.",
         "panes.agents" => "Lists Claude Code, Codex and other coding agents in their own pane, apart from terminal tasks.",
         "panes.notes" => "Shows the Notes pane in the tab strip.",
         "panes.todo" => "Shows the To-do pane in the tab strip.",
@@ -411,6 +413,21 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     "Follow the song live",
                     "media.lyrics_live",
                     c.media.lyrics_live,
+                ),
+            ],
+        },
+        Section {
+            name: "Moments",
+            rows: vec![
+                sw(
+                    "Bluetooth device connects",
+                    "moments.bluetooth",
+                    c.moments.bluetooth,
+                ),
+                sw(
+                    "Camera or microphone starts",
+                    "moments.privacy",
+                    c.moments.privacy,
                 ),
             ],
         },

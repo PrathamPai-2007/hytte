@@ -321,3 +321,34 @@ fn waiting_alerts_go_stale_but_live_cards_do_not() {
     assert!(m.has_card("deploy"));
     assert!(!waiting(&m).contains(&"short"));
 }
+
+#[test]
+fn starting_the_camera_or_mic_says_so_once_and_stopping_says_nothing() {
+    let say = |old, new, app| privacy_start(old, new, app);
+    assert_eq!(
+        say((false, false), (true, false), Some("Zoom")).as_deref(),
+        Some("Camera in use: Zoom")
+    );
+    assert_eq!(
+        say((false, false), (false, true), Some("Teams")).as_deref(),
+        Some("Microphone in use: Teams")
+    );
+    assert_eq!(
+        say((false, false), (true, true), None).as_deref(),
+        Some("Camera and microphone in use")
+    );
+    // The mic joins a call that already has the camera: only the mic is new.
+    assert_eq!(
+        say((true, false), (true, true), Some("Zoom")).as_deref(),
+        Some("Microphone in use: Zoom")
+    );
+    // Stopping, or nothing changing, is silent.
+    assert_eq!(say((true, true), (false, false), Some("Zoom")), None);
+    assert_eq!(say((true, false), (true, false), Some("Zoom")), None);
+    assert_eq!(say((true, true), (true, false), None), None);
+    // A blank app name is left out.
+    assert_eq!(
+        say((false, false), (true, false), Some("  ")).as_deref(),
+        Some("Camera in use")
+    );
+}

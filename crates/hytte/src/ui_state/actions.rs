@@ -12,6 +12,21 @@ pub fn split_action(button: &str, actions: &[String]) -> Option<(String, String)
     (!label.is_empty()).then(|| (label.to_string(), known.clone()))
 }
 
+/// What a change in camera / microphone use says: something only when a device *started* being
+/// used (nothing when one stops or stays on). `app` is the program the registry names.
+pub fn privacy_start(old: (bool, bool), new: (bool, bool), app: Option<&str>) -> Option<String> {
+    let what = match (new.0 && !old.0, new.1 && !old.1) {
+        (true, true) => "Camera and microphone",
+        (true, false) => "Camera",
+        (false, true) => "Microphone",
+        (false, false) => return None,
+    };
+    Some(match app.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(a) => format!("{what} in use: {a}"),
+        None => format!("{what} in use"),
+    })
+}
+
 /// What pressing an action's button leads to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Press {
