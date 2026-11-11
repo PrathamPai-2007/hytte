@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::ollama::Status;
+use crate::ui_state::Warm;
 use crate::ui_state::{
     AiCard, Field, Reply, ASK_FIELD_H, ASK_FOOT_H, ASK_NOTICE_H, REPLY_PAD, REPLY_W,
 };
@@ -100,15 +101,46 @@ impl Renderer {
         if !ready {
             self.ask_notice(fr, w, top);
         } else if r.shown.is_empty() && !r.busy && r.error.is_none() {
+            let (line, sub): (String, Option<String>) = match &m.ask.warm {
+                Warm::Loading => (format!("Loading {}…", m.ask_model()), None),
+                Warm::Loaded => (
+                    format!("{} is loaded.", m.ask_model()),
+                    Some(m.warm_stays()),
+                ),
+                Warm::Failed(e) => ("Couldn't load it.".to_string(), Some(e.clone())),
+                Warm::Idle => (format!("{} answers here, on this PC.", m.ask_model()), None),
+            };
             self.text(
-                &format!("{} answers here, on this PC.", m.ask_model()),
+                &line,
                 &self.f.body,
                 tx,
                 top,
                 w - 32.0,
-                box_h,
+                20.0,
                 self.cc(GRAY, 0.85),
             );
+            if let Some(s) = sub {
+                self.text(
+                    &s,
+                    &self.f.small,
+                    tx,
+                    top + 22.0,
+                    w - 32.0,
+                    16.0,
+                    self.cc(GRAY, 0.7),
+                );
+            }
+            if matches!(m.ask.warm, Warm::Idle | Warm::Failed(_)) {
+                self.button(
+                    "Load model now",
+                    tx,
+                    top + 46.0,
+                    120.0,
+                    24.0,
+                    accent,
+                    Action::AskWarm,
+                );
+            }
         } else if r.shown.is_empty() && r.busy {
             self.dots(tx + 4.0, top + 14.0);
         } else {

@@ -263,6 +263,7 @@ impl Ui {
                 UiEvent::Ollama(s) => self.model.ollama_status(s),
                 UiEvent::Pull(p) => self.model.pull_progress(&p),
                 UiEvent::PullDone(r) => self.model.pull_done(r),
+                UiEvent::Warm(r) => self.model.warm_done(r),
                 UiEvent::Script(name, run) => self.model.script_done(&name, run, now),
                 UiEvent::Packs(packs) => {
                     self.packs = packs;

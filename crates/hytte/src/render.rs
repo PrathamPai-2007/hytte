@@ -181,6 +181,7 @@ pub enum Action {
     AskRetry,
     /// Have Ollama download the model / stop the download.
     AskPull,
+    AskWarm,
     AskPullStop,
     /// A one-click action on a clip, a shelf file or a failed command.
     Ai(crate::ui_state::AiKind, crate::ui_state::AiSource),

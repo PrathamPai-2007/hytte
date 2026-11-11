@@ -169,6 +169,28 @@ impl Ui {
         self.kick();
     }
 
+    /// Load the model now, so the first question doesn't wait for it.
+    pub(super) fn ask_warm(&mut self) {
+        if !self.model.begin_warm() {
+            return;
+        }
+        let (host, model, keep, sh) = (
+            self.model.ai.host.clone(),
+            self.model.ai.model.clone(),
+            self.model.ai.keep_alive.clone(),
+            self.shared.clone(),
+        );
+        std::thread::spawn(move || {
+            crate::proc::eco_thread();
+            push_event(
+                &sh,
+                UiEvent::Warm(crate::ollama::warm(&host, &model, &keep)),
+            );
+        });
+        self.layout();
+        self.kick();
+    }
+
     pub(super) fn ask_pull_stop(&mut self) {
         self.pull_cancel.store(true, Ordering::Relaxed);
     }

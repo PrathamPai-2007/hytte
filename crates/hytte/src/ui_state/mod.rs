@@ -175,6 +175,7 @@ pub enum UiEvent {
     /// Progress of the model download.
     Pull(crate::ollama::Pull),
     PullDone(Result<(), String>),
+    Warm(Result<(), String>),
 }
 
 /// Keep the PC (and its screen) awake.

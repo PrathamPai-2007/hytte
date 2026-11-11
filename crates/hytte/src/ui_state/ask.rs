@@ -210,6 +210,17 @@ pub struct AskView {
     /// Ollama's download of the model, while one runs.
     pub pull: Option<PullBar>,
     pub pull_err: Option<String>,
+    pub warm: Warm,
+}
+
+/// Loading the model into memory ahead of the first question.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Warm {
+    #[default]
+    Idle,
+    Loading,
+    Loaded,
+    Failed(String),
 }
 
 /// The card an action's answer shows in.
@@ -244,6 +255,7 @@ impl Model {
         }
         // A different address or model: look again when the pane opens.
         self.ask.status = Status::Unknown;
+        self.ask.warm = Warm::Idle;
     }
 
     /// The Ask pane is in the tab strip.
@@ -441,6 +453,30 @@ impl Model {
         }
     }
 
+    /// Start loading the model; false when one is loading already or Ollama can't answer.
+    pub fn begin_warm(&mut self) -> bool {
+        if self.ask.status != Status::Ready || self.ask.warm == Warm::Loading {
+            return false;
+        }
+        self.ask.warm = Warm::Loading;
+        true
+    }
+
+    pub fn warm_done(&mut self, r: Result<(), String>) {
+        self.ask.warm = match r {
+            Ok(()) => Warm::Loaded,
+            Err(e) => Warm::Failed(e),
+        };
+    }
+
+    /// How long the loaded model stays, in words (`[ai] keep_alive`: "2m", "-1" for always).
+    pub fn warm_stays(&self) -> String {
+        match self.ai.keep_alive.as_str() {
+            "-1" => "It stays loaded.".into(),
+            k => format!("Ollama frees it after {k} unused."),
+        }
+    }
+
     /// The text of clip `i`, for an action on it.
     pub fn clip_text(&self, i: usize) -> Option<String> {
         self.clips.get(i).map(str::to_string)
@@ -515,6 +551,25 @@ mod tests {
         m.ai.keep_alive = "2m".into();
         m.ask.status = Status::Ready;
         m
+    }
+
+    #[test]
+    fn loading_the_model_early_runs_once_and_says_when_it_goes() {
+        let mut m = ready();
+        assert!(m.begin_warm());
+        assert!(!m.begin_warm());
+        m.warm_done(Ok(()));
+        assert_eq!(m.ask.warm, Warm::Loaded);
+        assert_eq!(m.warm_stays(), "Ollama frees it after 2m unused.");
+        m.ai.keep_alive = "-1".into();
+        assert_eq!(m.warm_stays(), "It stays loaded.");
+        m.warm_done(Err("boom".into()));
+        assert!(m.begin_warm());
+        // A changed model or address forgets it was loaded; no Ollama, no loading.
+        m.apply_ai(&m.ai.clone());
+        assert_eq!(m.ask.warm, Warm::Idle);
+        m.ask.status = Status::NotRunning;
+        assert!(!m.begin_warm());
     }
 
     #[test]

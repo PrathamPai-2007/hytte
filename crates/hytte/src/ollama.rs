@@ -377,6 +377,30 @@ pub fn ask(
     }
 }
 
+/// Load `model` into memory without asking anything (a `/api/generate` with no prompt), so the
+/// first real question skips the load. Ollama frees it `keep_alive` after the last request.
+pub fn warm(host: &str, model: &str, keep_alive: &str) -> Result<(), String> {
+    let body = json!({ "model": model, "keep_alive": keep_alive, "stream": false }).to_string();
+    let mut r: Option<Result<(), String>> = None;
+    stream(
+        host,
+        "/api/generate",
+        &body,
+        300,
+        &AtomicBool::new(false),
+        |l| {
+            let v: Value = serde_json::from_str(l.trim()).unwrap_or(Value::Null);
+            r = match v.get("error").and_then(Value::as_str) {
+                Some(e) => Some(Err(e.to_string())),
+                None if v.get("done").and_then(Value::as_bool) == Some(true) => Some(Ok(())),
+                None => None,
+            };
+            r.is_none()
+        },
+    )?;
+    r.unwrap_or_else(|| Err("Ollama stopped before the model was loaded".into()))
+}
+
 /// Download `model` through Ollama; `on_progress` gets (bytes done, bytes total) of the layer being
 /// fetched. Returns when it is complete or `cancel` is set (Ollama keeps what it has).
 pub fn pull(
@@ -717,6 +741,24 @@ mod tests {
         );
         assert!(pull(&host, "m", &AtomicBool::new(false), |_| {}).is_err());
     }
+    #[test]
+    #[cfg(windows)]
+    fn warming_loads_with_no_prompt_and_reports_errors() {
+        let (host, server) = serve(
+            vec![r#"{"model":"m","done":true,"done_reason":"load"}"#.to_string()],
+            Duration::from_millis(1),
+        );
+        assert_eq!(warm(&host, "m", "2m"), Ok(()));
+        let req = server.join().unwrap();
+        assert!(req.starts_with("POST /api/generate"));
+        assert!(req.contains(r#""keep_alive":"2m""#) && !req.contains("prompt"));
+        let (host, _s) = serve(
+            vec![r#"{"error":"model 'm' not found"}"#.to_string()],
+            Duration::from_millis(1),
+        );
+        assert_eq!(warm(&host, "m", "2m"), Err("model 'm' not found".into()));
+    }
+
     #[test]
     #[cfg(windows)]
     fn nothing_listening_means_not_running() {
