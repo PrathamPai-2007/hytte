@@ -69,7 +69,7 @@ pub(super) fn focus_timer() -> crate::timer::Timer {
 
 /// A model showing only the panes that exist without Notes, To-do and Weather.
 fn no_extra_panes() -> Model {
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.panes = crate::config::Panes {
         notes: false,
         todo: false,

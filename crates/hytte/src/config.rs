@@ -254,7 +254,7 @@ impl Default for Clipboard {
 }
 
 /// `[ai]`: ask a small model running in your own Ollama, and one-click Explain / Summarise /
-/// Shorten on a clip, a shelf file or a failed command. Off unless switched on. Only this PC's
+/// Shorten on a clip, a shelf file or a failed command. On by default, but it only looks for Ollama when its tab is opened. Only this PC's
 /// Ollama is ever contacted (`host` must be loopback); nothing is written to disk.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -272,7 +272,7 @@ pub struct Ai {
 impl Default for Ai {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             host: crate::ollama::DEFAULT_HOST.into(),
             model: crate::ollama::DEFAULT_MODEL.into(),
             keep_alive: "2m".into(),

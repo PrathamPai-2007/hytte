@@ -193,7 +193,7 @@ pub fn help(key: &str) -> &'static str {
         "panes.todo" => "Shows the To-do pane in the tab strip.",
         "panes.weather" => "Shows the Weather pane in the tab strip.",
         "panes.ask" => "Shows the Ask pane in the tab strip. It appears only while Ask is switched on under Ask (local AI).",
-        "ai.enabled" => "Ask a small model that runs on your own PC through Ollama, and use Explain, Summarise and Shorten on a clip, a shelf file or a failed command. Off by default. Nothing leaves this PC: only Ollama on this machine is contacted, and nothing is written to disk. Install Ollama from ollama.com; Hytte can have it download the model.",
+        "ai.enabled" => "Ask a small model that runs on your own PC through Ollama, and use Explain, Summarise and Shorten on a clip, a shelf file or a failed command. On by default, and quiet until you open the tab. Nothing leaves this PC: only Ollama on this machine is contacted, and nothing is written to disk. Install Ollama from ollama.com; Hytte can have it download the model.",
         "ai.model" => "Which model answers. qwen3:1.7b is small (1.4 GB) and good enough to explain an error; qwen3:0.6b is smaller and weaker. Custom: any model you have pulled (gemma3:1b, llama3.2 and so on), in config.toml under [ai] model.",
         "ai.keep_alive" => "How long Ollama keeps the model in memory after a question. Shorter frees memory sooner; longer answers the next question faster.",
         "timer.sound" => "Plays a short chime when a timer or focus round ends.",

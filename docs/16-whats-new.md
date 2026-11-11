@@ -6,7 +6,7 @@ What changed in each version, newest first. Each version ends with a short note 
 
 The local AI and honest cockpit release.
 
-**Ask** (`[ai]`, off by default)
+**Ask** (`[ai]`, on, and quiet until you open its tab)
 
 - **An Ask pane.** One question, one answer, from a small model running in your own [Ollama](https://ollama.com). The answer streams into a box that wraps and scrolls inside the pill; there is no chat and no history, and nothing is written to disk. The default model is `qwen3:1.7b` (1.4 GB); **Get it** has your Ollama download it, with a progress bar. Settings offers `qwen3:0.6b` too, and `[ai] model` takes anything else you have pulled (`gemma3:1b`, `llama3.2`).
 - **Load model now, Unload now, and a memory warning.** Load the model before the first question, or free it at once; Ollama frees it by itself after `[ai] keep_alive`. If the model is bigger than the free RAM, the pane says so and offers **Run anyway** or **Cancel** before loading it.

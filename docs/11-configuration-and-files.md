@@ -124,7 +124,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[ports] show_all` / `poll_secs` | `false` / `5` | Show every non-system listener / rescan interval (min 1; opening the pill always rescans). |
 | `[agent] peek_secs` / `sound` | `6` / `true` | How long the pill peeks when a task needs input / play the asterisk sound on `NeedsInput`. |
 | `[agent] quiet_after_secs` | `300` | A working agent (with a live process) that has reported nothing for this long shows a grey "quiet 6m" in the Agents pane. A label only: no sound, no alert. `0` = never. Live. |
-| `[ai] enabled` | `false` | The Ask pane and the Explain / Summarise / Shorten actions ([manual 9](../manual/09-ask.md)). Off forgets the answers. Live. |
+| `[ai] enabled` | `true` | The Ask pane and the Explain / Summarise / Shorten actions ([manual 9](../manual/09-ask.md)). Off removes the tab and forgets the answers. Nothing contacts Ollama until the Ask tab is opened. Live. |
 | `[ai] host` | `127.0.0.1:11434` | Where Ollama listens. Must be this PC (`127.0.0.1`, `localhost`, `[::1]`, optional port); anything else is refused ([section 9](09-workers.md#ask-ollamars-ai)). Live. |
 | `[ai] model` | `qwen3:1.7b` | The model asked (the 1.4 GB default; Settings offers it and `qwen3:0.6b`; any other pulled model works, set here). Live. |
 | `[ai] keep_alive` | `2m` | How long Ollama keeps the model loaded after a question (`1m`, `10m` ...). Live. |

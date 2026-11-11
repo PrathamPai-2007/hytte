@@ -55,7 +55,7 @@ When adding a feature, don't add a row here without good reason.
 | Config watcher | on a file change in `%APPDATA%\Hytte` | Reads `config.toml`; `shelf.json` / `timer.json` writes also wake it. |
 | Task registry | every 5 s **only while tasks exist** | Checks owner liveness. |
 | Clipboard listener | on a clipboard change | Looks at the owner first, so other apps' copies cost at most a process-name lookup. |
-| Ask (`[ai]`, off by default) | only while a question is being answered or a model downloads | One worker thread and one `curl.exe` per request; the pill draws at the frame rate while the dots show and text streams in, and idles when the answer ends. The model's memory is Ollama's, freed `keep_alive` after the last question. |
+| Ask (`[ai]`) | only while a question is being answered or a model downloads | One worker thread and one `curl.exe` per request; the pill draws at the frame rate while the dots show and text streams in, and idles when the answer ends. The model's memory is Ollama's, freed `keep_alive` after the last question. |
 | Screenshot timer (`T_SHOT`) | 1 s while a screenshot is on the shelf with `screenshot_secs` set; 60 ms for ≤ 10 min after each screenshot while `delete_after_paste` waits for a Ctrl+V | Never runs without a screenshot. |
 | Settings window | 60 Hz **only while something eases** | Nothing runs while closed. |
 | Text caret (`T_CARET`) | 530 ms, **only while a text field has focus** | One small redraw per blink; stops when typing ends. |

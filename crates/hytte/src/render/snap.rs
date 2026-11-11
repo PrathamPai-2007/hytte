@@ -311,6 +311,10 @@ fn model() -> Model {
     Model {
         glow_gain: 1.2,
         body_alpha: 1.0,
+        ai: crate::config::Ai {
+            enabled: false,
+            ..Default::default()
+        },
         ..Default::default()
     }
 }

@@ -42,7 +42,7 @@ fn panes_follow_the_users_order_and_moves_are_clamped() {
     let first = Panel::ALL[0].key();
     assert_eq!(move_pane("", first, -1), move_pane("", first, 0));
     // The strip uses the order, for the panes that exist.
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.panes.order = "weather,notes,home".into();
     assert_eq!(
         m.panels(),
@@ -52,7 +52,7 @@ fn panes_follow_the_users_order_and_moves_are_clamped() {
 
 #[test]
 fn every_pane_but_the_quick_controls_can_be_switched_off() {
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.panes = crate::config::Panes {
         notes: false,
         todo: false,
@@ -78,7 +78,7 @@ fn wider_search_is_offered_only_for_an_empty_answer_and_cached() {
         lat: 13.5,
         lon: 80.0,
     };
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.choosing = true;
     m.place_edit.set("sri city");
     assert!(!m.offer_wide(), "nothing has been searched yet");
@@ -108,7 +108,7 @@ fn wider_search_is_offered_only_for_an_empty_answer_and_cached() {
     m.places_result("sri city".into(), Ok(vec![place("Sri City")]));
     assert!(!m.offer_wide());
     // Nothing found by the wider search either: no offer, message shows.
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.choosing = true;
     m.place_edit.set("zzzz");
     m.places_result("zzzz".into(), Ok(vec![]));
@@ -149,7 +149,7 @@ fn answers_wait_out_the_click_guard() {
 #[test]
 fn restart_is_offered_only_for_a_tracked_runnable_command() {
     let t0 = Instant::now();
-    let mut m = Model::default();
+    let mut m = Model::bare();
     let port = PortInfo {
         port: 3000,
         pid: 500,
@@ -280,7 +280,7 @@ fn noisy_fast_swipe_pages_once() {
 
 #[test]
 fn notes_todo_and_weather_follow_home_and_can_be_switched_off() {
-    let mut m = Model::default();
+    let mut m = Model::bare();
     assert_eq!(
         m.panels(),
         vec![Panel::Home, Panel::Notes, Panel::Todo, Panel::Weather]
@@ -314,7 +314,7 @@ fn notes_todo_and_weather_follow_home_and_can_be_switched_off() {
 
 #[test]
 fn notes_are_added_edited_deleted_and_undone() {
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.note_edit.set("  buy milk ");
     assert!(m.submit_jot(Field::Note));
     assert!(m.note_edit.is_empty(), "the field clears");
@@ -349,7 +349,7 @@ fn notes_are_added_edited_deleted_and_undone() {
 
 #[test]
 fn a_draft_survives_leaving_the_field_and_wheel_scrolls_only_long_lists() {
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.note_edit.set("half a thought");
     m.typing = Some(Field::Note);
     m.end_typing();
@@ -369,7 +369,7 @@ fn a_draft_survives_leaving_the_field_and_wheel_scrolls_only_long_lists() {
 
 #[test]
 fn temporary_notes_set_the_next_deadline() {
-    let mut m = Model::default();
+    let mut m = Model::bare();
     let t0 = Instant::now();
     assert_eq!(m.expire(t0), None);
     m.jot.add(
@@ -443,7 +443,7 @@ fn wheel_steps_and_wraps() {
 #[test]
 fn drop_breaks_through_fullscreen_suppression() {
     let t0 = Instant::now();
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.now = Some(t0);
     assert_eq!(m.scene(false, true), Scene::Sentinel);
     m.drop_over = true;
@@ -565,7 +565,7 @@ fn a_clip_can_be_deleted_cleared_and_expires() {
 #[test]
 fn a_failed_command_with_output_can_be_explained() {
     let t0 = Instant::now();
-    let mut m = Model::default();
+    let mut m = Model::bare();
     m.apply_ai(&crate::config::Ai {
         enabled: true,
         ..Default::default()

@@ -643,7 +643,7 @@ mod tests {
     }
 
     fn ready() -> Model {
-        let mut m = Model::default();
+        let mut m = Model::bare();
         m.ai.enabled = true;
         m.ai.model = "qwen3:1.7b".into();
         m.ai.host = "127.0.0.1:11434".into();
@@ -823,7 +823,7 @@ mod scene_tests {
     use super::*;
 
     fn on() -> Model {
-        let mut m = Model::default();
+        let mut m = Model::bare();
         m.panes = crate::config::Panes::default();
         m.apply_ai(&crate::config::Ai {
             enabled: true,
@@ -839,9 +839,12 @@ mod scene_tests {
         m.panes.ask = false;
         assert!(!m.panels().contains(&Panel::Ask));
         m.panes.ask = true;
-        let off = crate::config::Ai::default();
+        let off = crate::config::Ai {
+            enabled: false,
+            ..Default::default()
+        };
         m.apply_ai(&off);
-        assert!(!m.panels().contains(&Panel::Ask), "off by default");
+        assert!(!m.panels().contains(&Panel::Ask), "switched off");
         assert_eq!(Panel::from_key("ask"), Some(Panel::Ask));
         assert_eq!(Panel::from_name("Ask"), Some(Panel::Ask));
     }
@@ -911,7 +914,10 @@ mod scene_tests {
         assert_eq!(m.clip_ai_row(), None, "indexes moved: closed");
         // Off: no chips even if one was open.
         m.toggle_clip_ai(0);
-        let off = crate::config::Ai::default();
+        let off = crate::config::Ai {
+            enabled: false,
+            ..Default::default()
+        };
         m.apply_ai(&off);
         assert_eq!(m.clip_ai_row(), None);
         assert_eq!(
@@ -934,7 +940,10 @@ mod scene_tests {
         assert!(labels(&m, "build.log").contains(&"Explain"));
         assert!(!labels(&m, "photo.png").contains(&"Explain"));
         assert!(!labels(&m, "movie.mkv").contains(&"Summarise"));
-        let off = crate::config::Ai::default();
+        let off = crate::config::Ai {
+            enabled: false,
+            ..Default::default()
+        };
         m.apply_ai(&off);
         assert!(!labels(&m, "notes.md").contains(&"Summarise"));
     }

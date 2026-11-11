@@ -27,7 +27,7 @@ It never steals focus, idles at about 0.2 % CPU, and uses under 25 MB of RAM. It
 - **Live cards from your scripts:** progress, icons and buttons, and `--wait` to ask a question and get the answer back.
 - **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts.
 - **Notes, a to-do list and the weather**, typed straight into the pill.
-- **Asks a small AI model on your own PC** (through Ollama, off by default): one question, one answer, plus Explain, Summarise and Shorten on a clip, a file or a failed command. Nothing leaves your machine.
+- **Asks a small AI model on your own PC** (through Ollama, which you install yourself): one question, one answer, plus Explain, Summarise and Shorten on a clip, a file or a failed command. Nothing leaves your machine.
 - **Break reminders** for your eyes, your back and your water bottle.
 - **Alerts** for downloads, runaway CPU or memory, your next meeting, camera and microphone use, and battery.
 - **Gets out of the way** of games and fullscreen apps, and can stay out of screenshots and screen shares.

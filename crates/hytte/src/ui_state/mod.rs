@@ -401,6 +401,21 @@ pub struct Model {
     pub nudge: Option<Nudge>,
 }
 
+#[cfg(test)]
+impl Model {
+    /// A model without the Ask pane, which the shipped config now has on: for fixtures that
+    /// count panes.
+    pub fn bare() -> Self {
+        Self {
+            ai: crate::config::Ai {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// A break reminder on screen.
 #[derive(Debug, Clone, Copy)]
 pub struct Nudge {
