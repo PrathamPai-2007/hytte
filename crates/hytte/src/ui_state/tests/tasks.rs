@@ -502,3 +502,94 @@ fn a_project_is_the_last_folder_of_the_path() {
     assert_eq!(project_of(&t(Some(r"C:\"))), None);
     assert_eq!(project_of(&t(None)), None);
 }
+
+#[test]
+fn an_agents_turn_is_timed_from_its_prompt_and_starts_over_with_the_next_one() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.finish_peek = Duration::from_secs(6);
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    m.apply_task(
+        agent_update(TaskEvent::Resumed, None, Default::default(), at(0)),
+        at(0),
+    );
+    // Work, then a question: answering it does not restart the clock.
+    m.apply_task(
+        agent_update(TaskEvent::Progress, None, Default::default(), at(60)),
+        at(60),
+    );
+    m.apply_task(
+        agent_update(
+            TaskEvent::NeedsInput,
+            Some("ok?"),
+            Default::default(),
+            at(120),
+        ),
+        at(120),
+    );
+    m.apply_task(
+        agent_update(TaskEvent::Resumed, None, Default::default(), at(180)),
+        at(180),
+    );
+    assert_eq!(m.tasks[0].started, at(0));
+    // It finishes: the row keeps how long it ran, and the card says so.
+    m.apply_task(
+        agent_update(
+            TaskEvent::Done,
+            Some("All done."),
+            Default::default(),
+            at(500),
+        ),
+        at(500),
+    );
+    assert_eq!(m.tasks[0].duration_ms, Some(500_000));
+    let note = m.chip.as_ref().unwrap().note.clone().unwrap();
+    assert!(note.starts_with("Ran 8 min"), "{note}");
+    // The row is still there (you were away): the next prompt is a new turn with its own clock.
+    m.apply_task(
+        agent_update(TaskEvent::Resumed, None, Default::default(), at(2000)),
+        at(2000),
+    );
+    assert_eq!(m.tasks[0].started, at(2000));
+    assert_eq!(m.tasks[0].event, TaskEvent::Resumed);
+}
+
+#[test]
+fn a_working_agent_goes_quiet_after_a_while_and_any_news_clears_it() {
+    let t0 = Instant::now();
+    let after = Duration::from_secs(300);
+    let mut m = Model::default();
+    m.apply_task(
+        agent_update(TaskEvent::Resumed, None, Default::default(), t0),
+        t0,
+    );
+    let quiet = |m: &Model, s: u64| m.tasks[0].quiet_for(t0 + Duration::from_secs(s), after);
+    assert_eq!(quiet(&m, 299), None);
+    assert_eq!(quiet(&m, 360), Some(Duration::from_secs(360)));
+    // Any hook report is news.
+    let t1 = t0 + Duration::from_secs(400);
+    m.apply_task(
+        agent_update(TaskEvent::Progress, None, Default::default(), t1),
+        t1,
+    );
+    assert_eq!(
+        m.tasks[0].quiet_for(t1 + Duration::from_secs(10), after),
+        None
+    );
+    // Off at zero; not for a waiting agent; not for one with no process.
+    let far = t1 + Duration::from_secs(9000);
+    assert_eq!(m.tasks[0].quiet_for(far, Duration::ZERO), None);
+    m.tasks[0].pid = None;
+    assert_eq!(m.tasks[0].quiet_for(far, after), None);
+    m.tasks[0].pid = Some(7);
+    m.tasks[0].event = TaskEvent::NeedsInput;
+    assert_eq!(m.tasks[0].quiet_for(far, after), None);
+    assert_eq!(
+        crate::ui_state::quiet_text(Duration::from_secs(360)),
+        "quiet 6m"
+    );
+    assert_eq!(
+        crate::ui_state::quiet_text(Duration::from_secs(7300)),
+        "quiet 2h"
+    );
+}

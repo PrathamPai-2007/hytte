@@ -283,6 +283,8 @@ pub struct Model {
     pub pinned: bool,
     /// `[general] task_rows`: how many rows show before the list scrolls (0 = the default, 4).
     pub task_rows: usize,
+    /// `[agent] quiet_after_secs`: a working agent silent this long is labelled quiet (zero: never).
+    pub agent_quiet: Duration,
     pub shelf: Vec<ShelfItem>,
     pub shelf_sel: Option<u64>,
     /// First shelf tile in view when there are more than `SHELF_VISIBLE`.

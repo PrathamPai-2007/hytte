@@ -166,16 +166,20 @@ impl Model {
         let mut agent = existing
             .map(|i| self.tasks[i].agent.clone())
             .unwrap_or_default();
-        if s.event == TaskEvent::Start
+        let fresh = s.event == TaskEvent::Start
             || existing.is_some_and(|i| {
                 matches!(
                     self.tasks[i].event,
                     TaskEvent::Done | TaskEvent::Failed | TaskEvent::Lost
                 )
-            })
-        {
+            });
+        if fresh {
             agent = AgentStats::default();
         }
+        // How long this agent turn ran (for the finished card and row).
+        let ran = (s.source == "agent" && s.event == TaskEvent::Done)
+            .then(|| existing.map(|i| now.saturating_duration_since(self.tasks[i].started)))
+            .flatten();
         agent.take(s.agent.clone());
         // An agent's turn ended with a reply: its first line on a card for the "Open on
         // finish" time, Copy takes all of it. A pending ask or warning (amber) keeps the card.
@@ -198,7 +202,7 @@ impl Model {
                 self.chip.as_ref().is_some_and(|c| c.tone == Tone::Warn),
             ) {
                 let mut c = Chip::new(format!("{}: {first}", s.label), now);
-                c.note = agent.line();
+                c.note = ran_note(ran, agent.line());
                 c.copy = Some(msg.to_string());
                 c.hold = self.finish_peek;
                 c.prio = Prio::Alert;
@@ -240,9 +244,15 @@ impl Model {
             if !s.label.is_empty() {
                 t.label = s.label;
             }
+            // A new turn of an agent whose row was still there (it finished, or you were away):
+            // its clock starts over. A prompt that follows a question keeps counting.
+            if fresh && s.source == "agent" && s.event != TaskEvent::Done {
+                t.started = now;
+            }
             t.event = s.event;
             t.progress = s.progress.or(t.progress);
-            t.duration_ms = s.duration_ms;
+            // An agent's hook doesn't time its turn: Hytte does.
+            t.duration_ms = s.duration_ms.or(ran.map(|d| d.as_millis() as u64));
             t.exit_code = s.exit_code;
             t.stderr = stderr;
             t.attention = attention;

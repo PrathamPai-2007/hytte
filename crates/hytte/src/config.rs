@@ -361,12 +361,16 @@ impl Default for Hog {
 pub struct Agent {
     pub peek_secs: u64,
     pub sound: bool,
+    /// A working agent that has said nothing for this long shows "quiet" (0 = never). A label
+    /// only: no sound, no alert.
+    pub quiet_after_secs: u64,
 }
 impl Default for Agent {
     fn default() -> Self {
         Self {
             peek_secs: 6,
             sound: true,
+            quiet_after_secs: 300,
         }
     }
 }

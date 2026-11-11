@@ -355,6 +355,7 @@ impl Ui {
         self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
         self.model.body_alpha = new.general.pill_opacity.clamp(0.4, 1.0);
         self.model.task_rows = new.general.task_rows;
+        self.model.agent_quiet = Duration::from_secs(new.agent.quiet_after_secs);
         self.model.pin_button = new.general.pin_button;
         if !new.general.pin_button {
             self.model.pinned = false;

@@ -80,7 +80,14 @@ pub fn exit_code(lines: &[Line]) -> i32 {
 pub fn agent_line(name: &str, state: crate::agents::State) -> Line {
     use crate::agents::State::*;
     match state {
+        Connected if name == "Codex" => {
+            Line::ok("Codex: connected (type /hooks in Codex once to approve them, if you haven't)")
+        }
         Connected => Line::ok(format!("{name}: connected")),
+        Unreadable => Line::warn(
+            format!("{name}: its settings file isn't plain JSON, so Hytte left it alone"),
+            "remove the comments or trailing commas in it, then run `hytte setup agents`",
+        ),
         NotConnected => Line::warn(
             format!("{name}: installed but not connected"),
             "run `hytte setup agents`",
@@ -222,5 +229,29 @@ mod tests {
         let stale = agent_line("Cursor", State::Stale);
         assert_eq!(stale.level, Level::Fail);
         assert!(stale.fix.unwrap().contains("hytte setup agents"));
+    }
+}
+
+#[cfg(test)]
+mod agent_health_tests {
+    use super::*;
+    use crate::agents::State;
+
+    #[test]
+    fn an_unreadable_settings_file_is_a_warning_with_the_fix() {
+        let l = agent_line("Gemini CLI", State::Unreadable);
+        assert_eq!(l.level, Level::Warn);
+        assert!(l.what.contains("isn't plain JSON"));
+        assert!(l.fix.unwrap().contains("hytte setup agents"));
+    }
+
+    #[test]
+    fn codex_is_reminded_to_approve_its_hooks() {
+        let l = agent_line("Codex", State::Connected);
+        assert_eq!(l.level, Level::Ok);
+        assert!(l.what.contains("/hooks"));
+        assert!(!agent_line("Claude Code", State::Connected)
+            .what
+            .contains("/hooks"));
     }
 }

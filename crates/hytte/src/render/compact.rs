@@ -281,13 +281,19 @@ impl Renderer {
         let mut right = w - 14.0 - pad_r;
         let n = m.visible_count();
         if n > 1 {
+            // The count turns amber while any of them waits for you.
+            let waiting_any = m.waiting_count() > 0;
             self.fill_rr(
                 right - 20.0,
                 h / 2.0 - 9.0,
                 20.0,
                 16.0,
                 8.0,
-                self.cc(self.fg(), 0.14),
+                if waiting_any {
+                    self.cc(AMBER, 0.30)
+                } else {
+                    self.cc(self.fg(), 0.14)
+                },
             );
             self.text(
                 &n.to_string(),
@@ -300,7 +306,12 @@ impl Renderer {
             );
             right -= 28.0;
         }
-        let rt = self.task_right_text(t, now);
+        // Several agents waiting on you: the pill says how many, not just the first one.
+        let waiting = m.waiting_count();
+        let rt = match (t.needs_input(), crate::ui_state::waiting_text(waiting)) {
+            (true, Some(w)) => w,
+            _ => self.task_right_text(t, now),
+        };
         let rw = 62.0;
         self.text(
             &rt,

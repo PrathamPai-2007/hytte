@@ -683,6 +683,7 @@ pub fn run_windows(
         ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
         ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
         ui.model.task_rows = ui.cfg.general.task_rows;
+        ui.model.agent_quiet = Duration::from_secs(ui.cfg.agent.quiet_after_secs);
         ui.model.pin_button = ui.cfg.general.pin_button;
         ui.breaks.configure(break_minutes(&ui.cfg), Instant::now());
         ui.model.lyrics_on = ui.cfg.media.lyrics;

@@ -680,7 +680,6 @@ mod tests {
         );
     }
 
-
     #[test]
     #[cfg(windows)]
     fn a_pull_reports_progress_and_ends_on_success() {
@@ -692,7 +691,9 @@ mod tests {
         ];
         let (host, server) = serve(lines, Duration::from_millis(2));
         let mut bar = PullBar::default();
-        let r = pull(&host, "qwen3:1.7b", &AtomicBool::new(false), |p| bar.update(p));
+        let r = pull(&host, "qwen3:1.7b", &AtomicBool::new(false), |p| {
+            bar.update(p)
+        });
         assert_eq!(r, Ok(()));
         assert_eq!(bar.fraction(), Some(1.0));
         let req = server.join().unwrap();
@@ -762,7 +763,10 @@ fn live_ollama() {
         pieces += 1;
         text.push_str(p);
     });
-    println!("result: {r:?}; {pieces} pieces; first {first:?}; total {:?}", t.elapsed());
+    println!(
+        "result: {r:?}; {pieces} pieces; first {first:?}; total {:?}",
+        t.elapsed()
+    );
     println!("text: {text}");
     assert!(r.is_ok());
     assert!(pieces > 1, "should stream in pieces");

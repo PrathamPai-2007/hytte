@@ -86,14 +86,20 @@ impl Renderer {
                 hov,
             );
             self.hero_end(saved);
+            // No news for a while: say so in grey (a label, not an alert).
+            let quiet = t.quiet_for(now, fr.model.agent_quiet);
+            let (right, rc) = match quiet {
+                Some(q) => (crate::ui_state::quiet_text(q), self.cc(GRAY, 0.9)),
+                None => (self.task_right_text(t, now), self.cc(task_color(t), 0.95)),
+            };
             self.text(
-                &self.task_right_text(t, now),
+                &right,
                 &self.f.small_r,
                 w - 16.0 - close_w - right_w,
                 y + 8.0,
                 right_w,
                 18.0,
-                self.cc(task_color(t), 0.95),
+                rc,
             );
             if finished {
                 let hov = self.hit(

@@ -342,6 +342,26 @@ pub enum State {
     NotConnected,
     /// Our hooks are there, but every one points at a hytte.exe that no longer exists.
     Stale,
+    /// Its settings file isn't plain JSON (comments, a trailing comma), so Hytte leaves it alone.
+    Unreadable,
+}
+
+/// An agent's state from its settings file's text (`None`: no file).
+fn state_of(kind: Kind, text: Option<&str>) -> State {
+    let text = text.unwrap_or("");
+    let exes = our_exes(text);
+    let unreadable = kind != Kind::OpenCode
+        && !text.trim().is_empty()
+        && serde_json::from_str::<Value>(text.trim()).is_err();
+    if exes.is_empty() && unreadable {
+        State::Unreadable
+    } else if exes.is_empty() {
+        State::NotConnected
+    } else if exes.iter().all(|e| !Path::new(e).is_file()) {
+        State::Stale
+    } else {
+        State::Connected
+    }
 }
 
 /// Each installed agent and its state.
@@ -349,17 +369,8 @@ pub fn status() -> Vec<(&'static str, State)> {
     targets()
         .iter()
         .map(|t| {
-            let exes = std::fs::read_to_string(&t.path)
-                .map(|s| our_exes(&s))
-                .unwrap_or_default();
-            let state = if exes.is_empty() {
-                State::NotConnected
-            } else if exes.iter().all(|e| !Path::new(e).is_file()) {
-                State::Stale
-            } else {
-                State::Connected
-            };
-            (t.name, state)
+            let text = std::fs::read_to_string(&t.path).ok();
+            (t.name, state_of(t.kind, text.as_deref()))
         })
         .collect()
 }
@@ -561,5 +572,28 @@ mod tests {
             exe_cmd(Path::new(r"C:\My Apps\hytte.exe")),
             "\"C:/My Apps/hytte.exe\""
         );
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    #[test]
+    fn a_settings_file_that_isnt_plain_json_is_unreadable_not_just_unconnected() {
+        let commented = "{\n  // my hooks\n  \"hooks\": {}\n}";
+        assert_eq!(state_of(Kind::Gemini, Some(commented)), State::Unreadable);
+        assert_eq!(state_of(Kind::Claude, Some("{ nope")), State::Unreadable);
+        // Missing, empty or plain: simply not connected. OpenCode's plugin is JavaScript.
+        assert_eq!(state_of(Kind::Claude, None), State::NotConnected);
+        assert_eq!(state_of(Kind::Claude, Some("  ")), State::NotConnected);
+        assert_eq!(state_of(Kind::Claude, Some("{}")), State::NotConnected);
+        assert_eq!(
+            state_of(Kind::OpenCode, Some("export const X = 1; // js")),
+            State::NotConnected
+        );
+        // Our hooks pointing at an exe that is gone.
+        let ours = r#"{"hooks":{"Stop":[{"hooks":[{"command":"Z:/gone/hytte.exe agent done --name X"}]}]}}"#;
+        assert_eq!(state_of(Kind::Claude, Some(ours)), State::Stale);
     }
 }

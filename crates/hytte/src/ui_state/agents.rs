@@ -189,3 +189,104 @@ impl Model {
         }
     }
 }
+
+/// How long an agent turn ran, in words: "42 s", "8 min", "1 h 05 min".
+pub fn ran_text(d: Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0..60 => format!("{s} s"),
+        60..3600 => format!("{} min", s / 60),
+        _ => format!("{} h {:02} min", s / 3600, s % 3600 / 60),
+    }
+}
+
+/// The quiet line of a finished turn's card: "Ran 8 min · Edited 4 files · 84k context". A turn
+/// under ten seconds says nothing about its length.
+pub fn ran_note(ran: Option<Duration>, rest: Option<String>) -> Option<String> {
+    let ran = ran
+        .filter(|d| d.as_secs() >= 10)
+        .map(|d| format!("Ran {}", ran_text(d)));
+    match (ran, rest) {
+        (Some(a), Some(b)) => Some(format!("{a} · {b}")),
+        (a, b) => a.or(b),
+    }
+}
+
+/// The label of a quiet agent: "quiet 6m", "quiet 2h". Short, so it fits where the time goes.
+pub fn quiet_text(q: Duration) -> String {
+    let m = q.as_secs() / 60;
+    if m < 60 {
+        format!("quiet {m}m")
+    } else {
+        format!("quiet {}h", m / 60)
+    }
+}
+
+impl TaskView {
+    /// How long a working agent has said nothing, once that is past `after` (zero = never).
+    /// Only an agent with a known process: without one it would just be gone. It is a label,
+    /// not an alarm: a long model call or a long test run is normal.
+    pub fn quiet_for(&self, now: Instant, after: Duration) -> Option<Duration> {
+        if after.is_zero() || !self.is_agent() || !self.running() || self.pid.is_none() {
+            return None;
+        }
+        let q = now.saturating_duration_since(self.changed);
+        (q >= after).then_some(q)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_turn_is_timed_in_words() {
+        assert_eq!(ran_text(Duration::from_secs(42)), "42 s");
+        assert_eq!(ran_text(Duration::from_secs(60)), "1 min");
+        assert_eq!(ran_text(Duration::from_secs(8 * 60 + 40)), "8 min");
+        assert_eq!(ran_text(Duration::from_secs(3600 + 5 * 60)), "1 h 05 min");
+    }
+
+    #[test]
+    fn the_card_note_names_the_run_only_when_it_was_long() {
+        let rest = Some("Edited 4 files · 84k context".to_string());
+        assert_eq!(
+            ran_note(Some(Duration::from_secs(500)), rest.clone()).as_deref(),
+            Some("Ran 8 min · Edited 4 files · 84k context")
+        );
+        assert_eq!(ran_note(Some(Duration::from_secs(3)), rest.clone()), rest);
+        assert_eq!(
+            ran_note(Some(Duration::from_secs(90)), None).as_deref(),
+            Some("Ran 1 min")
+        );
+        assert_eq!(ran_note(None, None), None);
+    }
+}
+
+impl Model {
+    /// Rows waiting for your answer (agents asking). The compact pill says how many.
+    pub fn waiting_count(&self) -> usize {
+        self.tasks
+            .iter()
+            .filter(|t| self.visible(t) && t.needs_input())
+            .count()
+    }
+}
+
+/// What the compact pill says on the right of a row that is waiting for you, when more than one
+/// row is: "2 waiting". None for a single wait (the row's own "waiting · 3m" stands).
+pub fn waiting_text(waiting: usize) -> Option<String> {
+    (waiting >= 2).then(|| format!("{waiting} waiting"))
+}
+
+#[cfg(test)]
+mod waiting_tests {
+    use super::*;
+
+    #[test]
+    fn two_waits_are_counted_on_the_pill_one_is_not() {
+        assert_eq!(waiting_text(0), None);
+        assert_eq!(waiting_text(1), None);
+        assert_eq!(waiting_text(3).as_deref(), Some("3 waiting"));
+    }
+}

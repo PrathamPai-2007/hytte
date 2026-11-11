@@ -2109,3 +2109,106 @@ fn ask_snapshots() {
         Some((200.0, 62.0)),
     );
 }
+
+/// The compact pill with several agents: the count, and "N waiting" when more than one asks.
+#[test]
+#[ignore]
+fn badge_snapshots() {
+    use crate::tasks::{TaskState, TaskUpdate};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    let now = Instant::now();
+    let agent = |id: &str, label: &str, ev: TaskEvent, msg: Option<&str>| {
+        TaskUpdate::Upsert(TaskState {
+            task_id: id.into(),
+            label: label.into(),
+            progress: None,
+            event: ev,
+            duration_ms: None,
+            stderr_tail: None,
+            source: "agent".into(),
+            pid: Some(4242),
+            delay_ms: 0,
+            message: msg.map(Into::into),
+            exit_code: None,
+            line: None,
+            cwd: Some(r"C:\src\hytte".into()),
+            agent: Default::default(),
+            updated: now,
+        })
+    };
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(now);
+        m.agent_quiet = std::time::Duration::from_secs(300);
+        let t0 = now - std::time::Duration::from_secs(400);
+        m.apply_task(agent("a", "Claude Code", TaskEvent::Progress, None), t0);
+        m.expire(now);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("badge-one{sfx}"),
+            &m,
+            Scene::CompactTask,
+            light,
+        );
+        m.apply_task(agent("b", "Codex", TaskEvent::Progress, None), now);
+        m.apply_task(agent("c", "Gemini CLI", TaskEvent::Progress, None), now);
+        m.expire(now);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("badge-three{sfx}"),
+            &m,
+            Scene::CompactTask,
+            light,
+        );
+        m.apply_task(
+            agent(
+                "b",
+                "Codex",
+                TaskEvent::NeedsInput,
+                Some("Allow: git push?"),
+            ),
+            now,
+        );
+        m.expire(now);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("badge-one-waiting{sfx}"),
+            &m,
+            Scene::CompactTask,
+            light,
+        );
+        m.apply_task(
+            agent(
+                "c",
+                "Gemini CLI",
+                TaskEvent::NeedsInput,
+                Some("Allow: rm -rf?"),
+            ),
+            now,
+        );
+        m.expire(now);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("badge-two-waiting{sfx}"),
+            &m,
+            Scene::CompactTask,
+            light,
+        );
+        // The pane: Claude Code has been quiet for six minutes.
+        shoot(
+            &mut r,
+            &dir,
+            &format!("agents-quiet{sfx}"),
+            &m,
+            Scene::ExpAgents,
+            light,
+        );
+    }
+}
