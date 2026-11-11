@@ -176,6 +176,8 @@ fn render_crop(
 #[ignore]
 fn landing_frames() {
     use crate::config::ScriptPane;
+    use crate::ollama::Status;
+    use crate::ui_state::{AiKind, REPLY_W};
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::offscreen(3.0).unwrap();
@@ -231,6 +233,53 @@ fn landing_frames() {
     );
     m.selected = Some(Panel::Script(0));
     save(&mut r, "script-pane", &m, Scene::ExpScript(0));
+    // The Ask pane with an answer, and the card an Explain on a clip comes in.
+    let mut m = model();
+    m.panes = Config::default().panes;
+    m.apply_ai(&crate::config::Ai {
+        enabled: true,
+        ..Default::default()
+    });
+    m.ask.status = Status::Ready;
+    let fit = |r: &Renderer, m: &mut Model| {
+        let h = r.wrapped_h(&m.ask.reply.shown, REPLY_W);
+        m.ask.reply.measured_h(h);
+        let b = m.ask_box_h();
+        m.ask.reply.settle(b);
+        if let Some(c) = m.ai_card.as_mut() {
+            let h = r.wrapped_h(&c.reply.shown, REPLY_W);
+            c.reply.measured_h(h);
+        }
+        let b = m.ai_box_h();
+        if let Some(c) = m.ai_card.as_mut() {
+            c.reply.settle(b);
+        }
+    };
+    m.ask_edit
+        .set("why does cargo say the borrow checker hates me");
+    let job = m.begin_ask().unwrap();
+    m.ai_text(
+        job.seq,
+        false,
+        "The borrow checker allows one mutable reference or many shared ones, never both at once. Look for a reference you still hold while you change the value, and shorten how long the first one lives.",
+    );
+    m.ai_done(job.seq, false, Ok(()), Instant::now());
+    m.selected = Some(Panel::Ask);
+    fit(&r, &mut m);
+    save(&mut r, "ask-pane", &m, Scene::ExpAsk);
+    let job = m.begin_ai(
+        AiKind::Explain,
+        "this clip",
+        "cargo test --workspace -- --test-threads=1",
+    );
+    m.ai_text(
+        job.seq,
+        true,
+        "It builds every crate in the workspace and runs all the tests, one at a time instead of in parallel, which is slower but keeps the output in order.",
+    );
+    m.ai_done(job.seq, true, Ok(()), Instant::now());
+    fit(&r, &mut m);
+    save(&mut r, "ask-card", &m, Scene::ExpAi);
 }
 
 thread_local! {
