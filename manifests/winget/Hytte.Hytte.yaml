@@ -11,7 +11,7 @@ ShortDescription: Lightweight dynamic notch for Windows 11.
 Description: >-
   Hytte is a small pill at the top of the screen that shows long-running
   commands, AI agents waiting for input, dev servers, music and a file shelf.
-  It never steals focus and idles near zero CPU. One program: `hytte` starts
+  It never steals focus and idles at about 0.2% CPU. One program: `hytte` starts
   the pill, `hytte run -- <cmd>` and friends talk to it from the terminal.
 Moniker: hytte
 Tags:

@@ -247,22 +247,53 @@ pub fn has_model(installed: &[Installed], model: &str) -> bool {
     installed.iter().any(|m| m.name == want)
 }
 
-/// Look at Ollama: is it there, and does it have `model`.
-pub fn check(host: &str, model: &str) -> Status {
+/// What the model weighs on disk, and whether Ollama already holds it in memory.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Size {
+    pub bytes: u64,
+    pub loaded: bool,
+}
+
+/// The names in a `/api/ps` reply (the models in memory now).
+pub fn parse_ps(body: &str) -> Vec<String> {
+    parse_tags(body).into_iter().map(|m| m.name).collect()
+}
+
+#[cfg(test)]
+fn check(host: &str, model: &str) -> Status {
+    probe(host, model).0
+}
+
+/// Look at Ollama: is it there, does it have `model`, how big is that and is it loaded already
+/// (size and loaded are zero/false when unknown).
+pub fn probe(host: &str, model: &str) -> (Status, Size) {
     if !host_ok(host) {
-        return Status::Problem("Ollama's address must be this PC (127.0.0.1 or localhost)".into());
+        let e = "Ollama's address must be this PC (127.0.0.1 or localhost)";
+        return (Status::Problem(e.into()), Size::default());
     }
     if let Err(e) = version(host) {
-        return if e.contains("isn't running") {
+        let s = if e.contains("isn't running") {
             Status::NotRunning
         } else {
             Status::Problem(e)
         };
+        return (s, Size::default());
     }
     match models(host) {
-        Ok(m) if has_model(&m, model) => Status::Ready,
-        Ok(_) => Status::NoModel,
-        Err(e) => Status::Problem(e),
+        Ok(m) if has_model(&m, model) => {
+            let want = if model.contains(':') {
+                model.to_string()
+            } else {
+                format!("{model}:latest")
+            };
+            let bytes = m.iter().find(|i| i.name == want).map_or(0, |i| i.bytes);
+            let loaded = get(host, "/api/ps", 3)
+                .map(|b| parse_ps(&b).contains(&want))
+                .unwrap_or(false);
+            (Status::Ready, Size { bytes, loaded })
+        }
+        Ok(_) => (Status::NoModel, Size::default()),
+        Err(e) => (Status::Problem(e), Size::default()),
     }
 }
 
@@ -605,6 +636,11 @@ mod tests {
         assert!(has_model(&m, "qwen3:1.7b"));
         assert!(has_model(&m, "llama3.2"));
         assert!(!has_model(&m, "qwen3:0.6b"));
+        assert_eq!(
+            parse_ps(r#"{"models":[{"name":"qwen3:1.7b","size":1,"size_vram":0}]}"#),
+            ["qwen3:1.7b"]
+        );
+        assert!(parse_ps(r#"{"models":[]}"#).is_empty());
         assert!(parse_tags("garbage").is_empty());
         assert!(parse_tags(r#"{"models":null}"#).is_empty());
     }

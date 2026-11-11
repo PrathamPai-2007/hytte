@@ -8,7 +8,8 @@ The local AI and honest cockpit release.
 
 **Ask** (`[ai]`, off by default)
 
-- **An Ask pane.** One question, one answer, from a small model running in your own [Ollama](https://ollama.com). The answer streams into a box that wraps and scrolls inside the pill; there is no chat and no history, and nothing is written to disk. The default model is `qwen3:1.7b` (1.4 GB); **Get it** has your Ollama download it, with a progress bar. Settings offers `qwen3:0.6b` and `gemma3:1b` too, and `[ai] model` takes anything you have pulled.
+- **An Ask pane.** One question, one answer, from a small model running in your own [Ollama](https://ollama.com). The answer streams into a box that wraps and scrolls inside the pill; there is no chat and no history, and nothing is written to disk. The default model is `qwen3:1.7b` (1.4 GB); **Get it** has your Ollama download it, with a progress bar. Settings offers `qwen3:0.6b` too, and `[ai] model` takes anything else you have pulled (`gemma3:1b`, `llama3.2`).
+- **Load model now, Unload now, and a memory warning.** Load the model before the first question, or free it at once; Ollama frees it by itself after `[ai] keep_alive`. If the model is bigger than the free RAM, the pane says so and offers **Run anyway** or **Cancel** before loading it.
 - **Explain, Summarise and Shorten** on what Hytte already holds, answered in a card that grows to fit (it scrolls inside once it is about half the screen tall): a clipboard clip (the **✦** on a hovered clip), a text file on the shelf, and a failed command that ran through `hytte run`. An agent's question still comes first.
 - **Private by construction.** Only Ollama on this PC is contacted: `[ai] host` must be loopback or the request is refused. It goes through `curl.exe` with proxies off and the question on stdin. See [manual 9](../manual/09-ask.md).
 

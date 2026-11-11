@@ -24,7 +24,7 @@ impl Ui {
                 self.model.ask.status = Status::Unknown;
             }
             // Closed: Ollama may have freed the model since; say nothing until it is loaded again.
-            self.model.ask.warm = crate::ui_state::Warm::Idle;
+            self.model.ask_closed();
             return;
         }
         if self.model.ask.status != Status::Unknown {
@@ -38,12 +38,17 @@ impl Ui {
         );
         std::thread::spawn(move || {
             crate::proc::eco_thread();
-            push_event(&sh, UiEvent::Ollama(crate::ollama::check(&host, &model)));
+            let (status, size) = crate::ollama::probe(&host, &model);
+            push_event(&sh, UiEvent::ModelSize(size));
+            push_event(&sh, UiEvent::Ollama(status));
         });
     }
 
     /// Enter or the Ask button: ask what is in the field.
     pub(super) fn ask_send(&mut self) {
+        if self.model.ask_edit.is_empty() || !self.fits_ram(true) {
+            return;
+        }
         if let Some(job) = self.model.begin_ask() {
             self.run_ai(job);
         }
@@ -101,6 +106,17 @@ impl Ui {
         if !self.model.ai.enabled {
             return;
         }
+        if !self.model.fits(crate::proc::free_ram(), false) {
+            // The warning lives in the Ask pane; here a line says where to find it.
+            self.model.ask.tight = None;
+            let mut c = Chip::new(
+                "Short on memory for the model. Open Ask to run it anyway.",
+                Instant::now(),
+            );
+            c.tone = crate::ui_state::Tone::Info;
+            self.model.chip = Some(c);
+            return;
+        }
         let job = match src {
             AiSource::Clip(i) => {
                 let Some(t) = self.model.clip_text(i) else {
@@ -140,6 +156,35 @@ impl Ui {
         self.run_ai(job);
     }
 
+    /// The memory check before a question or a load: false (and the warning showing) when the
+    /// model is bigger than the free RAM and the user hasn't said "Run anyway".
+    fn fits_ram(&mut self, then_ask: bool) -> bool {
+        let ok = self.model.fits(crate::proc::free_ram(), then_ask);
+        if !ok {
+            self.layout();
+            self.kick();
+        }
+        ok
+    }
+
+    /// "Run anyway" on the memory warning: do what was waiting.
+    pub(super) fn ask_run_anyway(&mut self) {
+        match self.model.run_anyway() {
+            Some(true) => self.ask_send(),
+            Some(false) => self.ask_warm(),
+            None => {}
+        }
+        self.layout();
+        self.kick();
+    }
+
+    /// "Cancel" on the memory warning.
+    pub(super) fn ask_cancel_tight(&mut self) {
+        self.model.cancel_tight();
+        self.layout();
+        self.kick();
+    }
+
     /// Have Ollama download the model.
     pub(super) fn ask_pull(&mut self) {
         if self.model.ask.pull.is_some() {
@@ -173,7 +218,7 @@ impl Ui {
 
     /// Load the model now, so the first question doesn't wait for it.
     pub(super) fn ask_warm(&mut self) {
-        if !self.model.begin_warm() {
+        if !self.fits_ram(false) || !self.model.begin_warm() {
             return;
         }
         let (host, model, keep, sh) = (

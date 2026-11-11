@@ -183,6 +183,8 @@ pub enum Action {
     AskPull,
     AskWarm,
     AskUnload,
+    AskRunAnyway,
+    AskCancelTight,
     AskPullStop,
     /// A one-click action on a clip, a shelf file or a failed command.
     Ai(crate::ui_state::AiKind, crate::ui_state::AiSource),

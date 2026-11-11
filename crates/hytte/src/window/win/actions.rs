@@ -36,6 +36,8 @@ impl Ui {
             Action::AskPull => self.ask_pull(),
             Action::AskWarm => self.ask_warm(),
             Action::AskUnload => self.ask_unload(),
+            Action::AskRunAnyway => self.ask_run_anyway(),
+            Action::AskCancelTight => self.ask_cancel_tight(),
             Action::AskPullStop => self.ask_pull_stop(),
             Action::Ai(kind, src) => self.ai_action(kind, src),
             Action::AiDismiss => self.ai_dismiss(),

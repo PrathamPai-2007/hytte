@@ -13,6 +13,8 @@ pub const ASK_FIELD_H: f32 = 34.0;
 /// The answer box: least and most px it takes in the Ask pane (it scrolls past the most).
 pub const ASK_BOX_MIN: f32 = 40.0;
 pub const ASK_BOX_MAX: f32 = 150.0;
+/// The memory warning: two lines and a row of buttons.
+pub const ASK_TIGHT_H: f32 = 72.0;
 /// The line under the answer: the model, and Copy / Clear.
 pub const ASK_FOOT_H: f32 = 18.0;
 /// The Ask pane's room for a message and its button when Ollama isn't ready.
@@ -211,6 +213,31 @@ pub struct AskView {
     pub pull: Option<PullBar>,
     pub pull_err: Option<String>,
     pub warm: Warm,
+    /// The model's weight on disk and whether Ollama holds it already.
+    pub size: crate::ollama::Size,
+    /// The user said "Run anyway" to the memory warning (until the pane closes).
+    pub approved: bool,
+    /// The memory warning, while it waits for an answer.
+    pub tight: Option<Tight>,
+}
+
+/// The model won't fit in the free memory: what it needs, what is free, and what was asked.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tight {
+    pub need: u64,
+    pub free: u64,
+    /// True when a question was waiting; false when it was Load model now.
+    pub then_ask: bool,
+}
+
+/// RAM a model needs once loaded: its file plus a quarter for the context.
+pub fn ram_needed(bytes: u64) -> u64 {
+    bytes + bytes / 4
+}
+
+/// "1.8 GB" for a byte count.
+pub fn gb(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
 /// Loading the model into memory ahead of the first question.
@@ -257,6 +284,49 @@ impl Model {
         // A different address or model: look again when the pane opens.
         self.ask.status = Status::Unknown;
         self.ask.warm = Warm::Idle;
+        self.ask.size = Default::default();
+        self.ask.approved = false;
+        self.ask.tight = None;
+    }
+
+    /// The pane was shut: Ollama may have freed the model, and the memory answer is stale.
+    pub fn ask_closed(&mut self) {
+        self.ask.warm = Warm::Idle;
+        self.ask.approved = false;
+        self.ask.tight = None;
+    }
+
+    /// Whether to go on with a question (`then_ask`) or a load, given `free` bytes of RAM.
+    /// When the model is too big for it, the warning is set and this is false.
+    pub fn fits(&mut self, free: u64, then_ask: bool) -> bool {
+        let a = &mut self.ask;
+        let need = ram_needed(a.size.bytes);
+        if a.approved
+            || a.size.loaded
+            || a.warm == Warm::Loaded
+            || a.size.bytes == 0
+            || free == 0
+            || need <= free
+        {
+            return true;
+        }
+        a.tight = Some(Tight {
+            need,
+            free,
+            then_ask,
+        });
+        false
+    }
+
+    /// "Run anyway": remember it and say what was waiting (true = a question).
+    pub fn run_anyway(&mut self) -> Option<bool> {
+        self.ask.approved = true;
+        self.ask.tight.take().map(|t| t.then_ask)
+    }
+
+    /// "Cancel" on the warning.
+    pub fn cancel_tight(&mut self) {
+        self.ask.tight = None;
     }
 
     /// The Ask pane is in the tab strip.
@@ -268,6 +338,9 @@ impl Model {
     pub fn ask_box_h(&self) -> f32 {
         if !matches!(self.ask.status, Status::Ready) {
             return ASK_NOTICE_H;
+        }
+        if self.ask.tight.is_some() {
+            return ASK_TIGHT_H;
         }
         let r = &self.ask.reply;
         if r.shown.is_empty() && r.error.is_none() {
@@ -600,6 +673,36 @@ mod tests {
         assert_eq!(m.ask.warm, Warm::Idle);
         m.ask.status = Status::NotRunning;
         assert!(!m.begin_warm());
+    }
+
+    #[test]
+    fn a_model_too_big_for_free_ram_warns_until_run_anyway() {
+        let mut m = ready();
+        m.ask.size = crate::ollama::Size {
+            bytes: 2_000_000_000,
+            loaded: false,
+        };
+        // Needs 2.5 GB: 3 GB free is fine, unknown (0) is fine, 1 GB free warns.
+        assert!(m.fits(3_000_000_000, true) && m.fits(0, true));
+        assert!(m.ask.tight.is_none());
+        assert!(!m.fits(1_000_000_000, true));
+        let t = m.ask.tight.clone().unwrap();
+        assert_eq!(
+            (t.need, t.free, t.then_ask),
+            (2_500_000_000, 1_000_000_000, true)
+        );
+        assert_eq!(m.ask_box_h(), ASK_TIGHT_H);
+        // Cancel drops the warning and asks again next time; Run anyway remembers.
+        m.cancel_tight();
+        assert!(m.ask.tight.is_none() && !m.fits(1_000_000_000, false));
+        assert_eq!(m.run_anyway(), Some(false));
+        assert!(m.fits(1_000_000_000, false) && m.ask.tight.is_none());
+        // Closing the pane forgets the yes; a loaded or already-resident model never warns.
+        m.ask_closed();
+        assert!(!m.fits(1_000_000_000, true));
+        m.ask.size.loaded = true;
+        assert!(m.fits(1_000_000_000, true));
+        assert_eq!(gb(1_400_000_000), "1.4 GB");
     }
 
     #[test]

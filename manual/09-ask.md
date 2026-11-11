@@ -10,7 +10,9 @@ Ask is **off by default**. Hytte never installs Ollama or a model by itself.
 2. In [Settings](07-settings.md), switch on **Ask a model on this PC (Ollama)**. An **Ask** tab appears.
 3. Open the tab. If the model isn't there yet, press **Get it**: Hytte asks your Ollama to download it (1.4 GB for the default, `qwen3:1.7b`) and shows the progress. **Stop** cancels; Ollama keeps what it has.
 
-The default is small on purpose: it runs on an ordinary laptop. For a different one, pick **qwen3 0.6B** (smaller, weaker) or **gemma3 1B** in Settings, or choose **Custom** and set `[ai] model` to anything you have pulled with Ollama.
+The default is small on purpose: it runs on an ordinary laptop. Settings offers two models: **qwen3 1.7B** (the default) and **qwen3 0.6B** (smaller, weaker, for a PC that is short of memory). For any other, such as `gemma3:1b` or `llama3.2`, choose **Custom** and set `[ai] model` to a model you have pulled with Ollama.
+
+If the model is bigger than the memory your PC has free (about a quarter more than its download size is needed once loaded), the pane stops before loading it and says so: *"qwen3:1.7b may slow this PC down. It needs about 2.5 GB; 1.1 GB is free."* **Run anyway** goes on (and doesn't ask again until you close the pane); **Cancel** doesn't. Close a few apps, or pick the smaller model, to avoid it. Hytte only looks at free memory when you ask or load; it doesn't watch it afterwards.
 
 ## Ask a question
 

@@ -25,6 +25,20 @@ pub fn eco_thread() {
     }
 }
 
+/// Bytes of RAM Windows could hand out now (free plus cached), 0 if it can't say.
+pub fn free_ram() -> u64 {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut s = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `s` is a valid MEMORYSTATUSEX with its length set.
+    match unsafe { GlobalMemoryStatusEx(&mut s) } {
+        Ok(()) => s.ullAvailPhys,
+        Err(_) => 0,
+    }
+}
+
 /// File name of the executable behind a pid (e.g. `node.exe`).
 pub fn exe_name(pid: u32) -> Option<String> {
     hytte_proto::ports::exe_name(pid)

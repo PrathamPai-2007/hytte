@@ -175,6 +175,8 @@ pub enum UiEvent {
     /// Progress of the model download.
     Pull(crate::ollama::Pull),
     PullDone(Result<(), String>),
+    /// How big the model is and whether Ollama holds it already (for the memory check).
+    ModelSize(crate::ollama::Size),
     Warm(Result<(), String>),
     Unload(Result<(), String>),
 }

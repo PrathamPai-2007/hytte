@@ -15,7 +15,7 @@ The module is split by what each file owns. `Model` and `UiEvent` are in `mod.rs
 | `media.rs` | `MediaInfo`, `ArtBitmap`, `LyricState`; media, lyrics, sleep timer. |
 | `notes.rs` | `Field`; the Notes and To-do lists and their text fields. |
 | `weather.rs` | the forecast and the place chooser. |
-| `ask.rs` | `Reply` (streamed text and its scroll), `AskView`, `AiCard`, `AiKind`, `AiSource`, `AiJob`; the Ask pane and the AI card: `begin_ask`, `begin_ai`, `ai_text`, `ai_done`, `plain` (markdown marks removed). The wrapped height of the text comes from the renderer; the window layer stores it in `Reply::text_h` before the pill's size is worked out. |
+| `ask.rs` | `Reply` (streamed text and its scroll), `AskView`, `AiCard`, `AiKind`, `AiSource`, `AiJob`, `Warm`, `Tight`; the Ask pane and the AI card: `begin_ask`, `begin_ai`, `ai_text`, `ai_done`, the load, unload and memory check (`begin_warm`, `begin_unload`, `fits`, `run_anyway`), `plain` (markdown marks removed). The wrapped height of the text comes from the renderer; the window layer stores it in `Reply::text_h` before the pill's size is worked out. |
 | `script.rs` | `ScriptView`; script panes. |
 | `shelf.rs`, `timer.rs` | shelf paging; the timer and calendar heads-up. |
 | `anim.rs` | `Anim` (springs), `Swipe`. |
@@ -40,7 +40,8 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | `Calendar(Option<NextEvent>)` | calendar watcher | `set_calendar`: arms the heads-up. |
 | `DragEnter` / `DragLeave` | OLE drop target | `drop_over`: the purple drop zone. |
 | `AiText(seq, card, text)`, `AiDone(seq, card, result)` | Ask worker (`ollama::ask`) | A piece of an answer, and its end. A piece for a request that was replaced (`ai_seq`) is dropped. |
-| `Ollama(Status)`, `Pull(Pull)`, `PullDone(result)` | Ask workers | What a look at Ollama found; progress and end of a model download. |
+| `Ollama(Status)`, `ModelSize(Size)`, `Pull(Pull)`, `PullDone(result)` | Ask workers | What a look at Ollama found, the model's size and whether it is loaded (for the memory check); progress and end of a model download. |
+| `Warm(result)`, `Unload(result)` | Ask workers | The model was loaded or freed ahead of a question. |
 | `Places(seq, query, result)`, `Forecast(result)` | weather workers | `places_result` (dropped if the field no longer holds `query`, or `seq` is old), `forecast_result` (dropped for a place since changed). |
 | `WidePlaces(seq, query, result)` | wider place search | `wide_result`: kept in a small session cache; dropped if the field changed. |
 | `Lyrics(key, result)` | lyrics worker | `lyrics_result`: cached; shown only if `key` is still the song on screen. |

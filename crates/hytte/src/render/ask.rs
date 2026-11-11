@@ -100,6 +100,48 @@ impl Renderer {
         let tx = REPLY_PAD;
         if !ready {
             self.ask_notice(fr, w, top);
+        } else if let Some(t) = &m.ask.tight {
+            self.text(
+                &format!("{} may slow this PC down.", m.ask_model()),
+                &self.f.body,
+                tx,
+                top,
+                w - 32.0,
+                20.0,
+                self.cc(AMBER, 0.95),
+            );
+            let sub = format!(
+                "It needs about {}; {} is free. Other apps may stall.",
+                crate::ui_state::gb(t.need),
+                crate::ui_state::gb(t.free)
+            );
+            self.text(
+                &sub,
+                &self.f.small,
+                tx,
+                top + 21.0,
+                w - 32.0,
+                16.0,
+                self.cc(GRAY, 0.8),
+            );
+            self.button(
+                "Run anyway",
+                tx,
+                top + 44.0,
+                96.0,
+                24.0,
+                AMBER,
+                Action::AskRunAnyway,
+            );
+            self.button(
+                "Cancel",
+                tx + 104.0,
+                top + 44.0,
+                64.0,
+                24.0,
+                fg,
+                Action::AskCancelTight,
+            );
         } else if r.shown.is_empty() && !r.busy && r.error.is_none() {
             let (line, sub): (String, Option<String>) = match &m.ask.warm {
                 Warm::Loading => (format!("Loading {}…", m.ask_model()), None),
