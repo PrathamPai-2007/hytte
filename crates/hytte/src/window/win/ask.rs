@@ -23,6 +23,8 @@ impl Ui {
             {
                 self.model.ask.status = Status::Unknown;
             }
+            // Closed: Ollama may have freed the model since; say nothing until it is loaded again.
+            self.model.ask.warm = crate::ui_state::Warm::Idle;
             return;
         }
         if self.model.ask.status != Status::Unknown {
@@ -185,6 +187,27 @@ impl Ui {
             push_event(
                 &sh,
                 UiEvent::Warm(crate::ollama::warm(&host, &model, &keep)),
+            );
+        });
+        self.layout();
+        self.kick();
+    }
+
+    /// Have Ollama free the model now (its memory goes back at once).
+    pub(super) fn ask_unload(&mut self) {
+        if !self.model.begin_unload() {
+            return;
+        }
+        let (host, model, sh) = (
+            self.model.ai.host.clone(),
+            self.model.ai.model.clone(),
+            self.shared.clone(),
+        );
+        std::thread::spawn(move || {
+            crate::proc::eco_thread();
+            push_event(
+                &sh,
+                UiEvent::Unload(crate::ollama::warm(&host, &model, "0")),
             );
         });
         self.layout();

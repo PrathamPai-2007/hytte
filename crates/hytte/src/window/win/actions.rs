@@ -35,6 +35,7 @@ impl Ui {
             Action::AskRetry => self.model.ollama_status(crate::ollama::Status::Unknown),
             Action::AskPull => self.ask_pull(),
             Action::AskWarm => self.ask_warm(),
+            Action::AskUnload => self.ask_unload(),
             Action::AskPullStop => self.ask_pull_stop(),
             Action::Ai(kind, src) => self.ai_action(kind, src),
             Action::AiDismiss => self.ai_dismiss(),

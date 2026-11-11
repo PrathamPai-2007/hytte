@@ -2002,6 +2002,15 @@ fn ask_snapshots() {
         m.ask.pull = None;
         m.ask.status = Status::Ready;
         s(&mut r, "ask-ready", &m);
+        m.ask.warm = crate::ui_state::Warm::Loading;
+        s(&mut r, "ask-loading", &m);
+        m.ask.warm = crate::ui_state::Warm::Loaded;
+        s(&mut r, "ask-loaded", &m);
+        m.ask.warm = crate::ui_state::Warm::Unloading;
+        s(&mut r, "ask-unloading", &m);
+        m.ask.warm = crate::ui_state::Warm::Failed("model requires more system memory".into());
+        s(&mut r, "ask-load-failed", &m);
+        m.ask.warm = crate::ui_state::Warm::Idle;
         m.typing = Some(Field::Ask);
         m.ask_edit
             .set("why does cargo say the borrow checker hates me");

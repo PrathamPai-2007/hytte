@@ -18,7 +18,7 @@ Type in the field and press **Enter** (or **Ask**). The answer streams into the 
 
 The first question after a while is slow, because Ollama has to load the model into memory (several seconds on a laptop without a graphics card, longer for a bigger model). Three dots show while it loads. Ollama keeps the model loaded for 2 minutes afterwards (`[ai] keep_alive`, or **Keep it in memory** in Settings), so the next question is quick.
 
-To skip the wait, press **Load model now** on the empty pane: Ollama loads the model without being asked anything. It then frees it by itself after the same idle time (nothing in Hytte has to remember to unload it; `keep_alive = "-1"` keeps it loaded until Ollama quits).
+To skip the wait, press **Load model now** on the empty pane: Ollama loads the model without being asked anything. Press **Unload now** (it shows once the model is loaded, and after an answer) to free it at once. Otherwise Ollama frees it by itself after the same idle time (nothing in Hytte has to remember to unload it; `keep_alive = "-1"` keeps it loaded until Ollama quits).
 
 With `[ai] hotkey` set (for example `Win+Alt+A`), the chord opens the Ask pane with the cursor ready.
 

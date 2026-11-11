@@ -107,7 +107,8 @@ impl Renderer {
                     format!("{} is loaded.", m.ask_model()),
                     Some(m.warm_stays()),
                 ),
-                Warm::Failed(e) => ("Couldn't load it.".to_string(), Some(e.clone())),
+                Warm::Unloading => (format!("Freeing {}…", m.ask_model()), None),
+                Warm::Failed(e) => ("Couldn't change that.".to_string(), Some(e.clone())),
                 Warm::Idle => (format!("{} answers here, on this PC.", m.ask_model()), None),
             };
             self.text(
@@ -130,11 +131,22 @@ impl Renderer {
                     self.cc(GRAY, 0.7),
                 );
             }
+            if m.ask.warm == Warm::Loaded {
+                self.button(
+                    "Unload now",
+                    w - 12.0 - 120.0,
+                    top - 3.0,
+                    120.0,
+                    24.0,
+                    self.fg(),
+                    Action::AskUnload,
+                );
+            }
             if matches!(m.ask.warm, Warm::Idle | Warm::Failed(_)) {
                 self.button(
                     "Load model now",
-                    tx,
-                    top + 46.0,
+                    w - 12.0 - 120.0,
+                    top - 3.0,
                     120.0,
                     24.0,
                     accent,

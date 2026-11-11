@@ -264,6 +264,7 @@ impl Ui {
                 UiEvent::Pull(p) => self.model.pull_progress(&p),
                 UiEvent::PullDone(r) => self.model.pull_done(r),
                 UiEvent::Warm(r) => self.model.warm_done(r),
+                UiEvent::Unload(r) => self.model.unload_done(r),
                 UiEvent::Script(name, run) => self.model.script_done(&name, run, now),
                 UiEvent::Packs(packs) => {
                     self.packs = packs;

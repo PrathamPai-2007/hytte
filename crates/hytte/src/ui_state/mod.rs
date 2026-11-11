@@ -176,6 +176,7 @@ pub enum UiEvent {
     Pull(crate::ollama::Pull),
     PullDone(Result<(), String>),
     Warm(Result<(), String>),
+    Unload(Result<(), String>),
 }
 
 /// Keep the PC (and its screen) awake.

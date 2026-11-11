@@ -220,6 +220,7 @@ pub enum Warm {
     Idle,
     Loading,
     Loaded,
+    Unloading,
     Failed(String),
 }
 
@@ -386,8 +387,13 @@ impl Model {
         };
         reply.busy = false;
         reply.follow = reply.follow || reply.shown.is_empty();
+        let ok = r.is_ok();
         if let Err(e) = r {
             reply.error = Some(e);
+        }
+        if ok {
+            // An answer means the model is in memory now.
+            self.ask.warm = Warm::Loaded;
         }
     }
 
@@ -455,11 +461,31 @@ impl Model {
 
     /// Start loading the model; false when one is loading already or Ollama can't answer.
     pub fn begin_warm(&mut self) -> bool {
-        if self.ask.status != Status::Ready || self.ask.warm == Warm::Loading {
+        if self.ask.status != Status::Ready
+            || matches!(self.ask.warm, Warm::Loading | Warm::Unloading)
+        {
             return false;
         }
         self.ask.warm = Warm::Loading;
         true
+    }
+
+    /// Ask Ollama to free the model now.
+    pub fn begin_unload(&mut self) -> bool {
+        if self.ask.status != Status::Ready
+            || matches!(self.ask.warm, Warm::Loading | Warm::Unloading)
+        {
+            return false;
+        }
+        self.ask.warm = Warm::Unloading;
+        true
+    }
+
+    pub fn unload_done(&mut self, r: Result<(), String>) {
+        self.ask.warm = match r {
+            Ok(()) => Warm::Idle,
+            Err(e) => Warm::Failed(e),
+        };
     }
 
     pub fn warm_done(&mut self, r: Result<(), String>) {
@@ -563,6 +589,10 @@ mod tests {
         assert_eq!(m.warm_stays(), "Ollama frees it after 2m unused.");
         m.ai.keep_alive = "-1".into();
         assert_eq!(m.warm_stays(), "It stays loaded.");
+        assert!(m.begin_unload());
+        assert!(!m.begin_unload() && !m.begin_warm());
+        m.unload_done(Ok(()));
+        assert_eq!(m.ask.warm, Warm::Idle);
         m.warm_done(Err("boom".into()));
         assert!(m.begin_warm());
         // A changed model or address forgets it was loaded; no Ollama, no loading.
