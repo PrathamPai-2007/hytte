@@ -21,6 +21,7 @@ pub(super) fn field_panel(f: Field) -> Panel {
         Field::Note => Panel::Notes,
         Field::Todo => Panel::Todo,
         Field::Place => Panel::Weather,
+        Field::Ask => Panel::Ask,
     }
 }
 
@@ -201,6 +202,7 @@ impl Ui {
                 self.model.submit_jot(f);
             }
             Field::Place => self.place_enter(hwnd),
+            Field::Ask => self.ask_send(),
         }
         self.reset_caret(hwnd);
         self.after_model_change(hwnd);

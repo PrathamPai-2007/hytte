@@ -29,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_
 use windows_numerics::{Matrix3x2, Vector2};
 
 mod agents;
+mod ask;
 /// Logical canvas size (the window), pill hangs from the top centre.
 mod cards;
 mod compact;
@@ -172,6 +173,21 @@ pub enum Action {
     LyricsOpen,
     LyricsClose,
     LyricsRetry,
+    /// The Ask pane: ask what is in the field / stop the answer / forget it.
+    AskSend,
+    AskStop,
+    AskClear,
+    /// Look at Ollama again.
+    AskRetry,
+    /// Have Ollama download the model / stop the download.
+    AskPull,
+    AskPullStop,
+    /// A one-click action on a clip, a shelf file or a failed command.
+    Ai(crate::ui_state::AiKind, crate::ui_state::AiSource),
+    /// Close the AI card (and stop its answer).
+    AiDismiss,
+    /// Show / hide the Explain, Summarise and Shorten chips under a clip.
+    ClipAi(usize),
 }
 
 /// What the big settings window tells the renderer about the pointer and the scroll.
@@ -447,6 +463,7 @@ fn panel_glyph(p: Panel) -> char {
         Panel::Notes => '\u{E70B}',
         Panel::Todo => '\u{E73A}',
         Panel::Weather => '\u{E753}',
+        Panel::Ask => '\u{E8BD}',
         Panel::Script(_) => '\u{E943}',
     }
 }

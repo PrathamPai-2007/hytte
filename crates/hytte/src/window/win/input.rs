@@ -185,6 +185,7 @@ impl Ui {
             (HOTKEY_ID, &self.cfg.general.hotkey),
             (MONITOR_HOTKEY_ID, &self.cfg.general.monitor_hotkey),
             (NOTE_HOTKEY_ID, &self.cfg.general.note_hotkey),
+            (AI_HOTKEY_ID, &self.cfg.ai.hotkey),
         ] {
             unsafe {
                 let _ = UnregisterHotKey(Some(hwnd), id);

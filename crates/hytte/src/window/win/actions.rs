@@ -29,6 +29,15 @@ impl Ui {
             Action::ClipScroll(by) => self.model.scroll_clips(by),
             Action::DeleteClip(i) => self.model.remove_clip(i),
             Action::ClearClips => self.model.clear_clips(),
+            Action::AskSend => self.ask_send(),
+            Action::AskStop => self.ask_stop(),
+            Action::AskClear => self.ask_clear(),
+            Action::AskRetry => self.model.ollama_status(crate::ollama::Status::Unknown),
+            Action::AskPull => self.ask_pull(),
+            Action::AskPullStop => self.ask_pull_stop(),
+            Action::Ai(kind, src) => self.ai_action(kind, src),
+            Action::AiDismiss => self.ai_dismiss(),
+            Action::ClipAi(i) => self.model.toggle_clip_ai(i),
             Action::Named(name) => {
                 self.run_named(&name);
             }
@@ -284,6 +293,9 @@ impl Ui {
                     self.model.shelf_sel = None;
                 }
                 self.save_shelf();
+            }
+            Action::ShelfOp(id, crate::transforms::Conv::Ai(kind)) => {
+                self.ai_action(kind, crate::ui_state::AiSource::File(id));
             }
             Action::ShelfOp(id, op) => {
                 if let Some(it) = self.model.shelf.iter().find(|i| i.id == id) {

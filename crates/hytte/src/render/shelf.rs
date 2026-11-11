@@ -243,7 +243,7 @@ impl Renderer {
             .shelf_sel
             .and_then(|id| m.shelf.iter().find(|i| i.id == id))
         {
-            let chips = crate::transforms::chips_for(&it.path);
+            let chips = m.chips_of(&it.path);
             let labels: Vec<&str> = chips.iter().map(|c| c.0).collect();
             // Chip width from the label length; each line centred, a new line when full.
             for (row, line) in crate::transforms::chip_lines(&labels, w - 8.0)
@@ -345,11 +345,22 @@ impl Renderer {
                 }
             }
         }
+        let open_row = m.clip_ai_row();
         for i in 0..shown {
             let idx = off + i;
             let Some(text) = m.clips.get(idx) else { break };
-            let y = top + CLIP_HEAD_H + i as f32 * CLIP_ROW_H;
+            // Rows below the open chips move down to make room for them.
+            let below = open_row.is_some_and(|p| i > p);
+            let y = top
+                + CLIP_HEAD_H
+                + i as f32 * CLIP_ROW_H
+                + if below {
+                    crate::ui_state::CLIP_AI_H
+                } else {
+                    0.0
+                };
             let hov = self.hit(10.0, y, w - 20.0, CLIP_ROW_H - 2.0, Action::CopyClip(idx));
+            let ai_on = m.ai.enabled;
             if hov {
                 self.fill_rr(10.0, y, w - 20.0, CLIP_ROW_H - 2.0, 8.0, self.cc(fg, 0.07));
             }
@@ -359,7 +370,12 @@ impl Renderer {
                 &self.f.small,
                 18.0,
                 y + 3.0,
-                w - 36.0 - if hov { 70.0 } else { 0.0 },
+                w - 36.0
+                    - if hov {
+                        70.0 + if ai_on { 26.0 } else { 0.0 }
+                    } else {
+                        0.0
+                    },
                 16.0,
                 self.cc(fg, if hov { 0.95 } else { 0.75 }),
                 hov,
@@ -381,6 +397,37 @@ impl Renderer {
                     y + 11.0,
                     self.cc(fg, if del { 0.95 } else { 0.5 }),
                 );
+                if ai_on {
+                    let ai = self.hit(w - 114.0, y, 24.0, CLIP_ROW_H - 2.0, Action::ClipAi(idx));
+                    let open = m.clip_ai == Some(idx);
+                    self.glyph_s(
+                        '\u{E8BD}',
+                        w - 102.0,
+                        y + 11.0,
+                        self.cc(self.accent.get(), if ai || open { 1.0 } else { 0.7 }),
+                    );
+                }
+            }
+            if open_row == Some(i) {
+                let labels = [
+                    ("Explain", crate::ui_state::AiKind::Explain),
+                    ("Summarise", crate::ui_state::AiKind::Summarise),
+                    ("Shorten", crate::ui_state::AiKind::Shorten),
+                ];
+                let mut x = 18.0;
+                for (label, kind) in labels {
+                    let cw = crate::transforms::chip_width(label);
+                    self.button(
+                        label,
+                        x,
+                        y + CLIP_ROW_H,
+                        cw,
+                        22.0,
+                        self.accent.get(),
+                        Action::Ai(kind, crate::ui_state::AiSource::Clip(idx)),
+                    );
+                    x += cw + 6.0;
+                }
             }
         }
     }

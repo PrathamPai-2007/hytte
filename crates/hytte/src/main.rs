@@ -32,6 +32,7 @@ mod lyrics;
 mod media;
 mod mic;
 mod net;
+mod ollama;
 mod packs;
 mod perf;
 mod pipe_server;

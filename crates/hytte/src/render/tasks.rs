@@ -153,6 +153,22 @@ impl Renderer {
                 self.button("Copy error", bx, y, 78.0, 24.0, RED, err);
                 let dismiss = Action::DismissTask(t.id.clone());
                 self.button("Dismiss", bx + 86.0, y, 66.0, 24.0, self.fg(), dismiss);
+                if fr.model.ai.enabled && !t.stderr.is_empty() {
+                    let acc = self.accent.get();
+                    let explain = Action::Ai(
+                        crate::ui_state::AiKind::Explain,
+                        crate::ui_state::AiSource::Failed(t.id.clone()),
+                    );
+                    self.button(
+                        "Explain",
+                        bx + 86.0 + 66.0 + 8.0,
+                        y,
+                        66.0,
+                        24.0,
+                        acc,
+                        explain,
+                    );
+                }
                 y += 28.0;
             }
         }

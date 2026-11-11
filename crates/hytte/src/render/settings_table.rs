@@ -192,6 +192,10 @@ pub fn help(key: &str) -> &'static str {
         "panes.notes" => "Shows the Notes pane in the tab strip.",
         "panes.todo" => "Shows the To-do pane in the tab strip.",
         "panes.weather" => "Shows the Weather pane in the tab strip.",
+        "panes.ask" => "Shows the Ask pane in the tab strip. It appears only while Ask is switched on under Ask (local AI).",
+        "ai.enabled" => "Ask a small model that runs on your own PC through Ollama, and use Explain, Summarise and Shorten on a clip, a shelf file or a failed command. Off by default. Nothing leaves this PC: only Ollama on this machine is contacted, and nothing is written to disk. Install Ollama from ollama.com; Hytte can have it download the model.",
+        "ai.model" => "Which model answers. qwen3:1.7b is small (1.4 GB) and good enough to explain an error; qwen3:0.6b is smaller and weaker. Custom: any model you have pulled, in config.toml under [ai] model.",
+        "ai.keep_alive" => "How long Ollama keeps the model in memory after a question. Shorter frees memory sooner; longer answers the next question faster.",
         "timer.sound" => "Plays a short chime when a timer or focus round ends.",
         "timer.break_min" => "Length of the short break between focus rounds, in minutes.",
         "timer.long_break_min" => "Length of the longer break after several focus rounds, in minutes.",
@@ -445,6 +449,33 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             ],
         },
         Section {
+            name: "Ask (local AI)",
+            rows: vec![
+                sw(
+                    "Ask a model on this PC (Ollama)",
+                    "ai.enabled",
+                    c.ai.enabled,
+                ),
+                pick_s_custom(
+                    "Model",
+                    "ai.model",
+                    &[
+                        ("qwen3 1.7B", "qwen3:1.7b"),
+                        ("qwen3 0.6B", "qwen3:0.6b"),
+                        ("gemma3 1B", "gemma3:1b"),
+                    ],
+                    &c.ai.model,
+                    "ai.model",
+                ),
+                pick_s(
+                    "Keep it in memory",
+                    "ai.keep_alive",
+                    &[("1 min", "1m"), ("2 min", "2m"), ("10 min", "10m")],
+                    &c.ai.keep_alive,
+                ),
+            ],
+        },
+        Section {
             name: "Moments",
             rows: vec![
                 sw(
@@ -690,6 +721,7 @@ fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
         Notes => Row::Switch("Notes", "panes.notes", c.notes),
         Todo => Row::Switch("To-do", "panes.todo", c.todo),
         Weather => Row::Switch("Weather", "panes.weather", c.weather),
+        Ask => Row::Switch("Ask (local AI)", "panes.ask", c.ask),
         Script(i) => {
             let i = (i as usize).min(SCRIPT_LABELS.len() - 1);
             Row::Switch(SCRIPT_LABELS[i], SCRIPT_SWITCHES[i], c.script_on(i))

@@ -30,6 +30,7 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 mod actions;
+mod ask;
 mod controls;
 mod dnd;
 mod events;
@@ -54,6 +55,7 @@ const WM_DRAG_END: u32 = 0x8006;
 const HOTKEY_ID: i32 = 1;
 const MONITOR_HOTKEY_ID: i32 = 2;
 const NOTE_HOTKEY_ID: i32 = 3;
+const AI_HOTKEY_ID: i32 = 4;
 
 const T_DWELL: usize = 1;
 const T_COLLAPSE: usize = 2;
@@ -335,6 +337,10 @@ struct Ui {
     high: Option<u16>,
     /// Counts place-field edits; a search result for an older one is ignored.
     place_seq: u64,
+    /// Set to stop the answer being made; a new request gets a fresh one.
+    ai_cancel: Arc<std::sync::atomic::AtomicBool>,
+    /// The same for the model download.
+    pull_cancel: Arc<std::sync::atomic::AtomicBool>,
     /// Break reminder schedule.
     breaks: crate::breaks::Breaks,
     /// Do Not Disturb is on for a Focus session: the value to put back afterwards.
@@ -656,6 +662,8 @@ pub fn run_windows(
             caret_on: true,
             high: None,
             place_seq: 0,
+            ai_cancel: Default::default(),
+            pull_cancel: Default::default(),
             breaks: Default::default(),
             dnd: None,
             dnd_tried: false,
@@ -683,6 +691,7 @@ pub fn run_windows(
         ui.model.init_jot(&crate::jot::path());
         ui.model.weather_place = crate::weather::Place::load();
         ui.model.imperial = crate::weather::imperial(&ui.cfg.weather.units);
+        ui.model.apply_ai(&ui.cfg.ai.clone());
         ui.model.apply_panes(&ui.cfg.panes.clone());
         ui.refresh_panes();
         ui.model

@@ -8,6 +8,8 @@ pub enum Field {
     Note,
     Todo,
     Place,
+    /// The Ask pane's question.
+    Ask,
 }
 
 /// Rows of notes or to-dos shown before the list scrolls.
@@ -23,6 +25,7 @@ impl Model {
         self.note_edit = crate::textedit::TextEdit::new(crate::jot::MAX_CHARS);
         self.todo_edit = crate::textedit::TextEdit::new(crate::jot::MAX_CHARS);
         self.place_edit = crate::textedit::TextEdit::new(80);
+        self.ask_edit = crate::textedit::TextEdit::new(400);
         self.note_keep = false;
     }
 
@@ -31,6 +34,7 @@ impl Model {
             Field::Note => &mut self.note_edit,
             Field::Todo => &mut self.todo_edit,
             Field::Place => &mut self.place_edit,
+            Field::Ask => &mut self.ask_edit,
         }
     }
 
@@ -39,6 +43,7 @@ impl Model {
             Field::Note => &self.note_edit,
             Field::Todo => &self.todo_edit,
             Field::Place => &self.place_edit,
+            Field::Ask => &self.ask_edit,
         }
     }
 
@@ -49,7 +54,7 @@ impl Model {
         let kind = match f {
             Field::Note => Kind::Note,
             Field::Todo => Kind::Todo,
-            Field::Place => return false,
+            Field::Place | Field::Ask => return false,
         };
         let text = self.edit_ref(f).text().to_string();
         let now = crate::timer::now_ms();

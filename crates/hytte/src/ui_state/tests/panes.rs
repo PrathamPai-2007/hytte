@@ -559,3 +559,28 @@ fn a_clip_can_be_deleted_cleared_and_expires() {
     m.clear_clips();
     assert!(!m.clips_shown());
 }
+
+/// Explain on a failed command: its command, exit code and output go to the model; a failure with
+/// no output has nothing to explain.
+#[test]
+fn a_failed_command_with_output_can_be_explained() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_ai(&crate::config::Ai {
+        enabled: true,
+        ..Default::default()
+    });
+    m.apply_task(st("t1", TaskEvent::Failed, t0), t0);
+    let (cmd, code, out) = m.failed_text("t1").unwrap();
+    assert_eq!(cmd, "build");
+    assert_eq!(out, "boom\nbang");
+    let job = m.begin_ai_failed(&cmd, Some(2), &out);
+    assert!(job.to_card);
+    assert!(job.question.prompt.contains("Command: build"));
+    assert!(job.question.prompt.contains("Exit code: 2"));
+    assert!(job.question.prompt.contains("boom\nbang"));
+    let _ = code;
+    m.tasks[0].stderr.clear();
+    assert!(m.failed_text("t1").is_none());
+    assert!(m.failed_text("nope").is_none());
+}

@@ -1937,3 +1937,175 @@ fn clip_snapshots() {
     m.scroll_clips(2);
     shoot(&mut r, &dir, "clips-scrolled", &m, Scene::ExpShelf, false);
 }
+
+/// The Ask pane (every state Ollama can be in, an answer coming in, a long answer scrolled) and
+/// the AI card (streaming, short, long at its cap, an error).
+#[test]
+#[ignore]
+fn ask_snapshots() {
+    use crate::ollama::{Pull, PullBar, Status};
+    use crate::ui_state::{AiKind, REPLY_W};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(2.0).unwrap();
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(Instant::now());
+        m.init_jot(&std::path::PathBuf::from(r"Z:\none\jot.json"));
+        let ai = crate::config::Ai {
+            enabled: true,
+            ..Default::default()
+        };
+        m.apply_ai(&ai);
+        // Fit the reply's measured height the way the window does.
+        let fit = |r: &Renderer, m: &mut Model| {
+            let rp = &mut m.ask.reply;
+            let h = r.wrapped_h(&rp.shown, REPLY_W);
+            rp.measured_h(h);
+            let b = m.ask_box_h();
+            m.ask.reply.settle(b);
+            if let Some(c) = m.ai_card.as_mut() {
+                let h = r.wrapped_h(&c.reply.shown, REPLY_W);
+                c.reply.measured_h(h);
+            }
+            let b = m.ai_box_h();
+            if let Some(c) = m.ai_card.as_mut() {
+                c.reply.settle(b);
+            }
+        };
+        let s = |r: &mut Renderer, n: &str, m: &Model| {
+            shoot(r, &dir, &format!("{n}{sfx}"), m, Scene::ExpAsk, light)
+        };
+        for (name, st) in [
+            ("ask-looking", Status::Checking),
+            ("ask-not-running", Status::NotRunning),
+            (
+                "ask-problem",
+                Status::Problem("Ollama's address must be this PC".into()),
+            ),
+            ("ask-no-model", Status::NoModel),
+        ] {
+            m.ask.status = st;
+            s(&mut r, name, &m);
+        }
+        m.ask.status = Status::NoModel;
+        let mut bar = PullBar::default();
+        m.ask.pull = Some(bar.clone());
+        s(&mut r, "ask-pull-start", &m);
+        bar.update(&Pull::Progress {
+            done: 590_000_000,
+            total: 1_400_000_000,
+        });
+        m.ask.pull = Some(bar);
+        s(&mut r, "ask-pull", &m);
+        m.ask.pull = None;
+        m.ask.status = Status::Ready;
+        s(&mut r, "ask-ready", &m);
+        m.typing = Some(Field::Ask);
+        m.ask_edit
+            .set("why does cargo say the borrow checker hates me");
+        s(&mut r, "ask-typed", &m);
+        // Streaming: dots, then text.
+        let job = m.begin_ask().unwrap();
+        s(&mut r, "ask-thinking", &m);
+        m.ai_text(
+            job.seq,
+            false,
+            "The borrow checker enforces that a value has either one mutable",
+        );
+        fit(&r, &mut m);
+        s(&mut r, "ask-streaming", &m);
+        m.ai_text(job.seq, false, " reference or many shared ones, never both at once. Check where you hold a reference while you also try to change the value, and shorten how long the first one lives.");
+        m.ai_done(job.seq, false, Ok(()), Instant::now());
+        fit(&r, &mut m);
+        s(&mut r, "ask-answer", &m);
+        // A long answer at the cap, scrolled to the end and to the start.
+        let long = (1..=14)
+            .map(|i| format!("Step {i}: look at the compiler message and follow the arrow to the line it names."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        m.clear_ask();
+        m.ask_edit.set("how do I fix it?");
+        let job = m.begin_ask().unwrap();
+        m.ai_text(job.seq, false, &long);
+        m.ai_done(job.seq, false, Ok(()), Instant::now());
+        fit(&r, &mut m);
+        s(&mut r, "ask-long-end", &m);
+        m.ask.reply.follow = false;
+        m.ask.reply.scroll = 0.0;
+        s(&mut r, "ask-long-top", &m);
+        // An error after some text.
+        m.clear_ask();
+        m.ask_edit.set("hello?");
+        let job = m.begin_ask().unwrap();
+        m.ai_text(job.seq, false, "Hel");
+        m.ai_done(
+            job.seq,
+            false,
+            Err("Ollama isn't running".into()),
+            Instant::now(),
+        );
+        fit(&r, &mut m);
+        s(&mut r, "ask-error", &m);
+        // The card.
+        let c = |r: &mut Renderer, n: &str, m: &Model| {
+            shoot(r, &dir, &format!("{n}{sfx}"), m, Scene::ExpAi, light)
+        };
+        m.typing = None;
+        let job = m.begin_ai(AiKind::Summarise, "this clip", "text");
+        fit(&r, &mut m);
+        c(&mut r, "ai-card-thinking", &m);
+        m.ai_text(job.seq, true, "It is a short command that builds the workspace and runs every test, printing output as it goes.");
+        fit(&r, &mut m);
+        c(&mut r, "ai-card-streaming", &m);
+        m.ai_done(job.seq, true, Ok(()), Instant::now());
+        fit(&r, &mut m);
+        c(&mut r, "ai-card-done", &m);
+        let job = m.begin_ai_failed(
+            "cargo build",
+            Some(101),
+            "error[E0382]: borrow of moved value",
+        );
+        m.ai_text(job.seq, true, &long);
+        m.ai_done(job.seq, true, Ok(()), Instant::now());
+        fit(&r, &mut m);
+        c(&mut r, "ai-card-long", &m);
+        let job = m.begin_ai(AiKind::Shorten, "this clip", "x");
+        m.ai_done(
+            job.seq,
+            true,
+            Err("model 'qwen3:1.7b' not found".into()),
+            Instant::now(),
+        );
+        fit(&r, &mut m);
+        c(&mut r, "ai-card-error", &m);
+    }
+    // The clipboard row with the ✦ and its chips open.
+    let mut m = model();
+    m.now = Some(Instant::now());
+    m.apply_clipboard(true, 0);
+    m.apply_ai(&crate::config::Ai {
+        enabled: true,
+        ..Default::default()
+    });
+    for t in [
+        "cargo test --workspace",
+        "error[E0382]: borrow of moved value: `x`",
+        "a third clip",
+    ] {
+        m.add_clip(t);
+    }
+    shoot(&mut r, &dir, "clips-ai-closed", &m, Scene::ExpShelf, false);
+    m.toggle_clip_ai(1);
+    shoot(&mut r, &dir, "clips-ai-open", &m, Scene::ExpShelf, false);
+    shoot_at(
+        &mut r,
+        &dir,
+        "clips-ai-hover",
+        &m,
+        Scene::ExpShelf,
+        false,
+        Some((200.0, 62.0)),
+    );
+}

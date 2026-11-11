@@ -23,6 +23,8 @@ pub enum Conv {
     Base64,
     /// Copy an image as a Markdown image link to its file.
     Markdown,
+    /// Ask your own Ollama about a text file; the answer shows in a card (see `ai_chips`).
+    Ai(crate::ui_state::AiKind),
     /// The per-type default (prettify JSON, copy text, reveal path...).
     Auto,
 }
@@ -108,6 +110,91 @@ pub fn chips_for(path: &Path) -> Vec<(&'static str, Conv)> {
     }
 }
 
+/// Files whose start can be read as text (for the Ask actions).
+fn ai_text_ext(ext: &str) -> bool {
+    matches!(
+        ext,
+        "txt"
+            | "md"
+            | "log"
+            | "csv"
+            | "json"
+            | "yaml"
+            | "yml"
+            | "toml"
+            | "ini"
+            | "cfg"
+            | "xml"
+            | "html"
+            | "htm"
+            | "css"
+            | "js"
+            | "ts"
+            | "tsx"
+            | "jsx"
+            | "py"
+            | "rs"
+            | "go"
+            | "java"
+            | "c"
+            | "h"
+            | "cpp"
+            | "cs"
+            | "rb"
+            | "php"
+            | "sh"
+            | "ps1"
+            | "bat"
+            | "sql"
+            | "tex"
+    )
+}
+
+/// The chips that ask your own Ollama about a text file (only offered while `[ai]` is on):
+/// the answer comes in a card, not as a file.
+pub fn ai_chips(path: &Path) -> Vec<(&'static str, Conv)> {
+    use crate::ui_state::AiKind;
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ai_text_ext(&ext) {
+        vec![
+            ("Summarise", Conv::Ai(AiKind::Summarise)),
+            ("Explain", Conv::Ai(AiKind::Explain)),
+        ]
+    } else {
+        vec![]
+    }
+}
+
+/// The text in the start of a file: UTF-8 (a character cut off at the end is dropped) or UTF-16
+/// with a byte-order mark. None for anything with NULs or invalid text: not something to read out.
+pub fn text_of(bytes: &[u8]) -> Option<String> {
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = rest
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
+            .collect();
+        return String::from_utf16(&units).ok();
+    }
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    if bytes.contains(&0) {
+        return None;
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => Some(s.to_string()),
+        // Cut in the middle of a character by the read size: fine; anything else isn't text.
+        Err(e) if e.error_len().is_none() => {
+            Some(String::from_utf8_lossy(&bytes[..e.valid_up_to()]).into_owned())
+        }
+        Err(_) => None,
+    }
+}
+
 pub fn run(op: Conv, src: &Path) -> Outcome {
     use crate::convert::{self, fmt_size};
     let done = |r: Result<convert::Converted, String>, verb: &str| match r {
@@ -185,6 +272,8 @@ pub fn run(op: Conv, src: &Path) -> Outcome {
             Err(e) => Outcome::msg(format!("Can't read the text: {e}")),
         },
         Conv::Auto => transform_file(src),
+        // Answered in a card by the pill itself; never run as a file job.
+        Conv::Ai(_) => Outcome::msg("Ask is answered in a card"),
     }
 }
 
@@ -997,5 +1086,44 @@ mod tests {
         }
         assert_eq!(chip_lines(&all[..4], 372.0).len(), 1);
         assert_eq!(chip_lines(&[], 372.0), vec![Vec::<usize>::new()]);
+    }
+}
+
+#[cfg(test)]
+mod ask_tests {
+    use super::*;
+
+    #[test]
+    fn text_start_reads_utf8_and_utf16_and_refuses_binary() {
+        assert_eq!(text_of(b"hello").as_deref(), Some("hello"));
+        assert_eq!(text_of(b"\xEF\xBB\xBFhi").as_deref(), Some("hi"));
+        // A read that stopped inside a character keeps what was whole.
+        let cut = &"aé".as_bytes()[..2];
+        assert_eq!(text_of(cut).as_deref(), Some("a"));
+        // UTF-16 LE with a mark.
+        let mut u16le = vec![0xFF, 0xFE];
+        for u in "hi é".encode_utf16() {
+            u16le.extend(u.to_le_bytes());
+        }
+        assert_eq!(text_of(&u16le).as_deref(), Some("hi é"));
+        // Binary: NULs, or bytes that aren't text.
+        assert_eq!(text_of(b"MZ\x90\x00\x03"), None);
+        assert_eq!(text_of(&[0xFF, 0xFF, 0xFF, 0x41]), None);
+        assert_eq!(text_of(b"").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn only_text_like_files_offer_the_ask_chips() {
+        let l = |p: &str| {
+            ai_chips(Path::new(p))
+                .iter()
+                .map(|c| c.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(l("a.TXT"), ["Summarise", "Explain"]);
+        assert_eq!(l("main.rs"), ["Summarise", "Explain"]);
+        assert!(l("a.png").is_empty());
+        assert!(l("a.pdf").is_empty());
+        assert!(l("noext").is_empty());
     }
 }

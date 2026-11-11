@@ -234,6 +234,10 @@ impl Ui {
             return;
         }
         self.wheel -= steps * 120;
+        // Over an answer, the wheel scrolls it (when it has more than the box shows).
+        if self.reply_wheel(steps) {
+            return;
+        }
         // Over the volume bar or the sound tile, the wheel is the volume (2% a notch, as
         // in the Windows flyout).
         // Over the shelf row, the wheel scrolls it (down = further along).

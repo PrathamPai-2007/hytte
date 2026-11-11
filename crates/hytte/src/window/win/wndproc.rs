@@ -337,6 +337,8 @@ pub(super) unsafe extern "system" fn wndproc(
         0x0312 /* WM_HOTKEY */ => {
             if wparam.0 as i32 == MONITOR_HOTKEY_ID {
                 with_ui(|ui| ui.next_monitor());
+            } else if wparam.0 as i32 == AI_HOTKEY_ID {
+                with_ui(|ui| ui.toggle_ask(hwnd));
             } else if wparam.0 as i32 == NOTE_HOTKEY_ID {
                 with_ui(|ui| ui.toggle_note(hwnd));
             } else {

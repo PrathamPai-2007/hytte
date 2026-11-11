@@ -6,6 +6,8 @@ use super::*;
 pub const CLIP_HEAD_H: f32 = 22.0;
 pub const CLIP_ROW_H: f32 = 24.0;
 pub const CLIP_PAD_H: f32 = 8.0;
+/// The row of Explain / Summarise / Shorten chips that opens under a clip.
+pub const CLIP_AI_H: f32 = 28.0;
 
 impl Model {
     /// `[clipboard] history` as the config has it now: off forgets every clip.
@@ -20,6 +22,7 @@ impl Model {
     /// Forget every clip (the Clear link, lock, sleep, an emptied clipboard).
     pub fn clear_clips(&mut self) {
         self.clips.clear();
+        self.clip_ai = None;
         self.clip_off = 0;
     }
 
@@ -27,6 +30,7 @@ impl Model {
     pub fn remove_clip(&mut self, i: usize) {
         if i < self.clips.len() {
             self.clips.remove(i);
+            self.clip_ai = None;
         }
         // Stay within what is left.
         self.scroll_clips(0);
@@ -36,6 +40,7 @@ impl Model {
     pub fn add_clip(&mut self, text: &str) {
         if self.clips_on {
             self.clips.add(text);
+            self.clip_ai = None;
             self.clip_off = 0;
         }
     }
@@ -66,7 +71,12 @@ impl Model {
         if !self.clips_shown() {
             return 0.0;
         }
-        (CLIP_HEAD_H + self.clip_view().1 as f32 * CLIP_ROW_H + CLIP_PAD_H) as f64
+        let ai = if self.clip_ai_row().is_some() {
+            CLIP_AI_H
+        } else {
+            0.0
+        };
+        (CLIP_HEAD_H + self.clip_view().1 as f32 * CLIP_ROW_H + CLIP_PAD_H + ai) as f64
     }
 
     /// Height of the shelf's own part (tiles, hint or the selected item's chips), without the tab
@@ -89,7 +99,7 @@ impl Model {
         else {
             return 1;
         };
-        let chips = crate::transforms::chips_for(&it.path);
+        let chips = self.chips_of(&it.path);
         let labels: Vec<&str> = chips.iter().map(|c| c.0).collect();
         crate::transforms::chip_lines(&labels, 380.0 - 8.0).len()
     }
@@ -112,5 +122,35 @@ impl Model {
         let (off, _) = self.shelf_page();
         let max = self.shelf.len().saturating_sub(SHELF_VISIBLE) as i32;
         self.shelf_off = (off as i32 + by).clamp(0, max) as usize;
+    }
+}
+
+impl Model {
+    /// The chips of a shelf item: its file actions, and (with `[ai]` on) the ones that ask Ollama.
+    pub fn chips_of(&self, path: &std::path::Path) -> Vec<(&'static str, crate::transforms::Conv)> {
+        let mut c = crate::transforms::chips_for(path);
+        if self.ai.enabled {
+            c.extend(crate::transforms::ai_chips(path));
+        }
+        c
+    }
+
+    /// Where the open clip AI row sits among the clips in view, when it is in view.
+    pub fn clip_ai_row(&self) -> Option<usize> {
+        if !self.ai.enabled {
+            return None;
+        }
+        let idx = self.clip_ai?;
+        let (off, shown) = self.clip_view();
+        (idx >= off && idx < off + shown).then(|| idx - off)
+    }
+
+    /// The ✦ on a clip: open (or close) its chips.
+    pub fn toggle_clip_ai(&mut self, i: usize) {
+        self.clip_ai = if self.clip_ai == Some(i) || i >= self.clips.len() {
+            None
+        } else {
+            Some(i)
+        };
     }
 }

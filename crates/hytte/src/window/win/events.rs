@@ -258,6 +258,11 @@ impl Ui {
                     self.show_update(now);
                 }
                 UiEvent::Forecast(r) => self.model.forecast_result(r, now),
+                UiEvent::AiText(seq, card, t) => self.model.ai_text(seq, card, &t),
+                UiEvent::AiDone(seq, card, r) => self.model.ai_done(seq, card, r, now),
+                UiEvent::Ollama(s) => self.model.ollama_status(s),
+                UiEvent::Pull(p) => self.model.pull_progress(&p),
+                UiEvent::PullDone(r) => self.model.pull_done(r),
                 UiEvent::Script(name, run) => self.model.script_done(&name, run, now),
                 UiEvent::Packs(packs) => {
                     self.packs = packs;
@@ -317,7 +322,8 @@ impl Ui {
     pub(super) fn apply_config(&mut self, new: Config) {
         let hotkey_changed = new.general.hotkey != self.cfg.general.hotkey
             || new.general.monitor_hotkey != self.cfg.general.monitor_hotkey
-            || new.general.note_hotkey != self.cfg.general.note_hotkey;
+            || new.general.note_hotkey != self.cfg.general.note_hotkey
+            || new.ai.hotkey != self.cfg.ai.hotkey;
         if new.general.hide_from_capture != self.cfg.general.hide_from_capture {
             set_capture_hidden(
                 HWND(HWND_ADDR.load(Ordering::Relaxed) as *mut _),
@@ -354,6 +360,7 @@ impl Ui {
             self.model.pinned = false;
         }
         self.model.rounds = new.timer.rounds;
+        self.model.apply_ai(&new.ai);
         self.model.apply_panes(&new.panes);
         self.model.skin = crate::skin::Skin::from_name(&new.general.skin);
         self.model.lyrics_on = new.media.lyrics;

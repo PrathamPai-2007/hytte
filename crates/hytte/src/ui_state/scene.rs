@@ -15,6 +15,8 @@ pub enum Panel {
     Notes,
     Todo,
     Weather,
+    /// One question for your own Ollama (`[ai]`), answered in the pane.
+    Ask,
     /// One of your `[[script_pane]]`s, by its place in the config (0..4).
     Script(u8),
 }
@@ -36,19 +38,21 @@ impl Panel {
             Panel::Notes => "Notes",
             Panel::Todo => "To-do",
             Panel::Weather => "Weather",
+            Panel::Ask => "Ask",
             // The tab shows the pane's own name ([`Model::panel_label`]).
             Panel::Script(_) => "Script",
         }
     }
 
     /// Every pane, in the order the tab strip has them until the user moves them.
-    pub const ALL: [Panel; 14] = [
+    pub const ALL: [Panel; 15] = [
         Panel::Shelf,
         Panel::Media,
         Panel::Home,
         Panel::Notes,
         Panel::Todo,
         Panel::Weather,
+        Panel::Ask,
         Panel::Agents,
         Panel::Tasks,
         Panel::Timer,
@@ -72,6 +76,7 @@ impl Panel {
             Panel::Notes => "notes",
             Panel::Todo => "todo",
             Panel::Weather => "weather",
+            Panel::Ask => "ask",
             Panel::Script(i) => SCRIPT_KEYS[(i as usize).min(SCRIPT_KEYS.len() - 1)],
         }
     }
@@ -123,6 +128,7 @@ impl Panel {
             Scene::ExpNotes => Panel::Notes,
             Scene::ExpTodo => Panel::Todo,
             Scene::ExpWeather => Panel::Weather,
+            Scene::ExpAsk => Panel::Ask,
             Scene::ExpScript(i) => Panel::Script(i),
             _ => return None,
         })
@@ -166,6 +172,9 @@ pub enum Scene {
     ExpNotes,
     ExpTodo,
     ExpWeather,
+    ExpAsk,
+    /// The card an Explain / Summarise / Shorten answer shows in.
+    ExpAi,
     /// A script pane, by slot.
     ExpScript(u8),
     ExpDrop,
@@ -258,6 +267,9 @@ impl Model {
         if self.panes.weather {
             v.push(Panel::Weather);
         }
+        if self.ask_shown() {
+            v.push(Panel::Ask);
+        }
         // Terminal tasks and the dev servers they run share one pane.
         if self.panes.tasks && (self.shell_count() > 0 || !self.ports.is_empty()) {
             v.push(Panel::Tasks);
@@ -346,6 +358,10 @@ impl Model {
         if self.chip.is_some() {
             return Scene::ExpChip;
         }
+        // An answer you asked for waits below an agent's question but above everything else.
+        if self.ai_card.is_some() && self.ai.enabled {
+            return Scene::ExpAi;
+        }
         if self.timer_done.is_some() {
             return Scene::ExpTimerDone;
         }
@@ -368,6 +384,7 @@ impl Model {
                 Panel::Notes => Scene::ExpNotes,
                 Panel::Todo => Scene::ExpTodo,
                 Panel::Weather => Scene::ExpWeather,
+                Panel::Ask => Scene::ExpAsk,
                 Panel::Script(i) => Scene::ExpScript(i),
             };
         }
@@ -431,6 +448,8 @@ impl Model {
             Scene::ExpNudge => (360.0, 56.0),
             Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
             Scene::ExpWeather => (380.0, self.weather_h() + tab),
+            Scene::ExpAsk => (380.0, self.ask_h() + tab),
+            Scene::ExpAi => (380.0, self.ai_card_h()),
             Scene::ExpScript(i) => (380.0, self.script_h(i) + tab),
             Scene::ExpDrop => (380.0, 116.0),
             Scene::ExpChip => {
@@ -512,6 +531,7 @@ impl Model {
             Scene::ExpCharge if !self.charge_in => (AMBER, 0.6),
             Scene::ExpCharge => (GREEN, 0.7),
             Scene::ExpChip | Scene::ExpShelf => (PURPLE, 0.5),
+            Scene::ExpAi => (BLUE, 0.35),
             Scene::CompactMedia | Scene::ExpMedia
                 if self.adaptive_glow && self.art_accent.is_some() =>
             {
@@ -538,6 +558,7 @@ impl Model {
             | Scene::ExpNotes
             | Scene::ExpTodo
             | Scene::ExpWeather
+            | Scene::ExpAsk
             | Scene::ExpScript(_) => ([1.0; 3], 0.10),
             Scene::CompactTask | Scene::ExpTasks | Scene::ExpAgents => {
                 match self.primary().map(|t| t.event) {
@@ -571,6 +592,9 @@ impl Model {
                 && self.nudge.is_some_and(|n| n.kind == crate::breaks::Kind::Eyes))
             // The bell swings while the alarm rings.
             || scene == Scene::ExpTimerDone
+            // The dots of a question being answered pulse.
+            || (scene == Scene::ExpAsk && self.ask.reply.busy)
+            || (scene == Scene::ExpAi && self.ai_card.as_ref().is_some_and(|c| c.reply.busy))
             || (self.media.as_ref().is_some_and(|m| m.playing)
                 && matches!(scene, Scene::CompactMedia | Scene::ExpMedia))
     }

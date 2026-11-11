@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 mod actions;
 mod agents;
 mod anim;
+mod ask;
 mod cards;
 mod media;
 mod notes;
@@ -29,6 +30,7 @@ mod weather;
 pub use actions::*;
 pub use agents::*;
 pub use anim::*;
+pub use ask::*;
 pub use cards::*;
 pub use media::*;
 pub use notes::*;
@@ -163,6 +165,16 @@ pub enum UiEvent {
     },
     /// A line of news for the user (an update check's result, an install error).
     Notice(String, Tone),
+    /// A piece of an answer from Ollama: the request it belongs to, whether it is for the card,
+    /// and the text.
+    AiText(u64, bool, String),
+    /// An answer ended (or failed): the same two, and how it went.
+    AiDone(u64, bool, Result<(), String>),
+    /// What a look at Ollama found.
+    Ollama(crate::ollama::Status),
+    /// Progress of the model download.
+    Pull(crate::ollama::Pull),
+    PullDone(Result<(), String>),
 }
 
 /// Keep the PC (and its screen) awake.
@@ -242,6 +254,8 @@ pub struct Model {
     pub clips: crate::clipboard::History,
     pub clips_on: bool,
     pub clip_off: usize,
+    /// The clip whose Explain / Summarise / Shorten chips are open (needs `[ai]`).
+    pub clip_ai: Option<usize>,
     /// How long a clip is kept (zero: until lock, sleep or quit).
     pub clip_ttl: Duration,
     /// Names of the `[[action]]`s, so a card button `Label:name` can tell an action from text.
@@ -312,6 +326,14 @@ pub struct Model {
     pub note_edit: crate::textedit::TextEdit,
     pub todo_edit: crate::textedit::TextEdit,
     pub place_edit: crate::textedit::TextEdit,
+    /// `[ai]`, the Ask pane (its question field, the answer and Ollama's state) and the card an
+    /// Explain / Summarise / Shorten answer shows in. The answers live in memory only.
+    pub ai: crate::config::Ai,
+    pub ask: AskView,
+    pub ask_edit: crate::textedit::TextEdit,
+    pub ai_card: Option<AiCard>,
+    /// Which request is current: pieces of an older one are dropped.
+    pub ai_seq: u64,
     /// The Notes field's switch: keep the note for good (false = 24 h).
     pub note_keep: bool,
     /// An existing note or to-do being edited in the field (instead of adding a new one).
@@ -469,6 +491,9 @@ impl Model {
         if self.nudge.is_some_and(|n| now >= n.since + n.kind.hold()) {
             self.nudge = None;
         }
+        if self.ai_card_due().is_some_and(|d| now >= d) {
+            self.ai_card = None;
+        }
         let wall = crate::timer::now_ms();
         if self.jot.expire(wall) {
             self.jot_dirty = true;
@@ -480,7 +505,11 @@ impl Model {
         {
             self.jot_undo = None;
         }
+        let clips_before = self.clips.len();
         let clip_due = self.clips.expire(self.clip_ttl, now);
+        if self.clips.len() != clips_before {
+            self.clip_ai = None;
+        }
         self.scroll_clips(0);
         let mut next: Option<Instant> = None;
         let mut keep = |i: Instant| next = Some(next.map_or(i, |n| n.min(i)));
@@ -495,6 +524,9 @@ impl Model {
         }
         if let Some(n) = self.nudge {
             keep(n.since + n.kind.hold());
+        }
+        if let Some(d) = self.ai_card_due() {
+            keep(d);
         }
         if let Some(s) = &self.sleep {
             for d in s.deadlines(now) {

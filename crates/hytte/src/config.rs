@@ -253,6 +253,34 @@ impl Default for Clipboard {
     }
 }
 
+/// `[ai]`: ask a small model running in your own Ollama, and one-click Explain / Summarise /
+/// Shorten on a clip, a shelf file or a failed command. Off unless switched on. Only this PC's
+/// Ollama is ever contacted (`host` must be loopback); nothing is written to disk.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Ai {
+    pub enabled: bool,
+    /// Where Ollama listens. Must be this PC (127.0.0.1, localhost or [::1]).
+    pub host: String,
+    /// The model to ask. Hytte can have Ollama download the default for you.
+    pub model: String,
+    /// How long Ollama keeps the model in memory after a question ("2m", "10m").
+    pub keep_alive: String,
+    /// Global hotkey that opens the Ask pane with the cursor ready, e.g. "Win+Alt+A". Empty = off.
+    pub hotkey: String,
+}
+impl Default for Ai {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: crate::ollama::DEFAULT_HOST.into(),
+            model: crate::ollama::DEFAULT_MODEL.into(),
+            keep_alive: "2m".into(),
+            hotkey: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Ports {
@@ -380,6 +408,8 @@ pub struct Panes {
     pub notes: bool,
     pub todo: bool,
     pub weather: bool,
+    /// The Ask pane (shows only while `[ai] enabled`).
+    pub ask: bool,
     /// The tab order, as pane names ("home,media,..."). Set by the arrows in the settings
     /// window; panes not named keep their usual place after the ones that are.
     pub order: String,
@@ -422,6 +452,7 @@ impl Default for Panes {
             notes: true,
             todo: true,
             weather: true,
+            ask: true,
             order: String::new(),
             script1: true,
             script2: true,
@@ -490,6 +521,7 @@ pub struct Config {
     pub agent: Agent,
     pub moments: Moments,
     pub clipboard: Clipboard,
+    pub ai: Ai,
     /// Your own panes (`[[script_pane]]`), fed by a command Hytte runs and/or by
     /// `hytte pane set`. Read through [`Config::script_panes`], which applies the limits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
