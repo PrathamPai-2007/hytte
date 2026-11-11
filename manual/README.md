@@ -14,6 +14,7 @@ New here? Read the first two pages, then pick what you need.
 | [6. Everyday tools](06-everyday-tools.md) | Music and lyrics, quick controls, timer and focus mode, notes, to-dos, weather, break reminders, dev servers and alerts. |
 | [7. Settings](07-settings.md) | Changing how Hytte looks and behaves. |
 | [8. Updates and troubleshooting](08-updates-and-troubleshooting.md) | Staying current, fixing problems, and uninstalling. |
+| [9. Ask (local AI)](09-ask.md) | Ask a small model on your own PC, and Explain / Summarise / Shorten a clip, file or failed command. |
 
 Something wrong or missing? [Open an issue](https://github.com/PrathamPai-2007/hytte/issues).
 

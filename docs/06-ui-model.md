@@ -15,6 +15,7 @@ The module is split by what each file owns. `Model` and `UiEvent` are in `mod.rs
 | `media.rs` | `MediaInfo`, `ArtBitmap`, `LyricState`; media, lyrics, sleep timer. |
 | `notes.rs` | `Field`; the Notes and To-do lists and their text fields. |
 | `weather.rs` | the forecast and the place chooser. |
+| `ask.rs` | `Reply` (streamed text and its scroll), `AskView`, `AiCard`, `AiKind`, `AiSource`, `AiJob`; the Ask pane and the AI card: `begin_ask`, `begin_ai`, `ai_text`, `ai_done`, `plain` (markdown marks removed). The wrapped height of the text comes from the renderer; the window layer stores it in `Reply::text_h` before the pill's size is worked out. |
 | `script.rs` | `ScriptView`; script panes. |
 | `shelf.rs`, `timer.rs` | shelf paging; the timer and calendar heads-up. |
 | `anim.rs` | `Anim` (springs), `Swipe`. |
@@ -38,6 +39,8 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | `DownloadDone { name, path }`, `TaskGone(id)` | downloads watcher | "Finished downloading" card with Open / Shelve; `remove_task` for a cancelled download. |
 | `Calendar(Option<NextEvent>)` | calendar watcher | `set_calendar`: arms the heads-up. |
 | `DragEnter` / `DragLeave` | OLE drop target | `drop_over`: the purple drop zone. |
+| `AiText(seq, card, text)`, `AiDone(seq, card, result)` | Ask worker (`ollama::ask`) | A piece of an answer, and its end. A piece for a request that was replaced (`ai_seq`) is dropped. |
+| `Ollama(Status)`, `Pull(Pull)`, `PullDone(result)` | Ask workers | What a look at Ollama found; progress and end of a model download. |
 | `Places(seq, query, result)`, `Forecast(result)` | weather workers | `places_result` (dropped if the field no longer holds `query`, or `seq` is old), `forecast_result` (dropped for a place since changed). |
 | `WidePlaces(seq, query, result)` | wider place search | `wide_result`: kept in a small session cache; dropped if the field changed. |
 | `Lyrics(key, result)` | lyrics worker | `lyrics_result`: cached; shown only if `key` is still the song on screen. |
@@ -66,7 +69,7 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 
 ## Panels
 
-`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (mic, sound, keep-awake, timer tiles and volume bar), **Notes**, **To-do** and **Weather**, **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery). Every one but Home has a switch in `[panes]` (`media`, `shelf`, `tasks`, `timer`, `power`, `notes`, `todo`, `weather`; Home is the starting point and always shows), and the result is sorted by `[panes] order` (`Panel::arranged`; panes the list does not name keep their usual place after those it does). `move_pane` rewrites the order for the arrows in the settings window.
+`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (mic, sound, keep-awake, timer tiles and volume bar), **Notes**, **To-do** and **Weather**, **Ask** (`[ai] enabled` and `[panes] ask`), **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery). Every one but Home has a switch in `[panes]` (`media`, `shelf`, `tasks`, `timer`, `power`, `notes`, `todo`, `weather`, `ask`; Home is the starting point and always shows), and the result is sorted by `[panes] order` (`Panel::arranged`; panes the list does not name keep their usual place after those it does). `move_pane` rewrites the order for the arrows in the settings window.
 
 - `panel()` is the selected panel if it still exists, else what the collapsed pill shows (Tasks if a task is visible, Media if music plays), else Home, else the first panel left when those are switched off. Attention wins: a task that needs input or finishes `peek`s its pane, which selects it.
 - `tabs()` is true with more than one panel (the tab strip is drawn only then). `step_panel(dir)` moves with wrap-around (sideways scroll, arrows).

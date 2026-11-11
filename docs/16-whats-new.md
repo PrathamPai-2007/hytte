@@ -2,6 +2,25 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
+## 1.9.0
+
+The local AI and honest cockpit release.
+
+**Ask** (`[ai]`, off by default)
+
+- **An Ask pane.** One question, one answer, from a small model running in your own [Ollama](https://ollama.com). The answer streams into a box that wraps and scrolls inside the pill; there is no chat and no history, and nothing is written to disk. The default model is `qwen3:1.7b` (1.4 GB); **Get it** has your Ollama download it, with a progress bar. Settings offers `qwen3:0.6b` and `gemma3:1b` too, and `[ai] model` takes anything you have pulled.
+- **Explain, Summarise and Shorten** on what Hytte already holds, answered in a card that grows to fit (it scrolls inside once it is about half the screen tall): a clipboard clip (the **✦** on a hovered clip), a text file on the shelf, and a failed command that ran through `hytte run`. An agent's question still comes first.
+- **Private by construction.** Only Ollama on this PC is contacted: `[ai] host` must be loopback or the request is refused. It goes through `curl.exe` with proxies off and the question on stdin. See [manual 9](../manual/09-ask.md).
+
+**Cockpit**
+
+- **Each agent turn is timed from its prompt** and starts over with the next one, even when the row was still on screen. The finished-reply card says "Ran 8 min" (turns of ten seconds or more).
+- **A quiet label** (`[agent] quiet_after_secs`, 300; 0 = never): a working agent that has said nothing for that long shows a grey "quiet 6m". A label only, no sound or alert.
+- **The compact pill says how many agents wait**: its count turns amber and the row reads "2 waiting".
+- **`hytte doctor` explains more**: a settings file that isn't plain JSON (comments, a trailing comma) is its own warning with the fix, and Codex's line reminds you to approve its hooks with `/hooks`. The earlier "stale hook" check and repair at startup are unchanged.
+
+For people who change Hytte: new `ollama.rs` (loopback client: `host_ok`, `ask`, `pull`, `check`; fake-server tests drive the real `curl.exe` path), `ui_state/ask.rs`, `render/ask.rs` and `window/win/ask.rs`; `Panel::Ask`, `Scene::ExpAsk` and `Scene::ExpAi`; `Field::Ask`; `Conv::Ai` for the shelf chips. The answer box's wrapped height is measured by the renderer (`Renderer::wrapped_h`) and stored by `Ui::measure_replies` inside `layout()`, before `Model::size`, so the pill's size and the drawing use the same number with no frame of lag. `TaskView` has no new field: the turn clock is `started`, reset on a fresh agent turn.
+
 ## 1.8.0
 
 The agents, platform and moments release, with the first native ARM64 build.

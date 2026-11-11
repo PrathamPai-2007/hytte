@@ -27,6 +27,7 @@ It never steals focus, idles at almost no CPU, and uses about 10 MB of RAM. It i
 - **Live cards from your scripts:** progress, icons and buttons, and `--wait` to ask a question and get the answer back.
 - **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts.
 - **Notes, a to-do list and the weather**, typed straight into the pill.
+- **Asks a small AI model on your own PC** (through Ollama, off by default): one question, one answer, plus Explain, Summarise and Shorten on a clip, a file or a failed command. Nothing leaves your machine.
 - **Break reminders** for your eyes, your back and your water bottle.
 - **Alerts** for downloads, runaway CPU or memory, your next meeting, camera and microphone use, and battery.
 - **Gets out of the way** of games and fullscreen apps, and can stay out of screenshots and screen shares.
@@ -71,7 +72,7 @@ Point at the pill to open it. Drop a file on it to park it. Right-click it for a
 
 - **[The manual](manual/README.md)**: every feature, setting and fix, in plain language.
 - **[Developer docs](docs/README.md)**: how Hytte works inside, and how to change it.
-- **[What's new in 1.7](docs/16-whats-new.md)**
+- **[What's new in 1.9](docs/16-whats-new.md)**
 - **[Issues](https://github.com/PrathamPai-2007/hytte/issues)**: something wrong or missing?
 
 ## License

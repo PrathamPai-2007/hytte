@@ -123,13 +123,19 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[ports] watch` | `3000, 3001, 4200, 5000, 5173, 5432, 8000, 8080, 8888` | Ports shown under **SERVERS**. |
 | `[ports] show_all` / `poll_secs` | `false` / `5` | Show every non-system listener / rescan interval (min 1; opening the pill always rescans). |
 | `[agent] peek_secs` / `sound` | `6` / `true` | How long the pill peeks when a task needs input / play the asterisk sound on `NeedsInput`. |
+| `[agent] quiet_after_secs` | `300` | A working agent (with a live process) that has reported nothing for this long shows a grey "quiet 6m" in the Agents pane. A label only: no sound, no alert. `0` = never. Live. |
+| `[ai] enabled` | `false` | The Ask pane and the Explain / Summarise / Shorten actions ([manual 9](../manual/09-ask.md)). Off forgets the answers. Live. |
+| `[ai] host` | `127.0.0.1:11434` | Where Ollama listens. Must be this PC (`127.0.0.1`, `localhost`, `[::1]`, optional port); anything else is refused ([section 9](09-workers.md#ask-ollamars-ai)). Live. |
+| `[ai] model` | `qwen3:1.7b` | The model asked (the 1.4 GB default; `qwen3:0.6b` and `gemma3:1b` are in Settings, any pulled model works). Live. |
+| `[ai] keep_alive` | `2m` | How long Ollama keeps the model loaded after a question (`1m`, `10m` ...). Live. |
+| `[ai] hotkey` | `""` | Global hotkey that opens the Ask pane with the cursor ready, e.g. `Win+Alt+A`. Empty = off. |
 | `[hog] enabled` | `true` | Warn about a process using lots of CPU or memory ([section 9](09-workers.md#resource-hogs-hogrs-hog)). |
 | `[hog] cpu_pct` / `secs` / `mem_mb` | `70` / `30` / `4096` | Percent of the **whole machine** (all cores = 100) for this long; working set in MB, alerting at once. |
 | `[downloads] enabled` / `folder` | `true` / none | Show browser downloads as tasks (switching on starts the watcher; off hides its tasks until restart) / folder to watch (default Downloads; read at startup). |
 | `[calendar] enabled` / `lead_min` | `false` / `10` | Heads-up before the next event (off by default: titles are private; switching on starts reading; off drops heads-ups until restart) / minutes before the start. |
 | `[timer] sound` | `true` | Ring when a timer ends until **Stop alarm** (2 min max). |
 | `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
-| `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
+| `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` / `ask` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
 | `[panes] order` | `""` | The tab order as names ("home,media,..."). Set by the arrows in the settings window; names left out keep their usual place after those listed. |
 | `[panes] script1` … `script4` | `true` | Switch for each `[[script_pane]]`, by its place in the file; written only when off. Their keys in `order` are the same names. |
 | `[[script_pane]] name` | none | The tab's label (cut to 16 characters; unnamed and repeated names are skipped; at most four panes). |

@@ -11,7 +11,7 @@ Click the **gear** on the Home pane (or, if you have hidden Home, the tray icon 
 
 ### Choosing and ordering panes
 
-The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Timer, Battery, Notes, To-do and Weather. Each has a switch (the Quick controls say **Always on**: they are where the pill starts), and the **▲ ▼** buttons move it along the tab strip. Panes that only appear when they have something to show (Music, Shelf, Timer, Battery, Terminal tasks) keep their place in the order for when they do. Your own [script panes](03-terminal.md#your-own-panes) are listed as **Script pane 1** to **4**, in the order they appear in `config.toml`.
+The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Coding agents, Timer, Battery, Notes, To-do, Weather and Ask (local AI, which appears once you switch it on in the **Ask (local AI)** section). Each has a switch (the Quick controls say **Always on**: they are where the pill starts), and the **▲ ▼** buttons move it along the tab strip. Panes that only appear when they have something to show (Music, Shelf, Timer, Battery, Terminal tasks) keep their place in the order for when they do. Your own [script panes](03-terminal.md#your-own-panes) are listed as **Script pane 1** to **4**, in the order they appear in `config.toml`.
 
 The **Accent** skin, the last of the six colour discs, follows your Windows accent colour (Settings → Personalisation → Colours). With the accent on **Automatic**, Windows picks it from your wallpaper, and the pill changes with it.
 

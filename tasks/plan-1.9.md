@@ -1,3 +1,33 @@
+# Status (built; what differs from the plan below)
+
+All of Phases A to D are built and committed locally, unpushed and untagged. Differences from the
+plan text that follows:
+
+- **Config section is `[agent]`, not `[agents]`** (that is the section that already exists):
+  `[agent] quiet_after_secs`.
+- **The model picker is fixed steps plus Custom**, not a list of installed models: Settings offers
+  `qwen3:1.7b`, `qwen3:0.6b`, `gemma3:1b` and Custom (opens `config.toml` at `[ai] model`). The
+  settings table has switches and steps only, and a live list would have needed a new row kind.
+- **Hook health (C3) is smaller:** `hytte doctor` and the startup repair already caught "not
+  connected" and "points at a hytte.exe that is gone". 1.9 adds "settings file isn't plain JSON"
+  and the Codex `/hooks` reminder. "Connected but never reported" and the Agents pane's empty
+  state are not built: the pane only exists while an agent does, and the daemon's last-seen times
+  are not visible to the separate `doctor` process.
+- **Turn timers (C1):** a working row already showed elapsed time; the fix is that it now starts
+  over with each prompt even when the old row was still on screen, and the finished card says
+  "Ran 8 min".
+- **The pill badge (C4):** the count already existed; added the amber count and "N waiting".
+- **A.3 spike:** measured in `Ui::layout()` (the window asks the renderer for the wrapped height
+  and stores it before `Model::size`), so there is no frame of lag and no fallback was needed.
+- **The AI card is capped at the pill's canvas height** (290 px in all), not "half the screen":
+  the canvas is 310 px tall. Longer answers scroll inside the card.
+- **Not run:** the app itself (another copy of Hytte was running and it allows one instance), so
+  the click paths are covered by model tests and snapshots, not by a live GUI run. The Ollama path
+  was run live against a real Ollama (llama3.2, granite4.1 and qwen3.5 were installed; the default
+  `qwen3:1.7b` was not downloaded).
+
+---
+
 # Hytte 1.9 plan: Ask (local AI) and an honest cockpit
 
 ## Why

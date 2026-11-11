@@ -24,6 +24,8 @@ Turn on **Put files I copy with Ctrl+C on the shelf** in [Settings](07-settings.
 
 **Keep a short clipboard history** (`[clipboard] history = true`, off by default) lists the last texts you copied under the shelf tiles; click one to copy it back. It keeps 20 clips of up to 4 KB in memory only (nothing is written to disk). Each clip is forgotten after 2 minutes (`[clipboard] expire_secs`; 0 keeps it until you lock the PC or it sleeps), and all of them go when you lock the PC, when it sleeps and when you switch the setting off. Hover a clip for **Copy** and **×** (delete just that one); **Clear** in the header forgets them all. `clear_when_emptied = true` also forgets them when the Windows clipboard is emptied (off by default, since apps empty it all the time). Text that looks like a password or token, anything a password manager copied (KeePass, KeePassXC, 1Password and Bitwarden are on the `ignore_apps` list) and anything an app marks as private are never kept. A plain password copied from a program that doesn't mark it private can't be told from ordinary text, so it is kept until it expires: copy those from a password manager. Windows has its own history too, on **Win+V**.
 
+With [Ask](09-ask.md) on, hover a clip and click the **✦** to Explain, Summarise or Shorten it with a model on your PC.
+
 ## File actions
 
 Click a tile to see what you can do with it. Results are saved next to the original, and your original is never overwritten.
