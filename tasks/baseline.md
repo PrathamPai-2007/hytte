@@ -94,3 +94,18 @@ With the glow off, spring frames cost about 9.5 ms: the five glow strokes are ab
 a transition frame. That is what the mask in Task 6 has to beat.
 
 **Pacing this allows:** an open pill at 60 fps now costs about what 30 fps did in 1.9.0.
+
+## After vblank-counted pacing (Task 5)
+
+The ticker no longer sleeps 33 ms: it counts vblanks (`every=N` in the perf line). At 60 Hz an
+open or hovered pill animates every vblank (60 fps), a collapsed one every second (30 fps).
+
+| Situation | 1.9.0 | Now |
+|---|---|---|
+| Running task, collapsed | 14.6 % at 30 fps, gap p50 33.6 ms | **5.5 %** at 30 fps, gap p50 33.33 ms |
+| Running task, open | 27.1 % at 30 fps | **18.0 %** at 60 fps, gap p99 17.4 ms, 0 missed |
+| Task starting and finishing | 4–7 "missed" per 240, gap p99 27–31 ms | **0 missed**, gap p99 17.3 ms |
+| Idle, collapsed | 0.78 % | 0.65 % (samples 0.39 to 0.78: noise) |
+
+Frames that land on a vblank are also cheaper to make: `cost_us` p50 fell from 1.1 to 0.77 ms
+collapsed.

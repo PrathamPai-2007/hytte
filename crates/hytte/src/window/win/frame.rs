@@ -173,15 +173,11 @@ impl Ui {
     pub(super) fn frame(&mut self, hwnd: HWND) {
         let now = Instant::now();
         let gap = now.saturating_duration_since(self.last);
-        // While springs move the ticker paces on vblank: use DWM's own clock so dt is a
-        // whole number of refresh periods instead of scheduler-jittered wall time.
+        // The ticker paces on vblank: use DWM's own clock so dt is a whole number of refresh
+        // periods instead of scheduler-jittered wall time.
         // The pace that timed this frame's gap (it may change below, for the next one).
-        let paced_fast = self.shared.fast.load(Ordering::Relaxed);
-        let vb = if paced_fast {
-            VBLANK.load(Ordering::Relaxed)
-        } else {
-            0
-        };
+        let paced = self.shared.stride.load(Ordering::Relaxed);
+        let vb = VBLANK.load(Ordering::Relaxed);
         let dt = vblank_dt(self.prev_vblank, vb)
             .map_or(gap.as_secs_f32(), |d| d as f32)
             .min(0.05);
@@ -266,10 +262,9 @@ impl Ui {
             }
             // Skip the first frame after idle: its gap is the idle time, not a frame.
             if gap.as_millis() < 100 {
-                let period = f64::from_bits(REFRESH_S.load(Ordering::Relaxed));
                 self.perf.record(
-                    paced_fast,
-                    if period > 0.0 { 1.0 / period } else { 0.0 },
+                    paced,
+                    refresh_hz(),
                     gap.as_micros() as u32,
                     drawn,
                     now.elapsed().as_micros() as u32,
@@ -283,7 +278,21 @@ impl Ui {
             && self.shown
             && (self.model.ambient(self.anim.scene, now) || self.rend.wants_frames());
         let sh = &self.shared;
-        sh.fast.store(moving, Ordering::Relaxed);
+        // A spring gets every vblank. Ambient motion gets fewer: more of them while the pill
+        // is open or pointed at (someone is looking), fewer on a collapsed one.
+        let open = self.inside
+            || !matches!(
+                self.anim.scene,
+                Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel
+            );
+        let every = if moving {
+            1
+        } else if open {
+            stride(refresh_hz(), AMBIENT_OPEN_HZ)
+        } else {
+            stride(refresh_hz(), AMBIENT_COLLAPSED_HZ)
+        };
+        sh.stride.store(every, Ordering::Relaxed);
         sh.animating.store(moving || ambient, Ordering::SeqCst);
         if !(moving || ambient) {
             // Settled: give the pages back once it has stayed that way.

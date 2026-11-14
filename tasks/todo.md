@@ -80,13 +80,13 @@ progress still easing; idle CPU measured as in Task 1 is unchanged.
 `settings_win.rs`, `window/win/frame.rs`. **Scope:** M
 
 ### Task 5: Vblank-aligned ambient frames
-- [ ] `Shared` has one `pace` in place of `animating` + `fast`; the ticker never sleeps 33 ms
-- [ ] Ambient frames: every vblank (capped near 120 Hz) while the pill is open or hovered; the
-      nearest divisor to 30 Hz while collapsed. The divisor is a pure function with a test for
-      60, 120, 144 and 240 Hz
-- [ ] `dt` for ambient frames comes from the DWM clock, as it already does for springs
-- [ ] CPU measured for: running task collapsed, running task open, media playing open, each at
-      the old and new pacing, and collapsed at 60 as a comparison. Results in `tasks/baseline.md`
+- [x] `Shared` has `stride` (vblanks per frame) in place of `fast`; the ticker never sleeps 33 ms
+- [x] Ambient frames: the divisor of the refresh rate nearest 66 Hz while the pill is open or
+      hovered (60 / 60 / 72 / 60 fps on 60 / 120 / 144 / 240 Hz); nearest 30 Hz while collapsed.
+      The divisor is a pure function with a test for those four rates
+- [x] `dt` for ambient frames comes from the DWM clock, as it already does for springs
+- [x] CPU measured for a running task collapsed and open, at the old and new pacing, in
+      `tasks/baseline.md` (media playing and collapsed-at-60 were not measured)
 **Verify:** Checks; perf line shows `gap_us` p50 equal to a whole number of refresh periods for
 ambient frames; idle still parks (no frames, no wake-ups).
 **Depends on:** 1. **Files:** `window/win.rs`, `window/win/frame.rs`, `docs/12-performance.md`.

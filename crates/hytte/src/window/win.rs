@@ -77,7 +77,9 @@ const TRIM_MS: u32 = 30_000;
 struct Shared {
     pending: Mutex<Vec<UiEvent>>,
     animating: AtomicBool,
-    fast: AtomicBool,
+    /// Vblanks per frame while animating: 1 while a spring moves, more for ambient motion
+    /// (see `stride`).
+    stride: AtomicU32,
     tick_pending: AtomicBool,
     hwnd: AtomicIsize,
     ticker: OnceLock<std::thread::Thread>,
@@ -107,6 +109,29 @@ fn sample_vblank() {
         VBLANK.store(ti.qpcVBlank, Ordering::Relaxed);
     } else {
         VBLANK.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Ambient motion in an open or hovered pill runs at the divisor of the refresh rate nearest
+/// this; on a collapsed pill, nearest the second. A frame costs about 5 ms of CPU open and 3 ms
+/// collapsed, and a build can sit on a collapsed pill for an hour (`docs/12-performance.md`).
+const AMBIENT_OPEN_HZ: f64 = 66.0;
+const AMBIENT_COLLAPSED_HZ: f64 = 30.0;
+
+/// Vblanks per frame for motion that should run near `target` Hz on a display refreshing at
+/// `hz` (60 when that isn't known).
+fn stride(hz: f64, target: f64) -> u32 {
+    let hz = if hz > 1.0 { hz } else { 60.0 };
+    ((hz / target).round() as u32).max(1)
+}
+
+/// The display's refresh rate as DWM last reported it, or 0.
+fn refresh_hz() -> f64 {
+    let period = f64::from_bits(REFRESH_S.load(Ordering::Relaxed));
+    if period > 0.0 {
+        1.0 / period
+    } else {
+        0.0
     }
 }
 
@@ -436,6 +461,27 @@ const PASTE_WINDOW: Duration = Duration::from_secs(600);
 const PASTE_GRACE: Duration = Duration::from_secs(2);
 
 #[cfg(test)]
+mod pace_tests {
+    use super::*;
+
+    #[test]
+    fn ambient_frames_take_a_whole_number_of_vblanks_near_their_rate() {
+        let rates = |hz: f64| {
+            (
+                stride(hz, AMBIENT_OPEN_HZ),
+                stride(hz, AMBIENT_COLLAPSED_HZ),
+            )
+        };
+        assert_eq!(rates(60.0), (1, 2)); // 60 and 30 fps
+        assert_eq!(rates(120.0), (2, 4)); // 60 and 30
+        assert_eq!(rates(144.0), (2, 5)); // 72 and 28.8
+        assert_eq!(rates(240.0), (4, 8)); // 60 and 30
+        assert_eq!(rates(0.0), (1, 2), "unknown: as 60 Hz");
+        assert_eq!(stride(30.0, AMBIENT_OPEN_HZ), 1, "never less than a vblank");
+    }
+}
+
+#[cfg(test)]
 mod paste_tests {
     use super::*;
 
@@ -533,7 +579,7 @@ pub fn run_windows(
     let shared = Arc::new(Shared {
         pending: Mutex::new(vec![]),
         animating: AtomicBool::new(false),
-        fast: AtomicBool::new(false),
+        stride: AtomicU32::new(1),
         tick_pending: AtomicBool::new(false),
         hwnd: AtomicIsize::new(0),
         ticker: OnceLock::new(),
@@ -765,8 +811,9 @@ pub fn run_windows(
             }
         });
 
-        // Frame clock: parked at idle. vblank-aligned while springs
-        // move, ~30 fps for ambient effects (spinner, dots, EQ).
+        // Frame clock: parked at idle, otherwise one frame every `stride` vblanks. Every frame
+        // lands on a refresh boundary, whatever its rate, so slower ambient motion (a spinner,
+        // the equaliser) steps evenly instead of beating against the display.
         let s4 = shared.clone();
         std::thread::spawn(move || {
             let _ = s4.ticker.set(std::thread::current());
@@ -778,12 +825,18 @@ pub fn run_windows(
                 if !s4.tick_pending.swap(true, Ordering::SeqCst) {
                     post(WM_TICK);
                 }
-                if s4.fast.load(Ordering::Relaxed) {
-                    let _ = DwmFlush();
-                    sample_vblank();
-                } else {
-                    std::thread::sleep(Duration::from_millis(33));
+                let n = s4.stride.load(Ordering::Relaxed).max(1);
+                for _ in 0..n {
+                    if DwmFlush().is_err() {
+                        // No compositor to wait on (it is restarting): don't spin.
+                        std::thread::sleep(Duration::from_millis(16));
+                    }
+                    // A spring started while waiting out a slow stride: its frame is due now.
+                    if s4.stride.load(Ordering::Relaxed) < n {
+                        break;
+                    }
                 }
+                sample_vblank();
             }
         });
 
