@@ -109,6 +109,13 @@ fn shoot_at(
     at: Option<(f32, f32)>,
 ) {
     let (w, h, px) = render_crop(r, m, scene, light, at);
+    // `HYTTE_SNAP_ALPHA=1`: transparent frames for the landing page instead of pictures on
+    // the wallpaper.
+    if std::env::var_os("HYTTE_SNAP_ALPHA").is_some() {
+        save_alpha(dir, name, w, h, &px);
+        SHOT.with(|v| v.borrow_mut().push(name.to_string()));
+        return;
+    }
     // Premultiplied BGRA over the wallpaper, as an RGB PNG.
     let bg = if light {
         [226.0, 230.0, 236.0]
@@ -169,6 +176,41 @@ fn render_crop(
     (w, h, px)
 }
 
+/// Render scale for the snapshot tests: 2x unless `HYTTE_SNAP_SCALE` says otherwise (the
+/// landing page wants 3).
+fn snap_scale() -> f32 {
+    std::env::var("HYTTE_SNAP_SCALE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2.0)
+}
+
+/// One frame as straight-alpha RGBA, as the landing page's `FramePill` expects, and its
+/// `[width, height, last painted row]` line for the `FRAMES` table.
+fn save_alpha(dir: &std::path::Path, name: &str, w: i32, h: i32, px: &[u8]) {
+    let img = image::RgbaImage::from_fn(w as u32, h as u32, |x, y| {
+        let i = ((y * w as u32 + x) * 4) as usize;
+        let a = px[i + 3];
+        let un = |c: u8| {
+            if a == 0 {
+                0
+            } else {
+                (c as u32 * 255 / a as u32).min(255) as u8
+            }
+        };
+        image::Rgba([un(px[i + 2]), un(px[i + 1]), un(px[i]), a])
+    });
+    // One past the last row painted at all down the middle (the glow's end), as the
+    // frames already on the site count it.
+    let mid = (w / 2) as u32;
+    let last = (0..h as u32)
+        .rev()
+        .find(|y| img.get_pixel(mid, *y)[3] > 0)
+        .map_or(0, |y| y + 1);
+    img.save(dir.join(format!("{name}.png"))).unwrap();
+    println!("\"{name}\": [{w}, {h}, {last}],");
+}
+
 /// Frames for the landing page (`landing-page/public/frames`): the scene at 3x on a
 /// transparent canvas, straight-alpha RGBA, as its `FramePill` expects. Prints each frame's
 /// `[width, height, last painted row]` for the `FRAMES` table.
@@ -184,28 +226,77 @@ fn landing_frames() {
     let now = Instant::now();
     let save = |r: &mut Renderer, name: &str, m: &Model, scene: Scene| {
         let (w, h, px) = render_crop(r, m, scene, false, None);
-        let img = image::RgbaImage::from_fn(w as u32, h as u32, |x, y| {
-            let i = ((y * w as u32 + x) * 4) as usize;
-            let a = px[i + 3];
-            let un = |c: u8| {
-                if a == 0 {
-                    0
-                } else {
-                    (c as u32 * 255 / a as u32).min(255) as u8
-                }
-            };
-            image::Rgba([un(px[i + 2]), un(px[i + 1]), un(px[i]), a])
-        });
-        // One past the last row painted at all down the middle (the glow's end), as the
-        // frames already on the site count it.
-        let mid = (w / 2) as u32;
-        let last = (0..h as u32)
-            .rev()
-            .find(|y| img.get_pixel(mid, *y)[3] > 0)
-            .map_or(0, |y| y + 1);
-        img.save(dir.join(format!("{name}.png"))).unwrap();
-        println!("\"{name}\": [{w}, {h}, {last}],");
+        save_alpha(&dir, name, w, h, &px);
     };
+    // The chips the site shows: a meeting, an agent's ask, an update, a hog, a download.
+    use crate::ui_state::{Chip, ChipAction, Prio, Tone};
+    let chip = |r: &mut Renderer,
+                name: &str,
+                text: &str,
+                tone: Tone,
+                prio: Prio,
+                extra: Vec<(&str, ChipAction)>| {
+        let mut m = model();
+        m.now = Some(now);
+        let mut c = Chip::new(text, now);
+        c.tone = tone;
+        c.prio = prio;
+        c.extra = extra.into_iter().map(|(l, a)| (l.to_string(), a)).collect();
+        m.chip = Some(c);
+        save(r, name, &m, Scene::ExpChip);
+    };
+    chip(
+        &mut r,
+        "meeting",
+        "Design review starts in 5 min",
+        Tone::Info,
+        Prio::Alert,
+        vec![("Join", ChipAction::OpenUrl("https://example.com".into()))],
+    );
+    chip(
+        &mut r,
+        "ask",
+        "Running: git push origin main",
+        Tone::Warn,
+        Prio::Ask,
+        vec![
+            ("Allow", ChipAction::Answer(1, true)),
+            ("Deny", ChipAction::Answer(1, false)),
+        ],
+    );
+    chip(
+        &mut r,
+        "update",
+        "Hytte 1.9.0 is available
+Arm64 builds, Scoop, and a local Ask tab.",
+        Tone::Info,
+        Prio::Update,
+        vec![
+            ("Update", ChipAction::InstallUpdate),
+            ("Later", ChipAction::UpdateLater("v1.9.0".into())),
+        ],
+    );
+    chip(
+        &mut r,
+        "hog",
+        "chrome.exe has used 87% CPU for 60 s",
+        Tone::Warn,
+        Prio::Alert,
+        vec![
+            ("Kill", ChipAction::KillPid(1, "chrome.exe".into())),
+            ("Ignore", ChipAction::IgnoreExe("chrome.exe".into())),
+        ],
+    );
+    {
+        let mut m = model();
+        m.now = Some(now);
+        let mut c = Chip::new("holiday-photos.zip finished downloading", now);
+        c.prio = Prio::Alert;
+        c.open = Some(r"C:\x".into());
+        c.extra = vec![("Shelve".into(), ChipAction::Shelve(r"C:\x".into()))];
+        m.chip = Some(c);
+        save(&mut r, "download", &m, Scene::ExpChip);
+    }
     let mut m = model();
     let c = hytte_proto::Cmd {
         id: Some("deploy".into()),
@@ -492,7 +583,7 @@ fn settings_window_snapshots() {
 fn snapshots() {
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let wall = crate::timer::now_ms();
 
@@ -821,7 +912,7 @@ fn jot_snapshots() {
     use crate::ui_state::Field;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let wall = crate::timer::now_ms();
     let mut m = model();
     m.now = Some(Instant::now());
@@ -964,7 +1055,7 @@ fn weather_snapshots() {
     use crate::weather::{Forecast, Hour, Place};
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let wall = crate::timer::now_ms();
     let place = |n: &str, reg: &str| Place {
         name: n.into(),
@@ -1089,7 +1180,7 @@ fn focus_snapshots() {
     use crate::ui_state::Nudge;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let wall = crate::timer::now_ms();
     let now = Instant::now();
     for light in [false, true] {
@@ -1183,7 +1274,7 @@ fn media_snapshots() {
     use crate::ui_state::LyricState;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let synced = Lyrics::Synced(
         [
@@ -1295,7 +1386,7 @@ fn skin_snapshots() {
     use crate::skin::Skin;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let wall = crate::timer::now_ms();
     for light in [false, true] {
         for skin in Skin::ALL {
@@ -1372,7 +1463,7 @@ fn card_snapshots() {
     use hytte_proto::Cmd;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let s = |v: &str| Some(v.to_string());
     let cases: Vec<(&str, Cmd)> = vec![
@@ -1454,7 +1545,7 @@ fn script_snapshots() {
     use crate::scriptpane::Run;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let panes = [
         ScriptPane {
@@ -1616,7 +1707,7 @@ fn accent_and_hint_snapshots() {
     use crate::ui_state::Field;
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let base = || {
         let mut m = model();
         m.now = Some(Instant::now());
@@ -1706,7 +1797,7 @@ fn welcome_snapshots() {
     use crate::welcome::{chip, Tour, STEPS};
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     for light in [false, true] {
         let sfx = if light { "-light" } else { "" };
@@ -1733,7 +1824,7 @@ fn agent_snapshots() {
     use crate::tasks::{AgentInfo, TaskState, TaskUpdate};
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let agent = |id: &str,
                  label: &str,
@@ -1884,7 +1975,7 @@ fn agent_snapshots() {
 fn script_row_snapshots() {
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let mut m = model();
     m.now = Some(now);
@@ -1958,7 +2049,7 @@ fn script_row_snapshots() {
 fn clip_snapshots() {
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let mut m = model();
     m.now = Some(now);
@@ -2000,7 +2091,7 @@ fn ask_snapshots() {
     use crate::ui_state::{AiKind, REPLY_W};
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     for light in [false, true] {
         let sfx = if light { "-light" } else { "" };
         let mut m = model();
@@ -2186,7 +2277,7 @@ fn badge_snapshots() {
     use crate::tasks::{TaskState, TaskUpdate};
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     std::fs::create_dir_all(&dir).unwrap();
-    let mut r = Renderer::offscreen(2.0).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
     let now = Instant::now();
     let agent = |id: &str, label: &str, ev: TaskEvent, msg: Option<&str>| {
         TaskUpdate::Upsert(TaskState {
