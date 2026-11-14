@@ -54,3 +54,43 @@ With WARP on one thread the UI-thread cost equals the processor cost, which give
 **The pill's background (glow strokes, body, tint, rim, hover) is 60 to 75 % of every frame.**
 Drawing it once and reusing the picture while it doesn't change is the lever; the gain is capped
 at about 2 to 3 times.
+
+## Re-measured with the corrected perf line (median of three 12 s samples)
+
+`cpu_us` is the process's CPU time per frame. Frames are now classed by the clock that timed
+their gap.
+
+| Situation | CPU | `cpu_us` per frame | `cost_us` p50 / p99 |
+|---|---|---|---|
+| Running task, collapsed (30 fps) | 14.6 % | about 5.1 ms | 1.3 / 1.8 ms |
+| Running task, open (30 fps) | 27.1 % | about 9.2 ms | 1.9 / 2.4 ms |
+| Task starting and finishing (springs) | | 10 to 23 ms | 1.9–2.2 / 3.2–3.8 ms, 4–6 "missed" |
+
+The "missed" spring frames are one per change from ambient to spring pacing: the ticker is in
+its 33 ms sleep when the spring starts, so the first spring frame arrives up to two periods
+late. Vblank-counted pacing (Task 5) removes the sleep.
+
+### The graphics driver instead of WARP (`HYTTE_GPU=hardware`, a data point, not a plan)
+
+| Situation | CPU | Private bytes | `cost_us` p50 |
+|---|---|---|---|
+| Running task, collapsed | 8.7 % | 66 MB (WARP: 17 MB) | 2.1 ms (WARP: 1.3) |
+| Running task, open | 12.9 % | 66 MB | 2.9 ms (WARP: 1.9) |
+
+About half the CPU for about 50 MB more memory and a slower UI thread. Not taken: the memory
+budget is 25 MB.
+
+## After the background cache (the steady background kept as two bitmaps)
+
+| Situation | Before | After |
+|---|---|---|
+| Running task, collapsed (30 fps) | 14.6 % | **5.6 %** |
+| Running task, open (30 fps) | 27.1 % | **11.6 %** |
+| Idle, collapsed | 0.78 % (one 30 s sample) | 0.52 % |
+| Private bytes, idle / collapsed task / open task | 13.3 / 17.0 / 20.6 MB | 13.4 / 18.9 / 20.8 MB |
+| Task starting and finishing (springs), `cpu_us` | 10 to 23 ms | 12 to 17 ms (unchanged: the background changes every frame of a resize) |
+
+With the glow off, spring frames cost about 9.5 ms: the five glow strokes are about a third of
+a transition frame. That is what the mask in Task 6 has to beat.
+
+**Pacing this allows:** an open pill at 60 fps now costs about what 30 fps did in 1.9.0.

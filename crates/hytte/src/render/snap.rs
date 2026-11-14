@@ -108,7 +108,7 @@ fn shoot_at(
     light: bool,
     at: Option<(f32, f32)>,
 ) {
-    let (w, h, px) = render_crop(r, m, scene, light, at);
+    let (w, h, px) = render_crop(r, m, scene, light, at, 1);
     // `HYTTE_SNAP_ALPHA=1`: transparent frames for the landing page instead of pictures on
     // the wallpaper.
     if std::env::var_os("HYTTE_SNAP_ALPHA").is_some() {
@@ -133,14 +133,15 @@ fn shoot_at(
     SHOT.with(|v| v.borrow_mut().push(name.to_string()));
 }
 
-/// Draw one settled scene and read back the pill's box (with its margin and glow) as
-/// premultiplied BGRA rows: (width, height, pixels).
+/// Draw one settled scene (`draws` times over, the same frame) and read back the pill's box
+/// (with its margin and glow) as premultiplied BGRA rows: (width, height, pixels).
 fn render_crop(
     r: &mut Renderer,
     m: &Model,
     scene: Scene,
     light: bool,
     at: Option<(f32, f32)>,
+    draws: usize,
 ) -> (i32, i32, Vec<u8>) {
     let mut an = Anim::new(120.0, 24.0);
     an.set_scene(scene, m.size(scene), m.glow(scene));
@@ -163,7 +164,9 @@ fn render_crop(
     };
     let crop = r.plan(an.rect.w.pos as f32, an.rect.h.pos as f32, false, 0.0, true);
     let mut hits = vec![];
-    r.draw(&fr, crop, &mut hits);
+    for _ in 0..draws {
+        r.draw(&fr, crop, &mut hits);
+    }
     // Only the pill's box, read back from the canvas-sized target.
     let (x0, w, h) = (crop.clip.0, crop.clip.2 - crop.clip.0, crop.clip.3);
     let all = r.read_back();
@@ -174,6 +177,41 @@ fn render_crop(
         px.extend_from_slice(&all[i..i + (w * 4) as usize]);
     }
     (w, h, px)
+}
+
+/// A steady background copied from its bitmaps is the picture that painting it gives, at a
+/// whole and at a fractional scale (where the pill sits between device pixels).
+#[test]
+fn the_cached_background_matches_the_painted_one() {
+    for scale in [1.0, 1.5, 2.0] {
+        // No software Direct3D device (a stripped CI image): nothing to compare.
+        let Ok(mut r) = Renderer::offscreen(scale) else {
+            return;
+        };
+        let m = model();
+        for (scene, light) in [
+            (Scene::ExpHome, false),
+            (Scene::ExpTasks, false),
+            (Scene::CompactTask, true),
+            (Scene::Idle, false),
+        ] {
+            r.drop_background();
+            let (_, _, painted) = render_crop(&mut r, &m, scene, light, None, 1);
+            assert!(!r.background_cached(), "one frame is never cached");
+            let (_, _, copied) = render_crop(&mut r, &m, scene, light, None, 3);
+            assert!(r.background_cached(), "{scene:?}: a steady pill is");
+            let worst = painted
+                .iter()
+                .zip(&copied)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                worst <= 2,
+                "{scene:?} at {scale}x differs by {worst} levels"
+            );
+        }
+    }
 }
 
 /// Render scale for the snapshot tests: 2x unless `HYTTE_SNAP_SCALE` says otherwise (the
@@ -225,7 +263,7 @@ fn landing_frames() {
     let mut r = Renderer::offscreen(3.0).unwrap();
     let now = Instant::now();
     let save = |r: &mut Renderer, name: &str, m: &Model, scene: Scene| {
-        let (w, h, px) = render_crop(r, m, scene, false, None);
+        let (w, h, px) = render_crop(r, m, scene, false, None, 1);
         save_alpha(&dir, name, w, h, &px);
     };
     // The chips the site shows: a meeting, an agent's ask, an update, a hog, a download.

@@ -53,7 +53,8 @@ idle face, backdrops, a pet).
 
 | Budget | Target |
 |---|---|
-| Frame cost (draw + present) while anything moves | p99 under 40 % of a refresh period at the user's rate (2.8 ms at 144 Hz, 6.6 ms at 60 Hz) |
+| UI-thread frame time (`cost_us`) while anything moves | p99 under 40 % of a refresh period at the user's rate (2.8 ms at 144 Hz, 6.6 ms at 60 Hz) |
+| CPU per frame (`cpu_us`, all threads) | steady frames no higher than after the background cache (3 ms collapsed, 5 ms open); transition frames no higher than 1.9.0 (10 to 23 ms) |
 | Missed frames while a spring moves | at most 2 per 240 |
 | Idle CPU, collapsed, nothing playing | unchanged: about 0.2 %, limit 1 % |
 | Idle memory | unchanged: under 25 MB. Cached masks may add at most 1 MB |
@@ -104,13 +105,28 @@ idle face, backdrops, a pet).
   |---|---|---|
   | Parked | none | settled |
   | Every vblank | refresh rate | a spring or a tween moves |
-  | Every vblank, capped near 120 Hz | 60 / 120 / 144 / 120 (on 240 Hz) | ambient motion in an open or hovered pill |
-  | Nearest divisor to 30 Hz | 30 / 30 / 36 / 30 | ambient motion on a collapsed pill |
+  | Every `round(hz / 66)`-th vblank | 60 / 60 / 72 / 60 (on 60 / 120 / 144 / 240 Hz) | ambient motion in an open or hovered pill |
+  | Every `round(hz / 30)`-th vblank | 30 / 30 / 28.8 / 30 | ambient motion on a collapsed pill |
 
-- **Why the collapsed pill stays near 30:** a build can run for an hour on a collapsed pill, and
-  at about 1 ms a frame the full rate would cost 14 % of a core at 144 Hz. Aligning to vblank
-  already removes the uneven stepping. Checkpoint 1 shows the measured cost of 60 so the user can
-  choose it.
+- **Why not the full refresh rate:** a frame costs 3 ms of CPU collapsed and 5 ms open even
+  with the background cached. A build can run for an hour on a collapsed pill; 30 fps there is
+  5.6 % of a core (1.9.0: 14.6 %). An open pill at 60 fps is about what 1.9.0 spent at 30.
+  Aligning to vblank removes the uneven stepping either way. Both rates are one constant each.
+
+### Frame cost (found while measuring the baseline)
+
+- **The perf line's `cost_us` was a quarter of the truth.** It is what the UI thread waits; WARP
+  rasterises on a pool of threads. The line now also reports `cpu_us`, the process's CPU time
+  per frame, and budgets are in that number.
+- **The steady background is cached.** Glow, body, tint, rim and hover are 60 to 75 % of a
+  frame. Once they have been the same for two frames they are painted into two bitmaps (the
+  glow, and the rest) and copied until something they depend on changes; the bitmaps are freed
+  when the pill has been still for 30 s. A waiting agent's breathing glow is the glow bitmap
+  drawn at a changing opacity, so that long wait is cached too; the tint inside the pill no
+  longer breathes with it.
+- **Ambient rates follow from the measured cost**, not from the 1 ms a frame the first draft of
+  this plan assumed: about 60 fps (the nearest divisor of the refresh rate to 66 Hz) in an open
+  or hovered pill, about 30 fps collapsed, both counted in vblanks.
 
 ### Look
 

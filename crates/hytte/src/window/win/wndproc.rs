@@ -308,6 +308,7 @@ pub(super) unsafe extern "system" fn wndproc(
                 T_WIDE => ui.wide_offer_due(),
                 T_TRIM => {
                     if !ui.shared.animating.load(Ordering::SeqCst) {
+                        ui.rend.drop_background();
                         // Drops cold pages (decoder and COM leftovers); they fault back in on use.
                         unsafe {
                             let _ = SetProcessWorkingSetSize(

@@ -66,7 +66,14 @@ impl Gpu {
             // WARP, not the hardware driver: the pill is a few hundred pixels, and loading the
             // GPU's user-mode driver costs ~40 MB private plus ~20 threads, while WARP draws it
             // in under half the time (measured). Hardware stays as the fallback.
-            let d3d = device(D3D_DRIVER_TYPE_WARP).or_else(|e| {
+            // `HYTTE_GPU=hardware` picks the graphics driver instead, for measuring one against
+            // the other.
+            let first = if std::env::var_os("HYTTE_GPU").is_some_and(|v| v == "hardware") {
+                D3D_DRIVER_TYPE_HARDWARE
+            } else {
+                D3D_DRIVER_TYPE_WARP
+            };
+            let d3d = device(first).or_else(|e| {
                 crate::logging::line(&format!(
                     "gpu renderer: WARP unavailable ({e}), using hardware"
                 ));

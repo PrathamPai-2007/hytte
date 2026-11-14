@@ -358,6 +358,8 @@ pub struct Renderer {
     hero_right: Cell<f32>,
     /// Last pill silhouette, keyed by its size: ambient frames (spinner, pulses) repeat it.
     geom: RefCell<Option<([u32; 2], ID2D1PathGeometry)>>,
+    /// The steady pill's background as bitmaps (`render/pill.rs`).
+    bg: RefCell<pill::BgCache>,
 }
 
 /// Cached gradient brushes (see `Renderer::grad`).
@@ -563,6 +565,7 @@ impl Renderer {
                 grads: RefCell::new(Default::default()),
                 wide: RefCell::new(Vec::new()),
                 geom: RefCell::new(None),
+                bg: RefCell::new(Default::default()),
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
                 light: Cell::new(false),
@@ -603,6 +606,7 @@ impl Renderer {
         self.art_gen.set(u32::MAX);
         self.thumbs.borrow_mut().clear();
         *self.geom.borrow_mut() = None;
+        self.drop_background();
         self.placed.set((0, 0, 0, 0));
         self.region.set((0, 0, 0, 0));
         self.lost.set(false);

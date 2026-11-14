@@ -31,12 +31,21 @@ uninstalled; install path confirmed against Ollama's Windows docs.
 ### Task 1: Baseline numbers
 Record where 1.9.0 stands so later phases can be compared. Add the refresh rate and whether the
 frame was spring-paced or ambient to the `HYTTE_PERF` line.
-- [ ] Perf lines for expand / collapse, a running task (collapsed and open), and playing media, at
+- [x] Perf lines for expand / collapse, a running task (collapsed and open), and playing media, at
       the user's refresh rate, saved in `tasks/baseline.md`
-- [ ] Idle CPU and private bytes after 45 s, measured as `docs/12-performance.md` describes
-- [ ] The perf line shows `hz=` and separate counts for spring and ambient frames
+- [x] Idle CPU and private bytes after 45 s, measured as `docs/12-performance.md` describes
+- [x] The perf line shows `hz=`, `cpu_us=` and separate lines for spring and ambient frames
+      (playing media was not measured: no player was driven; the display was at 60 Hz, not 144)
 **Verify:** Checks; the log lines exist and parse.
 **Depends on:** none. **Files:** `perf.rs`, `window/win/frame.rs`, `tasks/baseline.md`. **Scope:** S
+
+### Task 1b: Cache the steady background (added: the baseline showed it is most of a frame)
+- [x] Glow and body are painted into two bitmaps once they have been the same for two frames,
+      and copied until something they depend on changes; freed after 30 s of stillness, on a
+      device rebuild and on a scale change
+- [x] A test draws the same frame painted and copied at 1x, 1.5x and 2x: within 2 levels of 255
+- [x] CPU with a running task: 14.6 % to 5.6 % collapsed, 27.1 % to 11.6 % open
+**Files:** `render/pill.rs`, `render.rs`, `window/win/wndproc.rs`, `render/snap.rs`. **Scope:** M
 
 ### Task 2: Motion review (filmstrips, slow motion, continuity test)
 - [ ] `HYTTE_SNAP_DIR=<dir> cargo test filmstrips -- --ignored` writes frames for at least:
@@ -303,7 +312,11 @@ Built to the verdict from Task 6.
 **Depends on:** Checkpoint 5. **Files:** tests, `tasks/baseline.md`. **Scope:** S
 
 ### Task 25: Docs and pictures
+The user asked (2026-11-15) for everything to be noted and refreshed in both the developer docs
+(`docs/`) and the user manual (`manual/`). Each task updates what it changes; this task is the
+full read-through of both.
 - [ ] `docs/06`, `08` and `12` describe layers, tweens, pacing, tokens and the mask
+- [ ] Every page of `manual/` read against the build: wording, pictures, anything that moved
 - [ ] `docs/16-whats-new.md` and the welcome tour's 2.0 entry
 - [ ] `docs/img` and the landing page frames regenerated
 **Verify:** docs build as before; every picture referenced exists.
