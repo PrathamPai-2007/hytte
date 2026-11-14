@@ -208,6 +208,9 @@ pub fn cut(text: &str, max: usize) -> (&str, bool) {
 #[derive(Debug, Clone, Default)]
 pub struct AskView {
     pub status: Status,
+    /// Ollama is on this PC (so "Start Ollama" can start it); known once a look found it
+    /// not running.
+    pub installed: bool,
     pub reply: Reply,
     /// Ollama's download of the model, while one runs.
     pub pull: Option<PullBar>,

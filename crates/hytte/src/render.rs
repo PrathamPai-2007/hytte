@@ -179,6 +179,8 @@ pub enum Action {
     AskClear,
     /// Look at Ollama again.
     AskRetry,
+    /// Start Ollama (or, when it isn't installed, open its download page).
+    AskStart,
     /// Have Ollama download the model / stop the download.
     AskPull,
     AskWarm,

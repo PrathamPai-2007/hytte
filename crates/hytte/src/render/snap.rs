@@ -2124,6 +2124,7 @@ fn ask_snapshots() {
         for (name, st) in [
             ("ask-looking", Status::Checking),
             ("ask-not-running", Status::NotRunning),
+            ("ask-starting", Status::Starting),
             (
                 "ask-problem",
                 Status::Problem("Ollama's address must be this PC".into()),
@@ -2133,6 +2134,9 @@ fn ask_snapshots() {
             m.ask.status = st;
             s(&mut r, name, &m);
         }
+        m.ask.status = Status::NotRunning;
+        m.ask.installed = true;
+        s(&mut r, "ask-start-ollama", &m);
         m.ask.status = Status::NoModel;
         let mut bar = PullBar::default();
         m.ask.pull = Some(bar.clone());

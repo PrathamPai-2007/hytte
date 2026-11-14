@@ -278,18 +278,35 @@ impl Renderer {
                     "On this PC, at the address in [ai] host.",
                 );
             }
+            Status::Starting => {
+                say("Starting Ollama…", "This can take a few seconds.");
+            }
             Status::NotRunning => {
-                say(
-                    "Ollama isn't running.",
-                    "Start it, or get it free at ollama.com.",
+                let (hint, label) = if m.ask.installed {
+                    ("Start it here, or open it yourself.", "Start Ollama")
+                } else {
+                    (
+                        "It's free at ollama.com. Install it, then try again.",
+                        "Get Ollama",
+                    )
+                };
+                say("Ollama isn't running.", hint);
+                self.primary(
+                    label,
+                    REPLY_PAD,
+                    button_y,
+                    104.0,
+                    24.0,
+                    accent,
+                    Action::AskStart,
                 );
                 self.button(
                     "Try again",
-                    REPLY_PAD,
+                    REPLY_PAD + 104.0 + 8.0,
                     button_y,
                     84.0,
                     24.0,
-                    accent,
+                    self.fg(),
                     Action::AskRetry,
                 );
             }

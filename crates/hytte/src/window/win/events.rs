@@ -261,6 +261,7 @@ impl Ui {
                 UiEvent::AiText(seq, card, t) => self.model.ai_text(seq, card, &t),
                 UiEvent::AiDone(seq, card, r) => self.model.ai_done(seq, card, r, now),
                 UiEvent::Ollama(s) => self.model.ollama_status(s),
+                UiEvent::OllamaInstalled(b) => self.model.ask.installed = b,
                 UiEvent::ModelSize(z) => self.model.ask.size = z,
                 UiEvent::Pull(p) => self.model.pull_progress(&p),
                 UiEvent::PullDone(r) => self.model.pull_done(r),

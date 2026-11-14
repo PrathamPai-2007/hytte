@@ -39,9 +39,51 @@ impl Ui {
         std::thread::spawn(move || {
             crate::proc::eco_thread();
             let (status, size) = crate::ollama::probe(&host, &model);
+            if status == Status::NotRunning {
+                let found = crate::ollama::launch().is_some();
+                push_event(&sh, UiEvent::OllamaInstalled(found));
+            }
             push_event(&sh, UiEvent::ModelSize(size));
             push_event(&sh, UiEvent::Ollama(status));
         });
+    }
+
+    /// "Start Ollama": start it and wait for it to answer (up to 15 s), then look at it as
+    /// usual. Not installed: open its download page instead. Hytte never stops Ollama.
+    pub(super) fn ask_start(&mut self) {
+        if self.model.ask.status != Status::NotRunning {
+            return;
+        }
+        if !self.model.ask.installed {
+            open_url("https://ollama.com/download");
+            return;
+        }
+        self.model.ask.status = Status::Starting;
+        let (host, model, sh) = (
+            self.model.ai.host.clone(),
+            self.model.ai.model.clone(),
+            self.shared.clone(),
+        );
+        std::thread::spawn(move || {
+            crate::proc::eco_thread();
+            let started = crate::ollama::launch()
+                .ok_or_else(|| "Ollama isn't installed any more.".to_string())
+                .and_then(|l| crate::ollama::start(&l));
+            let status = match started {
+                Err(e) => Status::Problem(e),
+                Ok(()) if crate::ollama::wait_up(&host, 30, Duration::from_millis(500)) => {
+                    let (status, size) = crate::ollama::probe(&host, &model);
+                    push_event(&sh, UiEvent::ModelSize(size));
+                    status
+                }
+                Ok(()) => {
+                    Status::Problem("Ollama didn't start. Open it yourself, then try again.".into())
+                }
+            };
+            push_event(&sh, UiEvent::Ollama(status));
+        });
+        self.layout();
+        self.kick();
     }
 
     /// Enter or the Ask button: ask what is in the field.

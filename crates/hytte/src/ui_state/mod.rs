@@ -172,6 +172,8 @@ pub enum UiEvent {
     AiDone(u64, bool, Result<(), String>),
     /// What a look at Ollama found.
     Ollama(crate::ollama::Status),
+    /// Whether Ollama is installed on this PC (sent with a "not running").
+    OllamaInstalled(bool),
     /// Progress of the model download.
     Pull(crate::ollama::Pull),
     PullDone(Result<(), String>),

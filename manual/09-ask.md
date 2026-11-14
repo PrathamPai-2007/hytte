@@ -6,8 +6,8 @@ Ask is **on by default**, but it does nothing until you open its tab: only then 
 
 ## Set it up
 
-1. Install Ollama from [ollama.com](https://ollama.com) and start it.
-2. Open the **Ask** tab on the pill (if it is missing, switch on **Ask a model on this PC (Ollama)** in [Settings](07-settings.md)).
+1. Install Ollama from [ollama.com](https://ollama.com).
+2. Open the **Ask** tab on the pill (if it is missing, switch on **Ask a model on this PC (Ollama)** in [Settings](07-settings.md)). If Ollama isn't running, the pane says so and offers **Start Ollama**: Hytte opens Ollama for you and waits a few seconds for it to answer. (When Ollama isn't installed the button reads **Get Ollama** and opens its download page.) Hytte only starts Ollama when you press the button, and never closes it: quit it from its own tray icon.
 3. Look at what the pane says. If the model isn't there yet, press **Get it**: Hytte asks your Ollama to download it (1.4 GB for the default, `qwen3:1.7b`) and shows the progress. **Stop** cancels; Ollama keeps what it has.
 
 The default is small on purpose: it runs on an ordinary laptop. Settings offers two models: **qwen3 1.7B** (the default) and **qwen3 0.6B** (smaller, weaker, for a PC that is short of memory). For any other, such as `gemma3:1b` or `llama3.2`, choose **Custom** and set `[ai] model` to a model you have pulled with Ollama.

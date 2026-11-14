@@ -8,7 +8,7 @@
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -230,6 +230,8 @@ pub enum Status {
     Checking,
     /// Nothing answers on the address.
     NotRunning,
+    /// Hytte started it (the Start Ollama button) and is waiting for it to answer.
+    Starting,
     /// Running, without the chosen model.
     NoModel,
     Ready,
@@ -295,6 +297,82 @@ pub fn probe(host: &str, model: &str) -> (Status, Size) {
         Ok(_) => (Status::NoModel, Size::default()),
         Err(e) => (Status::Problem(e), Size::default()),
     }
+}
+
+/// How Hytte can start Ollama on this PC.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Launch {
+    /// Ollama's own tray app: it runs the server and the user can quit it from the tray.
+    App(PathBuf),
+    /// Only the command is installed (the standalone zip): `ollama serve`.
+    Serve(PathBuf),
+}
+
+const APP_EXE: &str = "ollama app.exe";
+const CLI_EXE: &str = "ollama.exe";
+
+/// Where Ollama is: its installer's folder (`%LOCALAPPDATA%\Programs\Ollama`) first, then the
+/// folders of `PATH` (the installer adds its own there, wherever `/DIR` put it). The tray app
+/// wins over the bare command. Only absolute folders are looked in, never the current one.
+pub fn find_launch(local: Option<&Path>, path: Option<&std::ffi::OsStr>) -> Option<Launch> {
+    let home = local.map(|l| l.join("Programs").join("Ollama"));
+    let dirs = home
+        .into_iter()
+        .chain(path.into_iter().flat_map(std::env::split_paths));
+    let mut serve = None;
+    for d in dirs.filter(|d| d.is_absolute()) {
+        if d.join(APP_EXE).is_file() {
+            return Some(Launch::App(d.join(APP_EXE)));
+        }
+        if serve.is_none() && d.join(CLI_EXE).is_file() {
+            serve = Some(Launch::Serve(d.join(CLI_EXE)));
+        }
+    }
+    serve
+}
+
+/// `find_launch` for this PC.
+pub fn launch() -> Option<Launch> {
+    find_launch(
+        std::env::var_os("LOCALAPPDATA").as_deref().map(Path::new),
+        std::env::var_os("PATH").as_deref(),
+    )
+}
+
+/// Start Ollama. It is the user's program from then on: Hytte never stops it.
+pub fn start(l: &Launch) -> Result<(), String> {
+    let mut c = match l {
+        Launch::App(p) => Command::new(p),
+        Launch::Serve(p) => {
+            let mut c = Command::new(p);
+            c.arg("serve");
+            c
+        }
+    };
+    c.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    if matches!(l, Launch::Serve(_)) {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    c.spawn()
+        .map(drop)
+        .map_err(|e| format!("couldn't start Ollama: {e}"))
+}
+
+/// Wait for Ollama to answer on `host`: a look every `gap`, at most `tries` of them.
+pub fn wait_up(host: &str, tries: u32, gap: Duration) -> bool {
+    for i in 0..tries {
+        if version(host).is_ok() {
+            return true;
+        }
+        if i + 1 < tries {
+            std::thread::sleep(gap);
+        }
+    }
+    false
 }
 
 /// POST `body` to `path` and hand each line of the reply to `on_line`, as it arrives, until it
@@ -803,6 +881,59 @@ mod tests {
         let host = l.local_addr().unwrap().to_string();
         drop(l);
         assert_eq!(check(&host, "m"), Status::NotRunning);
+    }
+
+    #[test]
+    fn the_tray_app_wins_over_the_bare_command() {
+        let root = std::env::temp_dir().join(format!("hytte-ollama-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("local").join("Programs").join("Ollama");
+        let (zip, other) = (root.join("zip"), root.join("other"));
+        for d in [&home, &zip, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let path = std::env::join_paths([&other, &zip]).unwrap();
+        let find = || find_launch(Some(&root.join("local")), Some(&path));
+        assert_eq!(find(), None, "nothing installed");
+        std::fs::write(zip.join(CLI_EXE), b"").unwrap();
+        assert_eq!(
+            find(),
+            Some(Launch::Serve(zip.join(CLI_EXE))),
+            "command only"
+        );
+        std::fs::write(home.join(CLI_EXE), b"").unwrap();
+        std::fs::write(home.join(APP_EXE), b"").unwrap();
+        assert_eq!(find(), Some(Launch::App(home.join(APP_EXE))), "installer");
+        // A relative PATH entry (the current folder) is never looked in.
+        let rel = std::env::join_paths([Path::new(".")]).unwrap();
+        assert_eq!(find_launch(None, Some(&rel)), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn the_wait_ends_when_ollama_answers_and_when_it_never_does() {
+        // Nothing listening: gives up after its tries.
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = l.local_addr().unwrap().to_string();
+        drop(l);
+        assert!(!wait_up(&host, 2, Duration::from_millis(10)));
+        // Something that answers.
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = l.local_addr().unwrap().to_string();
+        let h = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf);
+            let body = r#"{"version":"0.12.0"}"#;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = s.write_all(format!("{head}{body}").as_bytes());
+        });
+        assert!(wait_up(&host, 20, Duration::from_millis(50)));
+        h.join().unwrap();
     }
 
     #[test]

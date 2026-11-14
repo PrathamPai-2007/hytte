@@ -33,6 +33,7 @@ impl Ui {
             Action::AskStop => self.ask_stop(),
             Action::AskClear => self.ask_clear(),
             Action::AskRetry => self.model.ollama_status(crate::ollama::Status::Unknown),
+            Action::AskStart => self.ask_start(),
             Action::AskPull => self.ask_pull(),
             Action::AskWarm => self.ask_warm(),
             Action::AskUnload => self.ask_unload(),
