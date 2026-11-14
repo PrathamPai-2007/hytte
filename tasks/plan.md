@@ -142,7 +142,7 @@ idle face, backdrops, a pet).
 - **Not installed.** The button reads **Get Ollama** and opens ollama.com. Hytte still never
   installs anything.
 - **After the click.** The pane says "Starting Ollama…" and a worker looks for it every half
-  second for up to 15 s, then carries on as a normal probe (ready, or "get the model"). If it
+  second for up to 30 s, then carries on as a normal probe (ready, or "get the model"). If it
   never answers: "Ollama didn't start." with **Try again**. The wait is a worker thread that
   ends, not a timer that keeps running.
 - **Hytte never stops Ollama.** It belongs to the user; quitting Hytte leaves it running.

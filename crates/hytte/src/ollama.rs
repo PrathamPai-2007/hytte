@@ -340,26 +340,37 @@ pub fn launch() -> Option<Launch> {
 }
 
 /// Start Ollama. It is the user's program from then on: Hytte never stops it.
+///
+/// Through the shell, as a double-click would: a process started with `Command` inherits this
+/// one's open handles and would keep them (a pipe, the log) after Hytte has gone.
 pub fn start(l: &Launch) -> Result<(), String> {
-    let mut c = match l {
-        Launch::App(p) => Command::new(p),
-        Launch::Serve(p) => {
-            let mut c = Command::new(p);
-            c.arg("serve");
-            c
-        }
-    };
-    c.stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
     #[cfg(windows)]
-    if matches!(l, Launch::Serve(_)) {
-        use std::os::windows::process::CommandExt;
-        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::{w, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNOACTIVATE};
+        // The tray app opens its own window whatever it is asked (tried: hidden, and a
+        // `--hidden` argument); the bare command would open a console, so that is hidden.
+        let (path, args, show) = match l {
+            Launch::App(p) => (p, PCWSTR::null(), SW_SHOWNOACTIVATE),
+            Launch::Serve(p) => (p, w!("serve"), SW_HIDE),
+        };
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+        // SAFETY: `wide` is NUL-terminated and outlives the call; the other strings are static.
+        let r = unsafe { ShellExecuteW(None, w!("open"), PCWSTR(wide.as_ptr()), args, None, show) };
+        // By its contract, anything above 32 is success.
+        if r.0 as usize > 32 {
+            Ok(())
+        } else {
+            Err("couldn't start Ollama".into())
+        }
     }
-    c.spawn()
-        .map(drop)
-        .map_err(|e| format!("couldn't start Ollama: {e}"))
+    #[cfg(not(windows))]
+    {
+        let _ = l;
+        Err("couldn't start Ollama".into())
+    }
 }
 
 /// Wait for Ollama to answer on `host`: a look every `gap`, at most `tries` of them.
@@ -986,4 +997,26 @@ fn live_ollama() {
     let e = ask(DEFAULT_HOST, &bad, &AtomicBool::new(false), |_| {}).unwrap_err();
     println!("missing model: {e}");
     assert!(e.contains("not found"), "{e}");
+}
+
+/// Start the Ollama installed on this PC and wait for it, as the Start Ollama button does:
+/// `cargo test live_start_ollama -- --ignored --nocapture`. It is left running.
+#[cfg(all(test, windows))]
+#[test]
+#[ignore]
+fn live_start_ollama() {
+    if version(DEFAULT_HOST).is_ok() {
+        println!("Ollama is already running: nothing to start");
+        return;
+    }
+    let l = launch().expect("Ollama isn't installed");
+    println!("starting {l:?}");
+    start(&l).unwrap();
+    let t = std::time::Instant::now();
+    assert!(wait_up(DEFAULT_HOST, 60, Duration::from_millis(500)));
+    println!(
+        "answered after {:.1} s: {:?}",
+        t.elapsed().as_secs_f32(),
+        version(DEFAULT_HOST)
+    );
 }

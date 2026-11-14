@@ -48,7 +48,8 @@ impl Ui {
         });
     }
 
-    /// "Start Ollama": start it and wait for it to answer (up to 15 s), then look at it as
+    /// "Start Ollama": start it and wait for it to answer (up to 30 s: a cold start
+    /// took 12 s when measured), then look at it as
     /// usual. Not installed: open its download page instead. Hytte never stops Ollama.
     pub(super) fn ask_start(&mut self) {
         if self.model.ask.status != Status::NotRunning {
@@ -71,7 +72,7 @@ impl Ui {
                 .and_then(|l| crate::ollama::start(&l));
             let status = match started {
                 Err(e) => Status::Problem(e),
-                Ok(()) if crate::ollama::wait_up(&host, 30, Duration::from_millis(500)) => {
+                Ok(()) if crate::ollama::wait_up(&host, 60, Duration::from_millis(500)) => {
                     let (status, size) = crate::ollama::probe(&host, &model);
                     push_event(&sh, UiEvent::ModelSize(size));
                     status

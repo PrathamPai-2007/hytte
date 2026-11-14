@@ -16,7 +16,7 @@ When the Ask pane finds Ollama isn't running, offer to start it.
 - [x] "Ollama isn't running." shows **Start Ollama** (primary) beside **Try again**; when Ollama
       isn't installed the button reads **Get Ollama** and opens ollama.com
 - [x] The click starts Ollama's tray app, or `ollama serve` with no console window when only the
-      command is installed; the pane shows "Starting Ollama…", looks every 0.5 s for up to 15 s,
+      command is installed; the pane shows "Starting Ollama…", looks every 0.5 s for up to 30 s,
       then continues as a normal probe, or says "Ollama didn't start." with **Try again**
 - [x] Hytte never stops Ollama, starts it without a click, or keeps a timer running after the wait
 **Verify:** Checks; unit tests for "which program to start" (tray app found, command only,

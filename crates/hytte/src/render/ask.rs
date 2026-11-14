@@ -279,7 +279,7 @@ impl Renderer {
                 );
             }
             Status::Starting => {
-                say("Starting Ollama…", "This can take a few seconds.");
+                say("Starting Ollama…", "This can take up to half a minute.");
             }
             Status::NotRunning => {
                 let (hint, label) = if m.ask.installed {
