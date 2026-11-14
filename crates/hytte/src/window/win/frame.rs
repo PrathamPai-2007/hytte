@@ -175,7 +175,9 @@ impl Ui {
         let gap = now.saturating_duration_since(self.last);
         // While springs move the ticker paces on vblank: use DWM's own clock so dt is a
         // whole number of refresh periods instead of scheduler-jittered wall time.
-        let vb = if self.shared.fast.load(Ordering::Relaxed) {
+        // The pace that timed this frame's gap (it may change below, for the next one).
+        let paced_fast = self.shared.fast.load(Ordering::Relaxed);
+        let vb = if paced_fast {
             VBLANK.load(Ordering::Relaxed)
         } else {
             0
@@ -242,9 +244,6 @@ impl Ui {
                 ringing: self.ringing,
                 caret_on: self.caret_on,
             };
-            self.rend.draw(&fr, crop, &mut self.hits);
-            let drawn = now.elapsed().as_micros() as u32;
-            let a = (self.anim.vis.pos.clamp(0.0, 1.0) * self.dim as f64 * 255.0).round() as u8;
             let heading = self
                 .rend
                 .plan(
@@ -255,6 +254,9 @@ impl Ui {
                     self.glowing(),
                 )
                 .clip;
+            self.rend.draw(&fr, crop, &mut self.hits);
+            let drawn = now.elapsed().as_micros() as u32;
+            let a = (self.anim.vis.pos.clamp(0.0, 1.0) * self.dim as f64 * 255.0).round() as u8;
             self.rend
                 .present(hwnd, crop, origin.0, origin.1, a, heading);
             if self.rend.lost() && self.gpu_retry == 0 {
@@ -263,12 +265,17 @@ impl Ui {
                 self.rebuild_gpu(hwnd);
             }
             // Skip the first frame after idle: its gap is the idle time, not a frame.
-            if moving && gap.as_millis() < 100 {
+            if gap.as_millis() < 100 {
+                let period = f64::from_bits(REFRESH_S.load(Ordering::Relaxed));
                 self.perf.record(
+                    paced_fast,
+                    if period > 0.0 { 1.0 / period } else { 0.0 },
                     gap.as_micros() as u32,
                     drawn,
                     now.elapsed().as_micros() as u32,
                 );
+            } else {
+                self.perf.skip();
             }
         }
         // A hovered label scrolling (`Renderer::label`) runs only while it is hovered.

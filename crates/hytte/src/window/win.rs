@@ -675,6 +675,11 @@ pub fn run_windows(
             awake_on: false,
             scrub: None,
         };
+        // `HYTTE_HOLD=1`: start pinned open, for measuring an open pill without a pointer on it.
+        if std::env::var_os("HYTTE_HOLD").is_some_and(|v| v != "0") {
+            ui.hover = true;
+            ui.model.pinned = true;
+        }
         ui.model.ignore = ignore_list(&ui.cfg);
         ui.light = theme_is_light(&ui.cfg.general.theme);
         ui.accent = windows_accent();
