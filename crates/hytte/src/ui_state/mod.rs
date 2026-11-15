@@ -16,6 +16,7 @@ mod agents;
 mod anim;
 mod ask;
 mod cards;
+mod day;
 mod media;
 mod notes;
 mod scene;
@@ -32,6 +33,7 @@ pub use agents::*;
 pub use anim::*;
 pub use ask::*;
 pub use cards::*;
+pub use day::*;
 pub use media::*;
 pub use notes::*;
 pub use scene::*;
@@ -243,6 +245,8 @@ pub struct Model {
     /// A user-initiated drop keeps the pill visible even while fullscreen suppresses it.
     pub force_until: Option<Instant>,
     pub drop_over: bool,
+    /// The pill is being dragged along the top of the screen (see `position.rs`).
+    pub placing: bool,
     pub chip: Option<Chip>,
     /// Script panes (`[[script_pane]]`), by slot.
     pub scripts: Vec<ScriptView>,
@@ -291,6 +295,8 @@ pub struct Model {
     pub task_rows: usize,
     /// `[agent] quiet_after_secs`: a working agent silent this long is labelled quiet (zero: never).
     pub agent_quiet: Duration,
+    /// Today's agent time and turns (memory only).
+    pub day: DayStats,
     pub shelf: Vec<ShelfItem>,
     pub shelf_sel: Option<u64>,
     /// First shelf tile in view when there are more than `SHELF_VISIBLE`.

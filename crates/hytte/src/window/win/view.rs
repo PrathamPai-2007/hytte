@@ -160,7 +160,159 @@ impl Ui {
 
     pub(super) fn origin_for(&self, crop: Crop) -> (i32, i32) {
         let mon_w = self.mon.2 - self.mon.0;
-        (self.mon.0 + (mon_w - crop.w_px) / 2, self.mon.1)
+        (
+            self.mon.0 + (mon_w - crop.w_px) / 2 + self.offset_px(),
+            self.mon.1,
+        )
+    }
+
+    /// The sideways shift of the pill from the middle of its monitor, in px, kept on the
+    /// monitor. While dragging it is the live value; otherwise this monitor's saved one.
+    pub(super) fn offset_px(&self) -> i32 {
+        let frac = self
+            .live
+            .unwrap_or_else(|| self.positions.get(&self.mon_name));
+        let mon_w = self.mon.2 - self.mon.0;
+        crate::position::offset_px(
+            frac,
+            mon_w,
+            self.pill_px(),
+            self.bubble_extra_px(),
+            self.margin_px(),
+        )
+    }
+
+    /// How far the second activity's bubble sticks out to the right of the pill, in px (it
+    /// slides out of the pill, so this grows with it). Nothing on the left, so the pill
+    /// itself can still sit at the left edge.
+    fn bubble_extra_px(&self) -> i32 {
+        let Some(kind) = self.anim.bubble_kind else {
+            return 0;
+        };
+        if self.model.placing {
+            return 0;
+        }
+        let s = self.anim.bubble.pos as f32;
+        (((kind.width() + 14.0) * s - 6.0).max(0.0) * self.scale).ceil() as i32
+    }
+
+    /// The pill's width on screen in px. The window is a wider, transparent canvas (glow,
+    /// drop zone, bubble room) clipped to what shows, so the edge test uses this and
+    /// [`Self::bubble_extra_px`], not the canvas.
+    fn pill_px(&self) -> i32 {
+        (self.anim.rect.w.pos as f32 * self.scale).ceil() as i32
+    }
+
+    fn margin_px(&self) -> i32 {
+        (crate::position::MARGIN * self.scale) as i32
+    }
+
+    /// The pointer is on the grab strip: the top few px of the pill, over nothing clickable.
+    pub(super) fn on_strip(&self) -> bool {
+        if self.hidden() || self.model.typing.is_some() {
+            return false;
+        }
+        let Some((mx, my)) = self.mouse_logical() else {
+            return false;
+        };
+        let pw = self.anim.rect.w.pos as f32;
+        let ph = self.anim.rect.h.pos as f32;
+        let ox = (self.crop_w - pw) / 2.0;
+        my >= 0.0
+            && my <= crate::position::STRIP.min(ph.max(6.0))
+            && mx >= ox
+            && mx <= ox + pw
+            && self.hit_at().is_none()
+    }
+
+    /// Button down on the strip: a drag may follow (it starts after a few px of movement).
+    pub(super) fn place_press(&mut self) -> bool {
+        let mut p = POINT::default();
+        if self.place.is_some() || !self.on_strip() || unsafe { GetCursorPos(&mut p) }.is_err() {
+            return false;
+        }
+        self.place = Some(crate::position::Drag::new(p.x, self.offset_px()));
+        PLACING.store(true, Ordering::Relaxed);
+        true
+    }
+
+    /// The pointer moved with the button held: start dragging past the threshold, then follow.
+    pub(super) fn place_move(&mut self) {
+        let Some(mut d) = self.place else { return };
+        let mut p = POINT::default();
+        if unsafe { GetCursorPos(&mut p) }.is_err() {
+            return;
+        }
+        self.mouse = Some((p.x, p.y));
+        if !d.active {
+            let thr = (crate::position::THRESHOLD * self.scale) as i32;
+            if !d.past_threshold(p.x, thr) {
+                return;
+            }
+            d.active = true;
+            // Drag mode shows instructions in place of the pane; a drop zone has no use now.
+            self.model.placing = true;
+            self.armed = false;
+            ARMED.store(false, Ordering::Relaxed);
+        }
+        self.place = Some(d);
+        let mon_w = self.mon.2 - self.mon.0;
+        let narrowest = (crate::position::MIN_PILL * self.scale) as i32;
+        let max = crate::position::max_shift(mon_w, narrowest, self.margin_px());
+        self.live = Some(crate::position::offset_frac(d.offset_at(p.x, max), mon_w));
+        self.layout();
+        self.kick();
+    }
+
+    /// End a press or drag. `keep` stores where the pill was let go (a drag), else the old
+    /// spot comes back. Returns whether a drag was on screen (so the release is not a click).
+    pub(super) fn place_end(&mut self, keep: bool) -> bool {
+        PLACING.store(false, Ordering::Relaxed);
+        let Some(d) = self.place.take() else {
+            return false;
+        };
+        if d.active {
+            if let (true, Some(f)) = (keep, self.live) {
+                self.positions.set(&self.mon_name, f);
+                self.positions.save();
+            }
+            self.live = None;
+            self.model.placing = false;
+            self.layout();
+            self.kick();
+        }
+        d.active
+    }
+
+    /// Put this monitor's pill back in the middle (a double-click on the strip).
+    pub(super) fn place_reset(&mut self) {
+        self.positions.set(&self.mon_name, 0.0);
+        self.positions.save();
+        self.live = None;
+        self.kick();
+    }
+
+    /// Put every monitor's pill back in the middle (the tray's "Reset pill position").
+    pub(super) fn place_reset_all(&mut self) {
+        self.positions.clear();
+        self.positions.save();
+        self.live = None;
+        self.kick();
+    }
+
+    /// While dragging: Esc, a pause, a game or a file drop over the pill ends it.
+    pub(super) fn place_watch(&mut self) {
+        if self.place.is_none() {
+            return;
+        }
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
+        let esc = unsafe { GetAsyncKeyState(VK_ESCAPE.0 as i32) } as u16 & 0x8000 != 0;
+        if esc || self.hidden() || self.model.drop_over {
+            self.place_end(false);
+            unsafe {
+                let _ = ReleaseCapture();
+            }
+        }
     }
 
     /// The monitor the pill should hang from, per `[general] monitor`: "active" is the one
@@ -227,12 +379,16 @@ impl Ui {
     pub(super) fn refresh_monitor(&mut self) {
         unsafe {
             let hmon = self.wanted_monitor();
-            let mut mi = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
+            use windows::Win32::Graphics::Gdi::MONITORINFOEXW;
+            let mut mie = MONITORINFOEXW::default();
+            mie.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
             self.hmon = hmon.0 as isize;
-            if GetMonitorInfoW(hmon, &mut mi).as_bool() {
+            if GetMonitorInfoW(hmon, &mut mie as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool()
+            {
+                let mi = mie.monitorInfo;
+                let name = &mie.szDevice;
+                let len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+                self.mon_name = String::from_utf16_lossy(&name[..len]);
                 let r = mi.rcMonitor;
                 // A taskbar docked at the top (any edge works since 24H2): hang below it.
                 let top = mi.rcWork.top.max(r.top);
@@ -243,11 +399,14 @@ impl Ui {
             self.scale = dx as f32 / 96.0 * self.cfg.general.pill_scale.clamp(0.7, 1.6);
         }
         self.rend.set_scale(self.scale);
-        // Hot zone for drag arming, in screen px.
+        self.set_zone((self.mon.0 + self.mon.2) / 2);
+    }
+
+    /// Hot zone for drag arming (files dragged to the pill), in screen px, around `centre`.
+    pub(super) fn set_zone(&self, centre: i32) {
         let half = (230.0 * self.scale) as i32;
-        let mid = (self.mon.0 + self.mon.2) / 2;
-        ZONE_L.store(mid - half, Ordering::Relaxed);
-        ZONE_R.store(mid + half, Ordering::Relaxed);
+        ZONE_L.store(centre - half, Ordering::Relaxed);
+        ZONE_R.store(centre + half, Ordering::Relaxed);
         ZONE_B.store(self.mon.1 + (40.0 * self.scale) as i32, Ordering::Relaxed);
     }
 }

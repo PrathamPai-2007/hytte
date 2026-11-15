@@ -10,6 +10,7 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `…\shelf.json`, `…\shelf\` | `shelf.rs` | The shelf list (`[shelf] persist`); copies (`mode = "copy"`) and text snippets. |
 | `…\timer.json` | `timer::save` | The running timer, so it survives a restart; deleted when it stops or finishes. |
 | `…\jot.json` | `jot::Store::save` | Notes and to-dos (`jot.json.bad` is a damaged file set aside). |
+| `…\position.json` | `position.rs` | Where the pill sits sideways, per monitor (`\\.\DISPLAY1`: fraction of the monitor's width from the middle). State, not a setting; absent means centred. |
 | `…\place.json` | `weather::Place::save` | The Weather pane's chosen place and coordinates. |
 | `…\dnd-restore.txt` | `dnd.rs` | Only while a Focus session has Do Not Disturb on: the earlier value, restored at the next start if Hytte died. |
 | `…\sleep-restore.txt` | `sleep.rs` | Only during a sleep fade: the player and its volume, restored at the next start if Hytte died. |

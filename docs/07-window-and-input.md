@@ -62,8 +62,9 @@ Key methods: `layout()` (scene from the model; sets every spring target); `kick(
 | `WM_MOUSEWHEEL` | Over the volume bar or **Sound** tile: volume, 2 % a notch. Over an app's bar: that app. Over the shelf row: scrolls a tile per notch. Over a task list with more rows than `task_rows`: a row per notch (at either end the wheel pages again). On the timer card: minutes. Otherwise a mouse wheel (whole 120 notches) pages the panes (down = next), . A precision touchpad's vertical scroll (fractional deltas, as do free-spin wheels) does nothing there, so a two-finger scroll can't flip panes. On the lyrics page a notch moves a line, and a touchpad needs 600 units of scroll per line (`Ui::lyric_wheel`) so its stream of small deltas and its coasting don't fling the page. |
 | `WM_MOUSEHWHEEL` | Touchpad swipe or tilt wheel: next pane right, previous left, one per swipe; a collapsed pill peeks 3 s. |
 | `WM_SETCURSOR` | Hand cursor over clickable regions. |
-| `WM_LBUTTONDOWN` | On a shelf tile: remember it, capture the mouse for a drag. On the volume bar or timeline: set there and capture for dragging (`scrub`). |
-| `WM_CAPTURECHANGED` | Capture lost mid-drag (Alt+Tab, dialog): the drag ends. |
+| `WM_LBUTTONDOWN` | On a shelf tile: remember it, capture the mouse for a drag. On the volume bar or timeline: set there and capture for dragging (`scrub`). On the pill's top strip (`Ui::on_strip`: the first 8 logical px, over no hit region): `place_press` remembers the press and captures the mouse, and moving 6 px (scaled) starts placing (`place_move`, `Model::placing`). |
+| `WM_LBUTTONDBLCLK` | On the top strip: forget this monitor's saved position. Elsewhere it is handled as a second `WM_LBUTTONDOWN`, so quick clicks still count. |
+| `WM_CAPTURECHANGED` | Capture lost mid-drag (Alt+Tab, dialog): the drag ends; a placing drag is cancelled (`place_end(false)`). |
 | `WM_LBUTTONUP` | Ends a volume drag (re-reads the real level) or timeline drag (asks the player to seek once via `media::Cmd::Seek`, GSMTC `TryChangePlaybackPositionAsync`; `Media` updates are ignored during the drag). Otherwise a click: with `open_on = "click"` the first click on the closed pill just opens it; else it runs the `Action` under the pointer. |
 | `WM_RBUTTONUP` | Over the pill: toggles the timer setup card. |
 | `WM_TIMER` | See [Timers](#timers). |
@@ -174,6 +175,12 @@ While `armed`, the renderer widens the presented area to the whole canvas width 
 `Target` implements `IDropTarget`: `DragEnter` accepts files (`CF_HDROP`) or Unicode text (`CF_UNICODETEXT`) and pushes `UiEvent::DragEnter` (purple drop zone); `DragLeave` pushes `DragLeave`; `Drop` extracts the paths (or up to 4 M characters of text) into a `DropJob` and pushes `UiEvent::ShelfAdd`. File work happens on a worker ([section 10](10-shelf-and-drop-vault.md)).
 
 ### Dragging a tile out
+
+### Placing the pill
+
+The window is a transparent canvas wider than the pill, centred on the monitor by `origin_for` and clipped to what shows, so the saved position is an offset added there. `position.rs` holds the maths as pure functions with tests: the offset is a **fraction of the monitor's width** (so it survives resolution and DPI changes), keyed by the monitor's device name (`MONITORINFOEXW.szDevice`), saved in `position.json`, and clamped on read. `offset_px` clamps it each layout so the pill (collapsed or open) stays `MARGIN` px inside the screen; the saved fraction is untouched, which is why a wide pane near an edge slides in and the pill returns to its spot when the pane closes. A second activity's bubble only sticks out to the right of the pill, so only the right side reserves room for it (`bubble_extra_px`).
+
+While placing, the cursor is read from `GetCursorPos` (screen px), the file-drop hot zone is not armed (`PLACING`, read by the mouse hook), and `place_watch` cancels on Esc, on the pill hiding or on a drop starting. Let go saves, `Esc` or lost capture restores, double-click on the strip clears this monitor, and the tray's **Reset pill position** clears all of them.
 
 Once a pressed tile moves past 4 px, `shelf_drag` asks the shell for a real file data object (`SHCreateItemFromParsingName` → `BindToHandler(BHID_DataObject)`) and runs `DoDragDrop` (copy and move), so any app that accepts files from Explorer accepts it. `DoDragDrop` pumps messages, hence it runs **outside** the `Ui` borrow. Afterwards the tile is removed if the drop succeeded and `remove_after_drag` is on, and tiles whose file is gone are pruned.
 

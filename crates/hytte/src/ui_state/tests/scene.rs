@@ -312,3 +312,24 @@ fn the_glow_colour_blends_and_stays_a_colour() {
     assert!(between, "it passed through the colours in between");
     assert!((a.glow_rgb[1] - 0.25).abs() < 0.01);
 }
+
+#[test]
+fn dragging_the_pill_shows_the_drag_scene_over_anything() {
+    let mut m = Model::default();
+    // Whatever pane was open, and even under a fullscreen window, drag mode shows.
+    assert_eq!(m.scene(true, false), Scene::ExpHome);
+    m.placing = true;
+    assert_eq!(m.scene(true, false), Scene::Place);
+    assert_eq!(
+        m.scene(false, true),
+        Scene::Place,
+        "not the fullscreen sentinel"
+    );
+    assert!(m.ambient(Scene::Place, Instant::now()), "the arrows sway");
+    // It is a small, fixed card, and takes no key hints.
+    assert_eq!(m.size(Scene::Place), (340.0, 78.0));
+    m.keyboard = true;
+    assert_eq!(m.size(Scene::Place), (340.0, 78.0));
+    m.placing = false;
+    assert_eq!(m.scene(true, false), Scene::ExpHome);
+}

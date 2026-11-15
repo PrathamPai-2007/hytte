@@ -183,6 +183,7 @@ impl Ui {
             .min(0.05);
         self.prev_vblank = vb;
         self.last = now;
+        self.place_watch();
         self.layout();
         let speed = match self.cfg.general.animation.as_str() {
             "calm" => 0.7,
@@ -226,6 +227,8 @@ impl Ui {
             let origin = self.origin_for(crop);
             self.origin = origin;
             self.crop_w = crop.w_log;
+            // Files dragged to a moved pill arm the drop zone around where it is.
+            self.set_zone(origin.0 + crop.w_px / 2);
             let fr = Frame {
                 model: &self.model,
                 anim: &self.anim,

@@ -123,7 +123,14 @@ fn title_bar(hwnd: HWND, light: bool) {
 }
 
 /// Open the window, or bring the one that is already open to the front.
+/// The script panes' names for the Panes section: the config's, then the approved packs'.
+fn refresh_script_names(cfg: &Config) {
+    let (panes, _) = crate::packs::effective(cfg.script_panes(), vec![], &crate::packs::scan());
+    crate::render::set_script_names(panes.into_iter().map(|p| p.name).collect());
+}
+
 pub fn open(cfg: &Config) {
+    refresh_script_names(cfg);
     unsafe {
         let cls = w!("HytteSettings");
         let existing = S.with(|c| c.try_borrow().map(|g| g.is_some()).unwrap_or(true));
@@ -434,6 +441,7 @@ fn set(s: &mut State, key: &'static str, v: Val) {
     match config::set(key, v) {
         Ok(Some(cfg)) => {
             (s.light, s.accent) = crate::window::look(&cfg.general.theme);
+            refresh_script_names(&cfg);
             s.cfg = cfg;
         }
         Ok(None) => crate::logging::line("settings window: config.toml has a mistake in it"),

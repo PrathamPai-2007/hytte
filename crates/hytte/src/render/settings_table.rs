@@ -545,9 +545,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
             name: "Panes",
             rows: crate::ui_state::Panel::arranged(&c.panes.order)
                 .into_iter()
-                // Only the script panes `config.toml` sets up.
+                // Only the script panes that exist: those of `config.toml` and approved packs.
                 .filter(|p| match p {
-                    crate::ui_state::Panel::Script(i) => (*i as usize) < c.script_panes().len(),
+                    crate::ui_state::Panel::Script(i) => {
+                        (*i as usize) < script_names().len().max(c.script_panes().len())
+                    }
                     _ => true,
                 })
                 .map(|p| pane_switch(p, &c.panes))
@@ -772,6 +774,36 @@ fn skin_row(cur: &str) -> Row {
     row
 }
 
+/// The names of the panes in the script slots: `[[script_pane]]`s, then approved packs (what
+/// `packs::effective` puts in the slots). The settings window sets it when it opens and after
+/// each change, so building rows never scans the packs folder.
+static SCRIPT_NAMES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn set_script_names(names: Vec<String>) {
+    if let Ok(mut g) = SCRIPT_NAMES.lock() {
+        *g = names;
+    }
+}
+
+fn script_names() -> Vec<String> {
+    SCRIPT_NAMES.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// A row's label is `&'static str`; a pane's name is kept for the life of the process, once per
+/// distinct name (a handful at most: four slots, names of at most 24 characters).
+fn intern(s: &str) -> &'static str {
+    static NAMES: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    let Ok(mut g) = NAMES.lock() else {
+        return "Script pane";
+    };
+    if let Some(n) = g.iter().find(|n| **n == s) {
+        return n;
+    }
+    let n: &'static str = Box::leak(s.to_string().into_boxed_str());
+    g.push(n);
+    n
+}
+
 /// Script panes in the settings window, by slot (their names live in `config.toml`).
 const SCRIPT_LABELS: [&str; 4] = [
     "Script pane 1",
@@ -803,7 +835,33 @@ fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
         Ask => Row::Switch("Ask (local AI)", "panes.ask", c.ask),
         Script(i) => {
             let i = (i as usize).min(SCRIPT_LABELS.len() - 1);
-            Row::Switch(SCRIPT_LABELS[i], SCRIPT_SWITCHES[i], c.script_on(i))
+            let label = script_names()
+                .get(i)
+                .map_or(SCRIPT_LABELS[i], |n| intern(n));
+            Row::Switch(label, SCRIPT_SWITCHES[i], c.script_on(i))
         }
+    }
+}
+
+#[cfg(test)]
+mod pane_name_tests {
+    use super::*;
+
+    /// A pack's pane gets a row under its own name (the config has no `[[script_pane]]`).
+    #[test]
+    fn script_slots_are_listed_by_name_including_packs() {
+        set_script_names(vec!["Disks".into(), "Bin".into()]);
+        let t = settings_table(&Config::default());
+        set_script_names(vec![]);
+        let panes = t.iter().find(|s| s.name == "Panes").unwrap();
+        let labels: Vec<&str> = panes
+            .rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Switch(l, k, _) if k.starts_with("panes.script") => Some(*l),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labels, ["Disks", "Bin"]);
     }
 }

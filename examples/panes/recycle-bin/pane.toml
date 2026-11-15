@@ -1,0 +1,10 @@
+name = "Bin"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File bin.ps1"
+every = 300
+
+# Needs one more click ("Sure?") before it runs.
+[[action]]
+name = "empty"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -Command Clear-RecycleBin -Force"
+confirm = true
+timeout = 120

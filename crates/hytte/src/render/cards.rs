@@ -3,6 +3,46 @@
 use super::*;
 
 impl Renderer {
+    /// Drag mode: the pane gives way to what the drag does and how to end it.
+    pub(super) fn exp_place(&self, w: f32, h: f32) {
+        let t = self.t.get();
+        let sway = (t * 3.5).sin() * 3.0;
+        let cy = 26.0;
+        // Two chevrons that lean away from the middle, swaying with the drag.
+        for (dir, x) in [(-1.0f32, 44.0 - sway), (1.0, w - 44.0 + sway)] {
+            self.line(
+                (x - dir * 5.0, cy - 9.0),
+                (x + dir * 5.0, cy),
+                self.cc(BLUE, 1.0),
+                2.4,
+            );
+            self.line(
+                (x + dir * 5.0, cy),
+                (x - dir * 5.0, cy + 9.0),
+                self.cc(BLUE, 1.0),
+                2.4,
+            );
+        }
+        self.text(
+            "Drag left or right",
+            &self.f.big_c,
+            0.0,
+            cy - 11.0,
+            w,
+            22.0,
+            self.cc(self.fg(), 0.97),
+        );
+        self.text(
+            "Let go to place it  ·  Esc cancels  ·  double-click resets",
+            &self.f.small_c,
+            0.0,
+            h - 28.0,
+            w,
+            16.0,
+            self.cc(GRAY, 1.0),
+        );
+    }
+
     pub(super) fn exp_drop(&self, w: f32, h: f32) {
         let t = self.t.get();
         let pulse = (t * 3.0).sin() * 0.5 + 0.5;

@@ -45,6 +45,8 @@ pub struct AgentLayout<'a> {
     pub hidden: usize,
     /// Height of everything above the tab strip.
     pub height: f64,
+    /// The "Today" line under the rows, when there is something to say.
+    pub day: Option<String>,
 }
 
 impl AgentStats {
@@ -149,10 +151,15 @@ impl Model {
             })
             .collect();
         let more = if hidden > 0 { AGENT_MORE_H } else { 0.0 };
+        let day = self.day_line();
         AgentLayout {
             rows,
             hidden,
-            height: y as f64 + AGENT_PAD_H as f64 / 2.0 + more as f64,
+            height: y as f64
+                + AGENT_PAD_H as f64 / 2.0
+                + more as f64
+                + day.as_ref().map_or(0.0, |_| AGENT_DAY_H as f64),
+            day,
         }
     }
 

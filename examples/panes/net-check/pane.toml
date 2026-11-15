@@ -1,0 +1,3 @@
+name = "Network"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1"
+every = 60

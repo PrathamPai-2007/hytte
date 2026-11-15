@@ -76,7 +76,10 @@ Connects the agents installed for this user (the tray's **Connect AI agents** ca
 | OpenCode | `~/.config/opencode/plugins/hytte.js` | embedded plugin (`agent_plugin.js`): `session.status` busy → `resume`, `permission.asked` → `needs-input`, `permission.replied` → `resume`, `session.idle` → `done` (sub-agents skipped), `permission.ask` → `ask` |
 | Gemini CLI | `~/.gemini/settings.json` | `BeforeAgent` → `resume`, `Notification` → `needs-input`, `AfterAgent` → `done`, all `--ack` |
 | Antigravity | `~/.gemini/config/hooks.json` (shared by `agy`, the IDE, Antigravity 2.0) | named hook `"hytte"`: `PreInvocation` → `resume`, `Stop` → `done`, `--ack` |
+| Copilot CLI | `~/.copilot/hooks/hytte.json` (or `%COPILOT_HOME%`) | a file only Hytte writes (`Kind::owned`, deleted on `--undo`): `userPromptSubmitted` and `postToolUse` → `resume`, `agentStop` → `done`, `--ack`; each entry has `command` (bash) and `powershell` (`& "exe" ...`, since PowerShell needs the call operator before a quoted path); informational only |
 | Cursor | `~/.cursor/hooks.json` | `postToolUse` → `resume`, `stop` → `done`, `--ack`; informational only, since Cursor blocks the action if a gating hook's reply doesn't match its schema |
+
+**WSL.** `hytte setup agents --wsl [--undo]` (`agents::connect_wsl`) does the same inside each WSL distro (Docker Desktop's helper distros are skipped; `wsl -l -q` is UTF-16). It asks the distro for `$HOME` (which starts it), reads and writes `\\wsl.localhost\<distro>\<home>\...` with the same merge, and writes this exe as `/mnt/c/.../hytte.exe` (`wsl_exe`; a path that isn't on a drive letter is refused). The agents' environment variables and the Cursor app folder are looked up only for the Windows user (`targets_in(home, native)`). Why it works: a Windows process started from WSL has the session's `wsl.exe` as its parent, so `owner_pid` reports a Windows process whose lifetime and terminal window are the right ones, and hook stdin and stdout pass through interop unchanged; the hook's `cwd` is a Linux path, which only the project name is taken from. It is opt-in: plain `hytte setup agents` and the tray item never touch a distro, and `hytte doctor` and the startup repair look at the Windows side only.
 
 How the merge behaves:
 
@@ -88,9 +91,19 @@ How the merge behaves:
 
 Daemon side: a row is `agent:<name>:<pid>` with `pid` from `owner_pid`, so liveness and click-to-focus follow the agent. A shell command named in `ui_state::AGENT_CLIS` (`claude`, `codex`, `opencode`, `gemini`, `agy`, `cursor-agent`) isn't shown as a terminal task, since the agent reports itself. `NeedsInput` and a pending ask are forced visible over a maximised window or fullscreen video, but not in game mode.
 
+### `hytte mcp` and `hytte setup mcp [--undo]` (`cli/mcp.rs`)
+
+`hytte mcp` is a Model Context Protocol server on stdio (newline-delimited JSON-RPC 2.0; stdout carries protocol only). It answers `initialize` (echoing the client's `protocolVersion`), `ping`, `tools/list` and `tools/call`; notifications get no reply. Five tools, each one an existing `hytte_proto::Cmd` built and `validate()`d like the CLI does: `notify`, `card` (`wait` sends the card and blocks for the `Pressed` line, capped by `ttl` plus `CARD_QUEUE_SECS`; no press or no pill returns the text "no answer", not an error), `note_add`, `todo_add`, `pane_set` (the name must be a `[[script_pane]]`). Bad input or a missing daemon is a tool result with `isError: true`, so the model can read it. Requests are served one at a time, so a waiting `card` holds up the next call. A leading byte-order mark is dropped (PowerShell 5). The `Backend` trait (`send`, `ask`, `panes`) is the seam the tests fake.
+
+`hytte setup mcp` registers this exe with each of `claude` and `codex` found on `PATH`, through their own commands (`claude mcp add --scope user hytte -- <exe> mcp`, `codex mcp add hytte -- <exe> mcp`), removing first so a second run is idempotent; `--undo` runs `mcp remove`. Hytte does not edit their files (Codex's is TOML, Claude's is rewritten by Claude Code itself). It never runs on its own.
+
 ### `hytte ports [--all]` and `hytte kill :PORT [--force]` (`cli/portscmd.rs`)
 
 Use the OS directly through `hytte_proto::ports`; no daemon needed. `ports` lists the default watch list, or every non-system listener with `--all`. `kill` finds the listener, asks `Stop node.exe (pid 1234) listening on :3000? [y/N]` unless `--force`, then terminates it. Pids 0–4, the CLI's own pid, and a pid that no longer belongs to the listed exe (`ports::kill(pid, exe)`; pids get reused) are refused. The pill's Stop and Kill buttons apply the same check.
+
+### `hytte note [--keep] "text"` and `hytte todo "text"`
+
+One-way `Cmd` requests (`note_add`, `todo_add`) that add to the Notes or To-do pane's list (`jot.rs`), the same list and rules as typing in the pane: a note leaves after 24 hours unless `--keep`, the list holds 200 items (a full list drops the new one silently, since the request is one-way). Text is the arguments joined, or stdin when there are none (a leading byte-order mark, which PowerShell 5 pipes, is dropped), cut to 2000 characters; blank text prints the usage and exits 2. Both exit 1 with "daemon not running" when there is no pill, and do nothing while paused or in game mode. They never open the pill or set a hotkey.
 
 ### `hytte notify "text"` and `hytte shelf add`
 

@@ -5,6 +5,7 @@
 mod agent;
 mod doctor;
 mod hook;
+mod mcp;
 mod portscmd;
 mod progress;
 
@@ -28,11 +29,15 @@ usage:
   hytte agent <start|needs-input|resume|tool|ask|done|fail|hooks> ...   # AI agent / long-task monitor
   hytte init <pwsh|bash|zsh|nu>          # shell integration: auto-track commands over 3 s
   hytte setup [--undo]                   # put hytte on PATH + add the hook to PowerShell / Git Bash
-  hytte setup agents [--undo]            # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
+  hytte setup agents [--wsl] [--undo]    # connect Claude Code, Codex, OpenCode, Gemini, Antigravity, Cursor
   hytte notify \"text\"                    # show a card on the pill (for your own scripts)
   hytte card --title \"...\" [...]          # a live card: progress, buttons, --wait (hytte card --help)
   hytte pane set <name> [--json] [--text \"...\"]   # text for a [[script_pane]] (or piped in); --json: {\"rows\": [...]}
   hytte shelf add <file>... | (text on stdin)   # put files or text on the shelf
+  hytte note [--keep] \"text\"            # add a note (or text on stdin); --keep: it stays past 24 hours
+  hytte todo \"text\"                     # add a to-do (or text on stdin)
+  hytte setup mcp [--undo]               # register that server with Claude Code and Codex (opt-in)
+  hytte mcp                              # MCP server on stdio: agents can show cards, ask you, add notes
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
   hytte kill :PORT [--force]             # stop whatever listens on PORT
@@ -420,6 +425,54 @@ fn cmd_notify(args: &[String]) {
     }
 }
 
+/// The text for `hytte note` / `hytte todo`: the arguments joined, or piped input when there
+/// are none. Cut to the pane's 2000 characters; None when it is blank.
+fn jot_text(words: &[String], piped: Option<String>) -> Option<String> {
+    let text = if words.is_empty() {
+        piped.unwrap_or_default()
+    } else {
+        words.join(" ")
+    };
+    // PowerShell 5 pipes a byte-order mark ahead of the text.
+    let text: String = text
+        .trim_start_matches('\u{feff}')
+        .trim()
+        .chars()
+        .take(2000)
+        .collect();
+    (!text.is_empty()).then_some(text)
+}
+
+/// `hytte note [--keep] "text"` and `hytte todo "text"`: add to the Notes or To-do pane.
+/// With no text, whatever is piped in. Both exit 1 when there is no pill.
+fn cmd_jot(note: bool, args: &[String]) {
+    use std::io::{IsTerminal, Read};
+    let keep = note && args.iter().any(|a| a == "--keep");
+    let words: Vec<String> = args.iter().filter(|a| *a != "--keep").cloned().collect();
+    let mut piped = None;
+    if words.is_empty() {
+        let mut stdin = std::io::stdin();
+        if stdin.is_terminal() {
+            usage();
+        }
+        let mut t = String::new();
+        let _ = stdin.by_ref().take(16 * 1024).read_to_string(&mut t);
+        piped = Some(t);
+    }
+    let Some(text) = jot_text(&words, piped) else {
+        usage()
+    };
+    let cmd = if note {
+        hytte_proto::Cmd::note_add(text, keep)
+    } else {
+        hytte_proto::Cmd::todo_add(text)
+    };
+    if !send_cmd(&cmd) {
+        eprintln!("hytte: daemon not running (nothing added)");
+        std::process::exit(1);
+    }
+}
+
 /// `hytte shelf add <file>...`, or text piped in: put them on the pill's shelf.
 fn cmd_shelf(args: &[String]) {
     use std::io::{IsTerminal, Read};
@@ -694,15 +747,82 @@ fn cmd_set(args: &[String]) {
     }
 }
 
+/// `hytte setup mcp [--undo]`: register this exe as the `hytte` MCP server in each agent CLI
+/// that is installed, through the agent's own `mcp add` / `mcp remove` (their config files are
+/// theirs, and Codex's is TOML). Never runs unless asked.
+fn setup_mcp(undo: bool) {
+    let Ok(exe) = std::env::current_exe() else {
+        println!("MCP: can't find this program's path");
+        return;
+    };
+    let exe = exe.display().to_string();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    let agents: [(&str, &[&str]); 2] = [("claude", &["--scope", "user"]), ("codex", &[])];
+    for (name, scope) in agents {
+        let Some(cli) = find_in(name, &path, &exts) else {
+            println!("MCP: {name} is not installed (skipped)");
+            continue;
+        };
+        let run = |args: &[&str]| {
+            Command::new(&cli)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .is_ok_and(|o| o.status.success())
+        };
+        let mut rm = vec!["mcp", "remove"];
+        rm.extend_from_slice(scope);
+        rm.push("hytte");
+        let removed = run(&rm);
+        if undo {
+            println!(
+                "MCP: {name}: {}",
+                if removed {
+                    "removed"
+                } else {
+                    "was not registered"
+                }
+            );
+            continue;
+        }
+        let mut add = vec!["mcp", "add"];
+        add.extend_from_slice(scope);
+        add.extend(["hytte", "--", &exe, "mcp"]);
+        println!(
+            "MCP: {name}: {}",
+            if run(&add) {
+                "registered (new sessions can use the hytte tools)"
+            } else {
+                "could not register; run it yourself: `<agent> mcp add hytte -- hytte mcp`"
+            }
+        );
+    }
+}
+
 #[cfg(windows)]
 fn cmd_setup(args: &[String]) {
-    if args.first().is_some_and(|a| a == "agents") {
-        let undo = match &args[1..] {
-            [] => false,
-            [a] if a == "--undo" => true,
+    if args.first().is_some_and(|a| a == "mcp") {
+        match &args[1..] {
+            [] => setup_mcp(false),
+            [a] if a == "--undo" => setup_mcp(true),
             _ => usage(),
+        }
+        return;
+    }
+    if args.first().is_some_and(|a| a == "agents") {
+        let rest = &args[1..];
+        let undo = rest.iter().any(|a| a == "--undo");
+        let wsl = rest.iter().any(|a| a == "--wsl");
+        if rest.iter().any(|a| a != "--undo" && a != "--wsl") {
+            usage();
+        }
+        let lines = if wsl {
+            crate::agents::connect_wsl(undo)
+        } else {
+            crate::agents::connect(undo)
         };
-        for line in crate::agents::connect(undo) {
+        for line in lines {
             println!("{line}");
         }
         return;
@@ -730,6 +850,27 @@ fn cmd_setup(_args: &[String]) {
     std::process::exit(2);
 }
 
+/// The pill and config as `hytte mcp` reaches them: the same calls the commands above make.
+struct McpIo;
+
+impl mcp::Backend for McpIo {
+    fn send(&self, c: &hytte_proto::Cmd) -> bool {
+        send_cmd(c)
+    }
+    fn ask(&self, c: &hytte_proto::Cmd) -> Option<String> {
+        let line = c.to_line().ok()?;
+        let secs = c.ttl.unwrap_or(CARD_WAIT_TTL) as u64 + hytte_proto::CARD_QUEUE_SECS + 10;
+        request_reply(&line, secs)
+            .and_then(|r| serde_json::from_str::<hytte_proto::Pressed>(r.trim()).ok())
+            .map(|p| p.pressed)
+    }
+    fn panes(&self) -> Vec<String> {
+        let text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
+        let cfg = crate::config::parse(&text).unwrap_or_default();
+        cfg.script_panes().iter().map(|p| p.name.clone()).collect()
+    }
+}
+
 /// `args` excludes the exe name and is never empty (no arguments starts the daemon instead).
 pub fn run(args: &[String]) {
     match args[0].as_str() {
@@ -751,6 +892,9 @@ pub fn run(args: &[String]) {
         "card" => cmd_card(&args[1..]),
         "pane" => cmd_pane(&args[1..]),
         "shelf" => cmd_shelf(&args[1..]),
+        "note" => cmd_jot(true, &args[1..]),
+        "todo" => cmd_jot(false, &args[1..]),
+        "mcp" => mcp::run(&McpIo),
         #[cfg(debug_assertions)]
         "__update" => crate::update::debug_install(),
         _ => usage(),
@@ -759,8 +903,35 @@ pub fn run(args: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_card, build_set, find_in, fit_label, quote_arg};
+    use super::{build_card, build_set, find_in, fit_label, jot_text, quote_arg};
     use hytte_proto::TaskEvent;
+
+    #[test]
+    fn jot_text_takes_words_or_piped_input() {
+        let w = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            jot_text(&w(&["buy", "milk"]), None).as_deref(),
+            Some("buy milk")
+        );
+        // Piped input only when there are no words, trimmed.
+        assert_eq!(
+            jot_text(&[], Some("  from a pipe\n".into())).as_deref(),
+            Some("from a pipe")
+        );
+        assert_eq!(
+            jot_text(&w(&["words"]), Some("ignored".into())).as_deref(),
+            Some("words")
+        );
+        // Blank is refused; long text is cut to the pane's 2000 characters, not bytes.
+        assert_eq!(jot_text(&w(&["  "]), None), None);
+        assert_eq!(jot_text(&[], None), None);
+        assert_eq!(
+            jot_text(&[], Some("\u{feff}piped".into())).as_deref(),
+            Some("piped")
+        );
+        let long = "é".repeat(2500);
+        assert_eq!(jot_text(&w(&[&long]), None).unwrap().chars().count(), 2000);
+    }
 
     #[test]
     fn set_builds_progress_done_and_fail() {

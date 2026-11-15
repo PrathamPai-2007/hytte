@@ -1,0 +1,3 @@
+name = "Repos"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File repos.ps1"
+every = 120

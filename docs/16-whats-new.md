@@ -2,6 +2,19 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
+## 1.9.2
+
+- **Move the pill.** Press on its top edge and drag sideways; the pill shows a card with the keys (let go places it, Esc cancels, double-click the edge resets). Each monitor remembers its own spot. See [manual 2](../manual/02-the-pill.md#moving-the-pill-sideways).
+- **`hytte note` and `hytte todo`** add to Notes and To-do from a terminal or script. No hotkey is set for you.
+- **Agents can talk to the pill.** `hytte mcp` is an MCP server with `notify`, `card` (ask you with buttons and get the answer), `note_add`, `todo_add` and `pane_set`; `hytte setup mcp` registers it with Claude Code and Codex when you ask. See [manual 4](../manual/04-ai-agents.md#let-an-agent-talk-to-the-pill-optional).
+- **A "Today" line in the Agents pane**: time working, time waiting for you, turns finished. Memory only, resets at midnight.
+- **Agents inside WSL**: `hytte setup agents --wsl` connects the agents in your WSL distros (opt-in). See [manual 4](../manual/04-ai-agents.md#agents-inside-wsl).
+- **Copilot CLI** joins the agents `hytte setup agents` connects (working, done).
+- **Five more example packs**: disks, memory, network, git repos, recycle bin (`examples/panes`).
+- **Settings lists packs by name**: approved packs now have a row in Settings → Panes (switch and move arrows), and script panes show their own names instead of "Script pane N".
+
+For people who change Hytte: `position.rs` holds the per-monitor offsets (pure clamp functions, `position.json`) and `Drag`; the window keeps `positions`, `place` and `live` and offsets `origin_for`; `Scene::Place` is the drag card; `hytte_proto::Cmd` gains `note_add`, `todo_add` and `keep`; `cli/mcp.rs` is the MCP server; `ui_state/day.rs` holds `DayStats`; `agents::Kind::Copilot` writes its own hooks file.
+
 ## 1.9.1
 
 The motion and look release. Nothing moves in a new place: what was already there moves better.

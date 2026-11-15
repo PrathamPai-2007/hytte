@@ -315,13 +315,13 @@ fn landing_frames() {
     chip(
         &mut r,
         "update",
-        "Hytte 1.9.0 is available
-Arm64 builds, Scoop, and a local Ask tab.",
+        "Hytte 1.9.2 is available
+Move the pill, agents that ask you, WSL.",
         Tone::Info,
         Prio::Update,
         vec![
             ("Update", ChipAction::InstallUpdate),
-            ("Later", ChipAction::UpdateLater("v1.9.0".into())),
+            ("Later", ChipAction::UpdateLater("v1.9.2".into())),
         ],
     );
     chip(
@@ -419,6 +419,114 @@ Arm64 builds, Scoop, and a local Ask tab.",
     m.ai_done(job.seq, true, Ok(()), Instant::now());
     fit(&r, &mut m);
     save(&mut r, "ask-card", &m, Scene::ExpAi);
+
+    // 1.9.2: the Agents pane with its day line, an agent asking you, and drag mode.
+    {
+        use crate::tasks::{AgentInfo, TaskState, TaskUpdate};
+        let agent = |id: &str,
+                     label: &str,
+                     project: &str,
+                     ev: TaskEvent,
+                     line: Option<&str>,
+                     msg: Option<&str>,
+                     info: AgentInfo| {
+            TaskUpdate::Upsert(TaskState {
+                task_id: id.into(),
+                label: label.into(),
+                progress: None,
+                event: ev,
+                duration_ms: None,
+                stderr_tail: None,
+                source: "agent".into(),
+                pid: Some(4242),
+                delay_ms: 0,
+                message: msg.map(Into::into),
+                exit_code: None,
+                line: line.map(Into::into),
+                cwd: Some(format!(r"C:\src\{project}")),
+                agent: info,
+                updated: now,
+            })
+        };
+        let busy = |file: &str, subagents: u32, context: u64| AgentInfo {
+            file: Some(file.to_string()),
+            subagent: subagents > 0,
+            context: Some(context),
+        };
+        let mut m = model();
+        m.now = Some(now);
+        m.tasks.clear();
+        m.panes.agents = true;
+        let t0 = now - std::time::Duration::from_secs(8 * 60);
+        m.apply_task(
+            agent(
+                "a",
+                "Claude Code",
+                "hytte",
+                TaskEvent::Progress,
+                Some("Editing render/agents.rs"),
+                None,
+                busy("render/agents.rs", 1, 84_000),
+            ),
+            t0,
+        );
+        m.apply_task(
+            agent(
+                "b",
+                "Codex",
+                "billing-service",
+                TaskEvent::NeedsInput,
+                None,
+                Some("Allow: git push origin main?"),
+                Default::default(),
+            ),
+            now,
+        );
+        m.apply_task(
+            agent(
+                "c",
+                "Copilot CLI",
+                "docs",
+                TaskEvent::Progress,
+                Some("Running: cargo test"),
+                None,
+                busy("README.md", 0, 41_000),
+            ),
+            t0,
+        );
+        // A day's worth, as the pane adds it up (the live turns above count on top).
+        let day = crate::timer::local_day(crate::timer::now_ms());
+        let at = |mins: u64| now.checked_sub(std::time::Duration::from_secs(mins * 60));
+        if let (Some(a), Some(b), Some(c), Some(d)) = (at(240), at(120), at(100), at(30)) {
+            m.day.note("past1", TaskEvent::Start, a, day);
+            m.day.note("past1", TaskEvent::NeedsInput, b, day);
+            m.day.note("past1", TaskEvent::Resumed, c, day);
+            m.day.note("past1", TaskEvent::Done, d, day);
+            for i in 0..6 {
+                m.day.note(&format!("t{i}"), TaskEvent::Done, now, day);
+            }
+        }
+        m.expire(now);
+        save(&mut r, "agents", &m, Scene::ExpAgents);
+    }
+    {
+        // What an agent's `card` tool call looks like: a question with two buttons.
+        let mut m = model();
+        let c = hytte_proto::Cmd {
+            title: Some("Claude Code asks".into()),
+            text: Some("Run the migration on staging?".into()),
+            buttons: vec!["Run it".into(), "Not yet".into()],
+            icon: Some("warn".into()),
+            ..hytte_proto::Cmd::card()
+        };
+        m.card(&c, now);
+        m.show_card(now);
+        save(&mut r, "agent-card", &m, Scene::ExpChip);
+        // Drag mode: the pill says how to place it.
+        let mut m = model();
+        m.placing = true;
+        save(&mut r, "place", &m, Scene::Place);
+    }
 }
 
 thread_local! {
@@ -986,6 +1094,9 @@ fn snapshots() {
     m.chip = None;
     m.drop_over = true;
     shoot(&mut r, &dir, "drop", &m, Scene::ExpDrop, false);
+    m.placing = true;
+    shoot(&mut r, &dir, "place-drag", &m, Scene::Place, false);
+    m.placing = false;
     m.drop_over = false;
     m.power = Some(crate::power::Battery {
         pct: 41,

@@ -37,6 +37,7 @@ mod packs;
 mod perf;
 mod pipe_server;
 mod ports;
+mod position;
 mod power;
 mod privacy;
 #[cfg(windows)]

@@ -103,6 +103,7 @@ pub const AGENT_CLIS: &[&str] = &[
     "gemini",
     "agy",
     "cursor-agent",
+    "copilot",
 ];
 
 pub fn command_name(label: &str) -> String {
@@ -162,6 +163,14 @@ impl Model {
             return;
         }
         let existing = self.tasks.iter().position(|t| t.id == s.task_id);
+        if s.source == "agent" {
+            self.day.note(
+                &s.task_id,
+                s.event,
+                now,
+                crate::timer::local_day(crate::timer::now_ms()),
+            );
+        }
         // What an agent did this turn: a new prompt (or a row that had finished) starts it over.
         let mut agent = existing
             .map(|i| self.tasks[i].agent.clone())

@@ -536,6 +536,25 @@ impl Ui {
             self.model.script_text(&name, &text, None, now);
             return;
         }
+        if matches!(c.cmd.as_str(), "note_add" | "todo_add") {
+            // The same list and the same 24-hour rule as typing into the pane. A full list
+            // drops the item (the request is one-way, so the sender is not told).
+            let kind = if c.cmd == "note_add" {
+                crate::jot::Kind::Note
+            } else {
+                crate::jot::Kind::Todo
+            };
+            let text = c.text.unwrap_or_default();
+            if self
+                .model
+                .jot
+                .add(kind, &text, c.keep, crate::timer::now_ms())
+                .is_some()
+            {
+                self.model.jot_dirty = true;
+            }
+            return;
+        }
         if c.cmd == "card" {
             let id = self.model.card(&c, now);
             if let Some(r) = reply {

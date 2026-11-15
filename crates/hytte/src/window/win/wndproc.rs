@@ -42,6 +42,21 @@ pub(super) unsafe extern "system" fn wndproc(
             return LRESULT(0);
         }
         WM_MOUSEMOVE => {
+            // A drag of the pill follows the cursor (screen px): the window moves under it.
+            if with_ui(|ui| {
+                if ui.place.is_none() {
+                    return false;
+                }
+                if wparam.0 & 1 == 0 {
+                    ui.place_end(false);
+                    return false;
+                }
+                ui.place_move();
+                true
+            }) == Some(true)
+            {
+                return LRESULT(0);
+            }
             let scrubbing = with_ui(|ui| {
                 ui.scrub.is_some() && {
                     ui.set_mouse_client(lparam);
@@ -177,9 +192,26 @@ pub(super) unsafe extern "system" fn wndproc(
                 return LRESULT(1);
             }
         }
+        WM_LBUTTONDBLCLK => {
+            // Twice on the top strip puts the pill back in the middle; anywhere else the
+            // second click of a pair is an ordinary press.
+            let reset = with_ui(|ui| {
+                ui.set_mouse_client(lparam);
+                let on = ui.on_strip();
+                if on {
+                    ui.place_reset();
+                }
+                on
+            });
+            if reset != Some(true) {
+                return unsafe { wndproc(hwnd, WM_LBUTTONDOWN, wparam, lparam) };
+            }
+            return LRESULT(0);
+        }
         WM_LBUTTONDOWN => {
             with_ui(|ui| {
                 ui.set_mouse_client(lparam);
+                let placing = ui.place_press();
                 ui.pressed = ui.hit_at().is_some();
                 if ui.pressed {
                     ui.press_at = Some(Instant::now());
@@ -201,7 +233,7 @@ pub(super) unsafe extern "system" fn wndproc(
                 if ui.scrub.is_some() {
                     ui.scrub_to();
                 }
-                if ui.drag.is_some() || ui.scrub.is_some() {
+                if ui.drag.is_some() || ui.scrub.is_some() || placing {
                     // Capture so a fast flick off the pill still reaches us and starts the drag.
                     unsafe {
                         SetCapture(hwnd);
@@ -212,10 +244,21 @@ pub(super) unsafe extern "system" fn wndproc(
         }
         WM_CAPTURECHANGED => {
             // Capture taken away mid-drag (Alt+Tab, a dialog): the drag is over.
-            with_ui(|ui| ui.scrub = None);
+            with_ui(|ui| {
+                ui.scrub = None;
+                ui.place_end(false);
+            });
         }
         WM_LBUTTONUP => {
             with_ui(|ui| {
+                // A drag ends where the pill was let go; it is not a click.
+                if ui.place_end(true) {
+                    ui.pressed = false;
+                    unsafe {
+                        let _ = ReleaseCapture();
+                    }
+                    return;
+                }
                 ui.set_mouse_client(lparam);
                 ui.pressed = false;
                 ui.kick();
@@ -405,11 +448,12 @@ pub(super) unsafe extern "system" fn wndproc(
             let code = (lparam.0 & 0xFFFF) as u32;
             // Left or right click: the same menu (there is no window to open).
             if code == WM_RBUTTONUP || code == WM_LBUTTONUP {
-                let (paused, auto, hotkey) = with_ui(|ui| {
+                let (paused, auto, hotkey, moved) = with_ui(|ui| {
                     (
                         ui.paused,
                         ui.cfg.general.autostart,
                         ui.cfg.general.hotkey.clone(),
+                        !ui.positions.is_empty(),
                     )
                 })
                 .unwrap_or_default();
@@ -421,6 +465,7 @@ pub(super) unsafe extern "system" fn wndproc(
                     terminal,
                     agents,
                     monitors().len() > 1,
+                    moved,
                     &hotkey,
                 );
             }
@@ -462,6 +507,9 @@ pub(super) unsafe extern "system" fn wndproc(
                 }
                 17 => {
                     with_ui(|ui| ui.next_monitor());
+                }
+                21 => {
+                    with_ui(|ui| ui.place_reset_all());
                 }
                 13 => {
                     with_ui(|ui| {

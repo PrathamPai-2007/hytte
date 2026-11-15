@@ -207,7 +207,7 @@ impl Ask {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cmd {
     pub v: u32,
-    /// `"notify"`, `"card"` or `"shelf_add"`.
+    /// `"notify"`, `"card"`, `"shelf_add"`, `"pane_set"`, `"note_add"` or `"todo_add"`.
     pub cmd: String,
     /// The card text (`notify`, a `card`'s body) or the snippet to shelve (`shelf_add`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -244,6 +244,9 @@ pub struct Cmd {
     /// Keep the connection open and answer with one [`Pressed`] line (or hang up: no press).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait: bool,
+    /// A `note_add` note that stays, instead of leaving after 24 hours.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep: bool,
 }
 
 /// The icons a card may ask for.
@@ -267,6 +270,8 @@ pub struct Pressed {
 pub const MAX_SNIPPET_BYTES: usize = 16 * 1024;
 /// Longest text `pane_set` carries (the pane keeps 2 KB of it).
 pub const MAX_PANE_TEXT_BYTES: usize = 4 * 1024;
+/// Longest text `note_add` / `todo_add` carries: 2000 characters at up to four bytes each.
+pub const MAX_JOT_BYTES: usize = 8 * 1000;
 
 impl Cmd {
     pub fn notify(text: impl Into<String>) -> Self {
@@ -291,6 +296,27 @@ impl Cmd {
         Self {
             v: PROTOCOL_VERSION,
             cmd: "shelf_add".into(),
+            text: Some(text.into()),
+            ..Default::default()
+        }
+    }
+
+    /// A note for the Notes pane (`hytte note`); `keep` stops it leaving after 24 hours.
+    pub fn note_add(text: impl Into<String>, keep: bool) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "note_add".into(),
+            text: Some(text.into()),
+            keep,
+            ..Default::default()
+        }
+    }
+
+    /// A to-do for the To-do pane (`hytte todo`).
+    pub fn todo_add(text: impl Into<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "todo_add".into(),
             text: Some(text.into()),
             ..Default::default()
         }
@@ -334,6 +360,7 @@ impl Cmd {
             || self.wait;
         if (card_only && self.cmd != "card")
             || (self.id.is_some() && !matches!(self.cmd.as_str(), "card" | "pane_set"))
+            || (self.keep && self.cmd != "note_add")
         {
             return false;
         }
@@ -349,6 +376,13 @@ impl Cmd {
                     && text.is_some_and(|n| n <= MAX_PANE_TEXT_BYTES)
             }
             "notify" => self.path.is_none() && text.is_some_and(|n| n > 0 && n <= 1024),
+            "note_add" | "todo_add" => {
+                self.path.is_none()
+                    && self
+                        .text
+                        .as_ref()
+                        .is_some_and(|t| !t.trim().is_empty() && t.len() <= MAX_JOT_BYTES)
+            }
             "shelf_add" => match (text, path) {
                 (Some(n), None) => n > 0 && n <= MAX_SNIPPET_BYTES,
                 (None, Some(n)) => n > 0 && n <= 1024 && self.path_is_absolute(),
@@ -661,5 +695,29 @@ mod tests {
         let mut m = HytteMessage::start("t", "x");
         m.progress = Some(101);
         assert!(!m.validate());
+    }
+
+    #[test]
+    fn note_and_todo_requests_are_checked() {
+        assert!(Cmd::note_add("buy milk", false).validate());
+        assert!(Cmd::note_add("buy milk", true).validate());
+        assert!(Cmd::todo_add("ship it").validate());
+        // Blank, too long, or carrying fields that belong to other commands: refused.
+        assert!(!Cmd::note_add("   ", false).validate());
+        assert!(!Cmd::todo_add("").validate());
+        assert!(!Cmd::todo_add("x".repeat(MAX_JOT_BYTES + 1)).validate());
+        assert!(Cmd::todo_add("x".repeat(MAX_JOT_BYTES)).validate());
+        let mut c = Cmd::todo_add("a");
+        c.path = Some("C:\\x".into());
+        assert!(!c.validate());
+        // `keep` belongs to notes only.
+        let mut c = Cmd::todo_add("a");
+        c.keep = true;
+        assert!(!c.validate());
+        // The wire form carries no stray fields.
+        assert_eq!(
+            Cmd::note_add("hi", false).to_line().unwrap(),
+            "{\"v\":1,\"cmd\":\"note_add\",\"text\":\"hi\"}\n"
+        );
     }
 }

@@ -9,6 +9,11 @@ until you press Run. Edit the folder later and it asks again.
 | [`github-prs`](github-prs) | your open pull requests (a click opens github.com/pulls) | the [GitHub CLI](https://cli.github.com) (`gh`), signed in |
 | [`docker`](docker) | containers, unhealthy ones first, with a confirmed **restart unhealthy** action | Docker Desktop running |
 | [`ci-status`](ci-status) | the latest GitHub Actions runs of one repository | `gh`, and `repo.txt` (copy `repo.txt.example`, put your `owner/name` in it) |
+| [`disk-space`](disk-space) | each drive's used space as a bar, amber then red as it fills | nothing |
+| [`top-memory`](top-memory) | the five programs using the most RAM, a program's processes added together | nothing |
+| [`net-check`](net-check) | internet up or down, latency to 1.1.1.1, DNS working | nothing (contacts 1.1.1.1 and example.com) |
+| [`git-repos`](git-repos) | uncommitted and unpushed work in the repositories you list | `git`, and `repos.txt` (copy `repos.txt.example`) |
+| [`recycle-bin`](recycle-bin) | items and size in the Recycle Bin; a confirmed click empties it | nothing |
 
 ```powershell
 Copy-Item -Recurse .\github-prs "$env:APPDATA\Hytte\panes\"

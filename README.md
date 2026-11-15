@@ -18,14 +18,16 @@ It never steals focus, idles at about 0.2 % CPU, and uses under 25 MB of RAM. It
 ## What it does
 
 - **Watches long commands.** Spinner, timer, then a tick or a cross, with **Copy error** and **Rerun** when one fails.
-- **Follows AI agents** (Claude Code, Codex, OpenCode, Gemini CLI, Antigravity, Cursor). The pill turns amber when one needs you, and permission requests get **Allow** and **Deny** buttons.
+- **Follows AI agents** (Claude Code, Codex, OpenCode, Gemini CLI, Antigravity, Cursor, Copilot CLI). The pill turns amber when one needs you, and permission requests get **Allow** and **Deny** buttons.
 - **Shows dev servers** on common ports, with **Open**, **Stop** and **Restart**.
 - **Holds files** while you switch windows (the shelf), with one-click image, PDF, text and QR tools. Win+Shift+S screenshots land there too.
 - **Plays music for you:** controls, a timeline, lyrics that follow the song, and a sleep timer.
 - **Quick controls:** mute microphones and speakers, keep the PC awake, per-app volume.
 - **Timer and focus sessions** that switch on Windows Do Not Disturb and tell you what you missed.
 - **Live cards from your scripts:** progress, icons and buttons, and `--wait` to ask a question and get the answer back.
-- **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts.
+- **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts. Eight ready-made packs are in `examples/panes`.
+- **Agents can talk back.** `hytte setup mcp` gives Claude Code and Codex tools to show a card, ask you with buttons and add a note. Agents inside WSL work too (`hytte setup agents --wsl`).
+- **Move it.** Drag the pill's top edge sideways; each monitor remembers its place.
 - **Notes, a to-do list and the weather**, typed straight into the pill.
 - **Asks a small AI model on your own PC** (through Ollama, which you install yourself): one question, one answer, plus Explain, Summarise and Shorten on a clip, a file or a failed command. Nothing leaves your machine.
 - **Break reminders** for your eyes, your back and your water bottle.

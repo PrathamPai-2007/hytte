@@ -150,6 +150,10 @@ impl Renderer {
             }
             self.ca.set(ca);
         }
+        if let Some(day) = &lay.day {
+            let y = lay.height as f32 - crate::ui_state::AGENT_DAY_H - 1.0;
+            self.text(day, &self.f.small_c, 0.0, y, w, 16.0, self.cc(GRAY, 0.7));
+        }
         if lay.hidden > 0 {
             let y = lay.rows.last().map_or(0.0, |r| r.y + r.h) + 2.0;
             self.text(

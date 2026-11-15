@@ -54,6 +54,18 @@ Right-clicking the pill opens the timer card.
 |---|---|---|---|
 | <img src="../docs/img/idle.png" width="200"> | <img src="../docs/img/home.png" width="200"> | <img src="../docs/img/media.png" width="200"> | <img src="../docs/img/timer.png" width="200"> |
 
+## Moving the pill sideways
+
+By default the pill hangs in the middle of the top of your screen. To put it somewhere else, **press on its top edge** (the first few pixels, above anything you can click) and **drag left or right**. Once you've moved a few pixels the pill's contents give way to a card that says what to do:
+
+- **Let go** to place it there. It stays put, and Hytte remembers it after a restart.
+- **Esc** cancels and puts it back where it was.
+- **Double-click the top edge** to put it back in the middle.
+
+Each screen remembers its own spot, so the pill on your laptop and on a second monitor can sit in different places (see **Move to next monitor** in the tray menu). A wide pane near a screen edge slides inwards to stay on screen, and the pill returns to your spot when the pane closes. **Reset pill position** in the tray menu puts every screen's pill back in the middle; it only shows once you have moved one. The positions are kept in `%APPDATA%\Hytte\position.json`.
+
+It doesn't start while Hytte is paused, in game mode, or hidden over a fullscreen window.
+
 ## How it moves
 
 Everything in the pill moves rather than jumps: panes build from the top as they open, buttons press in and spring back, numbers roll, lists slide when something is added or removed. If you change your mind halfway through (open a pane and leave at once), the pill simply turns back.

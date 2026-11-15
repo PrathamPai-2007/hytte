@@ -1,0 +1,4 @@
+name = "Disks"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File disks.ps1"
+every = 300
+

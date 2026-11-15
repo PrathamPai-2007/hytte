@@ -58,6 +58,7 @@ hytte set --progress 40 --label "Uploading" --task upload-1   # same --task upda
 hytte set --done --label "Uploading" --task upload-1          # green tick (--fail for a red cross)
 hytte notify "Backup finished"                                # a card on the pill
 hytte shelf add .\report.pdf                                  # or: git diff | hytte shelf add
+hytte note "ask about the invoice"                            # a note (--keep: it stays); hytte todo "..." adds a to-do
 hytte ports                                                   # list dev servers
 hytte kill :3000                                              # stop what's on port 3000 (asks first)
 ```
@@ -134,6 +135,6 @@ A card button can run one too: `hytte card --title "api is down" --button "Resta
 
 ### Pane packs
 
-A folder in `%APPDATA%\Hytte\panes\` with a `pane.toml` is a ready-made pane with its own actions. Copy one in and Hytte shows a card with the command and **Run** / **Ignore**; nothing runs until you press Run, and editing the folder asks again. Three examples (your pull requests, Docker containers, CI status) are in the repository's `examples/panes/` folder. Packs share the four-pane limit; your own `[[script_pane]]`s come first.
+A folder in `%APPDATA%\Hytte\panes\` with a `pane.toml` is a ready-made pane with its own actions. Copy one in and Hytte shows a card with the command and **Run** / **Ignore**; nothing runs until you press Run, and editing the folder asks again. Eight examples (your pull requests, Docker containers, CI status, disks, memory, network, git repos, the Recycle Bin) are in the repository's `examples/panes/` folder. Packs share the four-pane limit; your own `[[script_pane]]`s come first.
 
 Next: [4. AI agents](04-ai-agents.md)

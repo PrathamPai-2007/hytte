@@ -218,6 +218,34 @@ pub fn ring(on: bool) {
     }
 }
 
+/// The local calendar date of a moment (Unix ms) as yyyymmdd, 0 when it can't be told.
+pub fn local_day(unix_ms: u64) -> u32 {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+        use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
+        let ft = unix_ms * 10_000 + 116_444_736_000_000_000;
+        let ft = FILETIME {
+            dwLowDateTime: ft as u32,
+            dwHighDateTime: (ft >> 32) as u32,
+        };
+        let (mut utc, mut local) = (SYSTEMTIME::default(), SYSTEMTIME::default());
+        unsafe {
+            if FileTimeToSystemTime(&ft, &mut utc).is_err()
+                || SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_err()
+            {
+                return 0;
+            }
+        }
+        local.wYear as u32 * 10_000 + local.wMonth as u32 * 100 + local.wDay as u32
+    }
+    #[cfg(not(windows))]
+    {
+        // ponytail: the UTC date off Windows, where the pill does not run anyway.
+        (unix_ms / 86_400_000) as u32
+    }
+}
+
 /// A wall-clock moment (Unix ms) as the user's local short time, "14:35" or "2:35 PM".
 pub fn clock(unix_ms: u64) -> String {
     #[cfg(windows)]

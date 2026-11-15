@@ -108,6 +108,7 @@ impl Tray {
         terminal: bool,
         agents: bool,
         multi: bool,
+        moved: bool,
         hotkey: &str,
     ) {
         use windows::core::w;
@@ -130,6 +131,9 @@ impl Tray {
             let _ = AppendMenuW(menu, chk(agents), 16, w!("Connect AI agents"));
             if multi {
                 let _ = AppendMenuW(menu, MF_STRING, 17, w!("Move to next monitor"));
+            }
+            if moved {
+                let _ = AppendMenuW(menu, MF_STRING, 21, w!("Reset pill position"));
             }
             if !hotkey.trim().is_empty() {
                 // The tab right-aligns the chord, as menus show shortcuts.
@@ -169,6 +173,7 @@ impl Tray {
         _terminal: bool,
         _agents: bool,
         _multi: bool,
+        _moved: bool,
     ) {
     }
 }

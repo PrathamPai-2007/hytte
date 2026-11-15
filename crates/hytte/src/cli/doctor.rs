@@ -99,6 +99,21 @@ pub fn agent_line(name: &str, state: crate::agents::State) -> Line {
     }
 }
 
+/// An agent's MCP registration. Not registering is fine (it is opt-in), so it is never a warning.
+pub fn mcp_line(name: &str, m: crate::agents::Mcp) -> Line {
+    use crate::agents::Mcp::*;
+    match m {
+        Registered => Line::ok(format!("{name}: the hytte MCP tools are registered")),
+        NotRegistered => Line::ok(format!(
+            "{name}: MCP tools not registered (optional: `hytte setup mcp`)"
+        )),
+        Stale => Line::warn(
+            format!("{name}: its hytte MCP entry points at a hytte.exe that is gone"),
+            "run `hytte setup mcp` again",
+        ),
+    }
+}
+
 /// The daemon: is something answering on this user's pipe, and is it ours.
 fn daemon_line() -> Line {
     match super::open_pipe(false) {
@@ -176,6 +191,10 @@ pub fn checks() -> Vec<Line> {
         v.push(agent_line(name, state));
     }
 
+    for (name, m) in crate::agents::mcp_status() {
+        v.push(mcp_line(name, m));
+    }
+
     let cfg = crate::config::config_path();
     match std::fs::read_to_string(&cfg) {
         Ok(text) => match crate::config::problem(&text, true) {
@@ -220,6 +239,18 @@ mod tests {
         // Warnings alone are not a failure.
         assert_eq!(exit_code(&lines[..2]), 0);
         assert!(render(&lines[..1]).contains("All good."));
+    }
+
+    #[test]
+    fn mcp_registration_is_optional_but_a_dead_path_is_flagged() {
+        use crate::agents::Mcp;
+        assert_eq!(mcp_line("Codex", Mcp::Registered).level, Level::Ok);
+        let off = mcp_line("Codex", Mcp::NotRegistered);
+        assert_eq!(off.level, Level::Ok);
+        assert!(off.what.contains("hytte setup mcp"));
+        let stale = mcp_line("Claude Code", Mcp::Stale);
+        assert_eq!(stale.level, Level::Warn);
+        assert!(stale.fix.unwrap().contains("hytte setup mcp"));
     }
 
     #[test]

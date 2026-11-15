@@ -131,6 +131,7 @@ For a new `hytte` subcommand: add a match arm in `cli/mod.rs::run` (ideally disp
 1. Find where the agent reads user-level hooks and what it sends on stdin, for three moments: prompt submitted (→ `hytte agent resume`), waiting for the user (→ `needs-input`, which reads a JSON `message` from stdin), turn ended (→ `done`).
 2. In `agents.rs` add a `Kind`, a row in `targets()` (the config folder proving it's installed, and the file to write) and its hooks in `json_hooks` (or reuse `claude_hooks` for Claude Code's format, as Codex does). Add `--ack` if it reads hook stdout as JSON.
 3. Gate a permission through `hytte agent ask` only if its hook can say "no decision" safely; an agent that blocks on an unexpected reply (Cursor) gets informational hooks only.
+   If the agent has a hooks file of its own that only Hytte writes (OpenCode's plugin, Copilot CLI's `hooks/hytte.json`), make its `Kind` `owned()` instead of merging into a shared file. `hytte setup agents --wsl` picks the new agent up with no extra work, since it reuses `targets_in`.
 4. Add its CLI name to `ui_state::AGENT_CLIS` so the shell hook doesn't also show it as a command.
 5. Test beside the others in `agents.rs` (connect, connect again changes nothing, undo restores the file); add a row to the README's agent table and [section 5](05-cli.md#hytte-setup-agents---undo-agentsrs).
 

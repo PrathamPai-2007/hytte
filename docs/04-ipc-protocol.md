@@ -139,6 +139,15 @@ One-way requests that aren't tasks (`hytte notify`, `hytte shelf add`; [section 
 
 `cmd` is `"notify"` or `"shelf_add"`. `text`: 1–1024 B for `notify`, up to 16 KiB for `shelf_add`. `path` (`shelf_add` only): absolute, ≤ 1024 B, exactly one of `text` / `path`. No `task_id` or `name`, so it never parses as the other types, and the daemon replies nothing. Paused or in game mode it does nothing (a shelf add would open the pill); a `notify` card never covers another card; shelf work uses the drop worker (`UiEvent::ShelfAdd`).
 
+### Notes and to-dos: `note_add` and `todo_add`
+
+```json
+{"v":1,"cmd":"note_add","text":"ask about the invoice","keep":true}
+{"v":1,"cmd":"todo_add","text":"ship it"}
+```
+
+`text`: non-blank, up to `MAX_JOT_BYTES` (8000) bytes; the pane keeps 2000 characters. `keep` (`note_add` only) stops the note leaving after 24 hours. No `path`, `id` or card fields. The daemon replies nothing; it adds to `jot.json`'s list like typing does.
+
 ### Live cards: `card`
 
 `hytte card` sends `cmd: "card"` with optional fields: `id` (1–128 B; the same id updates the card in place), `title` (≤ 128 B), `text` (the body, ≤ 1024 B), `progress` (0–100), `icon` (`info`, `ok`, `warn`, `error`), `buttons` (0–2 labels, ≤ 24 B each), `open` (an http(s) URL or an absolute path), `ttl` (1–3600 s, default 10), `done`, `clear` (needs `id`) and `wait` (needs a button).

@@ -31,7 +31,9 @@ It checks the pill, `PATH`, your terminals, agents and `config.toml`, and says h
 | `hytte: daemon not running` | Run `hytte`. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal, or run `.\hytte.exe setup` from Hytte's folder. |
 | Commands don't show up | Set up terminal integration and open a new terminal. Commands under 3 seconds are hidden on purpose. |
-| An agent never shows up | Tray → **Connect AI agents**, restart the agent, and in Codex trust the hooks with `/hooks`. |
+| An agent never shows up | Tray → **Connect AI agents**, restart the agent, and in Codex trust the hooks with `/hooks`. If the agent runs inside WSL, run `hytte setup agents --wsl` too. |
+| An agent can't use the hytte tools | Run `hytte setup mcp`, then start a new agent session. `hytte doctor` says whether Claude Code and Codex have it registered. |
+| I moved the pill and want it back | Double-click its top edge, or tray → **Reset pill position**. |
 | Old terminals show no tasks after an update | Open a new terminal. |
 | A task failed after Ctrl+C | Open a new terminal to get the current hook. |
 | The update didn't install | The folder is probably read-only. Move `hytte.exe` under your user folder, or update by hand. |
@@ -46,7 +48,7 @@ It checks the pill, `PATH`, your terminals, agents and `config.toml`, and says h
 
 ## Uninstalling
 
-1. Run `hytte setup --undo` and `hytte setup agents --undo`.
+1. Run `hytte setup --undo` and `hytte setup agents --undo`. If you used them, also `hytte setup agents --wsl --undo` and `hytte setup mcp --undo`.
 2. Untick **Launch at startup** in the tray menu, then choose **Quit**.
 3. Delete `hytte.exe` and the `%APPDATA%\Hytte` folder.
 4. Delete the Hytte shortcut from `%APPDATA%\Microsoft\Windows\Start Menu\Programs`.

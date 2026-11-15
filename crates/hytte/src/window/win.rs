@@ -161,6 +161,8 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 static ZONE_L: AtomicI32 = AtomicI32::new(0);
 static ZONE_R: AtomicI32 = AtomicI32::new(0);
 static ZONE_B: AtomicI32 = AtomicI32::new(0);
+/// A press on the pill's top strip is down: moving must not arm the file-drop zone.
+static PLACING: AtomicBool = AtomicBool::new(false);
 static HWND_ADDR: AtomicIsize = AtomicIsize::new(0);
 /// False while a window that failed to get a renderer is torn down at startup, so its
 /// WM_DESTROY doesn't end the message loop before it exists.
@@ -304,6 +306,14 @@ struct Ui {
     mouse: Option<(i32, i32)>,
     origin: (i32, i32),
     crop_w: f32,
+    /// Where each monitor's pill sits sideways (`position.json`).
+    positions: crate::position::Positions,
+    /// The current monitor's name, the key into `positions`.
+    mon_name: String,
+    /// A press on the top strip that may become a drag of the pill.
+    place: Option<crate::position::Drag>,
+    /// The offset (fraction of the monitor's width) while dragging.
+    live: Option<f32>,
     hits: Vec<Hit>,
     last: Instant,
     perf: crate::perf::Perf,
@@ -685,6 +695,10 @@ pub fn run_windows(
             mouse: None,
             origin: (0, 0),
             crop_w: 0.0,
+            positions: crate::position::Positions::load(),
+            mon_name: String::new(),
+            place: None,
+            live: None,
             hits: vec![],
             last: Instant::now(),
             perf: crate::perf::Perf::new(),
@@ -1114,7 +1128,11 @@ unsafe extern "system" fn mouse_ll(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     post(WM_DRAG_END);
                 }
             }
-            WM_MOUSEMOVE if LBTN.load(Ordering::Relaxed) && !ARMED.load(Ordering::Relaxed) => {
+            WM_MOUSEMOVE
+                if LBTN.load(Ordering::Relaxed)
+                    && !ARMED.load(Ordering::Relaxed)
+                    && !PLACING.load(Ordering::Relaxed) =>
+            {
                 let ms = unsafe { &*(lp.0 as *const MSLLHOOKSTRUCT) };
                 if ms.pt.y < ZONE_B.load(Ordering::Relaxed)
                     && ms.pt.x >= ZONE_L.load(Ordering::Relaxed)

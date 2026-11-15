@@ -152,6 +152,7 @@ pub fn hinted(scene: Scene) -> bool {
             | Scene::CompactMedia
             | Scene::ExpCharge
             | Scene::ExpDrop
+            | Scene::Place
     )
 }
 
@@ -178,6 +179,8 @@ pub enum Scene {
     /// A script pane, by slot.
     ExpScript(u8),
     ExpDrop,
+    /// Dragging the pill along the top of the screen: instructions instead of the pane.
+    Place,
     ExpChip,
     ExpTimer,
     ExpTimerDone,
@@ -308,6 +311,7 @@ impl Model {
         // So does an agent's Allow / Deny: over a maximised terminal it would otherwise
         // wait unseen behind the thin line.
         self.drop_over
+            || self.placing
             || self.timer_done.is_some()
             || self.chip.as_ref().is_some_and(|c| {
                 c.extra
@@ -351,6 +355,9 @@ impl Model {
     pub fn scene(&self, hover: bool, suppressed: bool) -> Scene {
         if suppressed && !hover && !self.forced() {
             return Scene::Sentinel;
+        }
+        if self.placing {
+            return Scene::Place;
         }
         if self.drop_over {
             return Scene::ExpDrop;
@@ -453,6 +460,7 @@ impl Model {
             Scene::ExpAi => (380.0, self.ai_card_h()),
             Scene::ExpScript(i) => (380.0, self.script_h(i) + tab),
             Scene::ExpDrop => (380.0, 116.0),
+            Scene::Place => (340.0, 78.0),
             Scene::ExpChip => {
                 let note = self.chip.as_ref().is_some_and(|c| c.note.is_some());
                 let base = if self.chip.as_ref().is_some_and(Chip::one_line) {
@@ -527,6 +535,7 @@ impl Model {
         match scene {
             Scene::Sentinel | Scene::Idle => ([1.0; 3], 0.0),
             Scene::ExpDrop => (PURPLE, 1.0),
+            Scene::Place => (BLUE, 0.6),
             Scene::ExpTimer => (BLUE, 0.30),
             Scene::ExpTimerDone => (GREEN, 0.8),
             Scene::ExpCharge if !self.charge_in => (AMBER, 0.6),
@@ -587,6 +596,7 @@ impl Model {
             // so an active camera/mic doesn't cost a 30 fps render loop.
             || (self.privacy_active() && !matches!(scene, Scene::Idle | Scene::CompactTask | Scene::CompactMedia | Scene::Sentinel))
             || self.drop_over
+            || self.placing
             || scene == Scene::ExpCharge
             // The eye break's ring counts its 20 seconds down.
             || (scene == Scene::ExpNudge

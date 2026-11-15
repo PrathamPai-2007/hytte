@@ -64,11 +64,12 @@ crates/hytte/                     builds hytte.exe
   src/ports, media, privacy, mic, hog, downloads, calendar, power, tabs .rs   background workers
   src/weather, lyrics, net .rs       weather and lyrics lookups, and the curl wrapper they share
   src/jot, textedit .rs              notes and to-dos, the one-line text editor
+  src/position.rs                    where the pill sits sideways, per monitor (pure clamp maths)
   src/breaks, sleep, dnd, timer .rs  break reminders, sleep timer, Do Not Disturb, timer
   src/shelf, drop, transforms, convert .rs   shelf and Drop Vault
   src/fullscreen, tray, config, skin, setup, agents, update .rs
   src/logging, secrets, perf, single_instance, winrt, proc, rerun .rs   support
-  src/cli/                           command dispatch, doctor, agent, hook/init, ports, progress, shell scripts
+  src/cli/                           command dispatch, doctor, agent, hook/init, mcp server, ports, progress, shell scripts
 docs/                             these docs and screenshots (docs/img)
 manifests/winget/                 winget manifest (kept in step by the release tooling)
 .github/workflows/                ci.yml (fmt, clippy, tests), release.yml (on a version tag)
@@ -79,7 +80,7 @@ manifests/winget/                 winget manifest (kept in step by the release t
 | Crate | Used for |
 |---|---|
 | `windows`, `windows-core`, `windows-numerics` | Every OS call: Win32, COM, Direct2D, DirectWrite, WinRT. |
-| `serde`, `serde_json` | Pipe protocol, `shelf.json`, `timer.json`, `jot.json`, JSON formatting. |
+| `serde`, `serde_json` | Pipe protocol, `shelf.json`, `timer.json`, `jot.json`, `position.json`, the MCP server's JSON-RPC, JSON formatting. |
 | `toml`, `toml_edit` | Reading `config.toml`; changing one key without losing comments. |
 | `crossbeam-channel` | Thread channels, including `select!`. |
 | `image` | Image decode/encode (PNG, JPEG, WebP, BMP only). |

@@ -561,7 +561,11 @@ impl Renderer {
             && !home
             && !matches!(
                 an.scene,
-                Scene::ExpDrop | Scene::ExpChip | Scene::ExpTimer | Scene::ExpTimerDone
+                Scene::ExpDrop
+                    | Scene::Place
+                    | Scene::ExpChip
+                    | Scene::ExpTimer
+                    | Scene::ExpTimerDone
             )
         {
             let cy = if h < 40.0 { h / 2.0 } else { 16.0 };
@@ -590,6 +594,7 @@ impl Renderer {
             Scene::ExpAi => self.exp_ai(fr, w, h),
             Scene::ExpScript(i) => self.exp_script(fr, i, w, h),
             Scene::ExpDrop => self.exp_drop(w, h),
+            Scene::Place => self.exp_place(w, h),
             Scene::ExpChip => self.exp_chip(fr, w, h),
             Scene::ExpTimer => self.exp_timer(fr, w, h),
             Scene::ExpTimerDone => self.exp_timer_done(fr, w, h),
