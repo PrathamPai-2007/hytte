@@ -15,7 +15,7 @@ The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal t
 
 The **Accent** skin, the sixth colour disc, follows your Windows accent colour (Settings → Personalisation → Colours). With the accent on **Automatic**, Windows picks it from your wallpaper, and the pill changes with it.
 
-The last disc, **Custom**, is a colour you choose. Two sliders appear under the discs: **Skin colour** (a rainbow) and **Vividness** (from nearly grey to the full colour). The colour is saved when you let go. Hytte keeps the pill dark (or light, in light mode) whatever you pick, so text stays readable: a bright yellow becomes a deep yellow-tinted pill, not a yellow one. You can also type a colour into `config.toml` as `skin = "#3a6ea5"`.
+The last disc, **Custom** (the one with the rainbow rim), is a colour you choose. Two sliders appear under the discs: **Skin colour** (a rainbow) and **Vividness** (from nearly grey to the full colour). The colour is saved when you let go. Hytte keeps the pill dark (or light, in light mode) whatever you pick, so text stays readable: a bright yellow becomes a deep yellow-tinted pill, not a yellow one. You can also type a colour into `config.toml` as `skin = "#3a6ea5"`.
 
 The glow around the pill is off at first. Switch on **Glow around the pill** to have it; **Glow strength** starts at 70 %, and dragging it also switches the glow on.
 

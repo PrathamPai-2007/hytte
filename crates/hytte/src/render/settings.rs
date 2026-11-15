@@ -463,7 +463,23 @@ impl Renderer {
                     3.5,
                     self.cc(skin.glow(), if on { 1.0 } else { 0.8 }),
                 );
-                self.ring(cx, cy, 8.5, self.cc(fg, 0.25 + 0.25 * a), 1.0);
+                if skin == crate::skin::Skin::Custom {
+                    // A rainbow rim, so the disc reads as "pick any colour", not one more skin.
+                    let rgb =
+                        |v: u32| [v >> 16, (v >> 8) & 0xFF, v & 0xFF].map(|c| c as f32 / 255.0);
+                    for i in 0..40 {
+                        let t = i as f32 / 40.0;
+                        let (s, c) = (t * std::f32::consts::TAU).sin_cos();
+                        self.circle(
+                            cx + 9.0 * s,
+                            cy - 9.0 * c,
+                            1.6,
+                            self.cc(rgb(crate::skin::from_hue_vivid(t, 0.85)), 0.75 + 0.25 * a),
+                        );
+                    }
+                } else {
+                    self.ring(cx, cy, 8.5, self.cc(fg, 0.25 + 0.25 * a), 1.0);
+                }
                 if on {
                     self.text(
                         name,
