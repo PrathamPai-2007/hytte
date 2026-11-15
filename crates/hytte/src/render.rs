@@ -108,6 +108,11 @@ pub enum Action {
     Opacity,
     /// The glow-strength slider of the big settings window.
     Glow,
+    /// The custom skin's hue and vividness sliders: drag or click; saved on release.
+    Hue,
+    Vivid,
+    /// The Custom skin disc: the skin becomes this colour (0xRRGGBB).
+    SkinColor(u32),
     /// A section in the settings window's list: scroll to it.
     Jump(usize),
     /// The settings window's search field: clear what was typed.

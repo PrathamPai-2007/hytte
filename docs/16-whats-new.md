@@ -2,7 +2,7 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## Next version (unreleased; the number isn't chosen yet)
+## 1.9.1 (unreleased)
 
 The motion and look release. Nothing moves in a new place: what was already there moves better.
 
@@ -26,9 +26,15 @@ The motion and look release. Nothing moves in a new place: what was already ther
 
 **Lighter.** The pill's background is drawn once and reused while it doesn't change: measured part-way through this release, a collapsed pill with a running task used about a third of the processor time it did (5.5 % of a core instead of 14.6 %, at 60 Hz). Final numbers come with the release.
 
+**Your own skin colour.** A seventh disc, **Custom**, with a colour slider and a vividness slider under it; or type `skin = "#3a6ea5"` in `config.toml`. The pill stays dark (or light) enough for text whatever you pick. See [manual 7](../manual/07-settings.md).
+
+**Glow is off by default**, with a **Glow around the pill** switch above the strength slider. Switched on, it starts at 70 %; the slider now goes further (to 2.5× the original glow). If you upgrade and want the glow back, flip the switch.
+
+**New defaults**: pill opacity 90 %.
+
 **Ask**: a **Start Ollama** button when Ollama isn't running (or **Get Ollama** when it isn't installed). See [manual 9](../manual/09-ask.md).
 
-For people who change Hytte: `Anim` keeps scene layers (`Layer`, `shown()`, `content()`, `out()`) instead of `content` / `out` springs; every spring feel is in `animation::motion`; the renderer eases with keyed springs (`render/tween.rs`, `Renderer::tw`), staggers with `group`, places rows with `row`, draws numbers with `digits`, sliders with `track`, and large rounded shapes with continuous-curvature corners (`smooth_rr`, `smooth_corner`); look tokens are in `render/tokens.rs`; the steady background is cached (`BgCache`). The frame clock counts vblanks (`Shared::stride`) instead of sleeping 33 ms. The perf line names its pace, the refresh rate and `cpu_us`; `HYTTE_HOLD`, `HYTTE_GPU` and `HYTTE_SLOWMO` help measuring; `render/film.rs` has the filmstrips and the continuity test ([section 8](08-rendering-and-animation.md)).
+For people who change Hytte: `Anim` keeps scene layers (`Layer`, `shown()`, `content()`, `out()`) instead of `content` / `out` springs; every spring feel is in `animation::motion`; the renderer eases with keyed springs (`render/tween.rs`, `Renderer::tw`), staggers with `group`, places rows with `row`, draws numbers with `digits`, sliders with `track`, the custom skin's sliders with `colour_slider` (`Skin::Custom`, `skin::set_custom`, `Action::SkinColor` / `Hue` / `Vivid`), and large rounded shapes with continuous-curvature corners (`smooth_rr`, `smooth_corner`); look tokens are in `render/tokens.rs`; the steady background is cached (`BgCache`). The frame clock counts vblanks (`Shared::stride`) instead of sleeping 33 ms. The perf line names its pace, the refresh rate and `cpu_us`; `HYTTE_HOLD`, `HYTTE_GPU` and `HYTTE_SLOWMO` help measuring; `render/film.rs` has the filmstrips and the continuity test ([section 8](08-rendering-and-animation.md)).
 
 ## 1.9.0
 

@@ -19,7 +19,7 @@ impl Renderer {
         let wide = gut > 0.0;
         let ctrl = match &row {
             Row::Switch(..) => 34.0,
-            Row::Opacity(_) | Row::Glow(_) => 206.0,
+            Row::Opacity(_) | Row::Glow(..) | Row::Hue(..) | Row::Vivid(..) => 206.0,
             Row::Pick(_, _, o, ..) if wide && is_numeric(o) => 246.0,
             Row::Pick(..) => 206.0,
             Row::PickCustom(..) => 246.0,
@@ -200,8 +200,12 @@ impl Renderer {
                     rw,
                 );
             }
-            Row::Glow(v) => {
+            Row::Glow(v, on) => {
                 let f = (v / GLOW_MAX).clamp(0.0, 1.0);
+                // Dimmed while the glow is off; dragging it turns the glow on.
+                let ca = self.ca.get();
+                let dim = self.ease("glow-on", on as u8 as f32);
+                self.ca.set(ca * (0.4 + 0.6 * dim));
                 self.slider(
                     "Glow strength",
                     "glow",
@@ -211,7 +215,10 @@ impl Renderer {
                     y,
                     rw,
                 );
+                self.ca.set(ca);
             }
+            Row::Hue(h, s) => self.colour_slider(true, h, s, y, rw),
+            Row::Vivid(s, h) => self.colour_slider(false, h, s, y, rw),
             // Numbers also get "Custom": lit, with the file's value beside it, when the value
             // is none of the steps.
             Row::Pick(label, key, opts, cur, off) if gut > 0.0 && is_numeric(&opts) => {
@@ -267,6 +274,96 @@ impl Renderer {
         let h = self.ease(&format!("h:{id}"), hov as u8 as f32);
         let _ = (fg, bh);
         self.track(bx, y + 15.0, bw, f, acc, h, 1.0);
+    }
+
+    /// The custom skin's hue slider (a rainbow, its code beside it) or vividness slider (grey
+    /// to the colour, its percent beside it). The thumb is the colour itself; the disc above
+    /// shows the pill it makes.
+    fn colour_slider(&self, hue: bool, h: f32, s: f32, y: f32, rw: f32) {
+        let fg = self.fg();
+        let (bx, bw) = (rw - 22.0 - 206.0 + 6.0, 194.0);
+        let (name, id, f, action) = if hue {
+            ("Skin colour", "hue", h, Action::Hue)
+        } else {
+            ("Vividness", "vivid", s, Action::Vivid)
+        };
+        self.text(
+            name,
+            &self.f.body,
+            22.0,
+            y,
+            (bx - 100.0).max(60.0),
+            30.0,
+            self.cc(fg, 0.9),
+        );
+        let v = crate::skin::from_hue_vivid(h, s);
+        let side = if hue {
+            crate::skin::hex(v)
+        } else {
+            format!("{}%", (s * 100.0).round())
+        };
+        self.text(
+            &side,
+            &self.f.small,
+            bx - 62.0,
+            y,
+            56.0,
+            30.0,
+            self.cc(GRAY, 0.9),
+        );
+        let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, action);
+        let hv = self.ease(&format!("h:{id}"), hov as u8 as f32);
+        let rgb = |v: u32| [v >> 16, (v >> 8) & 0xFF, v & 0xFF].map(|c| c as f32 / 255.0);
+        let (bh, cy) = (6.0 + 2.0 * hv, y + 15.0);
+        // ponytail: the gradient is 48 flat steps, plenty at 194 px; a gradient brush if banding shows.
+        let n = 48;
+        let step = (bw - bh) / n as f32;
+        self.circle(
+            bx + bh / 2.0,
+            cy,
+            bh / 2.0,
+            self.cc(
+                rgb(if hue {
+                    0xFF0000
+                } else {
+                    crate::skin::from_hue_vivid(h, 0.0)
+                }),
+                1.0,
+            ),
+        );
+        self.circle(
+            bx + bw - bh / 2.0,
+            cy,
+            bh / 2.0,
+            self.cc(
+                rgb(if hue {
+                    0xFF0000
+                } else {
+                    crate::skin::from_hue_vivid(h, 1.0)
+                }),
+                1.0,
+            ),
+        );
+        for i in 0..n {
+            let t = (i as f32 + 0.5) / n as f32;
+            let c = if hue {
+                crate::skin::from_hue_vivid(t, 1.0)
+            } else {
+                crate::skin::from_hue_vivid(h, t)
+            };
+            self.fill_rr(
+                bx + bh / 2.0 + i as f32 * step,
+                cy - bh / 2.0,
+                step + 0.6,
+                bh,
+                0.0,
+                self.cc(rgb(c), 1.0),
+            );
+        }
+        let kx = bx + bh / 2.0 + (bw - bh) * f.clamp(0.0, 1.0);
+        let r = 7.0 + 1.5 * hv;
+        self.circle(kx, cy, r, self.cc(rgb(v), 1.0));
+        self.ring(kx, cy, r, self.cc(fg, 0.9), 2.0);
     }
 
     /// Steps in a pill, the lit one sliding to the chosen step. With `custom`, one more
@@ -330,7 +427,13 @@ impl Renderer {
         );
         let segments = opts
             .into_iter()
-            .map(|(name, v)| (name, Action::Set(key, v)))
+            .map(|(name, v)| match (key, v) {
+                // The Custom disc writes a colour, not the word.
+                ("general.skin", Val::S("custom")) => {
+                    (name, Action::SkinColor(crate::skin::custom()))
+                }
+                _ => (name, Action::Set(key, v)),
+            })
             .chain(custom.map(|(hint, _)| ("Custom", Action::EditConfig(hint))));
         for (j, (name, action)) in segments.enumerate() {
             let x = px + j as f32 * sw;

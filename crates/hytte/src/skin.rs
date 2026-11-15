@@ -27,6 +27,74 @@ fn accent() -> Option<[f32; 3]> {
     }
 }
 
+/// The custom skin's colour as 0xRRGGBB: what `skin = "#rrggbb"` says, or the picker is on.
+/// A global for the same reason as [`ACCENT`].
+static CUSTOM: AtomicU32 = AtomicU32::new(0x4C8DFF);
+
+/// The custom skin's colour.
+pub fn custom() -> u32 {
+    CUSTOM.load(Ordering::Relaxed)
+}
+
+/// Sets the custom skin's colour (0xRRGGBB).
+pub fn set_custom(v: u32) {
+    CUSTOM.store(v & 0xFF_FFFF, Ordering::Relaxed);
+}
+
+fn rgb(v: u32) -> [f32; 3] {
+    [v >> 16, (v >> 8) & 0xFF, v & 0xFF].map(|c| c as f32 / 255.0)
+}
+
+/// "#rrggbb" (or "rrggbb") as 0xRRGGBB.
+pub fn parse_hex(s: &str) -> Option<u32> {
+    let h = s.trim();
+    let h = h.strip_prefix('#').unwrap_or(h);
+    (h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| u32::from_str_radix(h, 16).ok())
+        .flatten()
+}
+
+/// 0xRRGGBB as "#rrggbb", the way `config.toml` holds a custom skin.
+pub fn hex(v: u32) -> String {
+    format!("#{:06x}", v & 0xFF_FFFF)
+}
+
+/// The hue and vividness (HSV saturation), both 0..1, that the picker shows for a colour. The
+/// brightness doesn't matter: the skin is kept dark (or light) whatever it is.
+pub fn hue_vivid(v: u32) -> (f32, f32) {
+    let [r, g, b] = rgb(v);
+    let max = r.max(g).max(b);
+    let d = max - r.min(g).min(b);
+    if d < 1e-4 {
+        return (0.0, 0.0);
+    }
+    let h = if max == r {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    (h / 6.0, d / max)
+}
+
+/// The colour at hue `h` and vividness `s` (0..1), full brightness, as 0xRRGGBB.
+pub fn from_hue_vivid(h: f32, s: f32) -> u32 {
+    let h = h.rem_euclid(1.0) * 6.0;
+    let s = s.clamp(0.0, 1.0);
+    let x = 1.0 - (h % 2.0 - 1.0).abs();
+    let (r, g, b) = match h as u32 {
+        0 => (1.0, x, 0.0),
+        1 => (x, 1.0, 0.0),
+        2 => (0.0, 1.0, x),
+        3 => (0.0, x, 1.0),
+        4 => (x, 0.0, 1.0),
+        _ => (1.0, 0.0, x),
+    };
+    let c = |v: f32| ((1.0 - s + s * v) * 255.0).round() as u32;
+    (c(r) << 16) | (c(g) << 8) | c(b)
+}
+
 /// The accent's hue at full strength, a little washed out so a loud accent stays calm.
 fn tint(a: [f32; 3], wash: f32) -> [f32; 3] {
     let max = a[0].max(a[1]).max(a[2]);
@@ -67,16 +135,19 @@ pub enum Skin {
     Dusk,
     /// Follows the Windows accent colour.
     Accent,
+    /// A colour of the user's own ([`set_custom`]).
+    Custom,
 }
 
 impl Skin {
-    pub const ALL: [Skin; 6] = [
+    pub const ALL: [Skin; 7] = [
         Skin::Graphite,
         Skin::Aurora,
         Skin::Ember,
         Skin::Moss,
         Skin::Dusk,
         Skin::Accent,
+        Skin::Custom,
     ];
 
     pub fn name(self) -> &'static str {
@@ -87,6 +158,7 @@ impl Skin {
             Skin::Moss => "moss",
             Skin::Dusk => "dusk",
             Skin::Accent => "accent",
+            Skin::Custom => "custom",
         }
     }
 
@@ -95,12 +167,18 @@ impl Skin {
     pub fn cache_key(self) -> f32 {
         match self {
             Skin::Accent => ACCENT.load(Ordering::Relaxed) as f32,
+            Skin::Custom => custom() as f32,
             _ => 0.0,
         }
     }
 
-    /// From `[general] skin`; anything unknown is the default.
+    /// From `[general] skin`; anything unknown is the default. A colour ("#rrggbb") is the
+    /// custom skin, and becomes its colour.
     pub fn from_name(s: &str) -> Skin {
+        if let Some(v) = parse_hex(s) {
+            set_custom(v);
+            return Skin::Custom;
+        }
         Skin::ALL
             .into_iter()
             .find(|k| k.name() == s.trim().to_ascii_lowercase())
@@ -124,6 +202,7 @@ impl Skin {
                 Some(a) => accent_body(a, light),
                 None => Skin::Graphite.body(light),
             },
+            (Skin::Custom, light) => accent_body(rgb(custom()), light),
         }
     }
 
@@ -136,6 +215,7 @@ impl Skin {
             Skin::Moss => [0.65, 0.85, 0.60],
             Skin::Dusk => [0.70, 0.60, 1.0],
             Skin::Accent => accent().map_or([1.0; 3], accent_glow),
+            Skin::Custom => accent_glow(rgb(custom())),
         }
     }
 
@@ -197,7 +277,10 @@ mod tests {
     #[test]
     fn only_graphite_has_a_neutral_glow() {
         // The accent skin glows in whatever the Windows accent is, so it is left out here.
-        for s in Skin::ALL.into_iter().filter(|s| *s != Skin::Accent) {
+        for s in Skin::ALL
+            .into_iter()
+            .filter(|s| !matches!(s, Skin::Accent | Skin::Custom))
+        {
             assert_eq!(s.glow() == [1.0; 3], s == Skin::Graphite, "{s:?}");
         }
     }
@@ -244,6 +327,29 @@ mod tests {
                 g.iter().all(|c| (0.0..=1.0).contains(c)),
                 "{a:?} glow {g:?}"
             );
+        }
+    }
+
+    #[test]
+    fn custom_colours_parse_and_round_trip_through_the_picker() {
+        assert_eq!(parse_hex("#3A6EA5"), Some(0x3A6EA5));
+        assert_eq!(parse_hex(" 3a6ea5 "), Some(0x3A6EA5));
+        assert_eq!(parse_hex("#3a6ea"), None);
+        assert_eq!(parse_hex("#3a6eaz"), None);
+        assert_eq!(parse_hex("+3a6ea"), None);
+        assert_eq!(hex(0x3A6EA5), "#3a6ea5");
+        assert_eq!(Skin::from_name("#ff0000"), Skin::Custom);
+        assert_eq!(custom(), 0xFF0000);
+        assert_eq!(from_hue_vivid(0.0, 1.0), 0xFF0000);
+        assert_eq!(from_hue_vivid(1.0 / 3.0, 1.0), 0x00FF00);
+        assert_eq!(from_hue_vivid(0.5, 0.0), 0xFFFFFF);
+        for h in 0..36 {
+            for s in [0.2f32, 0.6, 1.0] {
+                let v = from_hue_vivid(h as f32 / 36.0, s);
+                let (h2, s2) = hue_vivid(v);
+                let dh = (h2 - h as f32 / 36.0).abs();
+                assert!(dh.min(1.0 - dh) < 0.01 && (s2 - s).abs() < 0.01, "{h} {s}");
+            }
         }
     }
 

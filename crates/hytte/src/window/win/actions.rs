@@ -192,6 +192,9 @@ impl Ui {
             // Dragged: handled by `scrub_to`.
             Action::Opacity
             | Action::Glow
+            | Action::Hue
+            | Action::Vivid
+            | Action::SkinColor(_)
             | Action::ClearSearch
             | Action::PaneMove(..)
             | Action::Jump(_)

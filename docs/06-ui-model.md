@@ -221,7 +221,7 @@ Expanded scenes show these as panels, so no bubble. The bubble is part of the ho
 
 - `Anim::nav` is the paging direction (+1 / -1), set by sideways scroll, tab strip and keyboard just before layout. `set_scene` moves it to `slide` and picks the layers' offsets from it: the new scene slides in from that side, the old one out the other, instead of the vertical drift; a change nobody paged for (a peek) keeps the drift. `after_model_change` clears `nav`.
 - `Anim::squash` kicks the size springs (width +160, height −110 px/s) when items land on the shelf or a Drop Vault result arrives; nothing under reduced motion.
-- `glow_gain` is `[general] glow_strength`, applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry a running task's output ticker, and `LINE_H` (14 px) is the row height it adds in `size(ExpTasks)`.
+- `glow_gain` is `General::glow_gain()` (`glow_strength` while `[general] glow` is on, else 0), applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry a running task's output ticker, and `LINE_H` (14 px) is the row height it adds in `size(ExpTasks)`.
 
 ## Per-app volume
 

@@ -15,7 +15,9 @@ pub struct General {
     pub monitor: String,
     /// Tint the media glow with the album art's dominant colour.
     pub adaptive_glow: bool,
-    /// How strong the border glow is: 1.0 is the original look, 0 turns it off.
+    /// The coloured glow around the pill. Off by default.
+    pub glow: bool,
+    /// How strong the border glow is while `glow` is on: 1.0 is the original look, 0 is none.
     pub glow_strength: f32,
     /// How opaque the pill's body is, 0.4..1.0 (text and icons stay solid).
     pub pill_opacity: f32,
@@ -126,6 +128,17 @@ pub fn parse_hotkey(s: &str) -> Option<(u32, u32)> {
     Some((mods, key?))
 }
 
+impl General {
+    /// What the border glow is multiplied by: `glow_strength` while `glow` is on, else 0.
+    pub fn glow_gain(&self) -> f32 {
+        if self.glow {
+            self.glow_strength.clamp(0.0, 3.0)
+        } else {
+            0.0
+        }
+    }
+}
+
 impl Default for General {
     fn default() -> Self {
         Self {
@@ -133,7 +146,9 @@ impl Default for General {
             add_to_path: true,
             monitor: "primary".into(),
             adaptive_glow: true,
-            glow_strength: 1.69,
+            glow: false,
+            // 70 % of the settings slider (`render::GLOW_MAX`).
+            glow_strength: 1.75,
             pill_opacity: 0.9,
             hover_delay_ms: 200,
             collapse_delay_ms: 100,

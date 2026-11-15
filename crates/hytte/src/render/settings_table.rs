@@ -28,8 +28,13 @@ pub enum Row {
     ),
     /// Pill opacity slider, current value.
     Opacity(f32),
-    /// Glow strength slider, current value (0 to `GLOW_MAX`).
-    Glow(f32),
+    /// Glow strength slider, current value (0 to `GLOW_MAX`), and whether the glow is on (the
+    /// slider is dimmed while it is off).
+    Glow(f32, bool),
+    /// The custom skin's hue (0..1), under the skin discs while the skin is a colour of its own.
+    Hue(f32, f32),
+    /// The custom skin's vividness (0..1), with its hue.
+    Vivid(f32, f32),
 }
 
 impl Row {
@@ -37,7 +42,9 @@ impl Row {
         match self {
             Row::Switch(l, ..) | Row::Pick(l, ..) | Row::PickCustom(l, ..) => l,
             Row::Opacity(_) => "Pill opacity when open",
-            Row::Glow(_) => "Glow strength",
+            Row::Glow(..) => "Glow strength",
+            Row::Hue(..) => "Skin colour",
+            Row::Vivid(..) => "Skin vividness",
         }
     }
 
@@ -45,7 +52,9 @@ impl Row {
         match self {
             Row::Switch(_, k, _) | Row::Pick(_, k, ..) | Row::PickCustom(_, k, ..) => k,
             Row::Opacity(_) => "general.pill_opacity",
-            Row::Glow(_) => "general.glow_strength",
+            Row::Glow(..) => "general.glow_strength",
+            Row::Hue(..) => "general.skin_hue",
+            Row::Vivid(..) => "general.skin_vivid",
         }
     }
 
@@ -55,7 +64,7 @@ impl Row {
             Row::Switch(_, _, on) => *on as u8 as f32,
             Row::Pick(_, _, _, i, off) => *i as f32 + if off.is_none() { 0.0 } else { 0.5 },
             Row::PickCustom(_, _, _, i, ..) => *i as f32,
-            Row::Opacity(v) | Row::Glow(v) => *v,
+            Row::Opacity(v) | Row::Glow(v, _) | Row::Hue(v, _) | Row::Vivid(v, _) => *v,
         }
     }
 
@@ -68,7 +77,9 @@ impl Row {
                 o.get(*i).map(|(_, v)| Action::Set(k, *v))
             }
             Row::Opacity(v) => Some(Action::Set("general.pill_opacity", Val::F(*v as f64))),
-            Row::Glow(v) => Some(Action::Set("general.glow_strength", Val::F(*v as f64))),
+            Row::Glow(v, _) => Some(Action::Set("general.glow_strength", Val::F(*v as f64))),
+            // Not settings of their own: they write `skin` (see `Action::SkinColor`).
+            Row::Hue(..) | Row::Vivid(..) => None,
         }
     }
 }
@@ -158,7 +169,10 @@ pub fn help(key: &str) -> &'static str {
         "general.idle_opacity" => "How faint the closed pill gets while you are not using it.",
         "general.pill_scale" => "Scales the whole pill and its panels (1.0 is normal).",
         "general.animation" => "Speed of the open and close animation.",
-        "general.glow_strength" => "How strong the colored glow around the pill is. 100% is the strongest the slider goes; 0% is off.",
+        "general.glow" => "A colored glow around the pill's edge, in the color of what it shows. Off by default.",
+        "general.glow_strength" => "How strong the glow is while it is on. 100% is the strongest the slider goes.",
+        "general.skin_hue" => "The color of your own skin. Its code is written in config.toml as skin = \"#rrggbb\"; you can type one there.",
+        "general.skin_vivid" => "How much color your skin has: low is nearly grey, high is the full color.",
         "general.adaptive_glow" => "Tints the glow with the colors of the album art that is playing.",
         "general.autostart" => "Starts Hytte when you sign in to Windows.",
         "general.start_panel" => "Which panel opens first: the last one you used, the busiest one, or Home.",
@@ -177,7 +191,7 @@ pub fn help(key: &str) -> &'static str {
         "breaks.water_min" => "A card reminds you to drink some water.",
         "media.lyrics_live" => "Highlights the line being sung when the lyrics are timed. Off shows the words to scroll through.",
         "media.lyrics" => "Shows the words of the song that is playing. Looking them up sends the song title and artist to lrclib.net.",
-        "general.skin" => "The colours of the pill: Slate (graphite in the file) is the original dark look; Accent follows your Windows accent colour.",
+        "general.skin" => "The colours of the pill: Slate (graphite in the file) is the original dark look; Accent follows your Windows accent colour; Custom is a colour you choose.",
         "panes.home" => "The Quick controls are the home pane and always show. You can move them.",
         "panes.media" => "Shows the Music pane while something plays.",
         "panes.shelf" => "Shows the Shelf while it holds files.",
@@ -268,7 +282,7 @@ pub(super) fn pick_f(
 pub fn settings_table(c: &Config) -> Vec<Section> {
     let (g, sh) = (&c.general, &c.shelf);
     let sw = Row::Switch;
-    vec![
+    let mut table = vec![
         Section {
             name: "Look and feel",
             rows: vec![
@@ -278,19 +292,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     &[("Dark", "dark"), ("Light", "light"), ("System", "auto")],
                     &g.theme,
                 ),
-                pick_s(
-                    "Pill skin",
-                    "general.skin",
-                    &[
-                        ("Slate", "graphite"),
-                        ("Aurora", "aurora"),
-                        ("Ember", "ember"),
-                        ("Moss", "moss"),
-                        ("Dusk", "dusk"),
-                        ("Accent", "accent"),
-                    ],
-                    &g.skin,
-                ),
+                skin_row(&g.skin),
                 pick_i(
                     "Wait before opening on hover",
                     "general.hover_delay_ms",
@@ -333,7 +335,8 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     &[("Slow", "calm"), ("Normal", "normal"), ("Fast", "snappy")],
                     &g.animation,
                 ),
-                Row::Glow(g.glow_strength),
+                sw("Glow around the pill", "general.glow", g.glow),
+                Row::Glow(g.glow_strength, g.glow),
                 sw(
                     "Tint glow from album art",
                     "general.adaptive_glow",
@@ -698,7 +701,42 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-    ]
+    ];
+    // A skin of the user's own colour: its hue and vividness under the discs.
+    if let Some(v) = crate::skin::parse_hex(&g.skin) {
+        let (h, s) = crate::skin::hue_vivid(v);
+        let look = &mut table[0].rows;
+        let at = look
+            .iter()
+            .position(|r| r.key() == "general.skin")
+            .map_or(0, |i| i + 1);
+        look.splice(at..at, [Row::Hue(h, s), Row::Vivid(s, h)]);
+    }
+    table
+}
+
+/// The skin discs: the presets, then Custom (a colour of your own, `skin = "#rrggbb"`).
+fn skin_row(cur: &str) -> Row {
+    let mut row = pick_s(
+        "Pill skin",
+        "general.skin",
+        &[
+            ("Slate", "graphite"),
+            ("Aurora", "aurora"),
+            ("Ember", "ember"),
+            ("Moss", "moss"),
+            ("Dusk", "dusk"),
+            ("Accent", "accent"),
+            ("Custom", "custom"),
+        ],
+        cur,
+    );
+    if let Row::Pick(_, _, _, i, _) = &mut row {
+        if crate::skin::Skin::from_name(cur) == crate::skin::Skin::Custom {
+            *i = 6;
+        }
+    }
+    row
 }
 
 /// Script panes in the settings window, by slot (their names live in `config.toml`).

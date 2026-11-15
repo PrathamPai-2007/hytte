@@ -752,7 +752,7 @@ pub fn run_windows(
         ui.accent = windows_accent();
         ui.model.adaptive_glow = ui.cfg.general.adaptive_glow;
         ui.model.finish_peek = Duration::from_secs(ui.cfg.general.finish_peek_secs);
-        ui.model.glow_gain = ui.cfg.general.glow_strength.clamp(0.0, 3.0);
+        ui.model.glow_gain = ui.cfg.general.glow_gain();
         ui.model.body_alpha = ui.cfg.general.pill_opacity.clamp(0.4, 1.0);
         ui.model.task_rows = ui.cfg.general.task_rows;
         ui.model.agent_quiet = Duration::from_secs(ui.cfg.agent.quiet_after_secs);

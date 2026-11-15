@@ -49,7 +49,7 @@ Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChang
 | `[breaks]` | `Breaks::configure`: unchanged intervals keep their clocks, newly enabled ones start now. |
 | `[weather] units`, `[media] lyrics` | Read at the point of use. |
 | `monitor`, `pill_scale` | `refresh_monitor` moves the pill and recomputes scale. |
-| `theme`, `adaptive_glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `remember_panel`, `pin_button`, `quiet_hours`, `task_rows` | Re-read; next frame uses them. Switching `pin_button` off un-pins. |
+| `theme`, `adaptive_glow`, `glow`, `glow_strength`, `pill_opacity`, `idle_opacity`, `animation`, `open_on`, `hover_delay_ms`, `collapse_delay_ms`, `start_panel`, `remember_panel`, `pin_button`, `quiet_hours`, `task_rows` | Re-read; next frame uses them. Switching `pin_button` off un-pins. |
 | `[timer] rounds` | The running Focus cycle shows the new dot count. |
 | `[ports]`, `[hog]` | `ports::reconfigure` / `reconfigure_hog` hand them to the port watcher and wake it for an immediate rescan. |
 | fullscreen keys | `evaluate_fullscreen` runs again. |
@@ -71,7 +71,8 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `add_to_path` | `true` | At startup, add `hytte.exe`'s folder to the user `PATH` if `hytte` isn't found. `false` to manage `PATH` yourself. |
 | `monitor` | `"primary"` | `"primary"`, `"active"` (foreground window's monitor), `"cursor"` or a number (`"1"`, `"2"`, left to right). The tray's **Move to next monitor** and `monitor_hotkey` set the number, kept across restarts ([section 7](07-window-and-input.md#monitor-and-dpi)). |
 | `theme` | `"auto"` | `"dark"`, `"light"`, or `"auto"` (Windows app mode). |
-| `glow_strength` | `1.69` (68 %) | Border glow multiplier: `1.0` original, `0` off, capped at `3`. The settings slider runs 0–2.5 (shown 0–100 %). |
+| `glow` | `false` | The border glow. Off by default since 1.9.1; `General::glow_gain()` is `glow_strength` while on, else 0. Dragging the strength slider switches it on. |
+| `glow_strength` | `1.75` (70 %) | Border glow multiplier while `glow` is on: `1.0` original, `0` none, capped at `3`. The settings slider runs 0–2.5 (shown 0–100 %). |
 | `pill_opacity` | `0.9` | Pill body opacity `0.4`–`1.0`; text and icons stay solid. |
 | `pin_button` | `true` | A pin in the tab strip keeps the pill open until clicked again (or a fullscreen app takes over). Not saved. |
 | `remember_panel` | `false` | With `start_panel = "last"`, remember the panel across restarts. |
@@ -91,7 +92,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `check_updates` | `true` | Daily update check, first 60 s after start ([section 15](15-updates.md)). The tray item works either way. Live. |
 | `hide_from_capture` | `false` | Keep the pill out of screenshots, recordings and screen share (`WDA_EXCLUDEFROMCAPTURE`); you still see it. Live. The default was `true` before 1.7; a file that says `true` keeps it. |
 | `note_hotkey` | `""` | Global chord that opens Notes with the cursor ready, e.g. `"Win+Alt+J"`. Empty = off. Live. |
-| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"`, `"dusk"` or `"accent"` (the Windows accent colour; graphite until it is known); anything else is graphite. Live. The settings show it as six colour discs (graphite is named **Slate** there). |
+| `skin` | `"graphite"` | `"graphite"`, `"aurora"`, `"ember"`, `"moss"`, `"dusk"`, `"accent"` (the Windows accent colour; graphite until it is known) or a colour `"#rrggbb"` (the custom skin: only its hue and saturation count, made dark or light like the accent skin by `skin::accent_body`); anything else is graphite. Live. The settings show it as seven colour discs (graphite is named **Slate** there); with a colour, **Skin colour** (hue) and **Vividness** (saturation) sliders sit under them and write `"#rrggbb"` on release. |
 | `output_folder` | none | Drop Vault results folder; unset or missing = next to the source. |
 | `allow_list` / `deny_list` | `[]` | Exe names (case-insensitive) that never trigger suppression, e.g. `"Code.exe"` / always get game mode while in front. |
 

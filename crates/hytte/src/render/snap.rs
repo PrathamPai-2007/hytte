@@ -472,7 +472,8 @@ fn settings_rows_write_valid_config() {
                     opts.into_iter().map(|(_, v)| (k, v)).collect()
                 }
                 Row::Opacity(_) => vec![("general.pill_opacity", Val::F(0.7))],
-                Row::Glow(_) => vec![("general.glow_strength", Val::F(1.0))],
+                Row::Glow(..) => vec![("general.glow_strength", Val::F(1.0))],
+                Row::Hue(..) | Row::Vivid(..) => vec![],
             };
             for (k, v) in writes {
                 keys.insert(k);
@@ -582,6 +583,27 @@ fn settings_window_snapshots() {
         image::Rgb([px[i + 2], px[i + 1], px[i]])
     })
     .save(dir.join("settings-custom.png"))
+    .unwrap();
+    // A skin of your own colour: the Custom disc lit, its colour and vividness under it; and
+    // the glow switched on.
+    let mut own = Config::default();
+    own.general.skin = "#e0559a".into();
+    own.general.glow = true;
+    let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
+    let view = SettingsView {
+        scroll: 0.0,
+        toast: None,
+        ..view
+    };
+    r.draw_settings_window(&own, &view, &mut hits);
+    r.draw_settings_window(&own, &view, &mut hits);
+    let (pw, ph) = r.px;
+    let px = r.read_back();
+    image::RgbImage::from_fn(pw as u32, ph as u32, |x, y| {
+        let i = ((y as i32 * pw + x as i32) * 4) as usize;
+        image::Rgb([px[i + 2], px[i + 1], px[i]])
+    })
+    .save(dir.join("settings-own-skin.png"))
     .unwrap();
     SHOT.with(|v| v.borrow_mut().push("settings-custom".to_string()));
     // Searching, with a few values off their defaults (so resets show).

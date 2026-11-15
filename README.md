@@ -31,7 +31,7 @@ It never steals focus, idles at about 0.2 % CPU, and uses under 25 MB of RAM. It
 - **Break reminders** for your eyes, your back and your water bottle.
 - **Alerts** for downloads, runaway CPU or memory, your next meeting, camera and microphone use, and battery.
 - **Gets out of the way** of games and fullscreen apps, and can stay out of screenshots and screen shares.
-- **Updates itself.** Six colour skins, one following your Windows accent colour, and every pane can be switched off or reordered.
+- **Updates itself.** Six colour skins (one following your Windows accent colour) or one of your own, and every pane can be switched off or reordered.
 
 ## Install
 

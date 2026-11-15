@@ -356,7 +356,7 @@ impl Ui {
         self.light = theme_is_light(&new.general.theme);
         self.model.adaptive_glow = new.general.adaptive_glow;
         self.model.finish_peek = Duration::from_secs(new.general.finish_peek_secs);
-        self.model.glow_gain = new.general.glow_strength.clamp(0.0, 3.0);
+        self.model.glow_gain = new.general.glow_gain();
         self.model.body_alpha = new.general.pill_opacity.clamp(0.4, 1.0);
         self.model.task_rows = new.general.task_rows;
         self.model.agent_quiet = Duration::from_secs(new.agent.quiet_after_secs);

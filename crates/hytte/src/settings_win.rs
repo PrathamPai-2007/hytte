@@ -81,8 +81,8 @@ struct State {
     tops: Vec<f32>,
     /// Dragging the opacity slider: its hit box's left and right edges.
     scrub: Option<(f32, f32)>,
-    /// The slider being dragged is the glow one (else the opacity one).
-    scrub_glow: bool,
+    /// Which slider is being dragged: `Action::Opacity`, `Glow`, `Hue` or `Vivid`.
+    scrub_what: Action,
     tracking: bool,
     light: bool,
     accent: [f32; 3],
@@ -195,7 +195,7 @@ pub fn open(cfg: &Config) {
                 content: 0.0,
                 tops: vec![],
                 scrub: None,
-                scrub_glow: false,
+                scrub_what: Action::Opacity,
                 tracking: false,
                 light,
                 accent,
@@ -340,10 +340,54 @@ fn scrub(s: &mut State) {
     };
     let f = ((mx - l - 6.0) / (r - l - 12.0)).clamp(0.0, 1.0);
     let f = (f * 100.0).round() / 100.0;
-    if s.scrub_glow {
-        s.cfg.general.glow_strength = f * crate::render::GLOW_MAX;
-    } else {
-        s.cfg.general.pill_opacity = 0.4 + 0.6 * f;
+    match s.scrub_what {
+        Action::Glow => s.cfg.general.glow_strength = f * crate::render::GLOW_MAX,
+        Action::Hue | Action::Vivid => {
+            let cur =
+                crate::skin::parse_hex(&s.cfg.general.skin).unwrap_or_else(crate::skin::custom);
+            let (h, v) = crate::skin::hue_vivid(cur);
+            let (h, v) = if s.scrub_what == Action::Hue {
+                (f, v)
+            } else {
+                (h, f)
+            };
+            let c = crate::skin::from_hue_vivid(h, v);
+            // The window's own copy, so the disc and sliders follow the pointer; the pill takes
+            // it when it is written, on release.
+            s.cfg.general.skin = crate::skin::hex(c);
+            crate::skin::set_custom(c);
+        }
+        _ => s.cfg.general.pill_opacity = 0.4 + 0.6 * f,
+    }
+}
+
+/// Writes the slider that was being dragged to the file.
+fn scrub_done(s: &mut State) {
+    match s.scrub_what {
+        Action::Glow => {
+            let v = s.cfg.general.glow_strength as f64;
+            set(s, "general.glow_strength", Val::F(v));
+            // Dragging the strength means you want the glow.
+            if !s.cfg.general.glow {
+                set(s, "general.glow", Val::B(true));
+            }
+        }
+        Action::Hue | Action::Vivid => {
+            let v = s.cfg.general.skin.clone();
+            set_skin(s, &v);
+        }
+        _ => {
+            let v = s.cfg.general.pill_opacity as f64;
+            set(s, "general.pill_opacity", Val::F(v));
+        }
+    }
+}
+
+fn set_skin(s: &mut State, v: &str) {
+    match config::set_text("general.skin", v) {
+        Ok(Some(cfg)) => s.cfg = cfg,
+        Ok(None) => crate::logging::line("settings window: config.toml has a mistake in it"),
+        Err(e) => crate::logging::line(&format!("settings window: {e}")),
     }
 }
 
@@ -450,10 +494,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     set_mouse(s, hwnd, lparam);
                     s.pressed = true;
                     if let Some(h) = hit_at(s)
-                        .filter(|h| matches!(h.action, Action::Opacity | Action::Glow))
+                        .filter(|h| {
+                            matches!(
+                                h.action,
+                                Action::Opacity | Action::Glow | Action::Hue | Action::Vivid
+                            )
+                        })
                         .cloned()
                     {
-                        s.scrub_glow = h.action == Action::Glow;
+                        s.scrub_what = h.action.clone();
                         s.scrub = Some((h.rect.0, h.rect.2));
                         scrub(s);
                         unsafe {
@@ -478,16 +527,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         let _ = ReleaseCapture();
                     }
                     if s.scrub.take().is_some() {
-                        if s.scrub_glow {
-                            let v = s.cfg.general.glow_strength as f64;
-                            set(s, "general.glow_strength", Val::F(v));
-                        } else {
-                            let v = s.cfg.general.pill_opacity as f64;
-                            set(s, "general.pill_opacity", Val::F(v));
-                        }
+                        scrub_done(s);
                     } else if let Some(a) = hit_at(s).map(|h| h.action.clone()) {
                         match a {
                             Action::Set(k, v) => set(s, k, v),
+                            Action::SkinColor(c) => set_skin(s, &crate::skin::hex(c)),
                             Action::Jump(i) => {
                                 if let Some(t) = s.tops.get(i) {
                                     s.target = (*t - 30.0).max(0.0);
