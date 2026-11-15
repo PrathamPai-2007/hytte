@@ -455,7 +455,10 @@ impl Renderer {
                 if s.alpha < 1.0 {
                     self.stagger.set(Some((s.alpha, fit, s.dx, s.dy)));
                 }
-                self.steady.set(s.alpha >= 1.0);
+                // Fully shown, and shown the frame before too: something appearing now is new.
+                self.steady
+                    .set(s.alpha >= 1.0 && self.prev_live.get() == Some(s.scene));
+                self.prev_live.set(Some(s.scene));
                 self.focus_live.set(true);
                 self.content(fr, s.scene, w, h, pad_r);
                 self.focus_live.set(false);

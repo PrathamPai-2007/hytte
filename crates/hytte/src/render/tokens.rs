@@ -10,11 +10,6 @@ pub const R_CARD: f32 = inner(R_PILL, 10.0);
 /// A row's highlight: a shape 14 px in.
 pub const R_ROW: f32 = inner(R_PILL, 14.0);
 
-/// Text, from what to read first to what to read last.
-#[allow(dead_code)] // ponytail: taken up by the type pass (Task 19)
-pub const INK_1: f32 = 0.95;
-#[allow(dead_code)]
-pub const INK_2: f32 = 0.72;
 /// Credits and fine print: there if looked for, never competing with the content.
 pub const INK_3: f32 = 0.40;
 

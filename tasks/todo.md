@@ -281,11 +281,11 @@ the commit message.
 three per commit. **Scope:** L, split by scene file
 
 ### Task 19: Type scale
-- [ ] Five sizes (caption, body, title, heading, display); the caption uses Segoe UI Variable's
-      Small cut; the 12.5 px format is gone
-- [ ] Secondary and credit text use the secondary and tertiary opacities (the Open-Meteo credit
-      no longer competes with content)
-- [ ] No label is cut off that wasn't before
+- [x] Five sizes (caption 10.5, body 12, title 13, heading 15, display 27); captions use Segoe UI
+      Variable's Small cut; the 12.5 px format is gone (lyrics went from 14 to 15)
+- [x] Credit text uses the tertiary opacity (the Open-Meteo credit no longer competes with
+      content); secondary text keeps its grey
+- [x] No label is cut off that wasn't before (snapshots compared)
 **Verify:** Checks; before / after snapshot page.
 **Depends on:** 18. **Files:** `render.rs` (`Fmts`), scene files that name a removed format.
 **Scope:** M

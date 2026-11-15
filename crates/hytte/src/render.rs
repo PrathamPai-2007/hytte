@@ -334,6 +334,8 @@ pub struct Renderer {
     /// The live scene is fully shown (not fading in): a row that appears now is new, and
     /// comes in on its own (`row`).
     steady: Cell<bool>,
+    /// The scene drawn live in the frame before: a pane is only steady from its second frame.
+    prev_live: Cell<Option<Scene>>,
     /// Notes and to-dos drawn last frame (with where), and the ones that have since gone and
     /// are fading out where they were (`render/jot.rs`).
     jot_last: RefCell<Vec<(crate::jot::Jot, f32)>>,
@@ -572,6 +574,7 @@ impl Renderer {
                 fx_busy: Cell::new(false),
                 stagger: Cell::new(None),
                 steady: Cell::new(false),
+                prev_live: Cell::new(None),
                 jot_last: RefCell::new(Vec::new()),
                 jot_ghosts: RefCell::new(Vec::new()),
                 reduced: Cell::new(false),
@@ -691,6 +694,7 @@ impl Renderer {
     #[cfg(test)]
     pub(super) fn reset_tweens(&self) {
         self.tweens.borrow_mut().clear();
+        self.prev_live.set(None);
     }
 
     /// A hovered label is scrolling: keep frames coming until the pointer leaves it.
@@ -1325,16 +1329,19 @@ impl Fmts {
                 }
                 Ok(f)
             };
+            // Five sizes: caption 10.5 (in Segoe UI Variable's cut drawn for small text), body
+            // 12, title 13, heading 15 and display 27. Mono stays a touch smaller, as code.
             let ui = w!("Segoe UI Variable Text");
-            let title = mk(ui, 12.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            let cap = w!("Segoe UI Variable Small");
+            let title = mk(ui, 13.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             let body = mk(ui, 12.0, DWRITE_FONT_WEIGHT_NORMAL)?;
-            let small = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
-            let small_r = mk(ui, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            let small = mk(cap, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
+            let small_r = mk(cap, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             small_r.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING)?;
-            let small_l = mk(ui, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            let small_l = mk(cap, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             let mono = mk(w!("Cascadia Mono"), 10.0, DWRITE_FONT_WEIGHT_NORMAL)?;
             let big = mk(ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
-            let btn = mk(ui, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            let btn = mk(cap, 10.5, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             btn.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             let center = mk(ui, 12.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             center.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
@@ -1343,10 +1350,10 @@ impl Fmts {
             wrap.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR)?;
             let big_c = mk(ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             big_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
-            let lyric = mk(ui, 14.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
+            let lyric = mk(ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             lyric.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             lyric.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)?;
-            let small_c = mk(ui, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
+            let small_c = mk(cap, 10.5, DWRITE_FONT_WEIGHT_NORMAL)?;
             small_c.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             // Windows 11 ships Segoe Fluent Icons; the glyphs used here are also in its
             // predecessor, Segoe MDL2 Assets, which the font fallback covers on older builds.
