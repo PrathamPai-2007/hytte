@@ -24,7 +24,14 @@ enum Cue {
     Show(Scene),
     /// The user pages to this scene (-1 previous, +1 next).
     Page(Scene, f32),
+    /// The pointer moves to this pill-relative point (None: off the pill).
+    Point(Option<(f32, f32)>),
+    /// The left button goes down or up.
+    Press(bool),
 }
+
+/// Where the pointer is (pill-relative) and whether the button is down.
+pub type Pointer = (Option<(f32, f32)>, bool);
 
 pub struct Script {
     pub name: &'static str,
@@ -97,6 +104,21 @@ pub fn scripts() -> Vec<Script> {
             len: 0.9,
         },
         Script {
+            name: "press",
+            what: "The pointer rests on a tile, presses it quickly, then on the settings gear and holds it.",
+            start: Scene::ExpHome,
+            cues: vec![
+                (0.10, Point(Some((234.0, 43.0)))),
+                (0.45, Press(true)),
+                (0.52, Press(false)),
+                (0.90, Point(Some((348.0, 102.0)))),
+                (1.20, Press(true)),
+                (1.50, Press(false)),
+                (1.90, Point(None)),
+            ],
+            len: 2.4,
+        },
+        Script {
             name: "card",
             what: "A card arrives over the compact task and leaves again.",
             start: Scene::CompactTask,
@@ -164,8 +186,10 @@ pub fn film_model() -> Model {
     m
 }
 
-/// Drive `s` with the fixed step, calling `each` after every step with the time and the state.
-pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim)) {
+/// Drive `s` with the fixed step, calling `each` after every step with the time, the state and
+/// the pointer.
+pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim, Pointer)) {
+    let mut ptr: Pointer = (None, false);
     let (w, h) = m.size(s.start);
     let mut an = Anim::new(w, h);
     an.set_scene(s.start, m.size(s.start), m.glow(s.start));
@@ -186,6 +210,16 @@ pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim)) {
                     an.nav = dir;
                     sc
                 }
+                Cue::Point(p) => {
+                    ptr.0 = p;
+                    cues.next();
+                    continue;
+                }
+                Cue::Press(d) => {
+                    ptr.1 = d;
+                    cues.next();
+                    continue;
+                }
             };
             an.set_scene(scene, m.size(scene), m.glow(scene));
             an.set_bubble(m.bubble(scene));
@@ -193,7 +227,7 @@ pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim)) {
             cues.next();
         }
         an.step(STEP);
-        each(t, &an);
+        each(t, &an, ptr);
     }
 }
 
@@ -201,7 +235,7 @@ pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim)) {
 pub fn continuity(s: &Script, m: &Model) -> (f32, f32, f64) {
     let mut prev: Option<Vec<Shown>> = None;
     let (mut da, mut dp, mut at) = (0.0f32, 0.0f32, 0.0);
-    run(s, m, |t, an| {
+    run(s, m, |t, an, _| {
         let now: Vec<Shown> = an.shown().iter().copied().collect();
         if let Some(before) = &prev {
             let alpha = |l: &[Shown], sc: Scene| {
@@ -258,12 +292,14 @@ fn filmstrips() {
         std::fs::create_dir_all(&sub).unwrap();
         // One picture per 60 Hz frame, cropped to the tallest the pill gets in this strip.
         let mut tallest = 0.0f32;
-        run(&s, &m, |_, an| tallest = tallest.max(an.rect.h.pos as f32));
+        run(&s, &m, |_, an, _| {
+            tallest = tallest.max(an.rect.h.pos as f32)
+        });
         let crop_h = (((tallest + 30.0) * scale).ceil() as u32).min(r.px.1 as u32);
         let mut n = 0;
         let mut i = 0usize;
         let (da, dp, _) = continuity(&s, &m);
-        run(&s, &m, |t, an| {
+        run(&s, &m, |t, an, (point, down)| {
             i += 1;
             if !i.is_multiple_of(2) {
                 return;
@@ -273,8 +309,8 @@ fn filmstrips() {
                 anim: an,
                 now: epoch() + std::time::Duration::from_secs_f64(t),
                 dt: (2.0 * STEP) as f32,
-                mouse: None,
-                pressed: false,
+                mouse: point.map(|(x, y)| (x + (CANVAS_W - an.rect.w.pos as f32) / 2.0, y)),
+                pressed: down,
                 light: false,
                 accent: BLUE,
                 focus: None,

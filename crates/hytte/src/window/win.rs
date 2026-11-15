@@ -112,6 +112,14 @@ fn sample_vblank() {
     }
 }
 
+/// A press always shows for at least this long, however quick the click.
+const PRESS_SHOWN: Duration = Duration::from_millis(80);
+
+/// Whether controls draw pressed: the button is down, or went down a moment ago.
+fn shows_pressed(pressed: bool, press_at: Option<Instant>, now: Instant) -> bool {
+    pressed || press_at.is_some_and(|t| now.saturating_duration_since(t) < PRESS_SHOWN)
+}
+
 /// Ambient motion in an open or hovered pill runs at the divisor of the refresh rate nearest
 /// this; on a collapsed pill, nearest the second. A frame costs about 5 ms of CPU open and 3 ms
 /// collapsed, and a build can sit on a collapsed pill for an hour (`docs/12-performance.md`).
@@ -315,6 +323,8 @@ struct Ui {
     tabs: Sender<crate::tabs::Cmd>,
     /// The left button is down over a clickable region.
     pressed: bool,
+    /// When it went down: a click quicker than a frame still shows as pressed (`shows_pressed`).
+    press_at: Option<Instant>,
     /// Resolved `[general] theme`.
     light: bool,
     /// The Windows accent palette: (light-2, dark-1) shades; see `accent_for`.
@@ -463,6 +473,16 @@ const PASTE_GRACE: Duration = Duration::from_secs(2);
 #[cfg(test)]
 mod pace_tests {
     use super::*;
+
+    #[test]
+    fn a_quick_click_still_shows_as_pressed_for_a_moment() {
+        let t0 = Instant::now();
+        let at = Some(t0);
+        assert!(shows_pressed(false, at, t0 + Duration::from_millis(30)));
+        assert!(!shows_pressed(false, at, t0 + Duration::from_millis(90)));
+        assert!(shows_pressed(true, at, t0 + Duration::from_secs(2)), "held");
+        assert!(!shows_pressed(false, None, t0));
+    }
 
     #[test]
     fn ambient_frames_take_a_whole_number_of_vblanks_near_their_rate() {
@@ -689,6 +709,7 @@ pub fn run_windows(
             lyric_wheel: 0,
             swipe: Default::default(),
             pressed: false,
+            press_at: None,
             light: false,
             accent: None,
             kb: None,

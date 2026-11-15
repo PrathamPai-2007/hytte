@@ -165,22 +165,15 @@ impl Renderer {
             }
             self.skip_icon(x, cy, dir, self.cc(self.fg(), if hov { 1.0 } else { 0.8 }));
         }
-        let hov = self.hit(cx - 18.0, cy - 18.0, 36.0, 36.0, Action::MediaToggle);
-        let down = hov && self.pressed.get();
-        let r = if down {
-            16.0
-        } else if hov {
-            18.0
-        } else {
-            17.0
-        } * k;
-        self.circle(cx, cy, r, self.cc(self.fg(), 0.95));
+        let (_, hv, _, saved) = self.press(cx - 18.0, cy - 18.0, 36.0, 36.0, Action::MediaToggle);
+        self.circle(cx, cy, (17.0 + hv) * k, self.cc(self.fg(), 0.95));
         let dark = self.cc(self.ink(), 1.0);
         if md.playing {
             self.pause_icon(cx, cy, 13.0 * k, dark);
         } else {
             self.play_icon(cx + k, cy, 14.0 * k, dark);
         }
+        self.unpress(saved);
     }
 
     /// The moon at the right of the transport row, with the time left beside it when set.

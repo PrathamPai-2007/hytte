@@ -181,6 +181,9 @@ pub(super) unsafe extern "system" fn wndproc(
             with_ui(|ui| {
                 ui.set_mouse_client(lparam);
                 ui.pressed = ui.hit_at().is_some();
+                if ui.pressed {
+                    ui.press_at = Some(Instant::now());
+                }
                 ui.kick();
                 ui.drag = match ui.hit_at().map(|h| h.action.clone()) {
                     Some(Action::ShelfTile(id)) => ui.mouse.map(|p| (id, p)),

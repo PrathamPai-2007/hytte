@@ -232,7 +232,7 @@ impl Ui {
                 now,
                 dt: dt_anim as f32,
                 mouse: self.mouse_logical(),
-                pressed: self.pressed,
+                pressed: shows_pressed(self.pressed, self.press_at, now),
                 light: self.light,
                 accent: accent_for(self.accent, self.light),
                 focus: self.kb.and(self.kb_focus),

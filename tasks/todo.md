@@ -167,11 +167,12 @@ continuity test covers their positions).
 ## Phase 3: Controls and values
 
 ### Task 10: Press and hover physics
-- [ ] `press`, `button`, `primary`, `round_btn` and `tile` ease hover and press through `Tweens`
-      (`QUICK` in, `POP` on release)
-- [ ] The press scales the whole control about its centre (label and icon included), not just
+- [x] `press`, `button`, `primary`, `round_btn`, `tile` and the play button ease hover and press
+      through `Tweens` (`QUICK` in, `POP` on release)
+- [x] The press scales the whole control about its centre (label and icon included), not just
       its box
-- [ ] A click shorter than a frame still shows: the pressed look is held for at least 80 ms
+- [x] A click shorter than a frame still shows: the pressed look is held for at least 80 ms
+      (the filmstrips have a `press` script with a pointer)
 **Verify:** Checks; unit test for the 80 ms hold; filmstrip of hover → press → release; live
 build.
 **Depends on:** 4. **Files:** `render/prims.rs`, `window/win/input.rs`, `render.rs`. **Scope:** M

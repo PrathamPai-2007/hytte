@@ -363,7 +363,10 @@ impl Renderer {
         })
     }
 
-    /// Register a pressable region: (hovered, held down, the box shrunk 6 % while held).
+    /// Register a pressable region and ease its hover and press (0..1 each). What is drawn
+    /// until `unpress` is scaled about the box's centre: in by 6 % while it is held, and back
+    /// with a touch of spring when it is let go. Returns (hovered, hover, press, what `unpress`
+    /// restores).
     pub(super) fn press(
         &self,
         x: f32,
@@ -371,20 +374,39 @@ impl Renderer {
         w: f32,
         h: f32,
         action: Action,
-    ) -> (bool, bool, [f32; 4]) {
+    ) -> (bool, f32, f32, Matrix3x2) {
         let hov = self.hit(x, y, w, h, action);
         let down = hov && self.pressed.get();
-        let k = if down { 0.03 } else { 0.0 };
-        (
-            hov,
-            down,
-            [
-                x + w * k,
-                y + h * k,
-                w * (1.0 - 2.0 * k),
-                h * (1.0 - 2.0 * k),
-            ],
-        )
+        let id = (x.to_bits(), y.to_bits(), w.to_bits());
+        let hv = self.tw(tween::key("hover", id), hov as u8 as f32, motion::QUICK);
+        let feel = if down { motion::QUICK } else { motion::POP };
+        let p = self.tw(tween::key("press", id), down as u8 as f32, feel);
+        let saved = self.scale_about(x + w / 2.0, y + h / 2.0, 1.0 - 0.06 * p);
+        (hov, hv, p, saved)
+    }
+
+    /// End what `press` started.
+    pub(super) fn unpress(&self, saved: Matrix3x2) {
+        unsafe { self.rt.SetTransform(&saved) };
+    }
+
+    /// Scale what is drawn next by `k` about (cx, cy); returns the transform to restore.
+    pub(super) fn scale_about(&self, cx: f32, cy: f32, k: f32) -> Matrix3x2 {
+        let mut cur = Matrix3x2::default();
+        unsafe { self.rt.GetTransform(&mut cur) };
+        if (k - 1.0).abs() > 0.0005 {
+            let (tx, ty) = (cx - k * cx, cy - k * cy);
+            let m = Matrix3x2 {
+                M11: k * cur.M11,
+                M12: k * cur.M12,
+                M21: k * cur.M21,
+                M22: k * cur.M22,
+                M31: tx * cur.M11 + ty * cur.M21 + cur.M31,
+                M32: tx * cur.M12 + ty * cur.M22 + cur.M32,
+            };
+            unsafe { self.rt.SetTransform(&m) };
+        }
+        cur
     }
 
     pub(super) fn button(
@@ -398,14 +420,8 @@ impl Renderer {
         action: Action,
     ) {
         // Pressed in: a touch smaller and brighter while the button is held.
-        let (hov, down, [x, y, w, h]) = self.press(x, y, w, h, action);
-        let a = if down {
-            0.36
-        } else if hov {
-            0.26
-        } else {
-            0.13
-        };
+        let (_, hv, p, saved) = self.press(x, y, w, h, action);
+        let a = 0.13 + 0.13 * hv + 0.10 * p;
         self.fill_rr(x, y, w, h, h / 2.0, self.cc(accent, a));
         self.text(
             label,
@@ -414,8 +430,9 @@ impl Renderer {
             y,
             w,
             h,
-            self.cc(self.fg(), if hov { 1.0 } else { 0.86 }),
+            self.cc(self.fg(), 0.86 + 0.14 * hv),
         );
+        self.unpress(saved);
     }
 
     /// A filled call-to-action: the accent itself with dark ink on it.
@@ -429,15 +446,8 @@ impl Renderer {
         accent: [f32; 3],
         action: Action,
     ) {
-        let (hov, _, [x, y, w, h]) = self.press(x, y, w, h, action);
-        self.fill_rr(
-            x,
-            y,
-            w,
-            h,
-            h / 2.0,
-            self.cc(accent, if hov { 1.0 } else { 0.86 }),
-        );
+        let (_, hv, _, saved) = self.press(x, y, w, h, action);
+        self.fill_rr(x, y, w, h, h / 2.0, self.cc(accent, 0.86 + 0.14 * hv));
         self.text(
             label,
             &self.f.btn,
@@ -447,6 +457,7 @@ impl Renderer {
             h,
             self.cc([0.03, 0.03, 0.05], 0.92),
         );
+        self.unpress(saved);
     }
 
     /// A round icon button; `draw` paints the icon centred on (cx, cy) in the given colour.
@@ -459,18 +470,10 @@ impl Renderer {
         action: Action,
         draw: impl Fn(f32, f32, D2D1_COLOR_F),
     ) {
-        let hov = self.hit(cx - r, cy - r, r * 2.0, r * 2.0, action);
-        let down = hov && self.pressed.get();
-        let rr = if down { r * 0.94 } else { r };
-        let a = if down {
-            0.34
-        } else if hov {
-            0.24
-        } else {
-            0.12
-        };
-        self.circle(cx, cy, rr, self.cc(accent, a));
-        draw(cx, cy, self.cc(self.fg(), if hov { 1.0 } else { 0.88 }));
+        let (_, hv, p, saved) = self.press(cx - r, cy - r, r * 2.0, r * 2.0, action);
+        self.circle(cx, cy, r, self.cc(accent, 0.12 + 0.12 * hv + 0.10 * p));
+        draw(cx, cy, self.cc(self.fg(), 0.88 + 0.12 * hv));
+        self.unpress(saved);
     }
 
     /// A small Segoe Fluent Icons glyph (tab strip) centred on (cx, cy).
@@ -619,10 +622,10 @@ impl Renderer {
         on: Option<[f32; 3]>,
         action: Action,
     ) {
-        let (hov, _, [x, y, w, h]) = self.press(x, y, w, h, action);
+        let (_, hv, _, saved) = self.press(x, y, w, h, action);
         match on {
             Some(c) => {
-                self.fill_rr(x, y, w, h, 14.0, self.cc(c, if hov { 0.30 } else { 0.22 }));
+                self.fill_rr(x, y, w, h, 14.0, self.cc(c, 0.22 + 0.08 * hv));
                 self.stroke_rr(
                     x + 0.5,
                     y + 0.5,
@@ -634,14 +637,7 @@ impl Renderer {
                     false,
                 );
             }
-            None => self.fill_rr(
-                x,
-                y,
-                w,
-                h,
-                14.0,
-                self.cc(self.fg(), if hov { 0.11 } else { 0.06 }),
-            ),
+            None => self.fill_rr(x, y, w, h, 14.0, self.cc(self.fg(), 0.06 + 0.05 * hv)),
         }
         let ic = on.unwrap_or(self.fg());
         self.glyph_l(icon, x + w / 2.0, y + 20.0, self.cc(ic, 0.95));
@@ -664,5 +660,6 @@ impl Renderer {
             13.0,
             self.cc(sc, 0.95),
         );
+        self.unpress(saved);
     }
 }
