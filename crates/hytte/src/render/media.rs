@@ -102,17 +102,29 @@ impl Renderer {
             .unwrap_or(self.fg());
         // Seekable: a press anywhere on it (a little taller than the bar) jumps there.
         let hov = md.dur_ms > 0 && self.hit(bx - 4.0, 58.0, bw + 8.0, 19.0, Action::Seek);
-        let (bh, by) = if hov { (7.0, 64.0) } else { (5.0, 65.0) };
+        // Pointed at, the bar thickens and its knob grows; the position glides to a seek or a
+        // new song's start, and follows a drag exactly.
+        let hv = self.tw(tween::key("seek-hover", 0), hov as u8 as f32, motion::QUICK);
+        let (bh, by) = (5.0 + 2.0 * hv, 65.0 - hv);
         self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(self.fg(), 0.12));
         if md.dur_ms > 0 {
+            let frac = self.tw_drag(
+                tween::key("timeline", (&md.app, &md.title)),
+                frac.clamp(0.0, 1.0),
+                hov && self.pressed.get(),
+            );
             let fw = (bw * frac).max(bh);
             self.fill_rr(bx, by, fw, bh, bh / 2.0, self.cc(acc, 0.92));
-            if md.playing || hov {
-                let r = if hov { 6.5 } else { 5.0 };
+            let knob = self.tw(
+                tween::key("seek-knob", 0),
+                (md.playing || hov) as u8 as f32,
+                motion::QUICK,
+            );
+            if knob > 0.01 {
                 self.circle(
                     bx + fw - bh / 2.0,
                     by + bh / 2.0,
-                    r,
+                    (5.0 + 1.5 * hv) * knob,
                     self.cc(self.fg(), 1.0),
                 );
             }
@@ -168,11 +180,12 @@ impl Renderer {
         let (_, hv, _, saved) = self.press(cx - 18.0, cy - 18.0, 36.0, 36.0, Action::MediaToggle);
         self.circle(cx, cy, (17.0 + hv) * k, self.cc(self.fg(), 0.95));
         let dark = self.cc(self.ink(), 1.0);
-        if md.playing {
-            self.pause_icon(cx, cy, 13.0 * k, dark);
-        } else {
-            self.play_icon(cx + k, cy, 14.0 * k, dark);
-        }
+        let p = self.tw(
+            tween::key("play", 0),
+            md.playing as u8 as f32,
+            motion::QUICK,
+        );
+        self.play_pause(cx, cy, k, p, dark);
         self.unpress(saved);
     }
 

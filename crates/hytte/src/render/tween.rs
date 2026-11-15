@@ -80,6 +80,16 @@ impl Tweens {
         s.pos as f32
     }
 
+    /// Put the value `key` at `v` now, settled (a drag: it follows the pointer exactly, and
+    /// eases from there once let go).
+    pub fn set(&mut self, key: u64, v: f32, feel: Feel, eps: f64) {
+        let s = Spring {
+            eps,
+            ..Spring::unit(v as f64, feel)
+        };
+        self.map.insert(key, (s, self.frame));
+    }
+
     /// Where the value `key` is, without moving it (None if it isn't being drawn).
     pub fn peek(&self, key: u64) -> Option<f32> {
         self.map.get(&key).map(|(s, _)| s.pos as f32)

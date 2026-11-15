@@ -612,6 +612,18 @@ impl Renderer {
         out
     }
 
+    /// A 0..1 value the user may be dragging: while `dragging` it is drawn exactly where it is,
+    /// otherwise it eases to its new value (a wheel nudge, a seek, the player moving on).
+    pub(super) fn tw_drag(&self, key: u64, target: f32, dragging: bool) -> f32 {
+        if dragging {
+            self.tweens
+                .borrow_mut()
+                .set(key, target, motion::GLIDE, 0.002);
+            return target;
+        }
+        self.tw(key, target, motion::GLIDE)
+    }
+
     /// `tw` for a position or a length in logical px.
     #[expect(dead_code, reason = "first used by the sliding rows (Task 14)")]
     pub(super) fn tw_px(&self, key: u64, target: f32, feel: crate::animation::Feel) -> f32 {

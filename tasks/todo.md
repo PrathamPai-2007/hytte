@@ -190,10 +190,13 @@ build.
 `render/shelf.rs`, `render/settings.rs`. **Scope:** M
 
 ### Task 12: Progress and play/pause
-- [ ] Every determinate bar and ring (task progress, timeline, volume, timer ring, battery) moves
-      through `Tweens` with `GLIDE`; a scrub or a drag follows the pointer with no lag
-- [ ] Play and pause are one shape that morphs between the two
-- [ ] A new track or task starts at its value instead of sweeping from the last one
+- [x] Task progress, the media timeline and the volume bar glide (`GLIDE`); a drag follows the
+      pointer exactly. The timer ring and the battery are not eased: they change once a second
+      or less, by an invisible step, and easing them would add a burst of frames to every tick
+- [x] Play and pause are one shape that morphs between the two (`play-pause.png` from
+      `play_pause_morph_picture`)
+- [x] A new track or task starts at its value instead of sweeping from the last one (keys carry
+      the task id and the song)
 **Verify:** Checks; filmstrip; live build with media.
 **Depends on:** 4. **Files:** `render/prims.rs`, `render/media.rs`, `render/compact.rs`,
 `render/timer.rs`, `render/home.rs`. **Scope:** M

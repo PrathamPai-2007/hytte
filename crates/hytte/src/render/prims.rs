@@ -549,6 +549,52 @@ impl Renderer {
         );
     }
 
+    /// Play (`p` = 0) turning into pause (`p` = 1): each half of the triangle becomes a bar.
+    /// `k` scales it, as for the transport row.
+    pub(super) fn play_pause(&self, cx: f32, cy: f32, k: f32, p: f32, c: D2D1_COLOR_F) {
+        if p <= 0.001 {
+            return self.play_icon(cx + k, cy, 14.0 * k, c);
+        }
+        if p >= 0.999 {
+            return self.pause_icon(cx, cy, 13.0 * k, c);
+        }
+        // The play triangle (as `play_icon` draws it) cut down the middle into two quads.
+        let h = 14.0 * k / 2.0;
+        let (ax, bx) = (cx + k - h * 0.7, cx + k + h);
+        let mx = (ax + bx) / 2.0;
+        let play = [
+            [
+                (ax, cy - h),
+                (mx, cy - h / 2.0),
+                (mx, cy + h / 2.0),
+                (ax, cy + h),
+            ],
+            [(mx, cy - h / 2.0), (bx, cy), (bx, cy), (mx, cy + h / 2.0)],
+        ];
+        // The pause bars (as `pause_icon` draws them).
+        let s = 13.0 * k;
+        let bw = s * 0.3;
+        let bar = |x0: f32| {
+            [
+                (x0, cy - s / 2.0),
+                (x0 + bw, cy - s / 2.0),
+                (x0 + bw, cy + s / 2.0),
+                (x0, cy + s / 2.0),
+            ]
+        };
+        let pause = [bar(cx - s * 0.38), bar(cx + s * 0.08)];
+        for (a, b) in play.iter().zip(&pause) {
+            let mut q = [(0.0, 0.0); 4];
+            for i in 0..4 {
+                q[i] = (
+                    a[i].0 + (b[i].0 - a[i].0) * p,
+                    a[i].1 + (b[i].1 - a[i].1) * p,
+                );
+            }
+            self.poly(&q, c);
+        }
+    }
+
     /// Previous (dir -1) or next (dir +1) track: a triangle against a bar.
     pub(super) fn skip_icon(&self, cx: f32, cy: f32, dir: f32, c: D2D1_COLOR_F) {
         let h = 6.5;

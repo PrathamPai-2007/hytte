@@ -486,3 +486,30 @@ fn glow_cost_spike() {
         );
     }
 }
+
+/// The play/pause morph at five points, side by side (`play-pause.png`).
+#[test]
+#[ignore]
+fn play_pause_morph_picture() {
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let r = Renderer::offscreen(3.0).unwrap();
+    unsafe {
+        r.rt.BeginDraw();
+        r.rt.Clear(Some(&color([0.1; 3], 1.0)));
+        r.rt.SetTransform(&mat(3.0, 0.0, 0.0));
+        for i in 0..5 {
+            let cx = 30.0 + i as f32 * 44.0;
+            r.circle(cx, 30.0, 18.0, color(WHITE, 0.95));
+            r.play_pause(cx, 30.0, 1.0, i as f32 / 4.0, color([0.04; 3], 1.0));
+        }
+        r.rt.EndDraw(None, None).unwrap();
+    }
+    let px = r.read_back();
+    let (cw, w, h) = (r.px.0 as u32, 690u32, 180u32);
+    let img = image::RgbImage::from_fn(w, h, |x, y| {
+        let k = ((y * cw + x) * 4) as usize;
+        image::Rgb([px[k + 2], px[k + 1], px[k]])
+    });
+    img.save(dir.join("play-pause.png")).unwrap();
+}

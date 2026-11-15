@@ -121,7 +121,13 @@ impl Renderer {
         );
         match m.speaker {
             Some((vol, muted)) => {
-                let fw = (bw * vol).max(bh);
+                // A wheel nudge or a change from elsewhere glides; a drag follows the pointer.
+                let shown = self.tw_drag(
+                    tween::key("volume", 0),
+                    vol.clamp(0.0, 1.0),
+                    hov && self.pressed.get(),
+                );
+                let fw = (bw * shown).max(bh);
                 let (fill, a) = if muted {
                     (GRAY, 0.30)
                 } else {
