@@ -381,6 +381,8 @@ pub struct Renderer {
     pad_r: Cell<f32>,
     /// Last pill silhouette, keyed by its size: ambient frames (spinner, pulses) repeat it.
     geom: RefCell<Option<([u32; 2], ID2D1PathGeometry)>>,
+    /// Continuous-curvature rounded rectangles by their box (`smooth_rr`).
+    smooth: RefCell<HashMap<[u32; 5], ID2D1PathGeometry>>,
     /// The steady pill's background as bitmaps (`render/pill.rs`).
     bg: RefCell<pill::BgCache>,
 }
@@ -430,6 +432,68 @@ fn v(x: f32, y: f32) -> Vector2 {
 }
 fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t)
+}
+
+/// One continuous-curvature corner of a clockwise path, from where the curve leaves the edge
+/// before the corner (the path is drawn on to there with a line) to where it meets the edge
+/// after it. (cx, cy) is the corner; `turn` 0..3 is which one (top right, bottom right, bottom
+/// left, top left). `r` is the radius of the circle in the middle of the bend; the curve
+/// starts 1.6 r from the corner, or as far as `room` allows (the smoothing shrinks first, then
+/// the radius).
+///
+/// The construction is the usual smoothed corner: a straight edge eases into a shortened arc
+/// through a cubic on each side, so the curvature rises from zero instead of jumping.
+unsafe fn smooth_corner(s: &ID2D1GeometrySink, cx: f32, cy: f32, turn: u8, r: f32, room: f32) {
+    let mut r = r.min(room);
+    let mut sm = 0.6f32;
+    if (1.0 + sm) * r > room {
+        sm = (room / r - 1.0).max(0.0);
+        r = r.min(room);
+    }
+    let p = (1.0 + sm) * r;
+    let arc = 90.0 * (1.0 - sm);
+    let arc_len = (arc / 2.0).to_radians().sin() * r * std::f32::consts::SQRT_2;
+    let alpha = (90.0 - arc) / 2.0;
+    let p3p4 = r * (alpha / 2.0).to_radians().tan();
+    let beta = 45.0 * sm;
+    let c = p3p4 * beta.to_radians().cos();
+    let d = c * beta.to_radians().tan();
+    let b = (p - arc_len - c - d) / 3.0;
+    let a = 2.0 * b;
+    // The top-right corner at the origin; the others are it turned by quarters.
+    let at = |px: f32, py: f32| {
+        let (x, y) = match turn {
+            0 => (px, py),
+            1 => (-py, px),
+            2 => (-px, -py),
+            _ => (py, -px),
+        };
+        v(cx + x, cy + y)
+    };
+    s.AddLine(at(-p, 0.0));
+    s.AddBezier(&D2D1_BEZIER_SEGMENT {
+        point1: at(-p + a, 0.0),
+        point2: at(-p + a + b, 0.0),
+        point3: at(-p + a + b + c, d),
+    });
+    let (ex, ey) = (-p + a + b + c + arc_len, d + arc_len);
+    if arc_len > 0.01 {
+        s.AddArc(&D2D1_ARC_SEGMENT {
+            point: at(ex, ey),
+            size: D2D_SIZE_F {
+                width: r,
+                height: r,
+            },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+    }
+    s.AddBezier(&D2D1_BEZIER_SEGMENT {
+        point1: at(ex + d, ey + c),
+        point2: at(ex + d, ey + b + c),
+        point3: at(0.0, p),
+    });
 }
 
 fn mat(s: f32, tx: f32, ty: f32) -> Matrix3x2 {
@@ -594,6 +658,7 @@ impl Renderer {
                 wide: RefCell::new(Vec::new()),
                 geom: RefCell::new(None),
                 bg: RefCell::new(Default::default()),
+                smooth: RefCell::new(HashMap::new()),
                 morph: Cell::new(None),
                 pressed: Cell::new(false),
                 light: Cell::new(false),

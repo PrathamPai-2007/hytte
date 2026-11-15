@@ -291,10 +291,11 @@ three per commit. **Scope:** L, split by scene file
 **Scope:** M
 
 ### Task 20: Continuous-curvature corners
-- [ ] The silhouette's bottom corners, tiles, cards, album art and the bubble use the new corner,
-      from a geometry cache keyed by size (capped)
-- [ ] Inner radii follow the nesting rule from Task 18
-- [ ] Perf while the pill resizes is within budget
+- [x] The silhouette's bottom corners and every large rounded shape drawn through `fill_rr` /
+      `stroke_rr` (tiles, cards, the album art placeholder, the text fields) use the new corner,
+      from a geometry cache (capped at 96). Full pills, circles and radii under 12 stay native
+- [x] Inner radii follow the nesting rule from Task 18 (`R_CARD`, `R_ROW` from `inner`)
+- [ ] Perf while the pill resizes is within budget (measured at Task 24)
 **Verify:** Checks; before / after snapshot page at 100 % and 200 %; perf line.
 **Depends on:** 18. **Files:** `render/pill.rs`, `render/prims.rs`, `render.rs`. **Scope:** M
 

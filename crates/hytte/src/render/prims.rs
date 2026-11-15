@@ -120,6 +120,10 @@ impl Renderer {
     }
 
     pub(super) fn fill_rr(&self, x: f32, y: f32, w: f32, h: f32, r: f32, c: D2D1_COLOR_F) {
+        if let Some(g) = self.smooth_rr(x, y, w, h, r) {
+            unsafe { self.rt.FillGeometry(&g, self.solid(c), None::<&ID2D1Brush>) };
+            return;
+        }
         let rr = D2D1_ROUNDED_RECT {
             rect: rect(x, y, w, h),
             radiusX: r,
@@ -139,6 +143,12 @@ impl Renderer {
         width: f32,
         dashed: bool,
     ) {
+        if !dashed {
+            if let Some(g) = self.smooth_rr(x, y, w, h, r) {
+                unsafe { self.rt.DrawGeometry(&g, self.solid(c), width, &self.round) };
+                return;
+            }
+        }
         let rr = D2D1_ROUNDED_RECT {
             rect: rect(x, y, w, h),
             radiusX: r,
@@ -152,6 +162,47 @@ impl Renderer {
                 if dashed { &self.dashed } else { &self.round },
             )
         };
+    }
+
+    /// A large rounded rectangle with continuous-curvature corners, from a small cache (it is
+    /// rebuilt when its box changes). None for small radii and for full pills and circles, which
+    /// stay native rounded rectangles: at those sizes the difference can't be seen.
+    pub(super) fn smooth_rr(
+        &self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+    ) -> Option<ID2D1PathGeometry> {
+        if r < 12.0 || r >= w.min(h) / 2.0 - 0.5 {
+            return None;
+        }
+        let key = [x, y, w, h, r].map(f32::to_bits);
+        let mut cache = self.smooth.borrow_mut();
+        if let Some(g) = cache.get(&key) {
+            return Some(g.clone());
+        }
+        let g = unsafe {
+            let g = self.factory.CreatePathGeometry().ok()?;
+            let s = g.Open().ok()?;
+            let lim = w.min(h) / 2.0;
+            s.BeginFigure(v(x + w / 2.0, y), D2D1_FIGURE_BEGIN_FILLED);
+            smooth_corner(&s, x + w, y, 0, r, lim);
+            smooth_corner(&s, x + w, y + h, 1, r, lim);
+            smooth_corner(&s, x, y + h, 2, r, lim);
+            smooth_corner(&s, x, y, 3, r, lim);
+            s.EndFigure(D2D1_FIGURE_END_CLOSED);
+            s.Close().ok()?;
+            g
+        };
+        // ponytail: whole-cache reset when full; boxes in a steady pane repeat, so it refills
+        // with what is on screen.
+        if cache.len() >= 96 {
+            cache.clear();
+        }
+        cache.insert(key, g.clone());
+        Some(g)
     }
 
     pub(super) fn circle(&self, cx: f32, cy: f32, r: f32, c: D2D1_COLOR_F) {

@@ -82,10 +82,11 @@ impl Renderer {
             if e > 0.5 {
                 s.AddArc(&arc(w, e, e, false));
             }
-            s.AddLine(v(w, h - rb));
-            s.AddArc(&arc(w - rb, h, rb, true));
-            s.AddLine(v(rb, h));
-            s.AddArc(&arc(0.0, h - rb, rb, true));
+            // The bottom corners ease out of the sides (continuous curvature), in whatever
+            // room the ears and the width leave.
+            let room = (h - e).min(w / 2.0).max(0.0);
+            smooth_corner(&s, w, h, 1, rb, room);
+            smooth_corner(&s, 0.0, h, 2, rb, room);
             s.AddLine(v(0.0, e));
             if e > 0.5 {
                 s.AddArc(&arc(-e, 0.0, e, false));
