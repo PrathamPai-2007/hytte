@@ -67,7 +67,7 @@ Notes and To-do are **off at first**: switch them on in [Settings](07-settings.m
 
 Click the field, type, press **Enter**. The **24 h / Keep** switch decides how long the note stays: a ring shows the time left, and **Keep** (a pin button when you point at a note) keeps it for good. Point at a note for **Copy**, **Keep** and **Delete** (Delete offers **Undo** for a few seconds). Click a note's text to change it.
 
-Set a `note_hotkey` in [Settings](07-settings.md#editing-configtoml) (for example `"Win+Alt+J"`; the Notes pane has to be on) to open Notes with the cursor ready, from any app. **Esc** takes you straight back. Notes live in `%APPDATA%\Hytte\jot.json` on your PC and nowhere else.
+Set **Open Notes** in [Settings → Hotkeys](07-settings.md#hotkeys) (for example **Win + Alt + J**; the Notes pane has to be on) to open Notes with the cursor ready, from any app. **Esc** takes you straight back. Notes live in `%APPDATA%\Hytte\jot.json` on your PC and nowhere else.
 
 ## To-do
 

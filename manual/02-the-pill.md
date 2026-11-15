@@ -35,7 +35,7 @@ Right-clicking the pill opens the timer card.
 | Spinner and timer | A task is running. |
 | Green tick | A task finished. |
 | Red cross | A task failed. It stays until you dismiss it. |
-| Amber glow and a bell | Something, usually an AI agent, is waiting for you. Click it. |
+| A bell (and an amber glow, with the [glow](07-settings.md#skin-and-glow) on) | Something, usually an AI agent, is waiting for you. Click it. |
 | `● :3000` | A dev server is running on that port. |
 | Stacked tiles and a number | Files are on your shelf. |
 | Album art and moving bars | Music is playing. |
@@ -76,7 +76,7 @@ If a game isn't detected, or an app makes Hytte back off when it shouldn't, see 
 
 ## Using the keyboard
 
-Set a `hotkey` in [Settings](07-settings.md#editing-configtoml) (for example `"Win+Alt+N"`), then press it to open the pill.
+Set **Open the pill** in [Settings → Hotkeys](07-settings.md#hotkeys) (click the field, then press for example **Win + Alt + N**), then press it to open the pill.
 
 | Key | Does |
 |---|---|

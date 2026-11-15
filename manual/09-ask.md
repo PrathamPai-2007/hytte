@@ -22,7 +22,7 @@ The first question after a while is slow, because Ollama has to load the model i
 
 To skip the wait, press **Load model now** on the empty pane: Ollama loads the model without being asked anything. Press **Unload now** (it shows once the model is loaded, and after an answer) to free it at once. Otherwise Ollama frees it by itself after the same idle time (nothing in Hytte has to remember to unload it; `keep_alive = "-1"` keeps it loaded until Ollama quits).
 
-With `[ai] hotkey` set (for example `Win+Alt+A`), the chord opens the Ask pane with the cursor ready.
+Set **Open Ask** in [Settings → Hotkeys](07-settings.md#hotkeys) (for example **Win + Alt + A**) and the chord opens the Ask pane with the cursor ready.
 
 ## Explain, Summarise, Shorten
 
@@ -49,7 +49,7 @@ A model this small is good at: explaining an error message, summarising a page o
 
 | The pane says | What to do |
 |---|---|
-| **Ollama isn't running** | Start Ollama (it sits in the tray), then **Try again**. |
+| **Ollama isn't running** | Press **Start Ollama** on the pane (or start Ollama yourself), then **Try again**. |
 | **isn't downloaded** | **Get it**, or run `ollama pull <model>` in a terminal. |
 | **Can't use Ollama** | Check `[ai] host`. It must be this PC. The default is `127.0.0.1:11434`. |
 | An answer ends with *model not found* | The model name in `[ai] model` isn't one Ollama has. |

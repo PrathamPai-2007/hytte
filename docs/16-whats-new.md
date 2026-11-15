@@ -2,7 +2,7 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## 1.9.1 (unreleased)
+## 1.9.1
 
 The motion and look release. Nothing moves in a new place: what was already there moves better.
 
@@ -24,7 +24,7 @@ The motion and look release. Nothing moves in a new place: what was already ther
 - **A tighter type scale** (five sizes, small text in Segoe UI Variable's cut for small sizes) and an even 12 px between every pane and its tabs.
 - **One slider** for the song's position and the settings window, and two button heights.
 
-**Lighter.** The pill's background is drawn once and reused while it doesn't change: measured part-way through this release, a collapsed pill with a running task used about a third of the processor time it did (5.5 % of a core instead of 14.6 %, at 60 Hz). Final numbers come with the release.
+**Lighter.** The pill's background is drawn once and reused while it doesn't change: measured part-way through this release, a collapsed pill with a running task used about a third of the processor time it did (5.5 % of a core instead of 14.6 %, at 60 Hz).
 
 **Your own skin colour.** A seventh disc, **Custom**, with a colour slider and a vividness slider under it; or type `skin = "#3a6ea5"` in `config.toml`. The pill stays dark (or light) enough for text whatever you pick. See [manual 7](../manual/07-settings.md).
 
@@ -33,6 +33,8 @@ The motion and look release. Nothing moves in a new place: what was already ther
 **Hotkeys in Settings.** A **Hotkeys** section: click a field and press the keys. A combination another app already owns shows in amber, **Taken by another app**, instead of silently doing nothing.
 
 **New defaults**: pill opacity 90 %; the Notes, To-do and Ask tabs start switched off (Settings → Panes; a file that sets them keeps its choice).
+
+**Releases are no longer signed.** `hytte.exe.minisig` is gone; only 1.6.0 checked it, so a 1.6.0 install has to be updated by hand once ([section 15](15-updates.md#signing)).
 
 **Ask**: a **Start Ollama** button when Ollama isn't running (or **Get Ollama** when it isn't installed). See [manual 9](../manual/09-ask.md).
 

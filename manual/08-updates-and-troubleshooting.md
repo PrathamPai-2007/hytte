@@ -10,7 +10,7 @@ Only `api.github.com` and `github.com` are contacted, and nothing about you is s
 
 **Update by hand:** quit Hytte, replace `hytte.exe` with the one from the [releases page](https://github.com/PrathamPai-2007/hytte/releases/latest), and start it again.
 
-**On version 1.6.0?** Update as soon as you can: use **Check for updates…**, or update by hand if it says a release "has no hytte.exe.minisig".
+**On version 1.6.0?** It can't update itself any more (it says the release "has no hytte.exe.minisig"): update by hand once, and every later version updates itself again.
 
 ## Start here
 

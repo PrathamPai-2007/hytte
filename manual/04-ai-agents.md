@@ -28,7 +28,7 @@ Your own settings are kept, and the original file is saved as `<file>.hytte-back
 - **How long it has run:** a working agent shows its time on this turn (it starts over with each prompt), and the finished card says "Ran 8 min" on its quiet line when the turn took ten seconds or more.
 - **Quiet:** a working agent that has said nothing for 5 minutes (`[agent] quiet_after_secs`, `0` = never) shows a grey "quiet 6m". It only means no news: a long model call or a long test run looks the same. There is no sound and no alert.
 - **Several agents:** with more than one row the pill shows a count; it turns amber while any agent waits for you, and says "2 waiting" when more than one does.
-- **Waiting for you:** the pill glows amber and beeps, even over a maximised terminal. Click it to jump to the agent's terminal.
+- **Waiting for you:** the pill shows a bell and beeps (and glows amber, with the glow on), even over a maximised terminal. Click it to jump to the agent's terminal.
 - **Done:** a card shows the first line of the reply, with **Copy**, and a quiet line such as "Edited 4 files · 84k context" when Hytte knows it.
 
 To silence the beep, turn it off in [Settings](07-settings.md) or set quiet hours.
