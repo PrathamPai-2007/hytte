@@ -142,15 +142,11 @@ impl HytteMessage {
                 return false;
             }
         }
-        if self.message.as_ref().is_some_and(|m| m.len() > 1024)
+        !(self.message.as_ref().is_some_and(|m| m.len() > 1024)
             || self.cwd.as_ref().is_some_and(|c| c.len() > 1024)
             || self.source.as_ref().is_some_and(|c| c.len() > 16)
             || self.line.as_ref().is_some_and(|l| l.len() > 512)
-            || self.file.as_ref().is_some_and(|f| f.len() > 1024)
-        {
-            return false;
-        }
-        true
+            || self.file.as_ref().is_some_and(|f| f.len() > 1024))
     }
 
     /// Encode as a single NDJSON line. Over-long text is trimmed to the limits [`validate`]
