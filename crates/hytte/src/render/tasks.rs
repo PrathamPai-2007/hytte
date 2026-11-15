@@ -99,15 +99,21 @@ impl Renderer {
             } else {
                 (natural, None)
             };
+            // Only a percentage rolls: an elapsed time shows tenths for its first minute, and
+            // a roll every 100 ms would never settle (and keep the pane at the refresh rate).
+            let value = self.task_right_text(t, now);
+            let roll = value
+                .ends_with('%')
+                .then(|| tween::key("task-value", &t.id));
             self.digits(
-                &self.task_right_text(t, now),
+                &value,
                 &self.f.small_r,
                 r[0],
                 r[1],
                 r[2],
                 r[3],
                 self.cc(task_color(t), 0.95),
-                Some(tween::key("task-value", &t.id)),
+                roll,
             );
             self.hero_end(saved);
             if finished {

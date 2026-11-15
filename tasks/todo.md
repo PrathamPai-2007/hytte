@@ -339,9 +339,11 @@ Built to the verdict from Task 6.
 - [x] Reduced motion: every tween, layer, stagger, roll and bounce snaps; tests cover layers and
       tweens
 - [x] Calm and snappy scale everything, tweens included (the frame's dt carries the speed)
-- [x] Final numbers at 60 Hz in `tasks/baseline.md` and `docs/12`. At 120 Hz the runs overlapped
-      a game and were discarded; the user saw 3 to 5 % in use and called it fine (2026-11-15).
-      A no-spin guard was added to the frame clock for when the compositor stops pacing
+- [ ] Final numbers. What exists is mid-build (after Task 5, at 60 Hz). Runs on the final code at
+      120 Hz overlapped a game and were discarded; the user saw 3 to 5 % in use and said not to
+      measure while they use the laptop. A no-spin guard was added to the frame clock
+- [ ] **Gate before any tag:** a clean run on the final build at 120 Hz (idle, a task collapsed and
+      open, private bytes) when the user says the laptop is free; update `docs/12` and `docs/16`
 **Verify:** Checks; the numbers.
 **Depends on:** Checkpoint 5. **Files:** tests, `tasks/baseline.md`. **Scope:** S
 

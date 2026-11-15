@@ -587,3 +587,63 @@ fn play_pause_morph_picture() {
     });
     img.save(dir.join("play-pause.png")).unwrap();
 }
+
+/// An open Tasks pane with a young running task (its time shows tenths) settles: nothing it
+/// draws keeps easing, so the frame clock can drop to the ambient rate.
+#[test]
+fn a_running_task_does_not_keep_the_pane_easing() {
+    let Ok(mut r) = Renderer::offscreen(1.0) else {
+        return;
+    };
+    let t0 = epoch();
+    let mut m = film_model();
+    m.remove_task("a");
+    m.apply_task(
+        crate::tasks::TaskUpdate::Upsert(crate::tasks::TaskState {
+            task_id: "young".into(),
+            label: "npm test".into(),
+            progress: None,
+            event: TaskEvent::Start,
+            duration_ms: None,
+            stderr_tail: None,
+            source: "run".into(),
+            pid: None,
+            delay_ms: 0,
+            message: None,
+            exit_code: None,
+            line: None,
+            cwd: None,
+            agent: Default::default(),
+            updated: t0,
+        }),
+        t0 - std::time::Duration::from_secs(5),
+    );
+    let (w, h) = m.size(Scene::ExpTasks);
+    let mut an = Anim::new(w, h);
+    an.set_scene(Scene::ExpTasks, (w, h), m.glow(Scene::ExpTasks));
+    while an.step(1.0 / 60.0) {}
+    let mut easing = 0;
+    for i in 0..90 {
+        let fr = Frame {
+            model: &m,
+            anim: &an,
+            now: t0 + std::time::Duration::from_secs_f64(i as f64 / 60.0),
+            dt: 1.0 / 60.0,
+            mouse: None,
+            pressed: false,
+            light: false,
+            accent: BLUE,
+            focus: None,
+            armed: false,
+            ringing: false,
+            caret_on: true,
+        };
+        let crop = r.plan(w as f32, h as f32, false, 0.0, true);
+        let mut hits = vec![];
+        r.draw(&fr, crop, &mut hits);
+        if i >= 30 && r.tweening() {
+            easing += 1;
+        }
+    }
+    assert_eq!(easing, 0, "frames still easing in the last second");
+}

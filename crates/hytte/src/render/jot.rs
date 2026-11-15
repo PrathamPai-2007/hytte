@@ -291,7 +291,7 @@ impl Renderer {
             unsafe { self.rt.PopAxisAlignedClip() };
         }
         y = top + shown as f32 * ROW_H;
-        self.jot_leaving(w, &drawn, &list, wall);
+        self.jot_leaving(w, scene, &drawn, &list, wall);
         if undo.is_some() {
             self.text(
                 "Deleted",
@@ -324,10 +324,14 @@ impl Renderer {
     /// A note or to-do that was drawn last frame and is gone now (deleted, ticked off into the
     /// done list's end, scrolled out of view is not it: only one still in the list's window
     /// counts) fades out where it was, drifting left. It takes no clicks.
-    fn jot_leaving(&self, w: f32, drawn: &[(Jot, f32)], list: &[&Jot], wall: u64) {
+    fn jot_leaving(&self, w: f32, scene: Scene, drawn: &[(Jot, f32)], list: &[&Jot], wall: u64) {
         let mut ghosts = self.jot_ghosts.borrow_mut();
-        let last = std::mem::replace(&mut *self.jot_last.borrow_mut(), drawn.to_vec());
-        if self.steady.get() && !self.reduced.get() {
+        let (was, last) = std::mem::replace(
+            &mut *self.jot_last.borrow_mut(),
+            (Some(scene), drawn.to_vec()),
+        );
+        // Rows of the other list (Notes after To-do) are not leaving: they were never here.
+        if self.steady.get() && !self.reduced.get() && was == Some(scene) {
             for (j, y) in last {
                 // Gone from the list, not just scrolled out of the window.
                 let gone = !list.iter().any(|d| d.id == j.id);

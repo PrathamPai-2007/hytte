@@ -55,6 +55,9 @@ pub use settings_table::*;
 const STAGGER_STEP: f32 = 0.06;
 const STAGGER_GROUPS: u8 = 5;
 
+/// Notes or to-dos with where each was drawn.
+type JotRows = Vec<(crate::jot::Jot, f32)>;
+
 pub const CANVAS_W: f32 = 460.0;
 pub const CANVAS_H: f32 = 310.0;
 const HOT_ZONE_H: f32 = 40.0;
@@ -338,8 +341,8 @@ pub struct Renderer {
     prev_live: Cell<Option<Scene>>,
     /// Notes and to-dos drawn last frame (with where), and the ones that have since gone and
     /// are fading out where they were (`render/jot.rs`).
-    jot_last: RefCell<Vec<(crate::jot::Jot, f32)>>,
-    jot_ghosts: RefCell<Vec<(crate::jot::Jot, f32)>>,
+    jot_last: RefCell<(Option<Scene>, JotRows)>,
+    jot_ghosts: RefCell<JotRows>,
     /// Measured widths of single characters per text format: (format, char) -> px.
     char_ws: RefCell<HashMap<(usize, char), f32>>,
     /// Rolling numbers (`digits`): the text shown now and the one it rolled from, per key.
@@ -639,7 +642,7 @@ impl Renderer {
                 stagger: Cell::new(None),
                 steady: Cell::new(false),
                 prev_live: Cell::new(None),
-                jot_last: RefCell::new(Vec::new()),
+                jot_last: RefCell::new((None, Vec::new())),
                 jot_ghosts: RefCell::new(Vec::new()),
                 reduced: Cell::new(false),
                 char_ws: RefCell::new(HashMap::new()),

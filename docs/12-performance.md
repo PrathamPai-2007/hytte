@@ -14,6 +14,8 @@ Hytte runs all day beside everything else, so idle cost matters more than peak s
 | CPU with a running task, open | | ≈ 18 % at 60 fps (1.9.0: 27 % at 30 fps) |
 | Missed frames while a spring moves | at most 2 per 240 | 0 (1.9.0: 4 to 7, the change from the ambient sleep to vblank pacing) |
 
+The three rows above were measured at 60 Hz right after the background cache and the vblank pacing, before the later motion and look work (sliding rows, rolling digits, corners, the shadow). They are to be measured again on the final build at 120 Hz before the release.
+
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`).
 
 ### Why the GPU renderer uses WARP

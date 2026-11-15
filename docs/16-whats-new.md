@@ -24,7 +24,7 @@ The motion and look release. Nothing moves in a new place: what was already ther
 - **A tighter type scale** (five sizes, small text in Segoe UI Variable's cut for small sizes) and an even 12 px between every pane and its tabs.
 - **One slider** for the song's position and the settings window, and two button heights.
 
-**Lighter.** A collapsed pill with a running task uses about a third of the processor time it did (5.5 % of a core instead of 14.6 % when measured at 60 Hz): the pill's background is drawn once and reused while it doesn't change.
+**Lighter.** The pill's background is drawn once and reused while it doesn't change: measured part-way through this release, a collapsed pill with a running task used about a third of the processor time it did (5.5 % of a core instead of 14.6 %, at 60 Hz). Final numbers come with the release.
 
 **Ask**: a **Start Ollama** button when Ollama isn't running (or **Get Ollama** when it isn't installed). See [manual 9](../manual/09-ask.md).
 
