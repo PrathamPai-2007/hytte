@@ -61,9 +61,10 @@ frame was spring-paced or ambient to the `HYTTE_PERF` line.
 `ui_state/tests/scene.rs`. **Scope:** M
 
 ### Task 3: Motion tokens
-- [ ] `animation::motion` holds `GROW`, `SHRINK`, `ENTER`, `EXIT`, `QUICK`, `GLIDE`, `POP`
-- [ ] No `(zeta, period)` literal remains in `ui_state/anim.rs` or `render/`
-- [ ] Motion is unchanged: the filmstrip matches Task 2's frame for frame
+- [x] `animation::motion` holds `GROW`, `SHRINK`, `ENTER`, `EXIT`, `QUICK`, `FADE`, `GLIDE`, `POP`
+- [x] No `(zeta, period)` literal remains in `ui_state/anim.rs` or `render/`
+- [x] Motion is unchanged: every token has the value of the literal it replaced (filmstrips are
+      now drawn at script time, so a strip is byte-identical from run to run)
 **Verify:** Checks; filmstrip diff is empty.
 **Depends on:** 2. **Files:** `animation.rs`, `ui_state/anim.rs`. **Scope:** S
 

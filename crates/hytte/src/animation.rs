@@ -4,6 +4,60 @@
 /// Global tempo: >1 slows every spring (user found the defaults a touch fast).
 const SLOW: f64 = 1.18;
 
+/// How a spring moves: its damping ratio (1 = no overshoot, less = a little) and its period in
+/// seconds (before `SLOW` and the speed setting stretch it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Feel {
+    pub zeta: f64,
+    pub period: f64,
+}
+
+/// Every motion in the pill uses one of these feels, so things that do the same kind of job move
+/// the same way. `[general] animation` and `SLOW` scale all of them together.
+pub mod motion {
+    use super::Feel;
+    /// The pill growing: a touch of overshoot that settles rather than bounces.
+    pub const GROW: Feel = Feel {
+        zeta: 0.86,
+        period: 0.30,
+    };
+    /// The pill shrinking: slower and critically damped, so it eases shut.
+    pub const SHRINK: Feel = Feel {
+        zeta: 1.0,
+        period: 0.40,
+    };
+    /// Content arriving.
+    pub const ENTER: Feel = Feel {
+        zeta: 1.0,
+        period: 0.21,
+    };
+    /// Content leaving: a little quicker than it arrives, so it is out of the way.
+    pub const EXIT: Feel = Feel {
+        zeta: 1.0,
+        period: 0.17,
+    };
+    /// Responses to the pointer: hover, press, a toggle.
+    pub const QUICK: Feel = Feel {
+        zeta: 1.0,
+        period: 0.16,
+    };
+    /// The whole pill fading in and out.
+    pub const FADE: Feel = Feel {
+        zeta: 1.0,
+        period: 0.22,
+    };
+    /// Values moving: progress, a row sliding, scrolling, the glow.
+    pub const GLIDE: Feel = Feel {
+        zeta: 1.0,
+        period: 0.30,
+    };
+    /// Something popping out, or springing back: the bubble, a released press.
+    pub const POP: Feel = Feel {
+        zeta: 0.72,
+        period: 0.34,
+    };
+}
+
 /// Spring params: zeta ≈ 0.78, period ≈ 0.28 s (a fresh spring's default; the pill's own are below).
 #[derive(Debug, Clone, Copy)]
 pub struct Spring {
@@ -29,10 +83,10 @@ impl Spring {
     }
 
     /// Spring for normalised 0..1 values (opacity, glow, progress).
-    pub fn unit(pos: f64, zeta: f64, period: f64) -> Self {
+    pub fn unit(pos: f64, feel: Feel) -> Self {
         Self {
-            zeta,
-            period,
+            zeta: feel.zeta,
+            period: feel.period,
             eps: 0.002,
             ..Self::new(pos)
         }
@@ -93,11 +147,6 @@ impl Spring {
     }
 }
 
-/// Expanding: a touch of overshoot, softer than it was, so it settles rather than bounces.
-const GROW: (f64, f64) = (0.86, 0.30);
-/// Collapsing: slower and critically damped, so the pill eases shut without a bounce.
-const SHRINK: (f64, f64) = (1.0, 0.40);
-
 /// Rectangular spring for window bounds (x is fixed centre; we animate w/h).
 #[derive(Debug, Clone, Copy)]
 pub struct RectSpring {
@@ -117,10 +166,14 @@ impl RectSpring {
         // expansion's overshoot is never re-read as a collapse.
         if (w, h) != (self.w.target, self.h.target) {
             let shrinking = w * h < self.w.target * self.h.target;
-            let (zeta, period) = if shrinking { SHRINK } else { GROW };
+            let f = if shrinking {
+                motion::SHRINK
+            } else {
+                motion::GROW
+            };
             for s in [&mut self.w, &mut self.h] {
-                s.zeta = zeta;
-                s.period = period;
+                s.zeta = f.zeta;
+                s.period = f.period;
             }
         }
         self.w.set_target(w);
@@ -157,7 +210,13 @@ mod tests {
 
     #[test]
     fn unit_spring_settles_and_snap_works() {
-        let mut s = Spring::unit(0.0, 1.0, 0.2);
+        let mut s = Spring::unit(
+            0.0,
+            Feel {
+                zeta: 1.0,
+                period: 0.2,
+            },
+        );
         s.set_target(1.0);
         let mut n = 0;
         while s.advance(1.0 / 60.0) && n < 600 {

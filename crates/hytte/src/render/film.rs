@@ -109,9 +109,16 @@ pub fn scripts() -> Vec<Script> {
     ]
 }
 
+/// The moment every script starts at: frames are drawn at `epoch() + t`, so a strip is the same
+/// pictures on every run (the media timeline and the spinner read the clock).
+fn epoch() -> Instant {
+    static E: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    *E.get_or_init(Instant::now)
+}
+
 /// A model with something to show in every scene the scripts use.
 pub fn film_model() -> Model {
-    let now = Instant::now();
+    let now = epoch();
     let mut m = Model {
         glow_gain: 1.2,
         body_alpha: 1.0,
@@ -257,7 +264,7 @@ fn filmstrips() {
         let mut n = 0;
         let mut i = 0usize;
         let (da, dp, _) = continuity(&s, &m);
-        run(&s, &m, |_, an| {
+        run(&s, &m, |t, an| {
             i += 1;
             if !i.is_multiple_of(2) {
                 return;
@@ -265,7 +272,7 @@ fn filmstrips() {
             let fr = Frame {
                 model: &m,
                 anim: an,
-                now: Instant::now(),
+                now: epoch() + std::time::Duration::from_secs_f64(t),
                 dt: (2.0 * STEP) as f32,
                 mouse: None,
                 pressed: false,

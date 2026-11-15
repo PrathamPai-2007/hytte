@@ -1,6 +1,7 @@
 //! The pill's springs and the two-finger swipe detector.
 
 use super::*;
+use crate::animation::motion;
 
 /// One scene as it is drawn this frame: how opaque, and how far it is shifted from its place.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,23 +62,23 @@ pub struct Anim {
 
 impl Anim {
     pub fn new(w: f64, h: f64) -> Self {
-        let mut vis = Spring::unit(1.0, 1.0, 0.22);
+        let mut vis = Spring::unit(1.0, motion::FADE);
         vis.snap();
         Self {
             rect: RectSpring::new(w, h),
-            glow: Spring::unit(0.0, 1.0, 0.30),
+            glow: Spring::unit(0.0, motion::GLIDE),
             glow_rgb: [1.0; 3],
-            content: Spring::unit(1.0, 1.0, 0.21),
-            hover: Spring::unit(0.0, 1.0, 0.16),
+            content: Spring::unit(1.0, motion::ENTER),
+            hover: Spring::unit(0.0, motion::QUICK),
             vis,
             t: 0.0,
             scene: Scene::Idle,
             prev: Scene::Idle,
-            out: Spring::unit(0.0, 1.0, 0.17),
+            out: Spring::unit(0.0, motion::EXIT),
             reduce: false,
             nav: 0.0,
             slide: 0.0,
-            bubble: Spring::unit(0.0, 0.72, 0.34),
+            bubble: Spring::unit(0.0, motion::POP),
             bubble_kind: None,
         }
     }
