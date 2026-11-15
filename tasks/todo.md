@@ -269,10 +269,12 @@ matching `render/` files, `ui_state/tests/`. **Scope:** M
 ## Phase 5: Look
 
 ### Task 18: Look tokens
-- [ ] `render/tokens.rs` holds radii (pill, card, control), the 4 px spacing steps, and three
-      text opacities; scene files use them instead of literals
-- [ ] The tab strip sits the same distance from the bottom in every pane
-- [ ] A before / after snapshot page for every scene, light and dark
+- [x] `render/tokens.rs` holds the nested radii (pill, card, row), three text opacities and the
+      pane gap; tiles, row highlights and the weather credit use them. Other literals were left
+      where they already sat on the grid
+- [x] Every pane leaves 12 px between its last element and the tab strip (Home was 18, Media 8,
+      the running timer 23, the timer setup 14)
+- [x] Before / after pictures for every scene (made at Checkpoint 5 into one page)
 **Verify:** Checks; the snapshot page; no scene moves by more than 4 px except where listed in
 the commit message.
 **Depends on:** Checkpoint 3. **Files:** `render/tokens.rs`, then scene files in `render/`, two or

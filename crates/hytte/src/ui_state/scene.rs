@@ -442,8 +442,9 @@ impl Model {
             }
             Scene::CompactTask => (292.0, 32.0),
             Scene::CompactMedia => (240.0, 32.0),
-            Scene::ExpMedia => (380.0, 132.0 + tab),
-            Scene::ExpHome => (380.0, 136.0 + tab + self.apps_h()),
+            // Each pane leaves 12 px between its last element and the tab strip.
+            Scene::ExpMedia => (380.0, 136.0 + tab),
+            Scene::ExpHome => (380.0, 130.0 + tab + self.apps_h()),
             Scene::ExpPower => (380.0, 112.0 + tab),
             Scene::ExpNudge => (360.0, 56.0),
             Scene::ExpNotes | Scene::ExpTodo => (380.0, self.jot_h(scene) + tab),
@@ -465,8 +466,8 @@ impl Model {
             Scene::ExpTimerDone => (380.0, 114.0),
             Scene::ExpCharge => (300.0, 52.0),
             // Running: ring + controls. Not running: the setup card.
-            Scene::ExpTimer if self.timer.is_some() => (380.0, 96.0 + tab),
-            Scene::ExpTimer => (380.0, 152.0 + tab),
+            Scene::ExpTimer if self.timer.is_some() => (380.0, 85.0 + tab),
+            Scene::ExpTimer => (380.0, 150.0 + tab),
             Scene::ExpShelf => (
                 380.0,
                 self.shelf_tiles_h()

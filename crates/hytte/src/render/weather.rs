@@ -286,7 +286,7 @@ impl Renderer {
             bottom - 16.0,
             190.0,
             12.0,
-            self.cc(GRAY, 0.55),
+            self.cc(GRAY, INK_3),
         );
     }
 

@@ -368,7 +368,14 @@ impl Renderer {
         let hov = self.over(0.0, y, w, ROW_H);
         let cy = y + ROW_H / 2.0;
         if hov {
-            self.fill_rr(8.0, y + 1.0, w - 16.0, ROW_H - 2.0, 9.0, self.cc(fg, 0.05));
+            self.fill_rr(
+                8.0,
+                y + 1.0,
+                w - 16.0,
+                ROW_H - 2.0,
+                R_ROW,
+                self.cc(fg, 0.05),
+            );
         }
         let done = j.done_ms.is_some();
         match j.kind {

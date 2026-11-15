@@ -152,7 +152,7 @@ impl Renderer {
         self.group(2);
         // Transport controls, clear of the tab dots.
         let tab = if fr.model.tabs() { TAB_H } else { 0.0 };
-        let cy = h - tab - 26.0;
+        let cy = h - tab - 18.0 - PANE_GAP;
         let cx = tx + bw / 2.0;
         self.transport(fr, md, cx, cy, 1.0);
         // Lyrics at the left of the controls, the sleep timer at the right.

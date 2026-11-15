@@ -34,7 +34,14 @@ impl Renderer {
             let go = if row_hov { 18.0 } else { 0.0 };
             let label_w = w - 42.0 - right_w - close_w - 22.0 - go;
             if row_hov {
-                self.fill_rr(8.0, y + 2.0, w - 16.0, 32.0, 10.0, self.cc(self.fg(), 0.05));
+                self.fill_rr(
+                    8.0,
+                    y + 2.0,
+                    w - 16.0,
+                    32.0,
+                    R_ROW,
+                    self.cc(self.fg(), 0.05),
+                );
                 let gx = 42.0 + label_w + 10.0;
                 self.glyph_s('\u{E8A7}', gx, y + 17.0, self.cc(self.fg(), 0.6));
             }

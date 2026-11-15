@@ -826,17 +826,17 @@ impl Renderer {
             y,
             w,
             h,
-            14.0,
+            R_CARD,
             self.cc(self.fg(), (0.06 + 0.05 * hv) * (1.0 - k)),
         );
         if k > 0.004 {
-            self.fill_rr(x, y, w, h, 14.0, self.cc(c, (0.22 + 0.08 * hv) * k));
+            self.fill_rr(x, y, w, h, R_CARD, self.cc(c, (0.22 + 0.08 * hv) * k));
             self.stroke_rr(
                 x + 0.5,
                 y + 0.5,
                 w - 1.0,
                 h - 1.0,
-                13.5,
+                R_CARD - 0.5,
                 self.cc(c, 0.35 * k),
                 1.0,
                 false,
