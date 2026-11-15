@@ -37,7 +37,7 @@ It checks the pill, `PATH`, your terminals, agents and `config.toml`, and says h
 | The update didn't install | The folder is probably read-only. Move `hytte.exe` under your user folder, or update by hand. |
 | `config.toml` warning card | Click it to open the file at the mistake. Your previous settings stay in force. |
 | A port isn't listed | Add it to `[ports] watch`, or set `show_all = true`. |
-| The hotkey does nothing | Another app may own it, or it has no modifier. Try `"Ctrl+Alt+H"`. |
+| The hotkey does nothing | Another app may own it: Settings → **Hotkeys** says **Taken by another app** in amber. Click the field and press a different combination. |
 | A resource warning I don't want | **Ignore** it, raise `[hog] cpu_pct` / `mem_mb`, or set `[hog] enabled = false`. |
 | "OCR unavailable" | Install a language pack in *Settings → Time & language → Language & region*. |
 | No music controls | The player must report itself to Windows. Most browsers and players do. |

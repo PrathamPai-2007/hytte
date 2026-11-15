@@ -474,6 +474,7 @@ fn settings_rows_write_valid_config() {
                 Row::Opacity(_) => vec![("general.pill_opacity", Val::F(0.7))],
                 Row::Glow(..) => vec![("general.glow_strength", Val::F(1.0))],
                 Row::Hue(..) | Row::Vivid(..) => vec![],
+                Row::Hotkey(_, k, ..) => vec![(k, Val::S("Win+Alt+J")), (k, Val::S(""))],
             };
             for (k, v) in writes {
                 keys.insert(k);
@@ -543,6 +544,7 @@ fn settings_window_snapshots() {
             open: 1.0,
             toast: None,
             query: "",
+            capture: None,
         };
         let mut hits = vec![];
         // Twice: the first frame seeds the eased values, the second settles them.
@@ -572,6 +574,7 @@ fn settings_window_snapshots() {
         open: 1.0,
         toast: Some(("In config.toml, under [general], set quiet_hours to your times as \"HH:MM-HH:MM\" (24-hour clock, may wrap past midnight), for example \"22:30-06:00\". Save the file and it applies.", 1.0)),
         query: "",
+        capture: None,
     };
     let mut hits = vec![];
     r.draw_settings_window(&custom, &view, &mut hits);
@@ -605,6 +608,28 @@ fn settings_window_snapshots() {
     })
     .save(dir.join("settings-own-skin.png"))
     .unwrap();
+    // The hotkeys: one another app has, one set, one waiting for its keys, one off.
+    let mut keys = Config::default();
+    keys.general.hotkey = "Win+Alt+M".into();
+    keys.general.note_hotkey = "Win+Alt+J".into();
+    crate::config::HOTKEYS_TAKEN.store(1, std::sync::atomic::Ordering::Relaxed);
+    let mut r = Renderer::offscreen_sized(w, h, sc).unwrap();
+    let view = SettingsView {
+        query: "hotkey",
+        capture: Some("general.monitor_hotkey"),
+        ..view
+    };
+    r.draw_settings_window(&keys, &view, &mut hits);
+    r.draw_settings_window(&keys, &view, &mut hits);
+    crate::config::HOTKEYS_TAKEN.store(0, std::sync::atomic::Ordering::Relaxed);
+    let (pw, ph) = r.px;
+    let px = r.read_back();
+    image::RgbImage::from_fn(pw as u32, ph as u32, |x, y| {
+        let i = ((y as i32 * pw + x as i32) * 4) as usize;
+        image::Rgb([px[i + 2], px[i + 1], px[i]])
+    })
+    .save(dir.join("settings-hotkeys.png"))
+    .unwrap();
     SHOT.with(|v| v.borrow_mut().push("settings-custom".to_string()));
     // Searching, with a few values off their defaults (so resets show).
     let mut dirty = Config::default();
@@ -631,6 +656,7 @@ fn settings_window_snapshots() {
             open: 1.0,
             toast: None,
             query,
+            capture: None,
         };
         let mut hits = vec![];
         r.draw_settings_window(&dirty, &view, &mut hits);
@@ -1753,6 +1779,7 @@ fn script_snapshots() {
         open: 1.0,
         toast: None,
         query: "script",
+        capture: None,
     };
     let mut hits = vec![];
     r.draw_settings_window(&cfg, &view, &mut hits);

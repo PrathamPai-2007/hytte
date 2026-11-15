@@ -20,6 +20,7 @@ impl Renderer {
         let ctrl = match &row {
             Row::Switch(..) => 34.0,
             Row::Opacity(_) | Row::Glow(..) | Row::Hue(..) | Row::Vivid(..) => 206.0,
+            Row::Hotkey(..) => 206.0,
             Row::Pick(_, _, o, ..) if wide && is_numeric(o) => 246.0,
             Row::Pick(..) => 206.0,
             Row::PickCustom(..) => 246.0,
@@ -217,6 +218,9 @@ impl Renderer {
                 );
                 self.ca.set(ca);
             }
+            Row::Hotkey(label, key, spec, taken, waiting) => {
+                self.hotkey_row(label, key, &spec, taken, waiting, y, rw)
+            }
             Row::Hue(h, s) => self.colour_slider(true, h, s, y, rw),
             Row::Vivid(s, h) => self.colour_slider(false, h, s, y, rw),
             // Numbers also get "Custom": lit, with the file's value beside it, when the value
@@ -274,6 +278,86 @@ impl Renderer {
         let h = self.ease(&format!("h:{id}"), hov as u8 as f32);
         let _ = (fg, bh);
         self.track(bx, y + 15.0, bw, f, acc, h, 1.0);
+    }
+
+    /// A hotkey: the chord in a field ("Off" when there is none). Clicking it waits for a new
+    /// chord; another app owning the chord shows in amber beside it.
+    #[allow(clippy::too_many_arguments)]
+    fn hotkey_row(
+        &self,
+        label: &str,
+        key: &'static str,
+        spec: &str,
+        taken: bool,
+        waiting: bool,
+        y: f32,
+        rw: f32,
+    ) {
+        let (fg, acc) = (self.fg(), self.accent.get());
+        let (fx, fw) = (rw - 22.0 - 206.0, 206.0);
+        let amber = [0.96, 0.66, 0.2];
+        let note = if waiting {
+            "Backspace: off"
+        } else if taken {
+            "Taken by another app"
+        } else {
+            ""
+        };
+        let note_w = if note.is_empty() {
+            0.0
+        } else {
+            text_w(note) + 14.0
+        };
+        self.text(
+            label,
+            &self.f.body,
+            22.0,
+            y,
+            (fx - 30.0 - note_w).max(60.0),
+            30.0,
+            self.cc(fg, 0.9),
+        );
+        if !note.is_empty() {
+            let c = if waiting {
+                self.cc(GRAY, 0.95)
+            } else {
+                self.cc(amber, 1.0)
+            };
+            self.text(note, &self.f.small, fx - note_w, y, note_w, 30.0, c);
+        }
+        let hov = self.hit(fx, y + 3.0, fw, 24.0, Action::Hotkey(key));
+        let h = self.ease(&format!("hk:{key}"), (hov || waiting) as u8 as f32);
+        self.fill_rr(fx, y + 3.0, fw, 24.0, 12.0, self.cc(fg, 0.06 + 0.04 * h));
+        if waiting {
+            self.stroke_rr(
+                fx + 0.5,
+                y + 3.5,
+                fw - 1.0,
+                23.0,
+                11.5,
+                self.cc(acc, 0.9),
+                1.3,
+                false,
+            );
+        }
+        let (text, c) = if waiting {
+            ("Press keys · Esc cancels".to_string(), self.cc(acc, 1.0))
+        } else if spec.is_empty() {
+            ("Off".to_string(), self.cc(GRAY, 0.9))
+        } else {
+            (
+                spec.split('+')
+                    .map(str::trim)
+                    .collect::<Vec<_>>()
+                    .join(" + "),
+                if taken {
+                    self.cc(amber, 1.0)
+                } else {
+                    self.cc(fg, 0.95)
+                },
+            )
+        };
+        self.text(&text, &self.f.btn, fx, y + 3.0, fw, 24.0, c);
     }
 
     /// The custom skin's hue slider (a rainbow, its code beside it) or vividness slider (grey

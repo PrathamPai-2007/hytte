@@ -93,6 +93,8 @@ struct State {
     toast: Option<(String, Instant)>,
     /// What was typed to filter the rows.
     query: String,
+    /// The hotkey setting waiting for a key combination (a click on its row starts it).
+    capture: Option<&'static str>,
 }
 
 thread_local! {
@@ -204,6 +206,7 @@ pub fn open(cfg: &Config) {
                 last_scroll: now - Duration::from_secs(10),
                 toast: None,
                 query: String::new(),
+                capture: None,
             })
         });
         with(redraw, hwnd);
@@ -295,6 +298,7 @@ fn redraw(s: &mut State, hwnd: HWND) {
         open: (now.duration_since(s.opened).as_secs_f32() / 0.5).min(1.0),
         toast,
         query: &s.query,
+        capture: s.capture,
     };
     let out = s.rend.draw_settings_window(&s.cfg, &view, &mut s.hits);
     s.content = out.content;
@@ -389,6 +393,41 @@ fn set_skin(s: &mut State, v: &str) {
         Ok(None) => crate::logging::line("settings window: config.toml has a mistake in it"),
         Err(e) => crate::logging::line(&format!("settings window: {e}")),
     }
+}
+
+/// A key pressed while a hotkey row waits for its combination.
+fn capture_key(s: &mut State, hwnd: HWND, vk: u32) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetKeyState, VK_BACK, VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    };
+    let Some(key) = s.capture else { return };
+    let down = |k: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY| unsafe {
+        GetKeyState(k.0 as i32) < 0
+    };
+    let spec = if vk == VK_ESCAPE.0 as u32 {
+        None
+    } else if vk == VK_BACK.0 as u32 || vk == VK_DELETE.0 as u32 {
+        Some(String::new())
+    } else {
+        let mods = (down(VK_MENU) as u32 * config::MOD_ALT)
+            | (down(VK_CONTROL) as u32 * config::MOD_CONTROL)
+            | (down(VK_SHIFT) as u32 * config::MOD_SHIFT)
+            | ((down(VK_LWIN) || down(VK_RWIN)) as u32 * config::MOD_WIN);
+        match config::hotkey_text(mods, vk) {
+            Some(t) => Some(t),
+            // Not a whole combination yet: keep waiting.
+            None => return,
+        }
+    };
+    s.capture = None;
+    if let Some(spec) = spec {
+        match config::set_text(key, &spec) {
+            Ok(Some(cfg)) => s.cfg = cfg,
+            Ok(None) => crate::logging::line("settings window: config.toml has a mistake in it"),
+            Err(e) => crate::logging::line(&format!("settings window: {e}")),
+        }
+    }
+    redraw(s, hwnd);
 }
 
 fn set(s: &mut State, key: &'static str, v: Val) {
@@ -529,7 +568,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     if s.scrub.take().is_some() {
                         scrub_done(s);
                     } else if let Some(a) = hit_at(s).map(|h| h.action.clone()) {
+                        // Any click ends waiting for a hotkey; one on a hotkey row starts it.
+                        s.capture = None;
                         match a {
+                            Action::Hotkey(k) => s.capture = Some(k),
                             Action::Set(k, v) => set(s, k, v),
                             Action::SkinColor(c) => set_skin(s, &crate::skin::hex(c)),
                             Action::Jump(i) => {
@@ -571,6 +613,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 },
                 hwnd,
             );
+            return LRESULT(0);
+        }
+        // Waiting for a hotkey: the next key combination is it (Alt combinations arrive as
+        // system keys). Esc cancels, Backspace or Delete turns the hotkey off; a lone modifier
+        // or a key without one keeps waiting.
+        WM_KEYDOWN | WM_SYSKEYDOWN | WM_CHAR | WM_SYSCHAR
+            if with(|s, _| s.capture.is_some(), hwnd).unwrap_or(false) =>
+        {
+            if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
+                let vk = wparam.0 as u32;
+                with(|s, hwnd| capture_key(s, hwnd, vk), hwnd);
+            }
             return LRESULT(0);
         }
         // Typing filters the settings; Esc clears the search first, then closes.

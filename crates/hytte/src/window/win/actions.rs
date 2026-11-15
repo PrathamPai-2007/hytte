@@ -195,6 +195,7 @@ impl Ui {
             | Action::Hue
             | Action::Vivid
             | Action::SkinColor(_)
+            | Action::Hotkey(_)
             | Action::ClearSearch
             | Action::PaneMove(..)
             | Action::Jump(_)

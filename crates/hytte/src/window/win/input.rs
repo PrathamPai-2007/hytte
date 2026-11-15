@@ -187,6 +187,8 @@ impl Ui {
             (NOTE_HOTKEY_ID, &self.cfg.general.note_hotkey),
             (AI_HOTKEY_ID, &self.cfg.ai.hotkey),
         ] {
+            let bit = 1u32 << (id - 1);
+            crate::config::HOTKEYS_TAKEN.fetch_and(!bit, Ordering::Relaxed);
             unsafe {
                 let _ = UnregisterHotKey(Some(hwnd), id);
                 // A game may want the same chord: give it back while one is in front.
@@ -203,6 +205,7 @@ impl Ui {
                         )
                         .is_err()
                         {
+                            crate::config::HOTKEYS_TAKEN.fetch_or(bit, Ordering::Relaxed);
                             crate::logging::line(&format!(
                                 "hotkey {spec}: already taken by another app"
                             ));

@@ -35,12 +35,17 @@ pub enum Row {
     Hue(f32, f32),
     /// The custom skin's vividness (0..1), with its hue.
     Vivid(f32, f32),
+    /// A global hotkey: label, key, the chord ("" = off), whether another app has it, and
+    /// whether the window is waiting for a new chord for it.
+    Hotkey(&'static str, &'static str, String, bool, bool),
 }
 
 impl Row {
     pub(super) fn label(&self) -> &'static str {
         match self {
-            Row::Switch(l, ..) | Row::Pick(l, ..) | Row::PickCustom(l, ..) => l,
+            Row::Switch(l, ..) | Row::Pick(l, ..) | Row::PickCustom(l, ..) | Row::Hotkey(l, ..) => {
+                l
+            }
             Row::Opacity(_) => "Pill opacity when open",
             Row::Glow(..) => "Glow strength",
             Row::Hue(..) => "Skin colour",
@@ -50,7 +55,10 @@ impl Row {
 
     pub fn key(&self) -> &'static str {
         match self {
-            Row::Switch(_, k, _) | Row::Pick(_, k, ..) | Row::PickCustom(_, k, ..) => k,
+            Row::Switch(_, k, _)
+            | Row::Pick(_, k, ..)
+            | Row::PickCustom(_, k, ..)
+            | Row::Hotkey(_, k, ..) => k,
             Row::Opacity(_) => "general.pill_opacity",
             Row::Glow(..) => "general.glow_strength",
             Row::Hue(..) => "general.skin_hue",
@@ -65,6 +73,7 @@ impl Row {
             Row::Pick(_, _, _, i, off) => *i as f32 + if off.is_none() { 0.0 } else { 0.5 },
             Row::PickCustom(_, _, _, i, ..) => *i as f32,
             Row::Opacity(v) | Row::Glow(v, _) | Row::Hue(v, _) | Row::Vivid(v, _) => *v,
+            Row::Hotkey(_, _, spec, ..) => !spec.is_empty() as u8 as f32,
         }
     }
 
@@ -80,6 +89,8 @@ impl Row {
             Row::Glow(v, _) => Some(Action::Set("general.glow_strength", Val::F(*v as f64))),
             // Not settings of their own: they write `skin` (see `Action::SkinColor`).
             Row::Hue(..) | Row::Vivid(..) => None,
+            // Only "off" is a static value (it is the reset); a chord is written as text.
+            Row::Hotkey(_, k, spec, ..) => spec.is_empty().then_some(Action::Set(k, Val::S(""))),
         }
     }
 }
@@ -169,6 +180,10 @@ pub fn help(key: &str) -> &'static str {
         "general.idle_opacity" => "How faint the closed pill gets while you are not using it.",
         "general.pill_scale" => "Scales the whole pill and its panels (1.0 is normal).",
         "general.animation" => "Speed of the open and close animation.",
+        "general.hotkey" => "A key combination that opens the pill from any app, to use it with the keyboard. Click, then press the keys; Backspace turns it off.",
+        "general.monitor_hotkey" => "A key combination that moves the pill to the next screen. Click, then press the keys; Backspace turns it off.",
+        "general.note_hotkey" => "A key combination that opens Notes with the cursor ready, from any app. The Notes pane has to be on.",
+        "ai.hotkey" => "A key combination that opens Ask with the cursor ready, from any app. The Ask pane has to be on.",
         "general.glow" => "A colored glow around the pill's edge, in the color of what it shows. Off by default.",
         "general.glow_strength" => "How strong the glow is while it is on. 100% is the strongest the slider goes.",
         "general.skin_hue" => "The color of your own skin. Its code is written in config.toml as skin = \"#rrggbb\"; you can type one there.",
@@ -413,6 +428,19 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                     "general.check_updates",
                     g.check_updates,
                 ),
+            ],
+        },
+        Section {
+            name: "Hotkeys",
+            rows: vec![
+                hotkey_row("Open the pill", "general.hotkey", &g.hotkey),
+                hotkey_row(
+                    "Move to the next screen",
+                    "general.monitor_hotkey",
+                    &g.monitor_hotkey,
+                ),
+                hotkey_row("Open Notes", "general.note_hotkey", &g.note_hotkey),
+                hotkey_row("Open Ask", "ai.hotkey", &c.ai.hotkey),
             ],
         },
         Section {
@@ -713,6 +741,11 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
         look.splice(at..at, [Row::Hue(h, s), Row::Vivid(s, h)]);
     }
     table
+}
+
+fn hotkey_row(label: &'static str, key: &'static str, spec: &str) -> Row {
+    let taken = !spec.trim().is_empty() && crate::config::hotkey_taken(key);
+    Row::Hotkey(label, key, spec.trim().to_string(), taken, false)
 }
 
 /// The skin discs: the presets, then Custom (a colour of your own, `skin = "#rrggbb"`).

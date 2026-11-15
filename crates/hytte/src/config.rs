@@ -98,6 +98,52 @@ pub fn in_quiet_hours(spec: &str, now_min: u32) -> bool {
     }
 }
 
+/// The hotkeys Windows refused because another app has them, as bits by setting (see
+/// [`HOTKEY_KEYS`]). Set where they are registered, read by the settings window.
+pub static HOTKEYS_TAKEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The hotkey settings, in the order of their bits in [`HOTKEYS_TAKEN`].
+pub const HOTKEY_KEYS: [&str; 4] = [
+    "general.hotkey",
+    "general.monitor_hotkey",
+    "general.note_hotkey",
+    "ai.hotkey",
+];
+
+/// Whether Windows refused the hotkey in setting `key`.
+pub fn hotkey_taken(key: &str) -> bool {
+    HOTKEY_KEYS
+        .iter()
+        .position(|k| *k == key)
+        .is_some_and(|i| HOTKEYS_TAKEN.load(std::sync::atomic::Ordering::Relaxed) & (1 << i) != 0)
+}
+
+/// A chord as `parse_hotkey` reads it, from modifier bits and a virtual key: "Win+Alt+J".
+/// None for keys a hotkey can't use (only letters, digits and F1 to F24) or no modifier.
+pub fn hotkey_text(mods: u32, vk: u32) -> Option<String> {
+    let key = match vk {
+        0x41..=0x5A | 0x30..=0x39 => char::from_u32(vk)?.to_string(),
+        0x70..=0x87 => format!("F{}", vk - 0x70 + 1),
+        _ => return None,
+    };
+    let names = [
+        (MOD_WIN, "Win"),
+        (MOD_CONTROL, "Ctrl"),
+        (MOD_ALT, "Alt"),
+        (MOD_SHIFT, "Shift"),
+    ];
+    let mut parts: Vec<&str> = names
+        .iter()
+        .filter(|(m, _)| mods & m != 0)
+        .map(|(_, n)| *n)
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(&key);
+    Some(parts.join("+"))
+}
+
 pub fn parse_hotkey(s: &str) -> Option<(u32, u32)> {
     let (mut mods, mut key) = (0u32, None);
     for part in s.split('+').map(str::trim).filter(|p| !p.is_empty()) {
@@ -1283,6 +1329,28 @@ name = "E"
         assert_eq!(parse_hotkey("Alt+F25"), None);
         assert_eq!(parse_hotkey("Alt+Enter"), None);
         assert_eq!(parse_hotkey(""), None);
+    }
+
+    #[test]
+    fn a_recorded_hotkey_reads_back_the_same() {
+        assert_eq!(
+            hotkey_text(MOD_WIN | MOD_ALT, 0x4A).as_deref(),
+            Some("Win+Alt+J")
+        );
+        assert_eq!(
+            hotkey_text(MOD_CONTROL | MOD_SHIFT, 0x7B).as_deref(),
+            Some("Ctrl+Shift+F12")
+        );
+        assert_eq!(hotkey_text(0, 0x4A), None, "a key alone is no hotkey");
+        assert_eq!(hotkey_text(MOD_ALT, 0x0D), None, "Enter can't be one");
+        for (mods, vk) in [
+            (MOD_WIN | MOD_ALT, 0x4A),
+            (MOD_CONTROL, 0x37),
+            (MOD_SHIFT | MOD_WIN, 0x70),
+        ] {
+            let t = hotkey_text(mods, vk).unwrap();
+            assert_eq!(parse_hotkey(&t), Some((mods, vk)), "{t}");
+        }
     }
 
     #[test]

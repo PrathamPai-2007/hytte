@@ -113,6 +113,8 @@ pub enum Action {
     Vivid,
     /// The Custom skin disc: the skin becomes this colour (0xRRGGBB).
     SkinColor(u32),
+    /// A hotkey row: wait for the next key combination and write it to this setting.
+    Hotkey(&'static str),
     /// A section in the settings window's list: scroll to it.
     Jump(usize),
     /// The settings window's search field: clear what was typed.
@@ -228,6 +230,8 @@ pub struct SettingsView<'a> {
     pub toast: Option<(&'a str, f32)>,
     /// What was typed in the search field (rows and sections not matching it are hidden).
     pub query: &'a str,
+    /// The hotkey setting waiting for a key combination, if any.
+    pub capture: Option<&'static str>,
 }
 
 /// What a settings-window frame laid out.
@@ -955,6 +959,11 @@ impl Renderer {
             [0.085, 0.09, 0.105]
         };
         let mut sections = settings_table(cfg);
+        for row in sections.iter_mut().flat_map(|s| s.rows.iter_mut()) {
+            if let Row::Hotkey(_, k, _, _, waiting) = row {
+                *waiting = view.capture == Some(*k);
+            }
+        }
         let q = view.query.trim().to_lowercase();
         if !q.is_empty() {
             for s in &mut sections {
@@ -1067,7 +1076,7 @@ impl Renderer {
                 concat!(
                     "Hytte ",
                     env!("CARGO_PKG_VERSION"),
-                    "  ·  lists, hotkey and folders live in config.toml"
+                    "  ·  lists and folders live in config.toml"
                 ),
                 &self.f.small_c,
                 0.0,
