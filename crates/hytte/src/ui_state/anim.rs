@@ -110,7 +110,9 @@ fn offset(at: f64) -> Spring {
 pub struct Anim {
     pub rect: RectSpring,
     pub glow: Spring,
+    /// The glow's colour as drawn: it blends to a new colour (`glow_col`) rather than jumping.
     pub glow_rgb: [f32; 3],
+    glow_col: [Spring; 3],
     pub hover: Spring,
     pub vis: Spring,
     pub t: f64,
@@ -142,6 +144,7 @@ impl Anim {
             rect: RectSpring::new(w, h),
             glow: Spring::unit(0.0, motion::GLIDE),
             glow_rgb: [1.0; 3],
+            glow_col: [Spring::unit(1.0, motion::GLIDE); 3],
             hover: Spring::unit(0.0, motion::QUICK),
             vis,
             t: 0.0,
@@ -222,11 +225,25 @@ impl Anim {
         }
         self.rect.set_target(size.0, size.1);
         self.glow.set_target(glow.1 as f64);
-        self.glow_rgb = glow.0;
+        for (s, c) in self.glow_col.iter_mut().zip(glow.0) {
+            s.set_target(c as f64);
+        }
+        // A colour nobody can see doesn't blend: the glow comes up in its own colour.
+        if self.glow.pos < 0.01 {
+            self.glow_col.iter_mut().for_each(Spring::snap);
+        }
         if self.reduce {
             self.rect.snap();
             self.glow.snap();
+            self.glow_col.iter_mut().for_each(Spring::snap);
             self.settle_layers();
+        }
+        self.sync_glow_rgb();
+    }
+
+    fn sync_glow_rgb(&mut self) {
+        for (c, s) in self.glow_rgb.iter_mut().zip(&self.glow_col) {
+            *c = s.pos.clamp(0.0, 1.0) as f32;
         }
     }
 
@@ -339,7 +356,11 @@ impl Anim {
             return false;
         }
         let a = self.rect.advance(dt);
-        let b = self.glow.advance(dt);
+        let mut b = self.glow.advance(dt);
+        for s in &mut self.glow_col {
+            b |= s.advance(dt);
+        }
+        self.sync_glow_rgb();
         let mut c = false;
         for l in self.layers.iter_mut().flatten() {
             c |= l.advance(dt);

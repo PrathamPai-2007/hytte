@@ -148,9 +148,9 @@ continuity test covers their positions).
 `render/tasks.rs`, `render/timer.rs`. **Scope:** M
 
 ### Task 9: Glow colour blends
-- [ ] The glow colour is eased with the same feel as its strength
-- [ ] When the glow is invisible the colour snaps (no blend from a colour nobody saw)
-- [ ] Unit test: amber → red passes through intermediate values and never leaves 0..1
+- [x] The glow colour is eased with the same feel as its strength
+- [x] When the glow is invisible the colour snaps (no blend from a colour nobody saw)
+- [x] Unit test: amber → red passes through intermediate values and never leaves 0..1
 **Verify:** Checks; filmstrip of running → failed → done.
 **Depends on:** 3. **Files:** `ui_state/anim.rs`, `render/pill.rs`. **Scope:** S
 

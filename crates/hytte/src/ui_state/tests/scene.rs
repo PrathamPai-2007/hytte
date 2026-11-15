@@ -291,3 +291,24 @@ fn reduced_motion_leaves_only_the_current_scene() {
     assert_eq!((shown[0].scene, shown[0].alpha), (Scene::ExpMedia, 1.0));
     assert_eq!((shown[0].dx, shown[0].dy), (0.0, 0.0));
 }
+
+#[test]
+fn the_glow_colour_blends_and_stays_a_colour() {
+    let size = (300.0, 32.0);
+    let (amber, red) = ([1.0, 0.7, 0.1], [1.0, 0.25, 0.25]);
+    let mut a = Anim::new(300.0, 32.0);
+    // Unseen, the colour doesn't blend: the glow comes up in amber.
+    a.set_scene(Scene::CompactTask, size, (amber, 1.0));
+    assert_eq!(a.glow_rgb, amber);
+    while a.step(1.0 / 120.0) {}
+    a.set_scene(Scene::ExpTasks, size, (red, 0.9));
+    let mut between = false;
+    while a.step(1.0 / 120.0) {
+        let g = a.glow_rgb[1];
+        assert!(a.glow_rgb.iter().all(|c| (0.0..=1.0).contains(c)));
+        assert!((0.25..=0.7).contains(&g), "green {g} stays between the two");
+        between |= g > 0.3 && g < 0.65;
+    }
+    assert!(between, "it passed through the colours in between");
+    assert!((a.glow_rgb[1] - 0.25).abs() < 0.01);
+}
