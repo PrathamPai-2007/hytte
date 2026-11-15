@@ -7,6 +7,7 @@
 //! pill hangs from the top-centre of a fixed transparent canvas, and only the
 //! pill (plus its soft glow) is visible: a window region trims the rest.
 
+use crate::animation::motion;
 use crate::config::{Config, Val};
 use crate::gpu::Gpu;
 use crate::power::Mode;
@@ -320,12 +321,10 @@ pub struct Renderer {
     ca: Cell<f32>,
     /// Settings window: the extra vertical offset hits are registered at (its scroll).
     oy: Cell<f32>,
-    /// Settings window: animate (`ease`), the frame's time step, and whether a value is
-    /// still on its way (another frame is due).
-    fx: Cell<bool>,
-    fx_dt: Cell<f32>,
+    /// Settings window: a hover note is still on its way (another frame is due).
     fx_busy: Cell<bool>,
-    fx_vals: RefCell<HashMap<String, f32>>,
+    /// Keyed springs for hover, press, values and positions (`render/tween.rs`).
+    tweens: RefCell<tween::Tweens>,
     /// The settings row the pointer is on this frame (key, row y), and how long the same one
     /// has been pointed at (for the hover note).
     tip_now: Cell<Option<(&'static str, f32)>>,
@@ -334,7 +333,6 @@ pub struct Renderer {
     t: Cell<f32>,
     mouse: Cell<Option<(f32, f32)>>,
     hits: RefCell<Vec<Hit>>,
-    shown: RefCell<HashMap<String, f32>>,
     art: RefCell<Option<ID2D1Bitmap>>,
     thumbs: RefCell<HashMap<u64, ID2D1Bitmap>>,
     art_gen: Cell<u32>,
@@ -548,17 +546,14 @@ impl Renderer {
                 scale: 1.0,
                 ca: Cell::new(1.0),
                 oy: Cell::new(0.0),
-                fx: Cell::new(false),
-                fx_dt: Cell::new(0.0),
                 fx_busy: Cell::new(false),
-                fx_vals: RefCell::new(HashMap::new()),
+                tweens: RefCell::new(Default::default()),
                 tip_now: Cell::new(None),
                 tip: RefCell::new(("", 0.0)),
                 ox: Cell::new(0.0),
                 t: Cell::new(0.0),
                 mouse: Cell::new(None),
                 hits: RefCell::new(vec![]),
-                shown: RefCell::new(HashMap::new()),
                 art: RefCell::new(None),
                 thumbs: RefCell::new(HashMap::new()),
                 art_gen: Cell::new(u32::MAX),
@@ -576,6 +571,29 @@ impl Renderer {
                 hero_right: Cell::new(0.0),
             })
         }
+    }
+
+    /// Where the value `key` is this frame, easing to `target` (0..1 values; see
+    /// `render/tween.rs`).
+    pub(super) fn tw(&self, key: u64, target: f32, feel: crate::animation::Feel) -> f32 {
+        self.tweens.borrow_mut().get(key, target, feel, 0.002)
+    }
+
+    /// `tw` for a position or a length in logical px.
+    #[expect(dead_code, reason = "first used by the sliding rows (Task 14)")]
+    pub(super) fn tw_px(&self, key: u64, target: f32, feel: crate::animation::Feel) -> f32 {
+        self.tweens.borrow_mut().get(key, target, feel, 0.05)
+    }
+
+    /// A value drawn with `tw` is still on its way: keep frames coming at the refresh rate.
+    pub fn tweening(&self) -> bool {
+        self.tweens.borrow().moving()
+    }
+
+    /// Forget every eased value: the next frame draws each at its target.
+    #[cfg(test)]
+    pub(super) fn reset_tweens(&self) {
+        self.tweens.borrow_mut().clear();
     }
 
     /// A hovered label is scrolling: keep frames coming until the pointer leaves it.
@@ -662,6 +680,9 @@ impl Renderer {
         self.focus.set(fr.focus);
         self.focus_live.set(false);
         self.scrolling.set(false);
+        self.tweens
+            .borrow_mut()
+            .begin(fr.dt as f64, !fr.anim.reduce);
         self.sync_art(fr.model);
         let (pw, ph) = (fr.anim.rect.w.pos as f32, fr.anim.rect.h.pos as f32);
         let ox = (crop.w_log - pw) / 2.0;
@@ -694,10 +715,7 @@ impl Renderer {
                 }
             }
         }
-        // Prune progress smoothing for tasks that are gone.
-        self.shown
-            .borrow_mut()
-            .retain(|k, _| fr.model.tasks.iter().any(|t| &t.id == k));
+        self.tweens.borrow_mut().end();
         std::mem::swap(hits, &mut *self.hits.borrow_mut());
     }
 
@@ -747,8 +765,7 @@ impl Renderer {
         self.accent.set(view.accent);
         self.focus.set(None);
         self.focus_live.set(false);
-        self.fx.set(true);
-        self.fx_dt.set(view.dt);
+        self.tweens.borrow_mut().begin(view.dt as f64, true);
         self.fx_busy.set(false);
         self.tip_now.set(None);
         let (fg, acc) = (self.fg(), view.accent);
@@ -1044,12 +1061,13 @@ impl Renderer {
             }
         }
         self.oy.set(0.0);
-        self.fx.set(false);
+        let mut tw = self.tweens.borrow_mut();
+        tw.end();
         std::mem::swap(hits, &mut *self.hits.borrow_mut());
         SettingsOut {
             content: y,
             tops,
-            busy: self.fx_busy.get(),
+            busy: self.fx_busy.get() || tw.moving(),
         }
     }
 
@@ -1265,8 +1283,9 @@ impl Fmts {
 
 #[cfg(test)]
 mod film;
+#[cfg(test)]
+mod snap;
 /// Offscreen pictures of the expanded scenes, for eyeballing UI changes without running the
 /// pill: `HYTTE_SNAP_DIR=<dir> cargo test snapshots -- --ignored` writes one BMP per scene,
 /// composited over a dark wallpaper grey.
-#[cfg(test)]
-mod snap;
+mod tween;

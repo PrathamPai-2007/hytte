@@ -71,10 +71,11 @@ frame was spring-paced or ambient to the `HYTTE_PERF` line.
 ### Task 4: One easing mechanism (`Tweens`)
 A keyed spring store in the renderer replaces `ease` / `fx_vals`, the `shown` progress map, the
 idle dim's exponential and the settings scroll's exponential.
-- [ ] `tw(key, target, feel)` and `kick(key, velocity)`; `u64` keys; no allocation per call
-- [ ] First sight of a key starts at its target; a key not asked for in a frame is dropped
-- [ ] `Renderer::moving()` feeds the frame loop's `moving`; a test shows it goes false within 2 s
-      of the last change, and that reduced motion returns the target at once
+- [x] `tw(key, target, feel)`, `tw_px` and `kick(key, velocity)`; `u64` keys; no allocation in steady state
+- [x] First sight of a key starts at its target; a key not asked for in a frame is dropped
+- [x] `Renderer::tweening()` feeds the frame loop's `moving`; tests show it goes false within a
+      second of the last change, and that reduced motion returns the target at once. The idle dim
+      is a spring (`motion::DIM`); the settings scroll moves to a spring in Task 16
 **Verify:** Checks; settings window snapshots unchanged; filmstrip shows the idle dim and task
 progress still easing; idle CPU measured as in Task 1 is unchanged.
 **Depends on:** 3. **Files:** `render.rs`, `render/settings.rs`, `render/compact.rs`,

@@ -3,22 +3,10 @@
 use super::*;
 
 impl Renderer {
-    /// `key`'s value eased towards `target` (settings window only: the pill's pane snaps).
-    /// The first sight of a key starts at the target, so nothing animates on open.
+    /// `key`'s value eased towards `target`. The first sight of a key starts at the target, so
+    /// nothing animates on open.
     pub(super) fn ease(&self, key: &str, target: f32) -> f32 {
-        if !self.fx.get() {
-            return target;
-        }
-        let mut m = self.fx_vals.borrow_mut();
-        let v = m.entry(key.to_string()).or_insert(target);
-        let k = 1.0 - (-self.fx_dt.get() * 16.0).exp();
-        *v += (target - *v) * k;
-        if (target - *v).abs() < 0.003 {
-            *v = target;
-        } else {
-            self.fx_busy.set(true);
-        }
-        *v
+        self.tw(tween::key("settings", key), target, motion::QUICK)
     }
 
     /// One settings row at `y`, `w` wide: a switch, a few choices or the opacity slider. A

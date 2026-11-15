@@ -142,7 +142,7 @@ impl Renderer {
                 );
             }
             if t.running() {
-                self.filament(t, 42.0, y + r.h - 4.0, w - 42.0 - 20.0, fr.dt, now);
+                self.filament(t, 42.0, y + r.h - 4.0, w - 42.0 - 20.0, now);
             }
         }
         if lay.hidden > 0 {

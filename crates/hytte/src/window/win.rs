@@ -376,7 +376,7 @@ struct Ui {
     /// announce one image more than once.
     last_snip: u64,
     /// Idle-pill dimming as drawn (1 = full), easing towards `[general] idle_opacity`.
-    dim: f32,
+    dim: crate::animation::Spring,
     /// Clipboard sequence number when that screenshot was copied.
     snip_seq: u32,
     /// Screenshots on the shelf and when they arrived (they leave after
@@ -714,7 +714,7 @@ pub fn run_windows(
             dnd: None,
             dnd_tried: false,
             last_snip: 0,
-            dim: 1.0,
+            dim: crate::animation::Spring::unit(1.0, crate::animation::motion::DIM),
             snip_seq: 0,
             shots: Vec::new(),
             paste: None,

@@ -51,6 +51,11 @@ pub mod motion {
         zeta: 1.0,
         period: 0.30,
     };
+    /// The idle pill dimming to `idle_opacity` and lighting up again.
+    pub const DIM: Feel = Feel {
+        zeta: 1.0,
+        period: 0.45,
+    };
     /// Something popping out, or springing back: the bubble, a released press.
     pub const POP: Feel = Feel {
         zeta: 0.72,

@@ -189,7 +189,8 @@ impl Ui {
             "snappy" => 1.4,
             _ => 1.0,
         } / slowmo();
-        let mut moving = self.anim.step((dt * speed) as f64);
+        let dt_anim = (dt * speed) as f64;
+        let mut moving = self.anim.step(dt_anim);
         // The idle pill fades towards `idle_opacity` and back when it is pointed at.
         let idle = self.model.scene(self.hover, self.sentinel()) == Scene::Idle
             && self.kb.is_none()
@@ -199,12 +200,11 @@ impl Ui {
         } else {
             1.0
         };
-        self.dim += (dim_to - self.dim) * (1.0 - (-dt * 6.0).exp());
-        if (dim_to - self.dim).abs() < 0.004 {
-            self.dim = dim_to;
-        } else {
-            moving = true;
+        self.dim.set_target(dim_to as f64);
+        if self.anim.reduce {
+            self.dim.snap();
         }
+        moving |= self.dim.advance(dt_anim);
 
         // Visibility: fade out then hide; show before fading in.
         let want_hidden = self.hidden();
@@ -230,7 +230,7 @@ impl Ui {
                 model: &self.model,
                 anim: &self.anim,
                 now,
-                dt,
+                dt: dt_anim as f32,
                 mouse: self.mouse_logical(),
                 pressed: self.pressed,
                 light: self.light,
@@ -252,7 +252,10 @@ impl Ui {
                 .clip;
             self.rend.draw(&fr, crop, &mut self.hits);
             let drawn = now.elapsed().as_micros() as u32;
-            let a = (self.anim.vis.pos.clamp(0.0, 1.0) * self.dim as f64 * 255.0).round() as u8;
+            // A value the scene eases (hover, press, a bar) keeps the clock at the refresh rate.
+            moving |= self.rend.tweening();
+            let a = (self.anim.vis.pos.clamp(0.0, 1.0) * self.dim.pos.clamp(0.0, 1.0) * 255.0)
+                .round() as u8;
             self.rend
                 .present(hwnd, crop, origin.0, origin.1, a, heading);
             if self.rend.lost() && self.gpu_retry == 0 {

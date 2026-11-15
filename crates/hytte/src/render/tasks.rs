@@ -122,7 +122,7 @@ impl Renderer {
                 y += crate::ui_state::LINE_H;
             }
             if t.running() {
-                self.filament(t, 42.0, y + 30.0, w - 42.0 - 20.0, fr.dt, now);
+                self.filament(t, 42.0, y + 30.0, w - 42.0 - 20.0, now);
             }
             y += 34.0;
             if t.failed() {

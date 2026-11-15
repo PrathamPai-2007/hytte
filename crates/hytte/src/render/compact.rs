@@ -212,7 +212,7 @@ impl Renderer {
     }
 
     /// Thin bar under a running task: determinate (eased) or shimmer.
-    pub(super) fn filament(&self, t: &TaskView, x: f32, y: f32, w: f32, dt: f32, now: Instant) {
+    pub(super) fn filament(&self, t: &TaskView, x: f32, y: f32, w: f32, now: Instant) {
         let col = task_color(t);
         self.fill_rr(x, y, w, 2.0, 1.0, self.cc(self.fg(), 0.08));
         if !t.running() {
@@ -233,10 +233,12 @@ impl Renderer {
         }
         match t.progress {
             Some(p) => {
-                let mut sh = self.shown.borrow_mut();
-                let e = sh.entry(t.id.clone()).or_insert(0.0);
-                *e += (p as f32 / 100.0 - *e) * (dt * 10.0).min(1.0);
-                self.fill_rr(x, y, (w * *e).max(2.0), 2.0, 1.0, self.cc(col, 1.0));
+                let e = self.tw(
+                    tween::key("progress", &t.id),
+                    p as f32 / 100.0,
+                    motion::GLIDE,
+                );
+                self.fill_rr(x, y, (w * e).max(2.0), 2.0, 1.0, self.cc(col, 1.0));
             }
             None => unsafe {
                 let ph = (self.t.get() * 0.85) % 1.0;
@@ -334,7 +336,7 @@ impl Renderer {
             self.cc(self.fg(), 0.94),
         );
         self.hero_end(saved);
-        self.filament(t, 14.0, h - 5.0, w - 28.0, fr.dt, now);
+        self.filament(t, 14.0, h - 5.0, w - 28.0, now);
     }
 
     pub(super) fn eq_bars(&self, x: f32, y: f32, h: f32, playing: bool, col: [f32; 3]) {

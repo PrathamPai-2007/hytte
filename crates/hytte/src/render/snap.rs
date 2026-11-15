@@ -164,6 +164,8 @@ fn render_crop(
     };
     let crop = r.plan(an.rect.w.pos as f32, an.rect.h.pos as f32, false, 0.0, true);
     let mut hits = vec![];
+    // A picture shows each value where it settles, not mid-ease from the shot before.
+    r.reset_tweens();
     for _ in 0..draws {
         r.draw(&fr, crop, &mut hits);
     }
