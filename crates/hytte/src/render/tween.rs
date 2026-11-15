@@ -96,10 +96,6 @@ impl Tweens {
     }
 
     /// Give the value `key` a push (px or units per second): it springs back to its target.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "first used by the scroll bounce (Task 16)")
-    )]
     pub fn kick(&mut self, key: u64, velocity: f32) {
         if !self.live {
             return;

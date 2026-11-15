@@ -47,8 +47,17 @@ impl Renderer {
         }
     }
 
-    /// `r`'s text in a box at (x, y) of height `h`, scrolled; a thin bar shows past the end.
-    fn reply_box(&self, r: &Reply, x: f32, y: f32, h: f32) {
+    /// Scrolling an answer past its end: it gives a little and springs back.
+    pub fn bounce_reply(&self, card: bool, dy: f32) {
+        self.tweens
+            .borrow_mut()
+            .kick(tween::key("reply-scroll", card), dy.signum() * 320.0);
+    }
+
+    /// `r`'s text in a box at (x, y) of height `h`, scrolled; a thin bar shows past the end. The
+    /// scroll glides to where the wheel sent it (`card`: the AI card's box, not the pane's).
+    fn reply_box(&self, r: &Reply, x: f32, y: f32, h: f32, card: bool) {
+        let sc = self.tw_px(tween::key("reply-scroll", card), r.scroll, motion::GLIDE);
         unsafe {
             self.rt.PushAxisAlignedClip(
                 &rect(x, y, REPLY_W + 6.0, h),
@@ -59,7 +68,7 @@ impl Renderer {
             &r.shown,
             &self.f.wrap,
             x,
-            y - r.scroll,
+            y - sc,
             REPLY_W,
             r.text_h + 24.0,
             self.cc(self.fg(), 0.95),
@@ -68,7 +77,7 @@ impl Renderer {
         let max = r.max_scroll(h);
         if max > 0.5 && r.text_h > 1.0 {
             let (bx, bh) = (x + REPLY_W + 2.0, (h * h / r.text_h).clamp(14.0, h));
-            let by = y + (h - bh) * (r.scroll / max);
+            let by = y + (h - bh) * (sc / max).clamp(0.0, 1.0);
             self.fill_rr(bx, by, 3.0, bh, 1.5, self.cc(self.fg(), 0.3));
         }
     }
@@ -198,7 +207,7 @@ impl Renderer {
         } else if r.shown.is_empty() && r.busy {
             self.dots(tx + 4.0, top + 14.0);
         } else {
-            self.reply_box(r, tx, top, box_h);
+            self.reply_box(r, tx, top, box_h, false);
         }
         // Under the answer: the model, or what went wrong; Copy and Clear.
         let fy = top + box_h + 6.0;
@@ -422,7 +431,7 @@ impl Renderer {
         if r.shown.is_empty() && r.busy {
             self.dots(REPLY_PAD + 4.0, by + 10.0);
         } else {
-            self.reply_box(r, REPLY_PAD, by, box_h);
+            self.reply_box(r, REPLY_PAD, by, box_h, true);
         }
         let y = by + box_h + 10.0;
         if r.busy {

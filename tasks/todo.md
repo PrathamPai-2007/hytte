@@ -242,9 +242,11 @@ matching `render/` files, `ui_state/tests/`. **Scope:** M
 ## Phase 4: Scrolling
 
 ### Task 16: Smooth scrolling for the answer boxes and the settings window
-- [ ] The model keeps the scroll target; the drawn offset follows through `Tweens` (`GLIDE`)
-- [ ] Scrolling past an end gives a small bounce (`kick`) and settles at the end
-- [ ] "Follow the end" while an answer streams still works and doesn't fight the wheel
+- [x] The model keeps the scroll target; the drawn offset follows through `Tweens` (`GLIDE`); the
+      settings window's scroll is a spring
+- [x] Scrolling past an end gives a small bounce (`kick`) and settles at the end
+- [x] "Follow the end" while an answer streams still works (the model's scroll logic is
+      unchanged; existing tests pass)
 **Verify:** Checks; existing Ask scroll tests pass; live build with a mouse wheel and a touchpad.
 **Depends on:** 4. **Files:** `render/ask.rs`, `window/win/ask.rs`, `settings_win.rs`,
 `render/settings.rs`. **Scope:** M

@@ -73,8 +73,10 @@ struct State {
     mouse: Option<(f32, f32)>,
     pressed: bool,
     /// The scroll as drawn, and where it is heading (the wheel and the section list set it).
-    scroll: f32,
+    /// Where the page is drawn scrolled to (it glides to `target`), and the furthest it goes.
+    scroll: crate::animation::Spring,
     target: f32,
+    max_scroll: f32,
     content: f32,
     tops: Vec<f32>,
     /// Dragging the opacity slider: its hit box's left and right edges.
@@ -184,8 +186,12 @@ pub fn open(cfg: &Config) {
                 hits: vec![],
                 mouse: None,
                 pressed: false,
-                scroll: 0.0,
+                scroll: crate::animation::Spring {
+                    eps: 0.3,
+                    ..crate::animation::Spring::unit(0.0, crate::animation::motion::GLIDE)
+                },
                 target: 0.0,
+                max_scroll: 0.0,
                 content: 0.0,
                 tops: vec![],
                 scrub: None,
@@ -259,11 +265,10 @@ fn redraw(s: &mut State, hwnd: HWND) {
     let (cw, ch) = ((r.right - r.left).max(1), (r.bottom - r.top).max(1));
     s.rend.resize_window(cw, ch, sc);
     let max = (s.content - ch as f32 / sc).max(0.0);
+    s.max_scroll = max;
     s.target = s.target.clamp(0.0, max);
-    s.scroll += (s.target - s.scroll) * (1.0 - (-dt * 14.0).exp());
-    if (s.target - s.scroll).abs() < 0.4 {
-        s.scroll = s.target;
-    }
+    s.scroll.set_target(s.target as f64);
+    s.scroll.advance(dt as f64);
     let since_scroll = now.duration_since(s.last_scroll);
     let toast_age = s
         .toast
@@ -283,7 +288,7 @@ fn redraw(s: &mut State, hwnd: HWND) {
         pressed: s.pressed,
         light: s.light,
         accent: s.accent,
-        scroll: s.scroll,
+        scroll: s.scroll.pos as f32,
         scrolling: since_scroll < Duration::from_millis(900)
             || s.mouse.is_some_and(|(x, _)| x > cw as f32 / sc - 16.0),
         dt,
@@ -301,7 +306,7 @@ fn redraw(s: &mut State, hwnd: HWND) {
         }
     }
     let moving = out.busy
-        || s.scroll != s.target
+        || !s.scroll.settled()
         || view.open < 1.0
         || s.toast.is_some()
         || since_scroll < Duration::from_millis(1500);
@@ -424,7 +429,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             let delta = (wparam.0 >> 16) as i16 as f32;
             with(
                 |s, hwnd| {
-                    s.target -= delta / 120.0 * 84.0;
+                    let want = s.target - delta / 120.0 * 84.0;
+                    let to = want.clamp(0.0, s.max_scroll);
+                    // Already at an end and pushed further: the page gives a little and
+                    // springs back.
+                    if (want - to).abs() > 0.5 && (s.target - to).abs() < 0.5 {
+                        s.scroll.vel += (want - to).signum() as f64 * 420.0;
+                    }
+                    s.target = to;
                     s.last_scroll = Instant::now();
                     redraw(s, hwnd);
                 },

@@ -350,7 +350,11 @@ impl Ui {
         match self.anim.scene {
             Scene::ExpAsk if self.model.ask.reply.max_scroll(self.model.ask_box_h()) > 0.5 => {
                 let h = self.model.ask_box_h();
+                let before = self.model.ask.reply.scroll;
                 self.model.ask.reply.scroll_by(dy, h);
+                if self.model.ask.reply.scroll == before {
+                    self.rend.bounce_reply(false, dy);
+                }
                 true
             }
             Scene::ExpAi
@@ -362,7 +366,11 @@ impl Ui {
             {
                 let h = self.model.ai_box_h();
                 if let Some(c) = self.model.ai_card.as_mut() {
+                    let before = c.reply.scroll;
                     c.reply.scroll_by(dy, h);
+                    if c.reply.scroll == before {
+                        self.rend.bounce_reply(true, dy);
+                    }
                 }
                 true
             }
