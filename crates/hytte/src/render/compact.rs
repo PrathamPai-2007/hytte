@@ -324,7 +324,7 @@ impl Renderer {
         } else {
             (natural, None)
         };
-        self.text(
+        self.digits(
             &rt,
             &self.f.small_r,
             r[0],
@@ -332,6 +332,7 @@ impl Renderer {
             r[2],
             r[3],
             self.cc(task_color(t), 0.95),
+            None,
         );
         self.hero_end(saved);
         let (lc, le) = self.label_ends(w, t);

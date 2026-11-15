@@ -202,11 +202,13 @@ build.
 `render/timer.rs`, `render/home.rs`. **Scope:** M
 
 ### Task 13: Tabular, rolling digits
-- [ ] `digits(text, key, …)` draws numbers in fixed-width cells; a changed digit rolls (old one
-      out, new one in) over one `QUICK`
-- [ ] Used for clocks, percentages, elapsed times, the media position, temperatures and counts
-- [ ] A clock that ticks once a second asks for frames only during the roll; a collapsed pill
-      with a Focus line does not gain wake-ups
+- [x] `digits(text, …, roll)` draws numbers in fixed-width cells; a changed digit rolls (old one
+      out, new one in; up when it grows, down when it shrinks) over one `QUICK`
+- [x] Rolling: the timer clock and minutes, the media position, the battery percent, the
+      temperature, a task's value in the list. Tabular without the roll: the bubble clock, the
+      compact task's value, the song length
+- [x] A clock that ticks once a second asks for frames only during the roll; nothing on a
+      collapsed pill rolls, so it gains no frames
 **Verify:** Checks; snapshots of every numeric label line up with the old ones to within 1 px;
 wake-up count for a running timer equals the baseline plus the roll.
 **Depends on:** 4. **Files:** `render/prims.rs`, `render/timer.rs`, `render/media.rs`,

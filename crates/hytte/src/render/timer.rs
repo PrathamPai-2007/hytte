@@ -89,7 +89,7 @@ impl Renderer {
             } else {
                 self.pause_icon(cx, cy, 14.0, ic);
             }
-            self.text(
+            self.digits(
                 &crate::timer::fmt(left),
                 &self.f.hero,
                 88.0,
@@ -97,6 +97,7 @@ impl Renderer {
                 150.0,
                 34.0,
                 self.cc(self.fg(), 0.97),
+                Some(tween::key("timer-clock", 0)),
             );
             let sub = if paused {
                 format!("{} · paused", t.kind.name())
@@ -143,7 +144,7 @@ impl Renderer {
             return;
         }
         // Setup: length, presets, start.
-        self.text(
+        self.digits(
             &format!("{} min", m.timer_min),
             &self.f.hero,
             20.0,
@@ -151,6 +152,7 @@ impl Renderer {
             200.0,
             36.0,
             self.cc(self.fg(), 0.97),
+            Some(tween::key("timer-min", 0)),
         );
         self.text(
             "Scroll or type the minutes",

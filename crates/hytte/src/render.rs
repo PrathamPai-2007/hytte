@@ -331,6 +331,10 @@ pub struct Renderer {
     /// The live scene while it fades in: its opacity, the content fade for the pill's height,
     /// and its offset. `group` staggers what is drawn after it by it. None when settled.
     stagger: Cell<Option<(f32, f32, f32, f32)>>,
+    /// Measured widths of single characters per text format: (format, char) -> px.
+    char_ws: RefCell<HashMap<(usize, char), f32>>,
+    /// Rolling numbers (`digits`): the text shown now and the one it rolled from, per key.
+    rolls: RefCell<HashMap<u64, (String, String)>>,
     /// Keyed springs for hover, press, values and positions (`render/tween.rs`).
     tweens: RefCell<tween::Tweens>,
     /// The settings row the pointer is on this frame (key, row y), and how long the same one
@@ -558,6 +562,8 @@ impl Renderer {
                 oy: Cell::new(0.0),
                 fx_busy: Cell::new(false),
                 stagger: Cell::new(None),
+                char_ws: RefCell::new(HashMap::new()),
+                rolls: RefCell::new(HashMap::new()),
                 tweens: RefCell::new(Default::default()),
                 tip_now: Cell::new(None),
                 tip: RefCell::new(("", 0.0)),
@@ -779,6 +785,11 @@ impl Renderer {
             }
         }
         self.tweens.borrow_mut().end();
+        {
+            // A rolling number no longer drawn is forgotten with its spring.
+            let tw = self.tweens.borrow();
+            self.rolls.borrow_mut().retain(|k, _| tw.peek(*k).is_some());
+        }
         std::mem::swap(hits, &mut *self.hits.borrow_mut());
     }
 

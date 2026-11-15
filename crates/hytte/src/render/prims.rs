@@ -237,6 +237,141 @@ impl Renderer {
         };
     }
 
+    /// How wide `ch` is in format `f` (measured once per format).
+    fn char_w(&self, f: &IDWriteTextFormat, ch: char) -> f32 {
+        let k = (f.as_raw() as usize, ch);
+        if let Some(w) = self.char_ws.borrow().get(&k) {
+            return *w;
+        }
+        let mut b = [0u16; 2];
+        let wide = ch.encode_utf16(&mut b);
+        let w = unsafe {
+            self.dw
+                .CreateTextLayout(wide, f, 4096.0, 100.0)
+                .ok()
+                .and_then(|l| {
+                    let mut m = DWRITE_TEXT_METRICS::default();
+                    l.GetMetrics(&mut m)
+                        .ok()
+                        .map(|_| m.widthIncludingTrailingWhitespace)
+                })
+                .unwrap_or(0.0)
+        };
+        self.char_ws.borrow_mut().insert(k, w);
+        w
+    }
+
+    /// A number (a clock, a percentage, a temperature) with every digit in a cell as wide as
+    /// a "0", so it doesn't shift sideways as it counts. Laid out in the box as `f` aligns text.
+    /// With `roll`, a digit that changes rolls: the old one slides out and the new one in (up
+    /// when it grows, down when it shrinks). Only for open panes: a roll asks for frames at the
+    /// refresh rate for its quarter second.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn digits(
+        &self,
+        s: &str,
+        f: &IDWriteTextFormat,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        c: D2D1_COLOR_F,
+        roll: Option<u64>,
+    ) {
+        let cell = self.char_w(f, '0');
+        let width = |ch: char| {
+            if ch.is_ascii_digit() {
+                cell
+            } else {
+                self.char_w(f, ch)
+            }
+        };
+        let total: f32 = s.chars().map(width).sum();
+        if total > w + 0.5 {
+            // Too long for its box: plain text, which trims with an ellipsis.
+            return self.text(s, f, x, y, w, h, c);
+        }
+        let x0 = match unsafe { f.GetTextAlignment() } {
+            DWRITE_TEXT_ALIGNMENT_TRAILING => x + w - total,
+            DWRITE_TEXT_ALIGNMENT_CENTER => x + (w - total) / 2.0,
+            _ => x,
+        };
+        // What it rolls from, and how far along.
+        let (prev, p) = match roll {
+            Some(key) => {
+                let mut rolls = self.rolls.borrow_mut();
+                let e = rolls
+                    .entry(key)
+                    .or_insert_with(|| (s.to_string(), s.to_string()));
+                if e.0 != s {
+                    e.1 = std::mem::replace(&mut e.0, s.to_string());
+                    self.tweens.borrow_mut().set(key, 0.0, motion::QUICK, 0.002);
+                }
+                let prev = e.1.clone();
+                drop(rolls);
+                (prev, self.tw(key, 1.0, motion::QUICK))
+            }
+            None => (String::new(), 1.0),
+        };
+        let rolling = p < 0.999;
+        let n = s.chars().count();
+        let old: Vec<char> = prev.chars().collect();
+        unsafe {
+            self.rt.PushAxisAlignedClip(
+                &rect(x0 - 2.0, y, total + 4.0, h),
+                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+            )
+        };
+        let mut cx = x0;
+        for (i, ch) in s.chars().enumerate() {
+            let cw = width(ch);
+            // The character it replaces, counting from the right (numbers grow on the left).
+            let from = (n - i <= old.len()).then(|| old[old.len() - (n - i)]);
+            match from.filter(|o| rolling && *o != ch) {
+                Some(o) => {
+                    let dir = if ch < o { -1.0 } else { 1.0 };
+                    let d = h * 0.55;
+                    let mut oc = c;
+                    oc.a *= 1.0 - p;
+                    self.glyph_in(o, f, cx, y - dir * d * p, cw, h, oc);
+                    let mut nc = c;
+                    nc.a *= p;
+                    self.glyph_in(ch, f, cx, y + dir * d * (1.0 - p), cw, h, nc);
+                }
+                None => self.glyph_in(ch, f, cx, y, cw, h, c),
+            }
+            cx += cw;
+        }
+        unsafe { self.rt.PopAxisAlignedClip() };
+    }
+
+    /// One character centred in a box, in format `f`.
+    #[allow(clippy::too_many_arguments)]
+    fn glyph_in(
+        &self,
+        ch: char,
+        f: &IDWriteTextFormat,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        c: D2D1_COLOR_F,
+    ) {
+        let mut b = [0u16; 2];
+        let wide = ch.encode_utf16(&mut b);
+        unsafe {
+            if let Ok(l) = self.dw.CreateTextLayout(wide, f, w + 8.0, h) {
+                let _ = l.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                self.rt.DrawTextLayout(
+                    v(x - 4.0, y),
+                    &l,
+                    self.solid(c),
+                    D2D1_DRAW_TEXT_OPTIONS_NONE,
+                );
+            }
+        }
+    }
+
     /// Text that doesn't fit fades out at the end; while `hov`, it instead scrolls to show
     /// the rest: a pause, a glide to the end, a pause, then back to the start.
     #[allow(clippy::too_many_arguments)]

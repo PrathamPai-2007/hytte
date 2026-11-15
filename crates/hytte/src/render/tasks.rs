@@ -85,7 +85,7 @@ impl Renderer {
             } else {
                 (natural, None)
             };
-            self.text(
+            self.digits(
                 &self.task_right_text(t, now),
                 &self.f.small_r,
                 r[0],
@@ -93,6 +93,7 @@ impl Renderer {
                 r[2],
                 r[3],
                 self.cc(task_color(t), 0.95),
+                Some(tween::key("task-value", &t.id)),
             );
             self.hero_end(saved);
             if finished {

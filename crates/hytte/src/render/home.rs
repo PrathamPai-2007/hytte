@@ -264,7 +264,7 @@ impl Renderer {
             self.bolt(cx, cy, 1.0, self.cc(self.ink(), 0.9));
         }
         let pct = format!("{}%", b.pct);
-        self.text(
+        self.digits(
             &pct,
             &self.f.hero,
             80.0,
@@ -272,6 +272,7 @@ impl Renderer {
             120.0,
             34.0,
             self.cc(self.fg(), 0.97),
+            Some(tween::key("battery", 0)),
         );
         let sub = match b.left() {
             Some(l) => format!("{}  ·  {l}", capitalise(&b.flow())),

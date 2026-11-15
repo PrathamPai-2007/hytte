@@ -377,7 +377,7 @@ impl Renderer {
                 } else {
                     fmt_clock(left)
                 };
-                self.text(
+                self.digits(
                     &clock,
                     &self.f.btn,
                     x,
@@ -385,6 +385,7 @@ impl Renderer {
                     bw,
                     16.0,
                     self.cc(col, 1.0),
+                    None,
                 );
             }
             Bubble::Media => {

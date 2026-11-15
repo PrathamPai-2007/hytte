@@ -129,7 +129,7 @@ impl Renderer {
                 );
             }
         }
-        self.text(
+        self.digits(
             &fmt_clock(pos),
             &self.f.small,
             bx,
@@ -137,8 +137,9 @@ impl Renderer {
             50.0,
             14.0,
             self.cc(GRAY, 1.0),
+            Some(tween::key("media-pos", 0)),
         );
-        self.text(
+        self.digits(
             &fmt_clock(md.dur_ms),
             &self.f.small_r,
             right - 50.0,
@@ -146,6 +147,7 @@ impl Renderer {
             50.0,
             14.0,
             self.cc(GRAY, 1.0),
+            None,
         );
         self.group(2);
         // Transport controls, clear of the tab dots.

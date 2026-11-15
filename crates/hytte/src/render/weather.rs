@@ -188,7 +188,7 @@ impl Renderer {
         let wall = crate::timer::now_ms();
         // The pane proper ends where the tab strip begins.
         let bottom = h - TAB_H;
-        self.text(
+        self.digits(
             &temp_text(f.now.temp, imp),
             &self.f.hero,
             16.0,
@@ -196,6 +196,7 @@ impl Renderer {
             84.0,
             48.0,
             self.cc(fg, 0.98),
+            Some(tween::key("temp", 0)),
         );
         self.text(
             describe(f.now.code, f.now.day),
