@@ -28,6 +28,8 @@ enum Cue {
     Point(Option<(f32, f32)>),
     /// The left button goes down or up.
     Press(bool),
+    /// Something changes in the model (a to-do is removed, a task ends).
+    Change(fn(&mut Model)),
 }
 
 /// Where the pointer is (pill-relative) and whether the button is down.
@@ -119,6 +121,28 @@ pub fn scripts() -> Vec<Script> {
             len: 2.4,
         },
         Script {
+            name: "rows",
+            what: "A to-do in the middle is removed (the rest slide up), then a new one is added.",
+            start: Scene::ExpTodo,
+            cues: vec![
+                (
+                    0.30,
+                    Change(|m| {
+                        let id = m.jot_list(Scene::ExpTodo)[1].id;
+                        m.jot.remove(id);
+                    }),
+                ),
+                (
+                    1.00,
+                    Change(|m| {
+                        m.jot
+                            .add(crate::jot::Kind::Todo, "Water the plants", true, 2);
+                    }),
+                ),
+            ],
+            len: 1.8,
+        },
+        Script {
             name: "card",
             what: "A card arrives over the compact task and leaves again.",
             start: Scene::CompactTask,
@@ -183,12 +207,23 @@ pub fn film_model() -> Model {
         now - std::time::Duration::from_secs(90),
     );
     m.chip = Some(Chip::new("Saved invoice.pdf to Downloads", now));
+    // A folder that doesn't exist: nothing is read or written.
+    m.init_jot(std::path::Path::new("Z:/none/jot.json"));
+    for t in [
+        "Send the April invoice",
+        "Book the car service",
+        "Renew the domain",
+    ] {
+        m.jot.add(crate::jot::Kind::Todo, t, true, 1);
+    }
     m
 }
 
-/// Drive `s` with the fixed step, calling `each` after every step with the time, the state and
-/// the pointer.
-pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim, Pointer)) {
+/// Drive `s` with the fixed step on a fresh `film_model`, calling `each` after every step with
+/// the time, the state, the pointer and the model.
+pub fn run(s: &Script, mut each: impl FnMut(f64, &Anim, Pointer, &Model)) {
+    let mut model = film_model();
+    let m = &mut model;
     let mut ptr: Pointer = (None, false);
     let (w, h) = m.size(s.start);
     let mut an = Anim::new(w, h);
@@ -220,6 +255,10 @@ pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim, Pointer)) {
                     cues.next();
                     continue;
                 }
+                Cue::Change(f) => {
+                    f(m);
+                    an.scene
+                }
             };
             an.set_scene(scene, m.size(scene), m.glow(scene));
             an.set_bubble(m.bubble(scene));
@@ -227,15 +266,15 @@ pub fn run(s: &Script, m: &Model, mut each: impl FnMut(f64, &Anim, Pointer)) {
             cues.next();
         }
         an.step(STEP);
-        each(t, &an, ptr);
+        each(t, &an, ptr, m);
     }
 }
 
 /// The largest opacity and offset step any scene takes between two frames of `s`, and when.
-pub fn continuity(s: &Script, m: &Model) -> (f32, f32, f64) {
+pub fn continuity(s: &Script) -> (f32, f32, f64) {
     let mut prev: Option<Vec<Shown>> = None;
     let (mut da, mut dp, mut at) = (0.0f32, 0.0f32, 0.0);
-    run(s, m, |t, an, _| {
+    run(s, |t, an, _, _| {
         let now: Vec<Shown> = an.shown().iter().copied().collect();
         if let Some(before) = &prev {
             let alpha = |l: &[Shown], sc: Scene| {
@@ -263,10 +302,9 @@ pub fn continuity(s: &Script, m: &Model) -> (f32, f32, f64) {
 
 #[test]
 fn every_scripted_transition_is_continuous() {
-    let m = film_model();
     let mut bad = vec![];
     for s in scripts() {
-        let (da, dp, at) = continuity(&s, &m);
+        let (da, dp, at) = continuity(&s);
         if da > MAX_ALPHA_STEP || dp > MAX_OFFSET_STEP {
             bad.push(format!(
                 "{}: opacity step {da:.2}, offset step {dp:.1} px (at {at:.3} s)",
@@ -283,7 +321,6 @@ fn every_scripted_transition_is_continuous() {
 fn filmstrips() {
     let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
     let scale = 1.5;
-    let m = film_model();
     let mut r = Renderer::offscreen(scale).unwrap();
     let mut strips = vec![];
     for s in scripts() {
@@ -292,20 +329,21 @@ fn filmstrips() {
         std::fs::create_dir_all(&sub).unwrap();
         // One picture per 60 Hz frame, cropped to the tallest the pill gets in this strip.
         let mut tallest = 0.0f32;
-        run(&s, &m, |_, an, _| {
+        run(&s, |_, an, _, _| {
             tallest = tallest.max(an.rect.h.pos as f32)
         });
         let crop_h = (((tallest + 30.0) * scale).ceil() as u32).min(r.px.1 as u32);
         let mut n = 0;
         let mut i = 0usize;
-        let (da, dp, _) = continuity(&s, &m);
-        run(&s, &m, |t, an, (point, down)| {
+        let (da, dp, _) = continuity(&s);
+        r.reset_tweens();
+        run(&s, |t, an, (point, down), m| {
             i += 1;
             if !i.is_multiple_of(2) {
                 return;
             }
             let fr = Frame {
-                model: &m,
+                model: m,
                 anim: an,
                 now: epoch() + std::time::Duration::from_secs_f64(t),
                 dt: (2.0 * STEP) as f32,

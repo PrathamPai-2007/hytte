@@ -215,9 +215,10 @@ wake-up count for a running timer equals the baseline plus the roll.
 `render/weather.rs`, `render/tasks.rs`. **Scope:** M
 
 ### Task 14: Rows slide when a list changes
-- [ ] Task, agent, to-do, note, clip and shelf rows are positioned through `Tweens`, keyed by
-      item id: a reorder or a removal above slides the rest into place
-- [ ] A new row fades and slides in; rows present when the pane opens don't
+- [x] Task, agent, to-do and note rows are positioned through `Tweens`, keyed by item id: a
+      reorder or a removal above slides the rest into place. Clips and shelf tiles page by
+      whole rows and are left to Task 17
+- [x] A new row fades and slides in; rows present when the pane opens don't (filmstrip `rows`)
 **Verify:** Checks; filmstrip of a task finishing and being dismissed; settled snapshots
 unchanged.
 **Depends on:** 4. **Files:** `render/tasks.rs`, `render/agents.rs`, `render/jot.rs`,

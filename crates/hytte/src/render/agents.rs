@@ -10,7 +10,10 @@ impl Renderer {
         for (row, r) in lay.rows.iter().enumerate() {
             self.group(row as u8);
             let t = r.task;
-            let (y, cy) = (r.y, r.y + 17.0);
+            let (ry, a) = self.row(tween::key("agent", &t.id), r.y);
+            let ca = self.ca.get();
+            self.ca.set(ca * a);
+            let (y, cy) = (ry, ry + 17.0);
             let finished = !t.running();
             let right_w = 84.0;
             let close_w = if finished { 24.0 } else { 0.0 };
@@ -145,6 +148,7 @@ impl Renderer {
             if t.running() {
                 self.filament(t, 42.0, y + r.h - 4.0, w - 42.0 - 20.0, now);
             }
+            self.ca.set(ca);
         }
         if lay.hidden > 0 {
             let y = lay.rows.last().map_or(0.0, |r| r.y + r.h) + 2.0;

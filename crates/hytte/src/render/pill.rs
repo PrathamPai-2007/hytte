@@ -455,10 +455,12 @@ impl Renderer {
                 if s.alpha < 1.0 {
                     self.stagger.set(Some((s.alpha, fit, s.dx, s.dy)));
                 }
+                self.steady.set(s.alpha >= 1.0);
                 self.focus_live.set(true);
                 self.content(fr, s.scene, w, h, pad_r);
                 self.focus_live.set(false);
                 self.stagger.set(None);
+                self.steady.set(false);
                 continue;
             }
             self.ca.set(s.alpha * fit);

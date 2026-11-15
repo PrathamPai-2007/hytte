@@ -6,8 +6,15 @@ impl Renderer {
     pub(super) fn exp_tasks(&self, fr: &Frame, w: f32, _h: f32) {
         let now = fr.now;
         let mut y = 10.0;
+        let ca0 = self.ca.get();
         for (row, t) in fr.model.rows().into_iter().enumerate() {
             self.group(row as u8);
+            // The row slides when the rows above change, and a new one comes in on its own.
+            let (ry, a) = self.row(tween::key("task", &t.id), y);
+            let shift = ry - y;
+            y = ry;
+            let ca = self.ca.get();
+            self.ca.set(ca * a);
             let cy = y + 17.0;
             let finished = !t.running();
             let right_w = 74.0;
@@ -183,7 +190,10 @@ impl Renderer {
                 }
                 y += 28.0;
             }
+            y -= shift;
+            self.ca.set(ca);
         }
+        self.ca.set(ca0);
         let (up, down) = fr.model.rows_hidden();
         if up + down > 0 {
             let note = match (up, down) {

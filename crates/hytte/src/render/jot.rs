@@ -255,7 +255,11 @@ impl Renderer {
         }
         for (row, j) in list.iter().skip(first).take(shown).enumerate() {
             self.group(1 + row as u8);
-            self.jot_row(w, y, j, wall);
+            let (ry, a) = self.row(tween::key("jot", j.id), y);
+            let ca = self.ca.get();
+            self.ca.set(ca * a);
+            self.jot_row(w, ry, j, wall);
+            self.ca.set(ca);
             y += ROW_H;
         }
         if undo.is_some() {

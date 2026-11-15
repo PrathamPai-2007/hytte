@@ -331,10 +331,15 @@ pub struct Renderer {
     /// The live scene while it fades in: its opacity, the content fade for the pill's height,
     /// and its offset. `group` staggers what is drawn after it by it. None when settled.
     stagger: Cell<Option<(f32, f32, f32, f32)>>,
+    /// The live scene is fully shown (not fading in): a row that appears now is new, and
+    /// comes in on its own (`row`).
+    steady: Cell<bool>,
     /// Measured widths of single characters per text format: (format, char) -> px.
     char_ws: RefCell<HashMap<(usize, char), f32>>,
     /// Rolling numbers (`digits`): the text shown now and the one it rolled from, per key.
     rolls: RefCell<HashMap<u64, (String, String)>>,
+    /// Reduced motion is on (Windows' animation effects are off).
+    reduced: Cell<bool>,
     /// Keyed springs for hover, press, values and positions (`render/tween.rs`).
     tweens: RefCell<tween::Tweens>,
     /// The settings row the pointer is on this frame (key, row y), and how long the same one
@@ -562,6 +567,8 @@ impl Renderer {
                 oy: Cell::new(0.0),
                 fx_busy: Cell::new(false),
                 stagger: Cell::new(None),
+                steady: Cell::new(false),
+                reduced: Cell::new(false),
                 char_ws: RefCell::new(HashMap::new()),
                 rolls: RefCell::new(HashMap::new()),
                 tweens: RefCell::new(Default::default()),
@@ -631,7 +638,6 @@ impl Renderer {
     }
 
     /// `tw` for a position or a length in logical px.
-    #[expect(dead_code, reason = "first used by the sliding rows (Task 14)")]
     pub(super) fn tw_px(&self, key: u64, target: f32, feel: crate::animation::Feel) -> f32 {
         self.tweens.borrow_mut().get(key, target, feel, 0.05)
     }
@@ -652,6 +658,22 @@ impl Renderer {
             self.rt
                 .SetTransform(&mat(self.scale, self.ox.get() + dx, dy + rise))
         };
+    }
+
+    /// A list row keyed `key` that belongs at `y`: where to draw it and how opaque. It slides
+    /// to a new place when the rows above it change; one that appears while its pane is
+    /// already showing comes in from a little below and fades in. Rows there when the pane
+    /// opens just are there.
+    pub(super) fn row(&self, key: u64, y: f32) -> (f32, f32) {
+        let (ky, ka) = (tween::key("row-y", key), tween::key("row-a", key));
+        let new = self.tweens.borrow().peek(ky).is_none();
+        if new && self.steady.get() && !self.reduced.get() {
+            let mut tw = self.tweens.borrow_mut();
+            tw.set(ky, y + 10.0, motion::GLIDE, 0.05);
+            tw.set(ka, 0.0, motion::ENTER, 0.002);
+        }
+        let a = self.tw(ka, 1.0, motion::ENTER);
+        (self.tw_px(ky, y, motion::GLIDE), a)
     }
 
     /// A value drawn with `tw` is still on its way: keep frames coming at the refresh rate.
@@ -752,6 +774,7 @@ impl Renderer {
         self.tweens
             .borrow_mut()
             .begin(fr.dt as f64, !fr.anim.reduce);
+        self.reduced.set(fr.anim.reduce);
         self.sync_art(fr.model);
         let (pw, ph) = (fr.anim.rect.w.pos as f32, fr.anim.rect.h.pos as f32);
         let ox = (crop.w_log - pw) / 2.0;
