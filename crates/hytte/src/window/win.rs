@@ -848,8 +848,11 @@ pub fn run_windows(
                 }
                 let n = s4.stride.load(Ordering::Relaxed).max(1);
                 for _ in 0..n {
-                    if DwmFlush().is_err() {
-                        // No compositor to wait on (it is restarting): don't spin.
+                    let t = Instant::now();
+                    let ok = DwmFlush().is_ok();
+                    // No compositor to wait on (it is restarting), or it isn't waiting for a
+                    // vblank (the display is changing mode, or off): never spin, pace at 60 Hz.
+                    if !ok || t.elapsed() < Duration::from_millis(1) {
                         std::thread::sleep(Duration::from_millis(16));
                     }
                     // A spring started while waiting out a slow stride: its frame is due now.
