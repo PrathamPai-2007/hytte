@@ -127,8 +127,8 @@ pub(super) fn row_label_opacity() -> &'static str {
     "Pill opacity when open"
 }
 
-/// Where the glow slider ends: 20 % past the old "Strong" (1.6).
-pub const GLOW_MAX: f32 = 1.92;
+/// Where the glow slider ends (2.5x the original glow).
+pub const GLOW_MAX: f32 = 2.5;
 
 /// The unit a number in `config.toml` is in, from the end of its key.
 pub(super) fn unit(key: &str) -> &'static str {

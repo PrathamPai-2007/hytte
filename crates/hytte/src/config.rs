@@ -62,8 +62,7 @@ pub struct General {
     pub check_updates: bool,
     /// Global hotkey that opens Notes with the cursor ready, e.g. "Win+Alt+J". Empty = off.
     pub note_hotkey: String,
-    /// Colour theme of the pill body: "accent" (the Windows accent colour, the default),
-    /// "graphite", "aurora", "ember", "moss" or "dusk".
+    /// Colour theme of the pill body: "graphite", "aurora", "ember", "moss", "dusk" or "accent".
     pub skin: String,
 }
 
@@ -134,7 +133,7 @@ impl Default for General {
             add_to_path: true,
             monitor: "primary".into(),
             adaptive_glow: true,
-            glow_strength: 1.2,
+            glow_strength: 1.69,
             pill_opacity: 0.9,
             hover_delay_ms: 200,
             collapse_delay_ms: 100,
@@ -158,7 +157,7 @@ impl Default for General {
             hide_from_capture: false,
             check_updates: true,
             note_hotkey: String::new(),
-            skin: "accent".into(),
+            skin: "graphite".into(),
         }
     }
 }
