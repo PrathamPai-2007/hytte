@@ -190,6 +190,7 @@ impl Renderer {
         let (gap, py, ph) = (6.0, 68.0, 28.0);
         let pw = (w - 32.0 - gap * (presets.len() - 1) as f32) / presets.len() as f32;
         for (i, p) in presets.into_iter().enumerate() {
+            self.group(1 + i as u8);
             let x = 16.0 + i as f32 * (pw + gap);
             let on = p == m.timer_min;
             let hov = self.hit(x, py, pw, ph, Action::TimerMinutes(p));

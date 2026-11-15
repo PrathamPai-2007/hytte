@@ -150,6 +150,7 @@ impl Renderer {
             }
         }
         for (i, it) in page.iter().enumerate() {
+            self.group(i as u8);
             let (x, y, s) = (x0 + i as f32 * 70.0, 14.0, 60.0);
             let sel = m.shelf_sel == Some(it.id);
             let hov = self.hit(x, y, s, s, Action::ShelfTile(it.id));

@@ -35,6 +35,7 @@ impl Renderer {
             Some((v, false)) => (volume_glyph(v), format!("{}%", (v * 100.0).round()), None),
             None => ('\u{E74F}', "No output".to_string(), None),
         };
+        self.group(1);
         self.tile(
             x(1.0),
             y,
@@ -55,6 +56,7 @@ impl Renderer {
             }
         };
         let awake_on = m.awake.active(now).then_some(ORANGE);
+        self.group(2);
         self.tile(
             x(2.0),
             y,
@@ -71,6 +73,7 @@ impl Renderer {
             Some(t) => (crate::timer::fmt(t.remaining_ms(wall)), Some(BLUE)),
             None => ("Start".to_string(), None),
         };
+        self.group(3);
         self.tile(
             x(3.0),
             y,
@@ -83,6 +86,7 @@ impl Renderer {
             Action::OpenTimer,
         );
 
+        self.group(4);
         // Volume bar: click to set, scroll to nudge. The per-app chevron and the settings
         // gear sit at its end.
         let (bx, by, bw, bh) = (16.0, y + th + 12.0, w - 32.0 - 76.0, 32.0);
@@ -288,6 +292,7 @@ impl Renderer {
             (Mode::Performance, "Performance", ORANGE),
         ];
         for (i, (mode, label, accent)) in modes.into_iter().enumerate() {
+            self.group(1 + i as u8);
             let x = sx + i as f32 * seg;
             let on = b.mode == mode;
             let hov = self.hit(x, sy, seg, sh, Action::SetPowerMode(mode));

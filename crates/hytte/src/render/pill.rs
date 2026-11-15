@@ -450,9 +450,13 @@ impl Renderer {
                     self.rt
                         .SetTransform(&mat(self.scale, self.ox.get() + s.dx, s.dy))
                 };
+                if s.alpha < 1.0 {
+                    self.stagger.set(Some((s.alpha, fit, s.dx, s.dy)));
+                }
                 self.focus_live.set(true);
                 self.content(fr, s.scene, w, h, pad_r);
                 self.focus_live.set(false);
+                self.stagger.set(None);
                 continue;
             }
             self.ca.set(s.alpha * fit);

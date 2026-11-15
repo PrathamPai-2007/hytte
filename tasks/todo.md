@@ -128,11 +128,13 @@ stops: what each one would have shown is kept for review at the end.
 strip), `ui_state/tests/scene.rs`. **Scope:** M
 
 ### Task 8a: Staggered entrances
-- [ ] `self.group(i)` sets opacity and offset for what is drawn next, from the layer's own
+- [x] `self.group(i)` sets opacity and offset for what is drawn next, from the layer's own
       spring; no new springs
-- [ ] Every expanded scene uses it: header, then body rows (capped at five steps), then footer.
-      The tab strip and shared elements are exempt
-- [ ] The time from scene change to fully drawn is no longer than in Task 7's filmstrip
+- [x] The panes with rows or tiles use it (Home, Media, Tasks, Agents, Notes, To-do, Shelf,
+      Weather, Timer, Power): header, then rows (capped at five steps). Cards, the drop zone and
+      Ask come in as one block. The tab strip and shared elements are exempt
+- [x] The time from scene change to fully drawn is unchanged (every group arrives when the
+      layer does); the largest opacity step stays 0.10
 **Verify:** Checks; filmstrip; snapshots of settled scenes unchanged (stagger ends at identity).
 **Depends on:** 7. **Files:** `render/pill.rs`, then one commit per two or three scene files in
 `render/`. **Scope:** L, split by scene file

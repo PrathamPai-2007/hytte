@@ -50,6 +50,11 @@ mod weather;
 
 pub use settings_table::*;
 
+/// How far behind the one before it each group of a scene comes in (a share of the fade), and
+/// the most groups that are staggered (later ones come in with the last).
+const STAGGER_STEP: f32 = 0.06;
+const STAGGER_GROUPS: u8 = 5;
+
 pub const CANVAS_W: f32 = 460.0;
 pub const CANVAS_H: f32 = 310.0;
 const HOT_ZONE_H: f32 = 40.0;
@@ -323,6 +328,9 @@ pub struct Renderer {
     oy: Cell<f32>,
     /// Settings window: a hover note is still on its way (another frame is due).
     fx_busy: Cell<bool>,
+    /// The live scene while it fades in: its opacity, the content fade for the pill's height,
+    /// and its offset. `group` staggers what is drawn after it by it. None when settled.
+    stagger: Cell<Option<(f32, f32, f32, f32)>>,
     /// Keyed springs for hover, press, values and positions (`render/tween.rs`).
     tweens: RefCell<tween::Tweens>,
     /// The settings row the pointer is on this frame (key, row y), and how long the same one
@@ -547,6 +555,7 @@ impl Renderer {
                 ca: Cell::new(1.0),
                 oy: Cell::new(0.0),
                 fx_busy: Cell::new(false),
+                stagger: Cell::new(None),
                 tweens: RefCell::new(Default::default()),
                 tip_now: Cell::new(None),
                 tip: RefCell::new(("", 0.0)),
@@ -583,6 +592,24 @@ impl Renderer {
     #[expect(dead_code, reason = "first used by the sliding rows (Task 14)")]
     pub(super) fn tw_px(&self, key: u64, target: f32, feel: crate::animation::Feel) -> f32 {
         self.tweens.borrow_mut().get(key, target, feel, 0.05)
+    }
+
+    /// What is drawn next belongs to the scene's `i`-th group (0 = its first). While the scene
+    /// fades in, later groups come in a little after the earlier ones and rise a few px into
+    /// place, so a pane builds from the top instead of appearing as one block. A leaving scene
+    /// and a settled one are drawn whole: this does nothing then.
+    pub(super) fn group(&self, i: u8) {
+        let Some((alpha, fit, dx, dy)) = self.stagger.get() else {
+            return;
+        };
+        let i = i.min(STAGGER_GROUPS) as f32;
+        let a = ((alpha - STAGGER_STEP * i) / (1.0 - STAGGER_STEP * i)).clamp(0.0, 1.0);
+        self.ca.set(a * fit);
+        let rise = if i > 0.0 { (1.0 - a) * 4.0 } else { 0.0 };
+        unsafe {
+            self.rt
+                .SetTransform(&mat(self.scale, self.ox.get() + dx, dy + rise))
+        };
     }
 
     /// A value drawn with `tw` is still on its way: keep frames coming at the refresh rate.

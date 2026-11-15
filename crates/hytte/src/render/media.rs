@@ -81,6 +81,7 @@ impl Renderer {
             hov,
         );
         self.eq_bars(right - 18.0, 18.0, 14.0, md.playing, GREEN);
+        self.group(1);
         // Timeline with live extrapolation while playing.
         let pos = self.media_pos(fr, md);
         let frac = if md.dur_ms > 0 {
@@ -131,6 +132,7 @@ impl Renderer {
             14.0,
             self.cc(GRAY, 1.0),
         );
+        self.group(2);
         // Transport controls, clear of the tab dots.
         let tab = if fr.model.tabs() { TAB_H } else { 0.0 };
         let cy = h - tab - 26.0;

@@ -229,6 +229,7 @@ impl Renderer {
             .collect();
         let step = (w - 32.0) / 6.0;
         for (i, hr) in hours.iter().enumerate() {
+            self.group(1 + i as u8);
             let cx = 16.0 + step * (i as f32 + 0.5);
             let label = if i == 0 {
                 "Now".to_string()

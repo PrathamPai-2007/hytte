@@ -6,7 +6,8 @@ impl Renderer {
     pub(super) fn exp_tasks(&self, fr: &Frame, w: f32, _h: f32) {
         let now = fr.now;
         let mut y = 10.0;
-        for t in fr.model.rows() {
+        for (row, t) in fr.model.rows().into_iter().enumerate() {
+            self.group(row as u8);
             let cy = y + 17.0;
             let finished = !t.running();
             let right_w = 74.0;

@@ -253,7 +253,8 @@ impl Renderer {
                 self.cc(GRAY, 0.9),
             );
         }
-        for j in list.iter().skip(first).take(shown) {
+        for (row, j) in list.iter().skip(first).take(shown).enumerate() {
+            self.group(1 + row as u8);
             self.jot_row(w, y, j, wall);
             y += ROW_H;
         }

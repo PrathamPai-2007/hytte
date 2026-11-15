@@ -7,7 +7,8 @@ impl Renderer {
     pub(super) fn exp_agents(&self, fr: &Frame, w: f32, _h: f32) {
         let now = fr.now;
         let lay = fr.model.agents_layout();
-        for r in &lay.rows {
+        for (row, r) in lay.rows.iter().enumerate() {
+            self.group(row as u8);
             let t = r.task;
             let (y, cy) = (r.y, r.y + 17.0);
             let finished = !t.running();
