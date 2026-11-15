@@ -298,22 +298,41 @@ impl Renderer {
         match j.kind {
             Kind::Todo => {
                 let hb = self.hit(12.0, y, 26.0, ROW_H, Action::ToggleJot(j.id));
-                if done {
-                    self.fill_rr(18.0, cy - 7.5, 15.0, 15.0, 5.0, self.cc(GREEN, 1.0));
-                    let ink = self.cc([0.03, 0.08, 0.05], 1.0);
-                    self.line((21.0, cy), (24.0, cy + 3.0), ink, 1.8);
-                    self.line((24.0, cy + 3.0), (30.0, cy - 3.5), ink, 1.8);
-                } else {
+                let hv = self.tw(
+                    tween::key("tick-hover", j.id),
+                    hb as u8 as f32,
+                    motion::QUICK,
+                );
+                // Ticking: the box fills green from its centre and the tick draws itself.
+                let k = self.tw(tween::key("tick", j.id), done as u8 as f32, motion::POP);
+                if k < 0.996 {
                     self.stroke_rr(
                         18.5,
                         cy - 7.0,
                         14.0,
                         14.0,
                         4.5,
-                        self.cc(fg, if hb { 0.75 } else { 0.4 }),
+                        self.cc(fg, (0.4 + 0.35 * hv) * (1.0 - k.clamp(0.0, 1.0))),
                         1.4,
                         false,
                     );
+                }
+                if k > 0.004 {
+                    let saved = self.scale_about(25.5, cy, 0.55 + 0.45 * k);
+                    self.fill_rr(18.0, cy - 7.5, 15.0, 15.0, 5.0, self.cc(GREEN, k.min(1.0)));
+                    self.unpress(saved);
+                    let ink = self.cc([0.03, 0.08, 0.05], 1.0);
+                    // The short stroke first, then the long one.
+                    let a = (k / 0.4).clamp(0.0, 1.0);
+                    let b = ((k - 0.4) / 0.6).clamp(0.0, 1.0);
+                    let lerp = |p: (f32, f32), q: (f32, f32), t: f32| {
+                        (p.0 + (q.0 - p.0) * t, p.1 + (q.1 - p.1) * t)
+                    };
+                    let (p0, p1, p2) = ((21.0, cy), (24.0, cy + 3.0), (30.0, cy - 3.5));
+                    self.line(p0, lerp(p0, p1, a), ink, 1.8);
+                    if b > 0.0 {
+                        self.line(p1, lerp(p1, p2, b), ink, 1.8);
+                    }
                 }
             }
             Kind::Note => match j.life_left(wall) {
@@ -334,8 +353,9 @@ impl Renderer {
             self.cc(fg, 0.95)
         };
         self.text(&j.text, &self.f.body, tx, y, tw, ROW_H, col);
-        if done {
-            let sw = self.text_width(&j.text).min(tw);
+        let strike = self.tw(tween::key("strike", j.id), done as u8 as f32, motion::GLIDE);
+        if strike > 0.004 {
+            let sw = self.text_width(&j.text).min(tw) * strike.min(1.0);
             self.line((tx, cy + 0.5), (tx + sw, cy + 0.5), self.cc(GRAY, 0.8), 1.2);
         }
         if hov {

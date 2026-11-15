@@ -80,11 +80,16 @@ impl Tweens {
         s.pos as f32
     }
 
+    /// Where the value `key` is, without moving it (None if it isn't being drawn).
+    pub fn peek(&self, key: u64) -> Option<f32> {
+        self.map.get(&key).map(|(s, _)| s.pos as f32)
+    }
+
+    /// Give the value `key` a push (px or units per second): it springs back to its target.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "first used by the scroll bounce (Task 16)")
     )]
-    /// Give the value `key` a push (px or units per second): it springs back to its target.
     pub fn kick(&mut self, key: u64, velocity: f32) {
         if !self.live {
             return;

@@ -7,8 +7,8 @@ impl Renderer {
 
     /// The pane switcher under a pane with neighbours: one icon per pane, the current one a
     /// pill with its name. Drawn once, as chrome that stays put while the pages slide. While
-    /// paging, the old tab shrinks as the new one grows (the content spring drives both), so
-    /// the highlight travels without any state of its own.
+    /// paging, the old tab shrinks as the new one grows, each eased on its own (so a page
+    /// turned back halfway just turns back).
     pub(super) fn tab_strip(&self, fr: &Frame, w: f32, h: f32, fit: f32) {
         let (m, an) = (fr.model, fr.anim);
         if !m.tabs() {
@@ -35,11 +35,13 @@ impl Renderer {
         // The pane on screen, not the selection: the timer setup card is no pane at all.
         let on = |s: Scene| Panel::of(s).filter(|p| ps.contains(p));
         let cur = on(an.scene);
-        let prev = on(an.prev).filter(|_| live && gone);
-        let weight = |p: Panel| match prev {
-            Some(q) if Some(p) == cur && Some(q) != cur => c,
-            Some(q) if p == q && Some(q) != cur => 1.0 - c,
-            _ => (Some(p) == cur) as u8 as f32,
+        let weight = |p: Panel| {
+            let i = ps.iter().position(|&q| q == p).unwrap_or(0);
+            self.tw(
+                tween::key("tab", i),
+                (Some(p) == cur) as u8 as f32,
+                motion::ENTER,
+            )
         };
         let icon = 26.0;
         let label = |p: Panel| text_w(m.panel_label(p)) + 10.0;

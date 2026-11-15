@@ -622,24 +622,33 @@ impl Renderer {
         on: Option<[f32; 3]>,
         action: Action,
     ) {
+        let id = tween::key("tile", (x.to_bits(), y.to_bits()));
         let (_, hv, _, saved) = self.press(x, y, w, h, action);
-        match on {
-            Some(c) => {
-                self.fill_rr(x, y, w, h, 14.0, self.cc(c, 0.22 + 0.08 * hv));
-                self.stroke_rr(
-                    x + 0.5,
-                    y + 0.5,
-                    w - 1.0,
-                    h - 1.0,
-                    13.5,
-                    self.cc(c, 0.35),
-                    1.0,
-                    false,
-                );
-            }
-            None => self.fill_rr(x, y, w, h, 14.0, self.cc(self.fg(), 0.06 + 0.05 * hv)),
+        // Switching on tints the tile in its colour; switching off fades the tint out.
+        let k = self.tw(id, on.is_some() as u8 as f32, motion::QUICK);
+        let c = self.tw_rgb("tile-rgb", id, on, self.fg());
+        self.fill_rr(
+            x,
+            y,
+            w,
+            h,
+            14.0,
+            self.cc(self.fg(), (0.06 + 0.05 * hv) * (1.0 - k)),
+        );
+        if k > 0.004 {
+            self.fill_rr(x, y, w, h, 14.0, self.cc(c, (0.22 + 0.08 * hv) * k));
+            self.stroke_rr(
+                x + 0.5,
+                y + 0.5,
+                w - 1.0,
+                h - 1.0,
+                13.5,
+                self.cc(c, 0.35 * k),
+                1.0,
+                false,
+            );
         }
-        let ic = on.unwrap_or(self.fg());
+        let ic = mix3(self.fg(), c, k);
         self.glyph_l(icon, x + w / 2.0, y + 20.0, self.cc(ic, 0.95));
         self.text(
             label,
@@ -650,7 +659,7 @@ impl Renderer {
             14.0,
             self.cc(self.fg(), 0.95),
         );
-        let sc = if on.is_some() { ic } else { GRAY };
+        let sc = mix3(GRAY, c, k);
         self.text(
             sub,
             &self.f.small_c,

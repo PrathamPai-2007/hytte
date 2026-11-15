@@ -591,6 +591,27 @@ impl Renderer {
         self.tweens.borrow_mut().get(key, target, feel, 0.002)
     }
 
+    /// A colour easing to `target`; with no target it keeps the colour it has (so something
+    /// switching off fades out in its own colour) or, never drawn, `rest`.
+    pub(super) fn tw_rgb(
+        &self,
+        tag: &str,
+        id: u64,
+        target: Option<[f32; 3]>,
+        rest: [f32; 3],
+    ) -> [f32; 3] {
+        let k = |i: usize| tween::key(tag, (id, i));
+        let mut out = rest;
+        for (i, c) in out.iter_mut().enumerate() {
+            let want = target
+                .map(|t| t[i])
+                .or_else(|| self.tweens.borrow().peek(k(i)))
+                .unwrap_or(rest[i]);
+            *c = self.tw(k(i), want, motion::QUICK);
+        }
+        out
+    }
+
     /// `tw` for a position or a length in logical px.
     #[expect(dead_code, reason = "first used by the sliding rows (Task 14)")]
     pub(super) fn tw_px(&self, key: u64, target: f32, feel: crate::animation::Feel) -> f32 {

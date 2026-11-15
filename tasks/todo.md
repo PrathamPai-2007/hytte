@@ -178,11 +178,13 @@ build.
 **Depends on:** 4. **Files:** `render/prims.rs`, `window/win/input.rs`, `render.rs`. **Scope:** M
 
 ### Task 11: Toggles, selection and tabs
-- [ ] Tile on/off tint, the to-do tick, timer presets and settings switches and segments ease
-      between states
-- [ ] The tab strip's highlight is driven by `Tweens` and travels on hover-preview as well as
-      on paging
-- [ ] Nothing eases on first draw of a pane
+- [x] Tile on/off tint (fading out in its own colour), the to-do tick (the box fills and the tick
+      draws itself; the strike-through draws across), timer presets; settings switches and
+      segments already eased and now use the same springs
+- [x] The tab strip's highlight is driven by `Tweens` (each tab eased on its own, so a page
+      turned back halfway turns back). Hover preview not built: it would change how the strip
+      behaves, which this release doesn't
+- [x] Nothing eases on first draw of a pane (a new key starts at its target)
 **Verify:** Checks; settled snapshots unchanged; filmstrip.
 **Depends on:** 10. **Files:** `render/prims.rs`, `render/home.rs`, `render/jot.rs`,
 `render/shelf.rs`, `render/settings.rs`. **Scope:** M

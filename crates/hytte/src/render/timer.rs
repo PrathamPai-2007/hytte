@@ -194,22 +194,22 @@ impl Renderer {
             let x = 16.0 + i as f32 * (pw + gap);
             let on = p == m.timer_min;
             let hov = self.hit(x, py, pw, ph, Action::TimerMinutes(p));
-            let a = if on {
-                0.28
-            } else if hov {
-                0.12
-            } else {
-                0.06
-            };
+            let hv = self.tw(
+                tween::key("preset-hover", p),
+                hov as u8 as f32,
+                motion::QUICK,
+            );
+            let sel = self.tw(tween::key("preset", p), on as u8 as f32, motion::QUICK);
+            let a = 0.06 + 0.06 * hv * (1.0 - sel) + 0.22 * sel;
             self.fill_rr(
                 x,
                 py,
                 pw,
                 ph,
                 ph / 2.0,
-                self.cc(if on { self.accent.get() } else { fg }, a),
+                self.cc(mix3(fg, self.accent.get(), sel), a),
             );
-            let tc = self.cc(fg, if on { 1.0 } else { 0.75 });
+            let tc = self.cc(fg, 0.75 + 0.25 * sel);
             self.text(&format!("{p} min"), &self.f.btn, x, py, pw, ph, tc);
         }
         let bw = (w - 32.0 - 8.0) / 2.0;
