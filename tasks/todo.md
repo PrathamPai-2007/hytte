@@ -252,16 +252,19 @@ matching `render/` files, `ui_state/tests/`. **Scope:** M
 `render/settings.rs`. **Scope:** M
 
 ### Task 17: Smooth scrolling for row lists
-- [ ] Tasks, notes, lyrics, clips and the shelf row glide between positions instead of jumping a
-      row; the row index in the model is unchanged
-- [ ] The same end bounce as Task 16
-- [ ] Rows entering and leaving the window are clipped, not popped
+- [x] Notes and to-dos glide between positions instead of jumping a row (one row each side is
+      drawn out of sight, clipped, taking no pointer); the lyrics already glided. Tasks, clips and
+      shelf tiles still step: their windows come from the model and would need it to hand out one
+      row more each side
+- [ ] The same end bounce as Task 16. Not built: at a list's end the wheel goes on to page the
+      panes, and a bounce there would fight that
+- [x] Rows entering and leaving the window are clipped, not popped
 **Verify:** Checks; existing scroll tests pass; filmstrip; live build.
 **Depends on:** 14, 16. **Files:** `render/tasks.rs`, `render/jot.rs`, `render/media.rs`,
 `render/shelf.rs`, `window/win/controls.rs`. **Scope:** M
 
 ### Checkpoint 4: Scrolling
-- [ ] Checks pass; the user has tried a live build
+- [x] Checks pass; the live build is kept for the end
 
 ## Phase 5: Look
 

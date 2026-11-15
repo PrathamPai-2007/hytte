@@ -143,6 +143,42 @@ pub fn scripts() -> Vec<Script> {
             len: 1.8,
         },
         Script {
+            name: "list-scroll",
+            what: "A long to-do list scrolled down two rows and back one: the rows glide.",
+            start: Scene::ExpTodo,
+            cues: vec![
+                (
+                    0.0,
+                    Change(|m| {
+                        // The wheel scrolls the pane that is selected.
+                        m.selected = Some(crate::ui_state::Panel::Todo);
+                        for t in ["Call the bank", "Pick up the parcel", "Fix the bike", "Plan the trip"] {
+                            m.jot.add(crate::jot::Kind::Todo, t, true, 3);
+                        }
+                    }),
+                ),
+                (
+                    0.60,
+                    Change(|m| {
+                        m.scroll_jot(1);
+                    }),
+                ),
+                (
+                    0.75,
+                    Change(|m| {
+                        m.scroll_jot(1);
+                    }),
+                ),
+                (
+                    1.30,
+                    Change(|m| {
+                        m.scroll_jot(-1);
+                    }),
+                ),
+            ],
+            len: 2.0,
+        },
+        Script {
             name: "card",
             what: "A card arrives over the compact task and leaves again.",
             start: Scene::CompactTask,

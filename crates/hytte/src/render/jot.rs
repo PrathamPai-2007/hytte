@@ -253,18 +253,45 @@ impl Renderer {
                 self.cc(GRAY, 0.9),
             );
         }
+        // The rows in the window, and one more each side out of sight: scrolling a row slides
+        // them all instead of swapping one in.
+        let top = y;
+        let (lo, hi) = (first.saturating_sub(1), (first + shown + 1).min(list.len()));
+        let scrollable = list.len() > shown;
+        if scrollable {
+            unsafe {
+                self.rt.PushAxisAlignedClip(
+                    &rect(0.0, top, w, shown as f32 * ROW_H),
+                    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                );
+            }
+        }
         let mut drawn = Vec::with_capacity(shown);
-        for (row, j) in list.iter().skip(first).take(shown).enumerate() {
-            self.group(1 + row as u8);
-            let (ry, a) = self.row(tween::key("jot", j.id), y);
+        for (k, j) in list.iter().enumerate().take(hi).skip(lo) {
+            let in_view = k >= first && k < first + shown;
+            self.group(1 + (k - lo) as u8);
+            let at = top + (k as f32 - first as f32) * ROW_H;
+            let (ry, a) = self.row(tween::key("jot", j.id), at);
+            // Out of view: drawn for the slide, but takes no pointer.
+            let (mouse, n) = (self.mouse.get(), self.hits.borrow().len());
+            if !in_view {
+                self.mouse.set(None);
+            }
             let ca = self.ca.get();
             self.ca.set(ca * a);
             self.jot_row(w, ry, j, wall);
             self.ca.set(ca);
+            if !in_view {
+                self.hits.borrow_mut().truncate(n);
+                self.mouse.set(mouse);
+            }
             drawn.push(((*j).clone(), ry));
-            y += ROW_H;
         }
-        self.jot_leaving(w, &drawn, wall);
+        if scrollable {
+            unsafe { self.rt.PopAxisAlignedClip() };
+        }
+        y = top + shown as f32 * ROW_H;
+        self.jot_leaving(w, &drawn, &list, wall);
         if undo.is_some() {
             self.text(
                 "Deleted",
@@ -297,12 +324,13 @@ impl Renderer {
     /// A note or to-do that was drawn last frame and is gone now (deleted, ticked off into the
     /// done list's end, scrolled out of view is not it: only one still in the list's window
     /// counts) fades out where it was, drifting left. It takes no clicks.
-    fn jot_leaving(&self, w: f32, drawn: &[(Jot, f32)], wall: u64) {
+    fn jot_leaving(&self, w: f32, drawn: &[(Jot, f32)], list: &[&Jot], wall: u64) {
         let mut ghosts = self.jot_ghosts.borrow_mut();
         let last = std::mem::replace(&mut *self.jot_last.borrow_mut(), drawn.to_vec());
         if self.steady.get() && !self.reduced.get() {
             for (j, y) in last {
-                let gone = !drawn.iter().any(|(d, _)| d.id == j.id);
+                // Gone from the list, not just scrolled out of the window.
+                let gone = !list.iter().any(|d| d.id == j.id);
                 if gone && !ghosts.iter().any(|(g, _)| g.id == j.id) {
                     ghosts.push((j, y));
                 }
