@@ -19,7 +19,7 @@ fn bitmap_props(opts: D2D1_BITMAP_OPTIONS) -> D2D1_BITMAP_PROPERTIES1 {
 
 impl Renderer {
     /// A renderer drawing into an offscreen canvas-sized bitmap (no window).
-    fn offscreen(scale: f32) -> windows::core::Result<Self> {
+    pub(super) fn offscreen(scale: f32) -> windows::core::Result<Self> {
         let factory1: ID2D1Factory1 =
             unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
         let dc = crate::gpu::offscreen(&factory1)?;
@@ -58,7 +58,7 @@ impl Renderer {
     }
 
     /// The canvas as premultiplied BGRA rows.
-    fn read_back(&self) -> Vec<u8> {
+    pub(super) fn read_back(&self) -> Vec<u8> {
         let dc: ID2D1DeviceContext = self.rt.cast().unwrap();
         let (w, h) = (self.px.0 as u32, self.px.1 as u32);
         unsafe {

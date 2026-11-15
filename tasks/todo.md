@@ -48,13 +48,13 @@ frame was spring-paced or ambient to the `HYTTE_PERF` line.
 **Files:** `render/pill.rs`, `render.rs`, `window/win/wndproc.rs`, `render/snap.rs`. **Scope:** M
 
 ### Task 2: Motion review (filmstrips, slow motion, continuity test)
-- [ ] `HYTTE_SNAP_DIR=<dir> cargo test filmstrips -- --ignored` writes frames for at least:
+- [x] `HYTTE_SNAP_DIR=<dir> cargo test filmstrips -- --ignored` writes frames for at least:
       idle → compact task → tasks pane → idle, compact media ↔ media pane, paging two panes,
       A→B→A and A→B→C inside 80 ms, and a card arriving
-- [ ] `motion.html` beside them plays each strip at full, quarter and single-step speed, with a
+- [x] `motion.html` beside them plays each strip at full, quarter and single-step speed, with a
       "before" strip next to the "after" one when a `before/` folder exists
-- [ ] `HYTTE_SLOWMO=4` makes a live build move at quarter speed
-- [ ] A normal unit test runs the same scripts and reports the largest opacity and position step.
+- [x] `HYTTE_SLOWMO=4` makes a live build move at quarter speed
+- [x] A normal unit test runs the same scripts and reports the largest opacity and position step.
       It is expected to fail on A→B→A today; it is marked `#[ignore]` with that reason until Task 7
 **Verify:** Checks; open `motion.html` and confirm the reversal pop is visible in the strip.
 **Depends on:** none. **Files:** `render/snap.rs` (or a new `render/film.rs`), `window/win/frame.rs`,

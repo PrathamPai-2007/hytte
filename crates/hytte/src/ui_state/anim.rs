@@ -2,6 +2,38 @@
 
 use super::*;
 
+/// One scene as it is drawn this frame: how opaque, and how far it is shifted from its place.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shown {
+    pub scene: Scene,
+    pub alpha: f32,
+    pub dx: f32,
+    pub dy: f32,
+    /// The scene the pill is showing (the rest are leaving): only it takes the pointer.
+    pub live: bool,
+}
+
+/// Most scenes drawn at once.
+pub const MAX_SHOWN: usize = 4;
+
+/// The scenes drawn this frame, back to front. A fixed array: nothing is allocated per frame.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ShownList {
+    items: [Option<Shown>; MAX_SHOWN],
+}
+
+impl ShownList {
+    fn push(&mut self, s: Shown) {
+        if let Some(slot) = self.items.iter_mut().find(|x| x.is_none()) {
+            *slot = Some(s);
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Shown> {
+        self.items.iter().flatten()
+    }
+}
+
 /// Scalar animation state, advanced with real frame deltas.
 pub struct Anim {
     pub rect: RectSpring,
@@ -102,6 +134,43 @@ impl Anim {
             self.content.snap();
             self.out.snap();
         }
+    }
+
+    /// What to draw: every scene still visible, back to front, with its opacity and offset.
+    /// The renderer draws exactly this, and the continuity test measures it.
+    pub fn shown(&self) -> ShownList {
+        let mut l = ShownList::default();
+        // The scene being left fades out and drifts (up, or away from the page it is going to).
+        let o = self.out.pos.clamp(0.0, 1.0) as f32;
+        if o > 0.01 && self.prev != self.scene && self.prev != Scene::Sentinel {
+            let (dx, dy) = if self.slide != 0.0 {
+                (-self.slide * (1.0 - o) * 16.0, 0.0)
+            } else {
+                (0.0, -(1.0 - o) * 4.0)
+            };
+            l.push(Shown {
+                scene: self.prev,
+                alpha: o,
+                dx,
+                dy,
+                live: false,
+            });
+        }
+        // The scene arriving fades in from a little above, or from the side it was paged from.
+        let c = self.content.pos.clamp(0.0, 1.0) as f32;
+        let (dx, dy) = if self.slide != 0.0 {
+            (self.slide * (1.0 - c) * 16.0, 0.0)
+        } else {
+            (0.0, (1.0 - c) * 6.0)
+        };
+        l.push(Shown {
+            scene: self.scene,
+            alpha: c,
+            dx,
+            dy,
+            live: true,
+        });
+        l
     }
 
     /// Advance everything; true while any spring is still moving.

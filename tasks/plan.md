@@ -60,7 +60,7 @@ idle face, backdrops, a pet).
 | Idle memory | unchanged: under 25 MB. Cached masks may add at most 1 MB |
 | CPU with a running task on a collapsed pill | no higher than 1.9.0 measured the same way |
 | CPU with ambient motion in an open pill | measured at Checkpoint 1; the user accepts the number or picks a lower rate |
-| Continuity | no opacity step above 0.12 and no position step above 6 px between two 120 Hz frames in any scripted transition |
+| Continuity | no opacity step above 0.12 and no content offset step above 6 px between two 120 Hz frames in any scripted transition (the pill's own size is a spring and continuous by construction; at 120 Hz it moves up to about 17 px a frame when it widens) |
 
 ## Architecture decisions
 

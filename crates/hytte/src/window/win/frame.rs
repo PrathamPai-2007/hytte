@@ -188,7 +188,7 @@ impl Ui {
             "calm" => 0.7,
             "snappy" => 1.4,
             _ => 1.0,
-        };
+        } / slowmo();
         let mut moving = self.anim.step((dt * speed) as f64);
         // The idle pill fades towards `idle_opacity` and back when it is pointed at.
         let idle = self.model.scene(self.hover, self.sentinel()) == Scene::Idle
@@ -331,4 +331,16 @@ impl Ui {
             .rev()
             .find(|h| mx >= h.rect.0 && mx <= h.rect.2 && my >= h.rect.1 && my <= h.rect.3)
     }
+}
+
+/// `HYTTE_SLOWMO=<n>`: every animation runs `n` times slower, for looking at motion closely.
+fn slowmo() -> f32 {
+    static S: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *S.get_or_init(|| {
+        std::env::var("HYTTE_SLOWMO")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|n| *n >= 1.0)
+            .unwrap_or(1.0)
+    })
 }

@@ -438,46 +438,39 @@ impl Renderer {
         self.morph.set(self.morph_for(fr));
         self.hero_right
             .set(w - 14.0 - pad_r - if m.visible_count() > 1 { 28.0 } else { 0.0 });
-        // The scene being left fades out and drifts up, clipped to the pill as it
-        // changes size. It is not interactive: no hover, and its hit areas are dropped.
-        let o = an.out.pos.clamp(0.0, 1.0) as f32;
-        if o > 0.01 && an.prev != an.scene && an.prev != Scene::Sentinel {
-            self.ca.set(o * fit);
+        // Every scene still visible, back to front (`Anim::shown`). The ones being left are
+        // clipped to the pill as it changes size and are not interactive: no hover, and their
+        // hit areas are dropped.
+        let mut c = 1.0;
+        for s in an.shown().iter() {
+            if s.live {
+                c = s.alpha;
+                self.ca.set(s.alpha * fit);
+                unsafe {
+                    self.rt
+                        .SetTransform(&mat(self.scale, self.ox.get() + s.dx, s.dy))
+                };
+                self.focus_live.set(true);
+                self.content(fr, s.scene, w, h, pad_r);
+                self.focus_live.set(false);
+                continue;
+            }
+            self.ca.set(s.alpha * fit);
             let mouse = self.mouse.take();
             let n = self.hits.borrow().len();
             unsafe {
-                let (dx, dy) = if an.slide != 0.0 {
-                    (-an.slide * (1.0 - o) * 16.0, 0.0)
-                } else {
-                    (0.0, -(1.0 - o) * 4.0)
-                };
                 self.rt
-                    .SetTransform(&mat(self.scale, self.ox.get() + dx, dy));
+                    .SetTransform(&mat(self.scale, self.ox.get() + s.dx, s.dy));
                 self.rt
                     .PushAxisAlignedClip(&rect(0.0, 0.0, w, h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
             }
             // dt = 0: progress smoothing already advances once this frame, in the live scene.
             let old = Frame { dt: 0.0, ..*fr };
-            self.content(&old, an.prev, w, h, pad_r);
+            self.content(&old, s.scene, w, h, pad_r);
             unsafe { self.rt.PopAxisAlignedClip() };
             self.hits.borrow_mut().truncate(n);
             self.mouse.set(mouse);
         }
-        // Content fades/slides in on scene change.
-        let c = an.content.pos.clamp(0.0, 1.0) as f32;
-        self.ca.set(c * fit);
-        let (dx, dy) = if an.slide != 0.0 {
-            (an.slide * (1.0 - c) * 16.0, 0.0)
-        } else {
-            (0.0, (1.0 - c) * 6.0)
-        };
-        unsafe {
-            self.rt
-                .SetTransform(&mat(self.scale, self.ox.get() + dx, dy))
-        };
-        self.focus_live.set(true);
-        self.content(fr, an.scene, w, h, pad_r);
-        self.focus_live.set(false);
         self.tab_strip(fr, w, h, fit);
         if hint > 0.0 {
             self.text(
