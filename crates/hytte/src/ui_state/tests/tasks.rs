@@ -105,14 +105,19 @@ fn leaving_a_scene_fades_its_content_out() {
     while a.step(1.0 / 60.0) {}
     a.set_scene(Scene::Idle, (120.0, 24.0), ([1.0; 3], 0.0));
     assert_eq!(
-        (a.prev, a.out.pos),
+        (a.prev, a.out()),
         (Scene::ExpHome, 1.0),
         "old content still fully shown"
     );
     a.step(0.05);
-    assert!(a.out.pos > 0.0 && a.out.pos < 1.0, "fading, not cut");
+    assert!(a.out() > 0.0 && a.out() < 1.0, "fading, not cut");
     while a.step(1.0 / 60.0) {}
-    assert_eq!(a.out.pos, 0.0);
+    assert_eq!(a.out(), 0.0);
+    assert_eq!(
+        a.shown().iter().count(),
+        1,
+        "the left scene's layer is gone"
+    );
 }
 
 #[test]

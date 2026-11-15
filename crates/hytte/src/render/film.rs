@@ -228,7 +228,6 @@ pub fn continuity(s: &Script, m: &Model) -> (f32, f32, f64) {
 }
 
 #[test]
-#[ignore = "reversals still pop: the scene layers (Task 7) fix it"]
 fn every_scripted_transition_is_continuous() {
     let m = film_model();
     let mut bad = vec![];

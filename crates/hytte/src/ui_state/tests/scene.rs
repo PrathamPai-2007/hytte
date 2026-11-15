@@ -227,3 +227,67 @@ fn bubble_room_only_while_it_is_out() {
     a.set_bubble(None);
     assert_eq!(a.bubble_kind, Some(Bubble::Timer));
 }
+
+#[test]
+fn a_scene_brought_back_while_leaving_continues_from_where_it_was() {
+    let (size, glow) = ((380.0, 100.0), ([1.0; 3], 0.1));
+    let mut a = Anim::new(380.0, 100.0);
+    a.set_scene(Scene::ExpHome, size, glow);
+    while a.step(1.0 / 120.0) {}
+    a.set_scene(Scene::ExpMedia, size, glow);
+    for _ in 0..8 {
+        a.step(1.0 / 120.0);
+    }
+    let home = |a: &Anim| {
+        a.shown()
+            .iter()
+            .find(|s| s.scene == Scene::ExpHome)
+            .map_or(0.0, |s| s.alpha)
+    };
+    let before = home(&a);
+    assert!(before > 0.2 && before < 0.95, "half faded: {before}");
+    a.set_scene(Scene::ExpHome, size, glow);
+    assert_eq!(home(&a), before, "the same layer, not a fresh one");
+    a.step(1.0 / 120.0);
+    assert!((home(&a) - before).abs() < 0.12);
+    while a.step(1.0 / 120.0) {}
+    assert_eq!(home(&a), 1.0);
+    assert_eq!(a.shown().iter().count(), 1, "media has gone");
+}
+
+#[test]
+fn quick_changes_keep_every_leaving_scene_fading_and_drop_only_the_faintest() {
+    let (size, glow) = ((380.0, 100.0), ([1.0; 3], 0.1));
+    let mut a = Anim::new(380.0, 100.0);
+    a.set_scene(Scene::ExpHome, size, glow);
+    while a.step(1.0 / 120.0) {}
+    for s in [Scene::ExpMedia, Scene::ExpTasks] {
+        a.set_scene(s, size, glow);
+        a.step(1.0 / 120.0);
+    }
+    let scenes: Vec<Scene> = a.shown().iter().map(|s| s.scene).collect();
+    assert_eq!(
+        scenes,
+        [Scene::ExpHome, Scene::ExpMedia, Scene::ExpTasks],
+        "home still fading under the two after it"
+    );
+    // A fourth: the faintest leaving one (media, barely in) makes room.
+    a.set_scene(Scene::ExpWeather, size, glow);
+    let scenes: Vec<Scene> = a.shown().iter().map(|s| s.scene).collect();
+    assert_eq!(scenes.last(), Some(&Scene::ExpWeather));
+    assert!(!scenes.contains(&Scene::ExpMedia), "{scenes:?}");
+    assert!(scenes.contains(&Scene::ExpHome), "{scenes:?}");
+}
+
+#[test]
+fn reduced_motion_leaves_only_the_current_scene() {
+    let (size, glow) = ((380.0, 100.0), ([1.0; 3], 0.1));
+    let mut a = Anim::new(380.0, 100.0);
+    a.set_scene(Scene::ExpHome, size, glow);
+    a.reduce = true;
+    a.set_scene(Scene::ExpMedia, size, glow);
+    let shown: Vec<_> = a.shown().iter().copied().collect();
+    assert_eq!(shown.len(), 1);
+    assert_eq!((shown[0].scene, shown[0].alpha), (Scene::ExpMedia, 1.0));
+    assert_eq!((shown[0].dx, shown[0].dy), (0.0, 0.0));
+}

@@ -113,12 +113,14 @@ Time-boxed. Build a blurred alpha mask once and draw it as stretched slices with
 ## Phase 2: Transitions
 
 ### Task 7: Scene layers (reversals don't pop)
-- [ ] `Anim` holds up to three layers; returning to a scene that is still leaving reuses its
+- [x] `Anim` holds up to three layers; returning to a scene that is still leaving reuses its
       layer with opacity and velocity intact; a fourth evicts the faintest
-- [ ] `content`, `out` and `prev` stay readable (accessors), so the tab strip and `morph_for`
-      draw exactly as before for a simple A→B
-- [ ] The continuity test from Task 2 is un-ignored and passes for A→B→A, A→B→C and a reversal
-      during a paged slide; only the top layer registers hits
+- [x] `content()`, `out()` and `prev` stay readable, so the tab strip and `morph_for`
+      draw as before for a simple A→B (filmstrips: the same pictures, a few frames off by the
+      old scene now fading to its end instead of being cut at 1 %)
+- [x] The continuity test from Task 2 is un-ignored and passes for A→B→A, A→B→C and a reversal
+      during a paged slide (largest steps now 0.10 opacity, 0.6 px; were 0.25 and 8.8 px); only
+      the top layer registers hits
 **Verify:** Checks; filmstrip: simple transitions identical to before, reversals smooth.
 **Depends on:** 2, 3. **Files:** `ui_state/anim.rs`, `render/pill.rs`, `render/shelf.rs` (tab
 strip), `ui_state/tests/scene.rs`. **Scope:** M

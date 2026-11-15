@@ -16,10 +16,7 @@ impl Renderer {
         }
         let live = Panel::of(an.scene).is_some();
         let gone = an.prev != an.scene && Panel::of(an.prev).is_some();
-        let (c, o) = (
-            an.content.pos.clamp(0.0, 1.0) as f32,
-            an.out.pos.clamp(0.0, 1.0) as f32,
-        );
+        let (c, o) = (an.content(), an.out());
         // Fade with the pane when the strip arrives or leaves; stay solid between two panes.
         let a = match (live, gone) {
             (true, true) => 1.0,
