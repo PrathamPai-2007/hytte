@@ -436,6 +436,7 @@ impl Renderer {
         let full_h = h;
         let h = h - hint;
         self.morph.set(self.morph_for(fr));
+        self.pad_r.set(pad_r);
         self.hero_right
             .set(w - 14.0 - pad_r - if m.visible_count() > 1 { 28.0 } else { 0.0 });
         // Every scene still visible, back to front (`Anim::shown`). The ones being left are
@@ -599,6 +600,26 @@ impl Renderer {
         (
             [38.0, 6.0, self.hero_right.get() - 62.0 - 46.0, 17.0],
             [42.0, 17.0, Self::exp_label_w(w, t), 20.0],
+        )
+    }
+
+    /// The equaliser's spot in compact media (pill height 32) and in the media pane.
+    pub(super) fn eq_ends(&self, w: f32) -> ([f32; 4], [f32; 4]) {
+        let right_c = w - 14.0 - self.pad_r.get();
+        (
+            [right_c - 16.0, 16.0 - 7.0, 14.0, 0.0],
+            [w - 16.0 - 18.0, 18.0, 14.0, 0.0],
+        )
+    }
+
+    /// The task's right-hand value (percent, time) in the compact pill and in the first row of
+    /// the list: right-aligned, so what matters is where each box ends.
+    pub(super) fn value_ends(&self, w: f32, t: &TaskView) -> ([f32; 4], [f32; 4]) {
+        let close_w = if t.running() { 0.0 } else { 24.0 };
+        let right_c = self.hero_right.get();
+        (
+            [right_c - 62.0, 16.0 - 10.0, 62.0, 17.0],
+            [w - 16.0 - close_w - 74.0, 10.0 + 8.0, 74.0, 18.0],
         )
     }
 

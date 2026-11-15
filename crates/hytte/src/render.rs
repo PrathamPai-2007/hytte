@@ -362,6 +362,8 @@ pub struct Renderer {
     /// Right edge available to the compact task label this frame (see `exp_label_w`): both
     /// scenes of a morph must agree on the shared label's two end positions.
     hero_right: Cell<f32>,
+    /// The room kept at the pill's right for the mic lock and privacy dots (see `scene`).
+    pad_r: Cell<f32>,
     /// Last pill silhouette, keyed by its size: ambient frames (spinner, pulses) repeat it.
     geom: RefCell<Option<([u32; 2], ID2D1PathGeometry)>>,
     /// The steady pill's background as bitmaps (`render/pill.rs`).
@@ -578,6 +580,7 @@ impl Renderer {
                 focus: Cell::new(None),
                 focus_live: Cell::new(false),
                 hero_right: Cell::new(0.0),
+                pad_r: Cell::new(0.0),
             })
         }
     }

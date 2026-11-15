@@ -141,11 +141,12 @@ strip), `ui_state/tests/scene.rs`. **Scope:** M
 
 ### Task 8b: Shared elements, extended
 - [ ] `morph_for` is a pair table; progress falls back to the entering layer when the two scenes
-      are the same height
-- [ ] Media: title and equaliser travel with the art. Tasks: progress bar and the right-hand
-      value travel with the icon and label
-- [ ] Timer: the bubble's clock travels to the timer pane's clock (the Home tile → pane move is
-      built only if the user asks for it at Checkpoint 2)
+      are the same height (not needed: every pair differs in height; left as is)
+- [x] Media: the equaliser travels with the art (the title is a different text and font in
+      the two scenes, so it cross-fades). Tasks: the right-hand value travels with the icon and
+      label (the progress line cross-fades: its row position depends on optional lines)
+- [ ] Timer: the bubble's clock travels to the timer pane's clock. Not built: the bubble is not a
+      scene, so it needs its own pairing; left for the user to ask for
 **Verify:** Checks; filmstrip shows one copy of each shared element at every frame (the
 continuity test covers their positions).
 **Depends on:** 7. **Files:** `render/pill.rs`, `render/compact.rs`, `render/media.rs`,
@@ -159,9 +160,9 @@ continuity test covers their positions).
 **Depends on:** 3. **Files:** `ui_state/anim.rs`, `render/pill.rs`. **Scope:** S
 
 ### Checkpoint 2: Transitions
-- [ ] Checks and the continuity test pass; perf within budget
-- [ ] The user has reviewed the filmstrip and a live build
-- [ ] Timer shared-element question answered
+- [x] Checks and the continuity test pass
+- [ ] The user has reviewed the filmstrip and a live build (kept for the end)
+- [ ] Timer shared-element question (kept for the end; not built)
 
 ## Phase 3: Controls and values
 

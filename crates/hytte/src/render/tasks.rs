@@ -76,15 +76,25 @@ impl Renderer {
                 hov,
             );
             self.hero_end(saved);
+            let natural = [w - 16.0 - close_w - right_w, y + 8.0, right_w, 18.0];
+            let waiting_text = t.needs_input()
+                && crate::ui_state::waiting_text(fr.model.waiting_count()).is_some();
+            let (r, saved) = if first && !waiting_text {
+                let (vc, ve) = self.value_ends(w, t);
+                self.hero(vc, ve, natural)
+            } else {
+                (natural, None)
+            };
             self.text(
                 &self.task_right_text(t, now),
                 &self.f.small_r,
-                w - 16.0 - close_w - right_w,
-                y + 8.0,
-                right_w,
-                18.0,
+                r[0],
+                r[1],
+                r[2],
+                r[3],
                 self.cc(task_color(t), 0.95),
             );
+            self.hero_end(saved);
             if finished {
                 let hov = self.hit(
                     w - 38.0,

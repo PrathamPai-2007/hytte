@@ -80,7 +80,10 @@ impl Renderer {
             self.cc(GRAY, 1.0),
             hov,
         );
-        self.eq_bars(right - 18.0, 18.0, 14.0, md.playing, GREEN);
+        let (ec, ee) = self.eq_ends(w);
+        let (e, saved) = self.hero(ec, ee, ee);
+        self.eq_bars(e[0], e[1], e[2], md.playing, GREEN);
+        self.hero_end(saved);
         self.group(1);
         // Timeline with live extrapolation while playing.
         let pos = self.media_pos(fr, md);

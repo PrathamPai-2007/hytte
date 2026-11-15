@@ -310,20 +310,30 @@ impl Renderer {
         }
         // Several agents waiting on you: the pill says how many, not just the first one.
         let waiting = m.waiting_count();
-        let rt = match (t.needs_input(), crate::ui_state::waiting_text(waiting)) {
-            (true, Some(w)) => w,
-            _ => self.task_right_text(t, now),
+        let (rt, own) = match (t.needs_input(), crate::ui_state::waiting_text(waiting)) {
+            (true, Some(w)) => (w, false),
+            _ => (self.task_right_text(t, now), true),
         };
         let rw = 62.0;
+        // The value travels to the first row of the list, unless the pill says something of its
+        // own there ("2 waiting").
+        let natural = [right - rw, h / 2.0 - 10.0, rw, 17.0];
+        let (vc, ve) = self.value_ends(w, t);
+        let (r, saved) = if own {
+            self.hero(vc, ve, natural)
+        } else {
+            (natural, None)
+        };
         self.text(
             &rt,
             &self.f.small_r,
-            right - rw,
-            h / 2.0 - 10.0,
-            rw,
-            17.0,
+            r[0],
+            r[1],
+            r[2],
+            r[3],
             self.cc(task_color(t), 0.95),
         );
+        self.hero_end(saved);
         let (lc, le) = self.label_ends(w, t);
         let (lb, saved) = self.hero(lc, le, [38.0, h / 2.0 - 10.0, right - rw - 46.0, 17.0]);
         self.text(
@@ -428,7 +438,10 @@ impl Renderer {
         self.art_tile(a[0], a[1], a[2], a[3]);
         self.hero_end(saved);
         let right = w - 14.0 - pad_r;
-        self.eq_bars(right - 16.0, h / 2.0 - 7.0, 14.0, md.playing, GREEN);
+        let (ec, ee) = self.eq_ends(w);
+        let (e, saved) = self.hero(ec, ee, [right - 16.0, h / 2.0 - 7.0, 14.0, 0.0]);
+        self.eq_bars(e[0], e[1], e[2], md.playing, GREEN);
+        self.hero_end(saved);
         let label = if md.artist.is_empty() {
             md.title.clone()
         } else {
