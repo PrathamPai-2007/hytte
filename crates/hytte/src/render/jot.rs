@@ -253,6 +253,7 @@ impl Renderer {
                 self.cc(GRAY, 0.9),
             );
         }
+        let mut drawn = Vec::with_capacity(shown);
         for (row, j) in list.iter().skip(first).take(shown).enumerate() {
             self.group(1 + row as u8);
             let (ry, a) = self.row(tween::key("jot", j.id), y);
@@ -260,8 +261,10 @@ impl Renderer {
             self.ca.set(ca * a);
             self.jot_row(w, ry, j, wall);
             self.ca.set(ca);
+            drawn.push(((*j).clone(), ry));
             y += ROW_H;
         }
+        self.jot_leaving(w, &drawn, wall);
         if undo.is_some() {
             self.text(
                 "Deleted",
@@ -289,6 +292,47 @@ impl Renderer {
             let ty = 58.0 + (track - th) * first as f32 / (list.len() - JOT_ROWS) as f32;
             self.fill_rr(w - 8.0, ty, 2.5, th, 1.2, self.cc(fg, 0.22));
         }
+    }
+
+    /// A note or to-do that was drawn last frame and is gone now (deleted, ticked off into the
+    /// done list's end, scrolled out of view is not it: only one still in the list's window
+    /// counts) fades out where it was, drifting left. It takes no clicks.
+    fn jot_leaving(&self, w: f32, drawn: &[(Jot, f32)], wall: u64) {
+        let mut ghosts = self.jot_ghosts.borrow_mut();
+        let last = std::mem::replace(&mut *self.jot_last.borrow_mut(), drawn.to_vec());
+        if self.steady.get() && !self.reduced.get() {
+            for (j, y) in last {
+                let gone = !drawn.iter().any(|(d, _)| d.id == j.id);
+                if gone && !ghosts.iter().any(|(g, _)| g.id == j.id) {
+                    ghosts.push((j, y));
+                }
+            }
+        } else {
+            ghosts.clear();
+        }
+        if ghosts.is_empty() {
+            return;
+        }
+        let (mouse, n) = (self.mouse.take(), self.hits.borrow().len());
+        let ca = self.ca.get();
+        ghosts.retain(|(j, y)| {
+            let key = tween::key("jot-leave", j.id);
+            if self.tweens.borrow().peek(key).is_none() {
+                self.tweens.borrow_mut().set(key, 1.0, motion::EXIT, 0.002);
+            }
+            let a = self.tw(key, 0.0, motion::EXIT);
+            if a <= 0.004 {
+                return false;
+            }
+            self.ca.set(ca * a);
+            let saved = self.shift_x(-(1.0 - a) * 18.0);
+            self.jot_row(w, *y, j, wall);
+            self.unpress(saved);
+            true
+        });
+        self.ca.set(ca);
+        self.hits.borrow_mut().truncate(n);
+        self.mouse.set(mouse);
     }
 
     fn jot_row(&self, w: f32, y: f32, j: &Jot, wall: u64) {

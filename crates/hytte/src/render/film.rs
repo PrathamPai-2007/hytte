@@ -122,7 +122,7 @@ pub fn scripts() -> Vec<Script> {
         },
         Script {
             name: "rows",
-            what: "A to-do in the middle is removed (the rest slide up), then a new one is added.",
+            what: "A to-do in the middle is removed (it fades out, the rest slide up), then a new one is added.",
             start: Scene::ExpTodo,
             cues: vec![
                 (

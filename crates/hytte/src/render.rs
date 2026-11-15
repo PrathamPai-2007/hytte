@@ -334,6 +334,10 @@ pub struct Renderer {
     /// The live scene is fully shown (not fading in): a row that appears now is new, and
     /// comes in on its own (`row`).
     steady: Cell<bool>,
+    /// Notes and to-dos drawn last frame (with where), and the ones that have since gone and
+    /// are fading out where they were (`render/jot.rs`).
+    jot_last: RefCell<Vec<(crate::jot::Jot, f32)>>,
+    jot_ghosts: RefCell<Vec<(crate::jot::Jot, f32)>>,
     /// Measured widths of single characters per text format: (format, char) -> px.
     char_ws: RefCell<HashMap<(usize, char), f32>>,
     /// Rolling numbers (`digits`): the text shown now and the one it rolled from, per key.
@@ -568,6 +572,8 @@ impl Renderer {
                 fx_busy: Cell::new(false),
                 stagger: Cell::new(None),
                 steady: Cell::new(false),
+                jot_last: RefCell::new(Vec::new()),
+                jot_ghosts: RefCell::new(Vec::new()),
                 reduced: Cell::new(false),
                 char_ws: RefCell::new(HashMap::new()),
                 rolls: RefCell::new(HashMap::new()),

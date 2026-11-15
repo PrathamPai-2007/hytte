@@ -525,6 +525,19 @@ impl Renderer {
         unsafe { self.rt.SetTransform(&saved) };
     }
 
+    /// Move what is drawn next `dx` px sideways; returns the transform to restore.
+    pub(super) fn shift_x(&self, dx: f32) -> Matrix3x2 {
+        let mut cur = Matrix3x2::default();
+        unsafe { self.rt.GetTransform(&mut cur) };
+        let m = Matrix3x2 {
+            M31: cur.M31 + dx * cur.M11,
+            M32: cur.M32 + dx * cur.M12,
+            ..cur
+        };
+        unsafe { self.rt.SetTransform(&m) };
+        cur
+    }
+
     /// Scale what is drawn next by `k` about (cx, cy); returns the transform to restore.
     pub(super) fn scale_about(&self, cx: f32, cy: f32, k: f32) -> Matrix3x2 {
         let mut cur = Matrix3x2::default();

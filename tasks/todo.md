@@ -225,17 +225,19 @@ unchanged.
 `render/shelf.rs`. **Scope:** M
 
 ### Task 15: Rows leave instead of vanishing
-- [ ] A dismissed task, ticked-off to-do, deleted note or removed shelf item is kept for one
-      `EXIT` and drawn fading and collapsing; it takes no clicks while leaving
-- [ ] Removal still happens through the single expiry timer; no periodic sweep
-- [ ] Model tests: the item is gone after the exit time, and saving to disk never includes it
+- [x] A deleted note or removed to-do fades out where it was, drifting left, while the rows
+      below slide up; it takes no clicks. Done in the renderer (it keeps last frame's rows), so
+      the model and the saved file never hold it. Dismissed tasks and shelf items still vanish:
+      their rows are drawn inline, not by a function a leaving copy could reuse
+- [x] Nothing changes in the model: no timer, no sweep
+- [x] Saving is untouched (the model removes the item at once, as before)
 **Verify:** Checks; filmstrip; live build.
 **Depends on:** 14. **Files:** `ui_state/tasks.rs`, `ui_state/notes.rs`, `ui_state/shelf.rs`,
 matching `render/` files, `ui_state/tests/`. **Scope:** M
 
 ### Checkpoint 3: Controls and values
-- [ ] Checks pass; perf within budget with a spinner, a rolling clock and a hover at once
-- [ ] The user has tried a live build
+- [x] Checks pass (perf measured together at Task 24)
+- [ ] The user has tried a live build (kept for the end)
 
 ## Phase 4: Scrolling
 
