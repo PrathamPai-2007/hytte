@@ -14,13 +14,15 @@ struct BgPaint<'a> {
     rgb: [f32; 3],
     body_alpha: f32,
     hover: f32,
+    /// How much shadow the pill casts (0 while it is a bar or compact).
+    shadow: f32,
 }
 
 /// The background of a steady pill, kept as pictures (see `Renderer::background`).
 #[derive(Default)]
 pub(super) struct BgCache {
     /// What the last frame's background depended on.
-    last: Option<[u32; 13]>,
+    last: Option<[u32; 14]>,
     layers: Option<BgLayers>,
 }
 
@@ -134,6 +136,10 @@ impl Renderer {
             rgb: an.glow_rgb,
             body_alpha: fr.model.body_alpha,
             hover: an.hover.pos as f32,
+            // Open panes cast a soft shadow, growing in as the pill opens. Not through a body
+            // you can see through: it would darken the inside.
+            shadow: ((h - 48.0) / 40.0).clamp(0.0, 1.0)
+                * ((fr.model.body_alpha - 0.6) / 0.35).clamp(0.0, 1.0),
         };
         // Where the bitmaps sit: whole device pixels, with the pill's sub-pixel phase kept
         // inside them, so a copy lands exactly where the direct painting would.
@@ -153,6 +159,7 @@ impl Renderer {
             self.skin.get() as u32,
             self.skin.get().cache_key().to_bits(),
             p.hover.to_bits(),
+            p.shadow.to_bits(),
         ];
         let mut c = self.bg.borrow_mut();
         let steady = c.last == Some(key);
@@ -184,7 +191,7 @@ impl Renderer {
             None => {
                 drop(c);
                 self.paint_glow(&self.rt, &p, breath);
-                self.paint_body(&self.rt, &p);
+                self.paint_body(&self.rt, &p, w);
             }
         }
     }
@@ -234,7 +241,7 @@ impl Renderer {
         } else {
             None
         };
-        let body = Some(layer(&|rt| self.paint_body(rt, p))?);
+        let body = Some(layer(&|rt| self.paint_body(rt, p, w))?);
         Some(BgLayers {
             glow,
             body,
@@ -266,9 +273,49 @@ impl Renderer {
         }
     }
 
-    /// Body, tint, rim and hover sheen.
-    fn paint_body(&self, rt: &ID2D1RenderTarget, p: &BgPaint) {
+    /// A soft shadow under the lower half of an open pill: dark strokes of the silhouette,
+    /// widening and fading, moved down a little. The top half is left out (it would smudge the
+    /// ears at the screen edge); the inner half of each stroke is under the body.
+    fn paint_shadow(&self, rt: &ID2D1RenderTarget, p: &BgPaint, w: f32) {
+        if p.shadow <= 0.01 {
+            return;
+        }
+        let k = if self.light.get() { 0.55 } else { 1.0 };
+        // SAFETY: valid geometry, brush and stroke style; the transform is restored.
+        unsafe {
+            let mut old = Matrix3x2::default();
+            rt.GetTransform(&mut old);
+            rt.PushAxisAlignedClip(
+                &rect(
+                    -BG_MARGIN,
+                    p.h * 0.45,
+                    w + 2.0 * BG_MARGIN,
+                    p.h * 0.55 + BG_MARGIN,
+                ),
+                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+            );
+            rt.SetTransform(&Matrix3x2 {
+                M32: old.M32 + 5.0 * old.M22,
+                ..old
+            });
+            for j in 1..=4 {
+                let a = p.shadow * k * 0.055 * (1.0 - j as f32 / 5.0);
+                rt.DrawGeometry(
+                    p.g,
+                    self.solid(color([0.0; 3], a)),
+                    j as f32 * 6.0,
+                    &self.round,
+                );
+            }
+            rt.SetTransform(&old);
+            rt.PopAxisAlignedClip();
+        }
+    }
+
+    /// Shadow, body, tint, rim and hover sheen.
+    fn paint_body(&self, rt: &ID2D1RenderTarget, p: &BgPaint, w: f32) {
         let (g, h, gl) = (p.g, p.h, p.gl);
+        self.paint_shadow(rt, p, w);
         // SAFETY: valid geometry and brushes throughout.
         unsafe {
             // Body: near-black with a faint vertical gradient.

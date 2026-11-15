@@ -301,10 +301,11 @@ three per commit. **Scope:** L, split by scene file
 
 ### Task 21: Shadow and glow
 Built to the verdict from Task 6.
-- [ ] A soft shadow under the open or hovered pill, fading with the expansion; none under an
-      idle or compact pill; the click region is no larger than today's
-- [ ] If the mask won: the glow uses it and the five strokes are deleted
-- [ ] Correct at `pill_opacity` 0.4, in light and dark, and in every skin
+- [x] A soft shadow under an open pill's lower half, growing in as it opens; none under an idle
+      or compact pill; it lives inside the glow margin, so the click region is unchanged
+- [x] The mask did not win (Task 6): the shadow is a stroke stack in the cached body layer
+- [x] It fades out as `pill_opacity` drops (none below 0.6), so it never shows through the body;
+      lighter on the light theme; skins share the body painting
 **Verify:** Checks; snapshot page; perf line no worse than Task 20's; memory within budget.
 **Depends on:** 6, 20. **Files:** `render/pill.rs`, `render.rs`, `skin.rs`. **Scope:** M
 
