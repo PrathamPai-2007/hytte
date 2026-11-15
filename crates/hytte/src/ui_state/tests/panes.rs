@@ -43,6 +43,7 @@ fn panes_follow_the_users_order_and_moves_are_clamped() {
     assert_eq!(move_pane("", first, -1), move_pane("", first, 0));
     // The strip uses the order, for the panes that exist.
     let mut m = Model::bare();
+    (m.panes.notes, m.panes.todo) = (true, true);
     m.panes.order = "weather,notes,home".into();
     assert_eq!(
         m.panels(),
@@ -281,6 +282,9 @@ fn noisy_fast_swipe_pages_once() {
 #[test]
 fn notes_todo_and_weather_follow_home_and_can_be_switched_off() {
     let mut m = Model::bare();
+    // Notes and To-do are off until you switch them on.
+    assert_eq!(m.panels(), vec![Panel::Home, Panel::Weather]);
+    (m.panes.notes, m.panes.todo) = (true, true);
     assert_eq!(
         m.panels(),
         vec![Panel::Home, Panel::Notes, Panel::Todo, Panel::Weather]

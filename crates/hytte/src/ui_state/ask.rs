@@ -828,6 +828,8 @@ mod scene_tests {
     fn on() -> Model {
         let mut m = Model::bare();
         m.panes = crate::config::Panes::default();
+        assert!(!m.panes.ask, "the Ask tab is off by default");
+        m.panes.ask = true;
         m.apply_ai(&crate::config::Ai {
             enabled: true,
             ..Default::default()

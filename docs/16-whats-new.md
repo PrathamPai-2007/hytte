@@ -30,7 +30,7 @@ The motion and look release. Nothing moves in a new place: what was already ther
 
 **Glow is off by default**, with a **Glow around the pill** switch above the strength slider. Switched on, it starts at 70 %; the slider now goes further (to 2.5× the original glow). If you upgrade and want the glow back, flip the switch.
 
-**New defaults**: pill opacity 90 %.
+**New defaults**: pill opacity 90 %; the Notes, To-do and Ask tabs start switched off (Settings → Panes; a file that sets them keeps its choice).
 
 **Ask**: a **Start Ollama** button when Ollama isn't running (or **Get Ollama** when it isn't installed). See [manual 9](../manual/09-ask.md).
 

@@ -136,7 +136,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[calendar] enabled` / `lead_min` | `false` / `10` | Heads-up before the next event (off by default: titles are private; switching on starts reading; off drops heads-ups until restart) / minutes before the start. |
 | `[timer] sound` | `true` | Ring when a timer ends until **Stop alarm** (2 min max). |
 | `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
-| `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `notes` / `todo` / `weather` / `ask` | `true` | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
+| `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `weather` (`true`), `notes` / `todo` / `ask` (`false` since 1.9.1) | see left | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
 | `[panes] order` | `""` | The tab order as names ("home,media,..."). Set by the arrows in the settings window; names left out keep their usual place after those listed. |
 | `[panes] script1` … `script4` | `true` | Switch for each `[[script_pane]]`, by its place in the file; written only when off. Their keys in `order` are the same names. |
 | `[[script_pane]] name` | none | The tab's label (cut to 16 characters; unnamed and repeated names are skipped; at most four panes). |

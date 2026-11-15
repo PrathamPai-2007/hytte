@@ -62,9 +62,10 @@ shelf = true
 tasks = true
 timer = true
 power = true
-notes = true
-todo = true
+notes = false             # Notes, To-do and Ask start switched off
+todo = false
 weather = true
+ask = false
 order = ""                # tab order, set by the arrows in the settings window
 
 [weather]
