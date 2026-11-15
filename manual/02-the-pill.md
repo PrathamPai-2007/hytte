@@ -54,6 +54,14 @@ Right-clicking the pill opens the timer card.
 |---|---|---|---|
 | <img src="../docs/img/idle.png" width="200"> | <img src="../docs/img/home.png" width="200"> | <img src="../docs/img/media.png" width="200"> | <img src="../docs/img/timer.png" width="200"> |
 
+## How it moves
+
+Everything in the pill moves rather than jumps: panes build from the top as they open, buttons press in and spring back, numbers roll, lists slide when something is added or removed. If you change your mind halfway through (open a pane and leave at once), the pill simply turns back.
+
+- **Faster or calmer:** **Animation speed** in [Settings](07-settings.md) (Slow, Normal, Fast).
+- **No motion at all:** switch off **Animation effects** in Windows (Settings → Accessibility → Visual effects). Hytte follows it: everything changes at once.
+- On a fast display (120 Hz and up) transitions run at the full refresh rate. Spinners and other small motion run at about 60 frames a second while the pill is open and about 30 while it is closed, to save power.
+
 ## When the pill gets out of the way
 
 | What's on screen | What Hytte does |

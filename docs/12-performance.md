@@ -9,8 +9,10 @@ Hytte runs all day beside everything else, so idle cost matters more than peak s
 | Idle CPU, collapsed, nothing playing | about 0.2 % (limit < 1 %) | ≈ 0.26 % of one core (78 ms CPU in 30 s, after 45 s settling), 0.36 % with a Focus session running (109 ms); measured on 1.7.0 with every feature on, 120 stored notes, a skin and all three break reminders enabled |
 | Idle memory | under 25 MB (ceiling 100 MB) | ≈ 10.1 MB private bytes; working set ≈ 5.7 MB after the trim; 32 threads, ~404 handles (1.7.0, same setup) |
 | Animation | Refresh rate during transitions only | vsync-paced; parks when settled |
-| Frame cost with a running task, 1.7.0 | well under one refresh period | draw + present p50 ≈ 0.9-1.0 ms, p99 ≈ 1.9-3.2 ms (60 Hz, 200 % scaling, WARP, the full tab strip) |
-| Frame cost while a spring moves | well under one refresh period | draw + present p50 ≈ 2.0 ms, p99 ≈ 2.5–5.8 ms with a spinner in the open pill (60 Hz, 200 % scaling, WARP); draw alone p50 ≈ 1.8 ms; a period is 16.6 ms |
+| UI-thread frame time (`cost_us`) | p99 under 40 % of a refresh period | p50 ≈ 0.75 ms, p99 ≈ 1.0 ms with a spinner on a collapsed pill; p50 ≈ 1.2 ms, p99 ≈ 1.7 ms while a spring moves (60 Hz, WARP) |
+| CPU with a running task, collapsed | low single digits | ≈ 5.5 % of one core at 30 fps (1.9.0: 14.6 %) |
+| CPU with a running task, open | | ≈ 18 % at 60 fps (1.9.0: 27 % at 30 fps) |
+| Missed frames while a spring moves | at most 2 per 240 | 0 (1.9.0: 4 to 7, the change from the ambient sleep to vblank pacing) |
 
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`).
 
@@ -29,7 +31,7 @@ To measure yourself: start the exe with an isolated `%APPDATA%`, wait 45 s, read
 
 ## The rules
 
-1. **Render only on change.** A settled, static pill draws no frames; the frame clock parks ([section 8](08-rendering-and-animation.md)).
+1. **Render only on change.** A settled, static pill draws no frames; the frame clock parks ([section 8](08-rendering-and-animation.md)). A steady background is copied from bitmaps, not painted (the background cache).
 2. **Every animation has a stop condition**, encoded in `Model::ambient`. None means 30 fps forever.
 3. **Prefer OS notifications to polling.** If polling is unavoidable use a long interval, a `ponytail:` comment, and send a `UiEvent` only when the value changes.
 4. **Wake the UI thread once per burst.** Events are queued and drained together; at most one `WM_TICK` is in flight.
@@ -81,7 +83,8 @@ When adding a feature, don't add a row here without good reason.
 | Collapsed, nothing happening | none |
 | Pointer moving over the pill | one per mouse move |
 | A spring settling | one per vblank, until settled |
-| Running task, waiting agent, playing media in a media scene, drag over the pill, expanded privacy dots | ~30 fps |
+| Running task, waiting agent, playing media in a media scene, drag over the pill, expanded privacy dots | every few vblanks: about 60 fps in an open or pointed-at pill, about 30 fps collapsed |
+| A rolling digit, a row sliding, a press, a scroll gliding | one per vblank, until settled |
 | Failed task | ~30 fps for 8 s (the pulse fades), then none |
 | Timer-finished card | ~30 fps while up (≤ 2 min) |
 | Eye-break card | ~30 fps for its 20 s (the ring) |
@@ -97,10 +100,12 @@ $env:HYTTE_PERF = "1"; .\target\release\hytte.exe
 Every 240 animated frames a line like this (illustrative numbers) goes to `%APPDATA%\Hytte\hytte.log`:
 
 ```text
-perf n=240 cost_us p50=310 p99=900 max=1400 | draw_us p50=260 p99=800 | gap_us p50=16667 p99=17100 max=33000 | missed=2
+perf every=1 n=240 hz=60 cpu_us=3906 cost_us p50=1211 p99=1662 max=1892 | draw_us p50=1068 p99=1515 | gap_us p50=16683 p99=17296 max=17488 | missed=0
 ```
 
-`cost_us` is draw + present (keep it well under a refresh period); `draw_us` is painting alone, so `cost_us − draw_us` is the compositor hand-off and a regression can be pinned on one or the other; `gap_us` is the time between frames (~16 667 µs at 60 Hz while springs move); `missed` counts frames whose gap exceeded 1.5× the median. The first frame after idle is excluded.
+Frames that come every vblank (`every=1`) and every few (`every=N`, slower ambient motion) are logged apart. `hz` is the refresh rate. `cpu_us` is the whole process's CPU time per frame: the CPU renderer (WARP) rasterises on a pool of threads, so this is several times `cost_us` and is the number to budget. `cost_us` is draw + present as the UI thread waits for it (keep it well under a refresh period); `draw_us` is painting alone, so `cost_us − draw_us` is the compositor hand-off; `gap_us` is the time between frames; `missed` counts frames whose gap exceeded 1.5× the median. The first frame after idle is excluded.
+
+Other switches for measuring: `HYTTE_HOLD=1` starts the pill pinned open; `HYTTE_GPU=hardware` uses the graphics driver instead of WARP (about half the CPU for about 50 MB more memory; measured, not used); `HYTTE_SLOWMO=<n>` slows every animation `n` times.
 
 For CPU and memory use Task Manager's *Details* tab, Process Explorer or Windows Performance Recorder, on **release** builds (debug is many times slower). A quick idle check: collapsed, nothing playing, watch it for a minute: CPU mostly 0 and a small "Context Switch Delta".
 

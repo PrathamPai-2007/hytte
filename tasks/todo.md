@@ -336,10 +336,12 @@ Built to the verdict from Task 6.
 ## Phase 6: Release
 
 ### Task 24: Audit
-- [ ] Reduced motion: every tween, layer, stagger, roll and bounce snaps; a test covers it
-- [ ] Calm and snappy scale everything, tweens included
-- [ ] Final numbers against every row of the budget table, at 60 Hz and at the user's rate, in
-      `tasks/baseline.md`
+- [x] Reduced motion: every tween, layer, stagger, roll and bounce snaps; tests cover layers and
+      tweens
+- [x] Calm and snappy scale everything, tweens included (the frame's dt carries the speed)
+- [x] Final numbers at 60 Hz in `tasks/baseline.md` and `docs/12`. At 120 Hz the runs overlapped
+      a game and were discarded; the user saw 3 to 5 % in use and called it fine (2026-11-15).
+      A no-spin guard was added to the frame clock for when the compositor stops pacing
 **Verify:** Checks; the numbers.
 **Depends on:** Checkpoint 5. **Files:** tests, `tasks/baseline.md`. **Scope:** S
 
@@ -347,15 +349,20 @@ Built to the verdict from Task 6.
 The user asked (2026-11-15) for everything to be noted and refreshed in both the developer docs
 (`docs/`) and the user manual (`manual/`). Each task updates what it changes; this task is the
 full read-through of both.
-- [ ] `docs/06`, `08` and `12` describe layers, tweens, pacing, tokens and the mask
-- [ ] Every page of `manual/` read against the build: wording, pictures, anything that moved
-- [ ] `docs/16-whats-new.md` and the welcome tour's 2.0 entry
-- [ ] `docs/img` and the landing page frames regenerated
+- [x] `docs/06`, `08`, `12`, `13` and `16` describe layers, tweens, pacing, tokens, the cache and
+      the review tools; `docs/09` and `manual/09` the Start Ollama button
+- [x] `manual/02` explains how the pill moves, the speed setting and reduced motion; the other
+      manual pages describe nothing that changed
+- [x] `docs/16-whats-new.md` has the release under "Next version" (the number isn't chosen).
+      The welcome tour's entry waits for the version number
+- [ ] `docs/img` and the landing page frames regenerated: left for the release, once the user has
+      tried the build
 **Verify:** docs build as before; every picture referenced exists.
 **Depends on:** 24. **Files:** `docs/`, `landing-page/public/frames`, `welcome.rs`. **Scope:** M
 
 ### Task 26: Version 2.0.0
-- [ ] `version.ps1` bump and `version.ps1 check` pass
+- [ ] `version.ps1` bump and `version.ps1 check` pass. Held: the user hasn't chosen the number and
+      asked to test before anything ships
 - [ ] `tasks/baseline.md` deleted (its final numbers live in `docs/12`)
 - [ ] The user's go-ahead before any push or tag
 **Verify:** Checks; a release build starts, expands, pages and collapses.

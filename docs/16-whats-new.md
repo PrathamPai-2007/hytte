@@ -2,6 +2,34 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
+## Next version (unreleased; the number isn't chosen yet)
+
+The motion and look release. Nothing moves in a new place: what was already there moves better.
+
+**Motion**
+
+- **Changes you take back don't pop.** Open a pane and leave it before it has finished, or flick between two, and each scene carries on from where it was instead of jumping.
+- **Panes build from the top.** Rows and tiles come in one after another, rising a few pixels into place.
+- **More travels between the small pill and the open one**: the equaliser, and a task's percentage or time, along with the album art, icon and label.
+- **Controls answer the pointer.** Buttons and tiles ease their hover, press in a little while held and spring back when let go; tiles fade their colour in and out; a ticked to-do fills and draws its tick; the tab highlight slides.
+- **Values glide.** Progress, the song's position and the volume move smoothly to a new value and follow a drag exactly; play and pause morph into each other; numbers no longer shift sideways as they count, and in open panes a changed digit rolls in.
+- **Lists slide.** Remove a note or a to-do and it fades out while the rest slide up; a new one fades in; the notes and to-do lists glide a row when scrolled. Answers and the settings page scroll smoothly and give a little at their ends.
+- **The glow changes colour smoothly**, from amber to red, say, instead of jumping.
+- **Smoother on fast displays.** Spinners, the equaliser and other ambient motion are timed to the display: about 60 frames a second in an open pill, about 30 when it is collapsed, every frame on a refresh. Transitions run at the full refresh rate.
+
+**Look**
+
+- **Softer corners**: the pill's bottom corners and every large rounded shape ease out of their straight edges instead of meeting a circle.
+- **A soft shadow** under an open pill.
+- **A tighter type scale** (five sizes, small text in Segoe UI Variable's cut for small sizes) and an even 12 px between every pane and its tabs.
+- **One slider** for the song's position and the settings window, and two button heights.
+
+**Lighter.** A collapsed pill with a running task uses about a third of the processor time it did (5.5 % of a core instead of 14.6 % when measured at 60 Hz): the pill's background is drawn once and reused while it doesn't change.
+
+**Ask**: a **Start Ollama** button when Ollama isn't running (or **Get Ollama** when it isn't installed). See [manual 9](../manual/09-ask.md).
+
+For people who change Hytte: `Anim` keeps scene layers (`Layer`, `shown()`, `content()`, `out()`) instead of `content` / `out` springs; every spring feel is in `animation::motion`; the renderer eases with keyed springs (`render/tween.rs`, `Renderer::tw`), staggers with `group`, places rows with `row`, draws numbers with `digits`, sliders with `track`, and large rounded shapes with continuous-curvature corners (`smooth_rr`, `smooth_corner`); look tokens are in `render/tokens.rs`; the steady background is cached (`BgCache`). The frame clock counts vblanks (`Shared::stride`) instead of sleeping 33 ms. The perf line names its pace, the refresh rate and `cpu_us`; `HYTTE_HOLD`, `HYTTE_GPU` and `HYTTE_SLOWMO` help measuring; `render/film.rs` has the filmstrips and the continuity test ([section 8](08-rendering-and-animation.md)).
+
 ## 1.9.0
 
 The local AI and honest cockpit release.

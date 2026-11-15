@@ -170,16 +170,18 @@ The window layer arms one Win32 timer (`T_EXPIRE`) for exactly that instant and 
 
 | Field | Animates |
 |---|---|
-| `rect` (`RectSpring`) | Pill size. Expanding: lively with slight overshoot; collapsing: slower, critically damped. |
-| `glow` + `glow_rgb` | Glow strength (colour switches instantly). |
-| `content` | Fade-in of the current scene (0 → 1). |
-| `out` + `prev` | Fade-out of the scene being left (1 → 0), drawn under the new one. |
+| `rect` (`RectSpring`) | Pill size. Expanding: lively with slight overshoot (`motion::GROW`); collapsing: slower, critically damped (`SHRINK`). |
+| `glow` + `glow_rgb` | Glow strength, and its colour, which blends to a new one with the same feel (it snaps while the glow is unseen). |
+| `layers` | Every scene on screen, oldest first: each a `Layer` with its own opacity and x / y offset springs. |
+| `scene`, `prev` | The scene showing, and the one shown before it. |
 | `hover` | Slight brightening under the pointer. |
 | `vis` | Whole-window opacity, for hide and pause fades. |
 | `t` | Animation seconds for spinners and pulses. |
 | `reduce` | Windows "Animation effects" off: springs snap. |
 
-`Anim::set_scene(scene, size, glow)` runs on every layout; on a scene change it moves the old scene to `prev`, starts `out` from the old content's opacity and restarts `content` at 0. `Anim::step(dt)` advances every spring and reports whether anything still moves.
+`Anim::set_scene(scene, size, glow)` runs on every layout. On a scene change the current scene's layer is pointed at gone (opacity 0, drifting 4 px up, or 16 px away from the page being turned to, `motion::EXIT`), and the new scene's layer at shown (`ENTER`). If the new scene still has a layer on its way out, that layer is reused from where it is, so going back mid-change continues instead of popping; otherwise a fresh layer starts transparent, 6 px low or 16 px to the side it was paged from. At most `MAX_LAYERS` (3) are kept; a fourth change drops the faintest. A layer that has finished leaving is removed in `step`. `content()` and `out()` read the current and previous scene's opacity (the tab strip uses them); `shown()` lists what to draw, back to front, and is what the renderer draws and the continuity test measures. `Anim::step(dt)` advances every spring and reports whether anything still moves.
+
+Every spring's feel comes from `animation::motion`: `GROW`, `SHRINK`, `ENTER`, `EXIT`, `QUICK` (pointer responses), `FADE` (the whole pill), `GLIDE` (values, scrolling, the glow), `DIM` (the idle dim) and `POP` (the bubble, a released press).
 
 ## Cards (chips)
 
@@ -217,7 +219,7 @@ Expanded scenes show these as panels, so no bubble. The bubble is part of the ho
 
 ## Paging, squash and other motion
 
-- `Anim::nav` is the paging direction (+1 / -1), set by sideways scroll, tab strip and keyboard just before layout. `set_scene` moves it to `slide`, and the renderer slides new content in from that side (old out the other) instead of the vertical drift; a change nobody paged for (a peek) keeps the drift. `after_model_change` clears `nav`.
+- `Anim::nav` is the paging direction (+1 / -1), set by sideways scroll, tab strip and keyboard just before layout. `set_scene` moves it to `slide` and picks the layers' offsets from it: the new scene slides in from that side, the old one out the other, instead of the vertical drift; a change nobody paged for (a peek) keeps the drift. `after_model_change` clears `nav`.
 - `Anim::squash` kicks the size springs (width +160, height −110 px/s) when items land on the shelf or a Drop Vault result arrives; nothing under reduced motion.
 - `glow_gain` is `[general] glow_strength`, applied to the border glow in `render.rs`; `TaskView::line` / `shows_line` carry a running task's output ticker, and `LINE_H` (14 px) is the row height it adds in `size(ExpTasks)`.
 
