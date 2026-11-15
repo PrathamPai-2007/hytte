@@ -34,9 +34,9 @@ impl Renderer {
                 self.button(
                     "Try again",
                     w / 2.0 - 42.0,
+                    85.0,
                     84.0,
-                    84.0,
-                    26.0,
+                    24.0,
                     self.accent.get(),
                     Action::RetryWeather,
                 );

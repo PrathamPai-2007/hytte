@@ -263,20 +263,10 @@ impl Renderer {
             30.0,
             self.cc(GRAY, 0.9),
         );
-        let by = y + 12.0;
         let hov = self.hit(bx - 6.0, y, bw + 12.0, 30.0, action);
-        let h = self.ease(
-            &format!("h:{id}"),
-            (hov || self.pressed.get() && hov) as u8 as f32,
-        );
-        self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(fg, 0.08 + 0.04 * h));
-        self.fill_rr(bx, by, (bw * f).max(bh), bh, bh / 2.0, self.cc(acc, 0.9));
-        self.circle(
-            bx + 3.0 + (bw - 6.0) * f,
-            by + bh / 2.0,
-            6.5 + 1.5 * h,
-            self.cc(fg, 0.95),
-        );
+        let h = self.ease(&format!("h:{id}"), hov as u8 as f32);
+        let _ = (fg, bh);
+        self.track(bx, y + 15.0, bw, f, acc, h, 1.0);
     }
 
     /// Steps in a pill, the lit one sliding to the chosen step. With `custom`, one more

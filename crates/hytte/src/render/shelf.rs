@@ -262,9 +262,9 @@ impl Renderer {
                     self.button(
                         label,
                         x,
-                        98.0 + row as f32 * 32.0,
+                        99.0 + row as f32 * 32.0,
                         cw,
-                        26.0,
+                        24.0,
                         PURPLE,
                         Action::ShelfOp(it.id, *op),
                     );
@@ -420,9 +420,9 @@ impl Renderer {
                     self.button(
                         label,
                         x,
-                        y + CLIP_ROW_H,
+                        y + CLIP_ROW_H - 1.0,
                         cw,
-                        22.0,
+                        24.0,
                         self.accent.get(),
                         Action::Ai(kind, crate::ui_state::AiSource::Clip(idx)),
                     );

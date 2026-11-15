@@ -310,17 +310,21 @@ Built to the verdict from Task 6.
 **Depends on:** 6, 20. **Files:** `render/pill.rs`, `render.rs`, `skin.rs`. **Scope:** M
 
 ### Task 22: One set of components
-- [ ] One slider (track, fill, thumb, hover growth) for volume, the timeline, the timer and
-      settings
-- [ ] Fluent glyphs and the drawn transport shapes agree in visual weight and size
-- [ ] Buttons share two heights and one set of opacities for rest, hover and press
+- [x] One thin slider (`track`: track, fill, thumb, hover growth) for the media timeline and the
+      settings window. The volume bar keeps its wide shape (it carries the speaker icon and the
+      percent inside it); the timer has no slider
+- [ ] Fluent glyphs and the drawn transport shapes agree in visual weight and size. Not changed:
+      side by side in the snapshots they already read as one family
+- [x] Buttons share two heights (24 and 32; the 22 and 26 px ones moved, keeping their centre)
+      and one set of opacities for rest, hover and press (Task 10)
 **Verify:** Checks; before / after snapshot page.
 **Depends on:** 19, 20. **Files:** `render/prims.rs`, `render/home.rs`, `render/media.rs`,
 `render/timer.rs`, `render/settings.rs`. **Scope:** M
 
 ### Task 23: Settings window
-- [ ] The window uses the same tokens, corners, slider and switch as the pill
-- [ ] Layout and wording unchanged
+- [x] The window uses the same tokens, corners, slider and switch as the pill (it draws through
+      the same helpers)
+- [x] Layout and wording unchanged
 **Verify:** Checks; `settings_window_snapshots` before / after.
 **Depends on:** 22. **Files:** `render/settings.rs`, `render/settings_table.rs`, `render.rs`.
 **Scope:** S

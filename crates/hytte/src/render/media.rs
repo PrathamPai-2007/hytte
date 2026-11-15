@@ -105,29 +105,20 @@ impl Renderer {
         // Pointed at, the bar thickens and its knob grows; the position glides to a seek or a
         // new song's start, and follows a drag exactly.
         let hv = self.tw(tween::key("seek-hover", 0), hov as u8 as f32, motion::QUICK);
-        let (bh, by) = (5.0 + 2.0 * hv, 65.0 - hv);
-        self.fill_rr(bx, by, bw, bh, bh / 2.0, self.cc(self.fg(), 0.12));
         if md.dur_ms > 0 {
             let frac = self.tw_drag(
                 tween::key("timeline", (&md.app, &md.title)),
                 frac.clamp(0.0, 1.0),
                 hov && self.pressed.get(),
             );
-            let fw = (bw * frac).max(bh);
-            self.fill_rr(bx, by, fw, bh, bh / 2.0, self.cc(acc, 0.92));
             let knob = self.tw(
                 tween::key("seek-knob", 0),
                 (md.playing || hov) as u8 as f32,
                 motion::QUICK,
             );
-            if knob > 0.01 {
-                self.circle(
-                    bx + fw - bh / 2.0,
-                    by + bh / 2.0,
-                    (5.0 + 1.5 * hv) * knob,
-                    self.cc(self.fg(), 1.0),
-                );
-            }
+            self.track(bx, 67.5, bw, frac, acc, hv, knob);
+        } else {
+            self.track(bx, 67.5, bw, 0.0, acc, hv, 0.0);
         }
         self.digits(
             &fmt_clock(pos),
@@ -307,9 +298,9 @@ impl Renderer {
             self.button(
                 "Cancel timer",
                 w - 16.0 - 96.0,
-                94.0,
+                93.0,
                 96.0,
-                22.0,
+                24.0,
                 fg,
                 Action::SleepCancel,
             );
@@ -415,9 +406,9 @@ impl Renderer {
             self.button(
                 "Turn on",
                 w / 2.0 - 40.0,
-                74.0,
+                73.0,
                 80.0,
-                22.0,
+                24.0,
                 self.accent.get(),
                 Action::Set("media.lyrics", Val::B(true)),
             );
@@ -430,9 +421,9 @@ impl Renderer {
                 self.button(
                     "Try again",
                     w / 2.0 - 40.0,
-                    60.0,
+                    59.0,
                     80.0,
-                    22.0,
+                    24.0,
                     self.accent.get(),
                     Action::LyricsRetry,
                 );

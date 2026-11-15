@@ -205,6 +205,35 @@ impl Renderer {
         Some(g)
     }
 
+    /// The one thin slider: a track centred on `cy`, filled to `frac` in `fill`, with a thumb at
+    /// the fill's end. Under the pointer (`hv` 0..1) the track thickens and the thumb grows;
+    /// `knob` (0..1) shows the thumb.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn track(
+        &self,
+        x: f32,
+        cy: f32,
+        w: f32,
+        frac: f32,
+        fill: [f32; 3],
+        hv: f32,
+        knob: f32,
+    ) {
+        let bh = 5.0 + 2.0 * hv;
+        let by = cy - bh / 2.0;
+        self.fill_rr(x, by, w, bh, bh / 2.0, self.cc(self.fg(), 0.10 + 0.04 * hv));
+        let fw = (w * frac.clamp(0.0, 1.0)).max(bh);
+        self.fill_rr(x, by, fw, bh, bh / 2.0, self.cc(fill, 0.92));
+        if knob > 0.01 {
+            self.circle(
+                x + fw - bh / 2.0,
+                cy,
+                (5.5 + 1.5 * hv) * knob,
+                self.cc(self.fg(), 1.0),
+            );
+        }
+    }
+
     pub(super) fn circle(&self, cx: f32, cy: f32, r: f32, c: D2D1_COLOR_F) {
         let e = D2D1_ELLIPSE {
             point: v(cx, cy),
