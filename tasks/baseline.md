@@ -109,3 +109,19 @@ open or hovered pill animates every vblank (60 fps), a collapsed one every secon
 
 Frames that land on a vblank are also cheaper to make: `cost_us` p50 fell from 1.1 to 0.77 ms
 collapsed.
+
+## Task 6 spike: the glow from a cached mask
+
+`cargo test --release glow_cost_spike -- --ignored --nocapture` (offscreen WARP, a 380 x 128
+pill, process CPU per draw):
+
+| Scale | Five strokes | Nine slices of a cached alpha mask | One body fill |
+|---|---|---|---|
+| 1x | 0.21 ms | 0.21 ms | 0.10 ms |
+| 2x | 0.73 ms | 0.42 ms | 0.16 ms |
+
+**Verdict: neither.** The mask saves nothing at 1x and 0.3 ms at 2x, against 12 to 17 ms of CPU
+for a whole transition frame, and steady frames already copy the glow from its bitmap. Keeping
+one way of drawing the glow is worth more. The shadow (Task 21) is drawn the same way as the
+glow (a stack of strokes, dark and offset down) inside the cached glow layer, so it costs
+nothing while the pill is steady.

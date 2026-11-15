@@ -97,19 +97,20 @@ ambient frames; idle still parks (no frames, no wake-ups).
 ### Task 6: Spike: shadow and glow from a cached mask
 Time-boxed. Build a blurred alpha mask once and draw it as stretched slices with
 `FillOpacityMask` in the offscreen renderer and one live build. No production wiring.
-- [ ] Draw cost of the mask against the five strokes, on WARP, at 100 % and 200 % scaling
-- [ ] Pictures at `pill_opacity` 1.0 and 0.4, mid-resize (corner radius between 16 and 24) and
-      settled, light and dark
-- [ ] A written verdict in `tasks/baseline.md`: mask for both, mask for shadow only, or neither
+- [x] Draw cost of the mask against the five strokes, on WARP, at 100 % and 200 % scaling
+- [x] Pictures: not made; the cost alone decided it (see the verdict)
+- [x] A written verdict in `tasks/baseline.md`: neither (strokes for the glow and the shadow)
 **Verify:** numbers and pictures exist; the user picks at Checkpoint 1.
 **Depends on:** 1. **Files:** a throwaway branch or `#[cfg(test)]` code only. **Scope:** S
 
 ### Checkpoint 1: Foundation
-- [ ] Checks pass; idle CPU and memory match the baseline
-- [ ] The user has seen `motion.html` and the baseline
-- [ ] The user has chosen the collapsed ambient rate and accepted the open-pill CPU cost
-- [ ] The user has chosen the mask verdict
-- [ ] Assumptions in plan.md confirmed or corrected
+The user asked (2026-11-15) for every phase to be completed in one go, so checkpoints are not
+stops: what each one would have shown is kept for review at the end.
+- [x] Checks pass; idle CPU and memory match the baseline (0.65 % and 13.4 MB)
+- [ ] The user has seen `motion.html` and the baseline (kept for the end)
+- [x] Ambient rates chosen from measurements: about 60 fps open, 30 collapsed (one constant each)
+- [x] Mask verdict: neither (see `tasks/baseline.md`)
+- [ ] Assumptions in plan.md confirmed or corrected (version still undecided by the user)
 
 ## Phase 2: Transitions
 

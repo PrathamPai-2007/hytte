@@ -346,3 +346,107 @@ fn filmstrips() {
         println!("{name}: {n} frames, opacity step {da:.2}, offset step {dp:.1} px");
     }
 }
+
+/// Spike (Task 6): the glow as five strokes of the silhouette, against the same glow cut from a
+/// cached mask in nine slices. Prints process CPU per draw.
+#[test]
+#[ignore]
+fn glow_cost_spike() {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let cpu = || {
+        let mut t = [FILETIME::default(); 4];
+        let [a, b, k, u] = &mut t;
+        unsafe { GetProcessTimes(GetCurrentProcess(), a, b, k, u).unwrap() };
+        let f = |f: &FILETIME| ((f.dwHighDateTime as u64) << 32 | f.dwLowDateTime as u64) as f64;
+        (f(&t[2]) + f(&t[3])) / 1e4 // ms
+    };
+    for scale in [1.0f32, 2.0] {
+        let r = Renderer::offscreen(scale).unwrap();
+        let (w, h) = (380.0f32, 128.0f32);
+        let g = r.pill_geometry(w, h, 24.0, 8.0).unwrap();
+        let n = 300;
+        let time = |f: &dyn Fn()| {
+            unsafe {
+                r.rt.BeginDraw();
+                f();
+                r.rt.EndDraw(None, None).unwrap();
+            }
+            let t0 = cpu();
+            for _ in 0..n {
+                unsafe {
+                    r.rt.BeginDraw();
+                    r.rt.SetTransform(&mat(scale, 40.0, 0.0));
+                    f();
+                    r.rt.EndDraw(None, None).unwrap();
+                }
+            }
+            (cpu() - t0) / n as f64
+        };
+        let strokes = time(&|| unsafe {
+            for j in 1..=5 {
+                r.rt.DrawGeometry(&g, r.solid(color(BLUE, 0.1)), j as f32 * 4.4, &r.round);
+            }
+        });
+        // The mask: the same strokes once, into an alpha bitmap the size of the glow.
+        let (mw, mh) = (((w + 56.0) * scale) as u32, ((h + 28.0) * scale) as u32);
+        let mask = unsafe {
+            let t =
+                r.rt.CreateCompatibleRenderTarget(
+                    None,
+                    Some(&D2D_SIZE_U {
+                        width: mw,
+                        height: mh,
+                    }),
+                    Some(&D2D1_PIXEL_FORMAT {
+                        format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_A8_UNORM,
+                        alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                    }),
+                    D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE,
+                )
+                .unwrap();
+            let rt: ID2D1RenderTarget = t.cast().unwrap();
+            rt.BeginDraw();
+            rt.SetTransform(&mat(scale, 28.0, 0.0));
+            for j in 1..=5 {
+                rt.DrawGeometry(&g, r.solid(color(WHITE, 0.1)), j as f32 * 4.4, &r.round);
+            }
+            rt.EndDraw(None, None).unwrap();
+            t.GetBitmap().unwrap()
+        };
+        let sliced = time(&|| unsafe {
+            r.rt.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+            let (cw, ch) = (mw as f32 / 3.0, mh as f32 / 3.0);
+            for i in 0..3 {
+                for j in 0..3 {
+                    let src = D2D_RECT_F {
+                        left: i as f32 * cw,
+                        top: j as f32 * ch,
+                        right: (i + 1) as f32 * cw,
+                        bottom: (j + 1) as f32 * ch,
+                    };
+                    let dst = rect(
+                        i as f32 * cw / scale,
+                        j as f32 * ch / scale,
+                        cw / scale * 1.1,
+                        ch / scale * 1.1,
+                    );
+                    r.rt.FillOpacityMask(
+                        &mask,
+                        r.solid(color(BLUE, 1.0)),
+                        D2D1_OPACITY_MASK_CONTENT_GRAPHICS,
+                        Some(&dst),
+                        Some(&src),
+                    );
+                }
+            }
+            r.rt.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        });
+        let fill = time(&|| unsafe {
+            r.rt.FillGeometry(&g, r.solid(color(BLUE, 0.9)), None::<&ID2D1Brush>);
+        });
+        println!(
+            "scale {scale}: five strokes {strokes:.2} ms, nine mask slices {sliced:.2} ms, one body fill {fill:.2} ms (CPU per draw)"
+        );
+    }
+}
