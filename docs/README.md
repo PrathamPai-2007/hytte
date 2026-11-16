@@ -1,6 +1,6 @@
 # Hytte developer documentation
 
-This folder explains how Hytte works on the inside. It is written for people who want to change the code. If you only want to *use* Hytte, read the [manual](../manual/README.md).
+This folder explains how Hytte works on the inside. It is written for people who want to change the code, and for people who want to write their own panes ([section 17](17-writing-panes.md) is all you need for that). If you only want to *use* Hytte, read the [manual](../manual/README.md).
 
 Read the sections in order the first time: each one builds on the previous ones. After that, jump straight to the section for the part you are changing.
 
@@ -14,14 +14,15 @@ Read the sections in order the first time: each one builds on the previous ones.
 | 6 | [The UI model](06-ui-model.md) | `Model`, scenes, panels, the scene-priority rules, sizes, glow, and timed expiry. |
 | 7 | [Window, input and timers](07-window-and-input.md) | The Win32 window, the message loop, hover and click handling, drag and drop, fullscreen. |
 | 8 | [Rendering and animation](08-rendering-and-animation.md) | Direct2D drawing, the frame clock, springs, cross-fades, and why idle costs nothing. |
-| 9 | [Background workers](09-workers.md) | Media, privacy, microphone and speaker, battery, ports (dev servers), Windows Terminal tabs and thumbnails. |
+| 9 | [Background workers](09-workers.md) | Media, privacy, microphone and speaker, battery, ports (dev servers), downloads, calendar, Bluetooth, pane packs, script panes, Windows Terminal tabs and thumbnails. |
 | 10 | [Shelf and Drop Vault](10-shelf-and-drop-vault.md) | Storing files on the shelf and the image / JSON / PDF / OCR actions. |
 | 11 | [Configuration and files on disk](11-configuration-and-files.md) | Every setting, every file Hytte writes, autostart and the Start Menu shortcut. |
 | 12 | [Performance](12-performance.md) | The budgets, every source of idle wake-ups, and the rules that keep Hytte cheap. |
 | 13 | [Testing and releasing](13-testing-and-release.md) | What the tests cover, CI, and how a release is built and published. |
-| 14 | [How-to recipes](14-how-to-recipes.md) | Step-by-step guides for common changes: a new panel, event, setting, protocol field or file action. |
+| 14 | [How-to recipes](14-how-to-recipes.md) | Step-by-step guides for common changes: a new built-in pane, event, setting, protocol field, file action, or a new field on a script pane row. |
 | 15 | [Updates](15-updates.md) | How the update check and in-place self-replace work, and how to test them. |
 | 16 | [What's new](16-whats-new.md) | What changed in each version, for people who use Hytte and for people who change it. |
+| 17 | [Writing custom panes](17-writing-panes.md) | The authoring guide: `[[script_pane]]` and pane packs, approval, how commands run, the text and JSON output formats, actions and `HYTTE_ARG`, push mode, limits and debugging, with worked examples. Example packs are in [`examples/panes`](../examples/panes/README.md). |
 
 ## Conventions used in these docs
 

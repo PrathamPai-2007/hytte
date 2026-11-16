@@ -40,7 +40,7 @@ To measure yourself: start the exe with an isolated `%APPDATA%`, wait 45 s, read
 5. **One timer for all deadlines.** `Model::expire` returns the next deadline and one Win32 timer fires then. No periodic sweeps.
 6. **Heavy work off the UI thread:** file copies, conversion, OCR, UI Automation, WinRT, thumbnails.
 7. **Allocate nothing per frame where avoidable.** Brushes, text formats, gradients, the hit list, text buffer and the pill silhouette (while its size is unchanged) are reused.
-8. **Background workers run at EcoQoS.** Media, mic, power, privacy, ports, Drop Vault and terminal-tab threads call `proc::eco_thread()` first. The UI thread, frame clock, pipe listener and task registry stay normal, because a user is waiting on them.
+8. **Background workers run at EcoQoS.** Media, mic, power, privacy, ports, downloads, calendar, Bluetooth, Drop Vault, terminal-tab, Ask, weather, script pane and action threads call `proc::eco_thread()` first. The UI thread, frame clock, pipe listener and task registry stay normal, because a user is waiting on them.
 9. **Hand memory back when idle.** After 30 s without a frame the window trims the working set (`T_TRIM`); cold pages fault back in on use.
 
 ## Everything that can wake Hytte while idle
@@ -57,6 +57,9 @@ When adding a feature, don't add a row here without good reason.
 | Power watcher | on a power broadcast or mode callback; 5 min safety timeout | `GetSystemPowerStatus`; on laptops two IOCTLs on the cached battery device. |
 | Privacy / media watchers | on registry change / WinRT event; 10 s / 30 s safety timeouts | |
 | Config watcher | on a file change in `%APPDATA%\Hytte` | Reads `config.toml`; `shelf.json` / `timer.json` writes also wake it. |
+| Pane packs watcher | on a change under `%APPDATA%\Hytte\panes` | Blocks on a directory notification; after one, a 300 ms settle and a rescan of the pack folders; the UI hears of it only if a pack changed. |
+| Script pane commands (`T_SCRIPT`) | the shown pane's `every` (30 s at least), **only while that pane is open**; plus once at start | One short-lived EcoQoS thread per run, 10 s at most. A pane you are not looking at never runs again. Nothing runs paused or in game mode. |
+| Bluetooth watcher (opt-in) | on a device connecting | Two WinRT `DeviceWatcher`s; the thread parks. |
 | Task registry | every 5 s **only while tasks exist** | Checks owner liveness. |
 | Clipboard listener | on a clipboard change | Looks at the owner first, so other apps' copies cost at most a process-name lookup. |
 | Ask (`[ai]`) | only while a question is being answered or a model downloads | One worker thread and one `curl.exe` per request; the pill draws at the frame rate while the dots show and text streams in, and idles when the answer ends. The model's memory is Ollama's, freed `keep_alive` after the last question. |

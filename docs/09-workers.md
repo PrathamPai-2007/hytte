@@ -16,7 +16,12 @@ Each worker watches one part of the system and reports changes to the UI thread 
 | Resource hogs | `hog.rs` | Rides the port watcher's tick | `Hog` |
 | Downloads | `downloads.rs` | `ReadDirectoryChangesW` | `Task`, `DownloadDone`, `TaskGone` |
 | Calendar | `calendar.rs` | Store-changed event or the next event's due time (opt-in) | `Calendar` |
-| Config | `config.rs` | Directory change notification | `Config` ([section 11](11-configuration-and-files.md#live-reload)) |
+| Config | `config.rs` | Directory change notification | `Config`, `ConfigProblem` ([section 11](11-configuration-and-files.md#live-reload)) |
+| Pane packs | `packs.rs` | Directory change notification on `panes\` (with subfolders) | `Packs` ([below](#pane-packs-packsrs)) |
+| Bluetooth | `bluetooth.rs` | Two WinRT `DeviceWatcher`s; started the first time `[moments] bluetooth` is on | `Bluetooth` |
+| Script pane commands | `window/win/scripts.rs`, `scriptpane.rs` | One short-lived thread per run, only while the pane is on screen (plus once at start) | `Script` ([below](#script-panes-and-actions)) |
+| Action commands | `window/win/actions.rs`, `scriptpane.rs` | One short-lived thread per click | `ActionDone` |
+| Update check | `update.rs` | A 60 s sleep, then once a day | `UpdateOffer`, `Notice` ([section 15](15-updates.md)) |
 | Terminal tabs | `tabs.rs` | Command channel | none (answers commands) |
 | Thumbnails | `shelf.rs` | One short-lived thread per tile | `Thumb` |
 | Place search, forecast | `weather.rs` | One short-lived thread per request, only while the Weather pane is showing | `Places`, `WidePlaces`, `Forecast` |
@@ -136,6 +141,26 @@ The thread initialises COM, finds the player's audio session (`pick_exe` over `m
 ## Do Not Disturb (`dnd.rs`)
 
 A Focus session writes `NOC_GLOBAL_SETTING_TOASTS_ENABLED = 0` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings` and reads it back. Microsoft's own `FocusSessionManager.TryStartFocusSession` needs a Limited Access Feature token, so it isn't used. The value is undocumented; tested on Windows 11 26H2, where it writes, reads back and restores, but a screenshot test could not show a toast banner being suppressed (the control run with the switch off showed none either), so the visible effect is confirmed by hand. `dnd-restore.txt` holds the earlier value while a session runs.
+
+## Pane packs (`packs.rs`)
+
+A pack is `%APPDATA%\Hytte\panes\<folder>\pane.toml`: a custom pane and its actions, shared as a folder ([section 17](17-writing-panes.md)). The watcher thread is `packs::spawn_watcher`:
+
+1. It creates the `panes` folder if it is missing and scans it once on the calling thread, sending the first `UiEvent::Packs(Vec<Pack>)` before the window exists.
+2. A second thread blocks in `WaitForSingleObject` on a `FindFirstChangeNotificationW` handle for the folder **and its subfolders**, watching file names, last-write times and, since 1.9.3, **directory names**: deleting a pack's folder (to the Recycle Bin it is a rename) touches no file, and used to leave the pane until a restart.
+3. On a notification it sleeps 300 ms (editors and copies arrive in bursts), re-arms with `FindNextChangeNotification`, scans again and sends `Packs` only if the result differs from the last one. No change, no wake-up.
+
+`scan()` reads every direct subfolder that has a `pane.toml`, sorted by folder name (lower case). For each it takes the stored answer from `pack-answers\` (`<folder>.approved` or `<folder>.ignored`, holding the FNV-1a hash of the file) and `parse` gives the pack a `State`: `Approved` (the answer is a Run for this hash), `Ignored`, `Pending` (no answer, or the file changed) or `Bad(reason)`. Answers live outside the pack on purpose: a downloaded pack cannot arrive approved.
+
+On `UiEvent::Packs` the window layer (`Ui::refresh_panes`) turns the approved packs into panes with `packs::effective`: the `[[script_pane]]`s first, then approved packs in folder order while there are fewer than 12 panes and the tab name is free; and every action: `[[action]]`s plus each approved pack's, named `<prefix>-<name>`. It applies them to the model, tells the Settings window the new names, and calls `carry_slot_settings`. That compares the names in the slots with those saved in `pane-slots.json` and, when they differ, moves each pane's switch (`[panes] scriptN`) and place in `[panes] order` with its name (`packs::remap_slots`), writing the changed keys with `config::set` and `set_text`. `ask_packs` then puts a card (Run / Ignore / Open) up for each Pending pack, or an error card for a Bad one, once per session for each version of the file. `ChipAction::PackAnswer` stores the answer through `packs::answer` and rescans.
+
+## Script panes and actions
+
+`window/win/scripts.rs` (`Ui::script_refresh`) starts a pane's command when it is due, but only for the pane on screen, plus every pane once at start; the `T_SCRIPT` timer is armed for the next run of the shown pane, and nothing runs while paused or in game mode. Each run is a short-lived thread (at EcoQoS) that calls `scriptpane::run_in` and sends `UiEvent::Script(name, Run)`. The thread catches a panic and still sends an error result (`Hytte hit an error running it`), because only `script_done` clears the pane's `busy` flag; before 1.9.3 a crash there left the pane unable to run until restart.
+
+`scriptpane::run_with` is the runner for both panes and actions: `cmd /d /s /c "<command>"`, hidden, stdin null, in the pack's folder or the home folder, `HYTTE_ARG` always set. The child goes into a Job object with `KILL_ON_JOB_CLOSE`; two reader threads take up to 64 KB of stdout and stderr so a chatty script cannot stall; a 50 ms loop watches `try_wait` until the limit (10 s for panes, the action's `timeout` for actions), then `TerminateJobObject` ends the whole tree. The output shown is stdout, or stderr when stdout is empty, parsed as `{"rows": ...}` JSON or cleaned as text. A known limit, marked `ponytail:` in the code: the child is put in the job just after it starts, so a grandchild spawned in that first instant escapes the time limit.
+
+An action click (`Ui::run_named`) goes through the confirm step and the busy check in the model (`press_action`), runs the same way on its own thread, and comes back as `UiEvent::ActionDone(key, Run)`, which clears the busy flag and shows the result card.
 
 ## Adding a worker
 

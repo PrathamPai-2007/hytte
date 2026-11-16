@@ -38,6 +38,8 @@ $n = "target\debug\hytte.exe"
 
 Also: drag a file on (shelf, Drop Vault), play music (media), press **Timer** or right-click the pill, press **Mic** (mic lock).
 
+For a custom pane, add `[[script_pane]]` with `name = "Try"` and an empty `command` to the dev copy's `config.toml`, then `& $n pane set Try --text "hello"` ([section 17](17-writing-panes.md)); copy a folder from `examples/panes` into that copy's `panes\` folder to try a pack and its approval card.
+
 ## Debugging
 
 The daemon has **no console** ([section 1](01-overview.md#one-program-two-modes)), so `println!` goes nowhere. Use:
@@ -50,7 +52,7 @@ The daemon has **no console** ([section 1](01-overview.md#one-program-two-modes)
 
 The CLI is a normal console program: errors print to the terminal.
 
-Tips: UI state lives in a thread-local (`window.rs`, `UI`). A breakpoint in `Ui::frame` fires every frame while anything moves, so prefer `Ui::handle_events` or `Ui::after_model_change`. Hover relies on timers (`T_DWELL`, `T_COLLAPSE`), so pausing in the debugger makes the pill open or close on resume. A "stuck" pill usually means tray **Pause** or a fullscreen window (the sentinel bar).
+Tips: UI state lives in a thread-local (`window/win.rs`, `UI`). A breakpoint in `Ui::frame` (`window/win/frame.rs`) fires every frame while anything moves, so prefer `Ui::handle_events` (`window/win/events.rs`) or `Ui::after_model_change`. Hover relies on timers (`T_DWELL`, `T_COLLAPSE`), so pausing in the debugger makes the pill open or close on resume. A "stuck" pill usually means tray **Pause** or a fullscreen window (the sentinel bar).
 
 ## Working from macOS or Linux
 

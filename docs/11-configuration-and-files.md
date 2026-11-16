@@ -14,7 +14,10 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `…\place.json` | `weather::Place::save` | The Weather pane's chosen place and coordinates. |
 | `…\dnd-restore.txt` | `dnd.rs` | Only while a Focus session has Do Not Disturb on: the earlier value, restored at the next start if Hytte died. |
 | `…\sleep-restore.txt` | `sleep.rs` | Only during a sleep fade: the player and its volume, restored at the next start if Hytte died. |
-| `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; frame telemetry with `HYTTE_PERF=1`. Rolls over at 1 MB. |
+| `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; rejected pipe messages; frame telemetry with `HYTTE_PERF=1`. At startup a log over 1 MB is renamed `hytte.log.old` (one old log is kept). |
+| `…\panes\<name>\pane.toml` | you (or a pack you copied) | A pane pack: a script pane, its actions and its scripts ([section 17](17-writing-panes.md)). The folder is created at startup and watched. |
+| `…\pack-answers\<name>.approved` / `.ignored` | `packs::answer` | Your Run / Ignore for a pack: the FNV-1a hash of the `pane.toml` you saw. Outside the pack, so a pack cannot bring its own answer. An edited `pane.toml` no longer matches and asks again. |
+| `…\pane-slots.json` | `packs::save_slot_names` | The pane names last held by the custom-pane slots (`["A","B"]`), so a changed list can move each pane's switch and place with it ([section 17](17-writing-panes.md#the-pane-cap-slots-and-switches)). |
 | `…\panel.txt` | `Ui::remember_panel` | With `remember_panel`, the panel the pill last collapsed on. |
 | `…\welcome` | `welcome::finish` | Present once the welcome tour (fresh installs only) was finished or skipped. |
 | `…\update-skip` | `update.rs` | The release tag the user chose **Later** for (a newer one is still offered). |
@@ -45,6 +48,7 @@ Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChang
 | `hotkey`, `monitor_hotkey` | Old chord unregistered, new one registered. |
 | `hide_from_capture` | `SetWindowDisplayAffinity` again. |
 | `[panes]` | `Model::apply_panes`; a hidden pane that was selected falls back to Home. |
+| `[[script_pane]]`, `[[action]]` | `Ui::refresh_panes`: the effective panes and actions are rebuilt (config first, then approved packs), `Model::apply_scripts` keeps what a pane that kept its name showed, and a changed command runs again. |
 | `skin` | Read each frame. |
 | `note_hotkey` | Old chord unregistered, new one registered (hotkey id 3). |
 | `[breaks]` | `Breaks::configure`: unchanged intervals keep their clocks, newly enabled ones start now. |
@@ -56,7 +60,7 @@ Edits apply without a restart. `config::spawn_watcher` blocks on `FindFirstChang
 | fullscreen keys | `evaluate_fullscreen` runs again. |
 | Everything else | Read at the point of use (`self.cfg`, or `config::load()` for `output_folder`). |
 
-Lowering `[shelf] max_items` keeps existing tiles and only limits new ones. `add_to_path` and `check_updates` matter at next startup. Old keys (`renderer`, `solid_pill`, `acrylic`, `config_version`, `top_offset`) are ignored silently; any other unknown key is ignored but named.
+Lowering `[shelf] max_items` keeps existing tiles and only limits new ones. `add_to_path` and `check_updates` matter at next startup. Old keys (`renderer`, `solid_pill`, `acrylic`, `config_version`, `top_offset`, `suppress_fullscreen`, `fullscreen_mode`) are ignored silently; any other unknown key is ignored but named, including an unknown key inside a `[[script_pane]]` (`script_pane.comand`).
 
 ### Writing the file
 
@@ -139,19 +143,19 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[timer] focus_dnd` | `true` | A Focus session turns on Windows Do Not Disturb and puts it back ([section 9](09-workers.md#do-not-disturb-dndrs)). Hytte holds its own alerts during Focus either way. |
 | `[panes] media` / `shelf` / `tasks` / `timer` / `power` / `weather` (`true`), `notes` / `todo` / `ask` (`false` since 1.9.1) | see left | Show that pane's tab (Music, Shelf, Tasks, Timer and Battery still only when they have something to show). The quick controls (Home) have no switch: they always show. |
 | `[panes] order` | `""` | The tab order as names ("home,media,..."). Set by the arrows in the settings window; names left out keep their usual place after those listed. |
-| `[panes] script1` … `script4` | `true` | Switch for each `[[script_pane]]`, by its place in the file; written only when off. Their keys in `order` are the same names. |
-| `[[script_pane]] name` | none | The tab's label (cut to 16 characters; unnamed and repeated names are skipped; at most four panes). |
-| `[[script_pane]] command` | `""` | Run with `cmd /c`, hidden, in your home folder, while the pane is open (and once at start); stopped after 10 s with everything it started. Empty: only `hytte pane set` fills the pane. |
+| `[panes] script1` … `script12` | `true` | Switch for each custom pane, by its slot (the place among `[[script_pane]]`s, then approved packs); written only when off. Their keys in `order` are the same names. Hytte moves a pane's switch and place when slots shift (`packs::remap_slots`, `pane-slots.json`). |
+| `[[script_pane]] name` | none | The tab's label (cut to 16 characters; unnamed and repeated names are skipped; at most 12 custom panes in all, config panes first, then approved packs). |
+| `[[script_pane]] command` | `""` | Run with `cmd /d /s /c`, hidden, in your home folder, while the pane is open (and once at start), with `HYTTE_ARG` empty; stopped after 10 s with everything it started. Empty: only `hytte pane set` fills the pane. |
 | `[[script_pane]] every` | `300` | Seconds between runs while the pane is open; 30 at least. |
-| `[panes] agents` | `true` | The Agents pane (coding agents listed apart from terminal tasks). Off: agents list in Tasks. |
+| `[panes] agents` | `true` | The Agents pane (coding agents listed apart from terminal tasks). Off: agents list in Tasks. With this and `tasks` both off, agents show nowhere (not in the compact pill either). |
 | `[moments] bluetooth` / `privacy` | `true` / `true` | A card when a Bluetooth device connects (with its battery when it reports one) / a 3 s card naming the app that starts using the camera or microphone (not during Focus or quiet hours). Bluetooth starts its watcher the first time it is on. |
 | `[clipboard] history` | `false` | A text history under the shelf tiles: 20 clips, 4 KB each, memory only, cleared on lock, sleep and switch-off; never text `secrets::mask` would change. |
 | `[clipboard] expire_secs` | `120` | Seconds before a clip is forgotten; `0` keeps it until lock, sleep or switch-off. Live. |
 | `[clipboard] clear_when_emptied` | `false` | Forget the whole history when the Windows clipboard is emptied. Live. |
 | `[clipboard] ignore_apps` | `keepass`, `keepassxc`, `1password`, `bitwarden` | Programs whose copies are never kept (exe name, any case, `.exe` optional). |
-| `[[action]] name` / `command` | none | A command a card button (`Label:name`) or a script pane row (`"action": "name"`) may run, hidden, in your home folder. A name is letters, digits, `-` and `_` (40 at most); repeats and empty commands are skipped; 32 actions at most. |
+| `[[action]] name` / `command` | none | A command a card button (`Label:name`), a script pane row or a pane button (`"action": "name"`) may run, hidden, in your home folder, with the row's `arg` in `HYTTE_ARG`. A name is letters, digits, `-` and `_` (40 at most); repeats and empty commands are skipped; 32 actions at most. |
 | `[[action]] confirm` / `timeout` | `false` / `60` | `true`: the first click arms ("Sure?"), the second runs. Seconds until it is stopped with everything it started (1 to 600). |
-| `%APPDATA%\Hytte\panes\<name>\pane.toml` | none | A pane pack: `name`, `command`, `every` and its own `[[action]]`s ([section 16](16-whats-new.md#180)). Runs only after you press **Run** on the card; Your answer is kept in `%APPDATA%\Hytte\pack-answers\` as a hash of the file you saw. |
+| `%APPDATA%\Hytte\panes\<name>\pane.toml` | none | A pane pack: `name`, `command`, `every` and its own `[[action]]`s (at most 8, names up to 19 characters, run in the pack's folder; [section 17](17-writing-panes.md)). Runs only after you press **Run** on the card; your answer is kept in `%APPDATA%\Hytte\pack-answers\` as a hash of the file you saw. |
 | `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
 | `[media] lyrics` | `true` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
 | `[media] lyrics_live` | `true` | Follow the song line by line when the lyrics are timed; off shows the words as a list. |
@@ -168,6 +172,8 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 |---|---|
 | `HYTTE_PERF=1` | Log frame-time statistics ([section 12](12-performance.md)). |
 | `HYTTE_WT_PID` | Used only by the ignored manual test in `tabs.rs`. |
+| `HYTTE_ARG` | **Set by Hytte**, not read: the `arg` of the script pane row or button that ran an action (empty otherwise; always set, so a stale value is never inherited). See [section 17](17-writing-panes.md#arg-and-hytte_arg). |
+| `HYTTE_TEST_PANIC` | Debug builds only: panic at startup, to see the relaunch limit work (at most three relaunches in ten minutes). |
 | `HYTTE_UPDATE_API` | Debug builds only: replaces the GitHub "latest release" URL; `file://` works ([section 15](15-updates.md#testing-an-update)). |
 
 ## Adding a setting

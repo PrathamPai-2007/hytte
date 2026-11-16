@@ -6,21 +6,24 @@
 cargo test --workspace
 ```
 
-Off Windows see [section 2](02-getting-started.md#working-from-macos-or-linux): you can type-check, lint and run `hytte-proto`'s tests, but not the `hytte` crate's. Tests are `#[cfg(test)] mod tests` blocks at the bottom of each file; there is no `tests/` folder.
+Off Windows see [section 2](02-getting-started.md#working-from-macos-or-linux): you can type-check, lint and run `hytte-proto`'s tests, but not the `hytte` crate's. Tests are `#[cfg(test)] mod tests` blocks at the bottom of each file (the UI model's are in `ui_state/tests/`); there is no top-level `tests/` folder.
+
+On the 1.9.3 branch `cargo test -p hytte` runs 394 tests and leaves 35 ignored (the manual and snapshot tests below).
 
 ## What is covered
 
 | File | Tests cover |
 |---|---|
 | `proto/src/lib.rs`, `sys.rs`, `ports.rs` | Message round trip, validation, old messages still parsing, an `Ask` or `Cmd` never mistaken for a task, text trimmed on a character boundary, per-user pipe name; ancestor chains stop at pid 0, a loop or the depth limit; a reused pid isn't the listed process (`same_exe`), port filtering, no self-kill. |
-| `hytte/src/ui_state/tests/` | Scene priority, expiry, shell thresholds, ignored commands, peeking, panels and paging, fullscreen break-through, agent CLIs left to hooks, timer card, mic lock, ambient rules, cross-fades, reduced motion, Ctrl+C not shown as an error, failed rows leaving with their terminal, task list scrolling. |
+| `hytte/src/ui_state/tests/` | Scene priority, expiry, shell thresholds, ignored commands, peeking, panels and paging, fullscreen break-through, agent CLIs left to hooks, timer card, mic lock, ambient rules, cross-fades, reduced motion, Ctrl+C not shown as an error, failed rows leaving with their terminal, task list scrolling; `panes.rs`: pane switches, order and the custom-pane slots; `scripts.rs`: script pane text and rows, footers, due times, action arming and busy per (action, arg), pack-scoped action names, a failed run's footer. |
+| `scriptpane.rs`, `packs.rs` | Output cleaning (colour codes, `` bars, six lines, 2048 bytes), JSON rows (limits, tones, progress clamp, valid action names, non-rows output staying text), buttons and `arg` cleaning, `HYTTE_ARG` reaching the command and nothing stale, a timed-out command leaving no process behind, `due`; pack loading (prefixed actions, defaults, every kind of mistake), an answer holding only for the file you saw, answers kept outside the pack, packs sharing the 12-pane limit behind config panes, and `remap_slots` carrying a switch and place to the new slot. |
 | `animation.rs`, `timer.rs`, `perf.rs` | Springs converge, are frame-rate independent, keep velocity on retarget; timer sleep gaps, pause, rounds, persistence, alarm WAV; percentile maths and the perf line. |
 | `ui_state/tests/scene.rs`, `render/tween.rs`, `render/film.rs`, `render/tokens.rs` | Scene layers (a reversal continues, quick changes keep fading, a fourth drops the faintest, reduced motion leaves one), the glow colour blend; tweens start at their target, forget what isn't drawn, settle, snap under reduced motion, spring back from a kick; every scripted transition is continuous; radii nest. |
 | `render/snap.rs` | The cached background matches the painted one at 1x, 1.5x and 2x. |
 | `window/win.rs` | Ambient strides for 60, 120, 144 and 240 Hz; a quick click shows pressed for 80 ms. |
 | `ollama.rs` | Start Ollama: the tray app wins over the bare command, relative `PATH` entries are skipped, the wait ends on an answer and on a timeout. `live_start_ollama` (ignored) starts the real one. |
 | `convert.rs`, `transforms.rs`, `shelf.rs` | Compress limits, PDF structure and xref offsets, JPEG pass-through; never overwriting, JSON / YAML, image clean, QR, base64, Markdown, chip wrapping; shelf add / dedupe / remove / copy staging. |
-| `config.rs`, `setup.rs` | Editing a key keeps comments, hotkey parsing, quiet hours across midnight, `config::problem` naming lines and typos; PATH edits, idempotent profile blocks (above Starship), `notch` migration, encodings. |
+| `config.rs`, `setup.rs` | Editing a key keeps comments, hotkey parsing, quiet hours across midnight, `config::problem` naming lines and typos (including `script_pane.comand`); script panes and actions read with their limits, script switches stored by slot and only when off; PATH edits, idempotent profile blocks (above Starship), `notch` migration, encodings. |
 | `update.rs` | Version tags compare numerically, junk tags rejected, release JSON yields the `hytte.exe` asset (none is an error), the release-notes first line. |
 | `fullscreen.rs` | Allow / deny precedence, shell windows never fullscreen, maximised hides while borderless or shell-reported fullscreen is a game, browsers and players get the thin line, overlays keep state, snapping geometry. |
 | `position.rs`, `ui_state/day.rs` | The offset clamp (centred default, never off-screen, a bubble costs room on the right only, never an empty range), fraction round trip across resolutions, the drag threshold; the day totals (phases add up, a finished turn stops counting, midnight starts over, a running turn carries on) and the line's wording. |
@@ -87,7 +90,7 @@ Releases before the single-exe version were renumbered `v0.1.0`–`v0.4.0`; `v1.
 `bucket/hytte.json` is a Scoop manifest for both architectures, with `checkver` and `autoupdate` so the community tooling can bump it too. Use it straight from a checkout:
 
 ```powershell
-scoop bucket add hytte C:\path	o\Hytte
+scoop bucket add hytte C:\path\to\Hytte
 scoop install hytte/hytte
 ```
 

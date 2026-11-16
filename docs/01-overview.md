@@ -17,7 +17,7 @@ The repo builds one executable, `hytte.exe` (package `crates/hytte`). `main()` p
 | You run | Mode | Role |
 |---|---|---|
 | `hytte` | **daemon** (`src/main.rs`) | The long-running process that owns the pill, the tray icon and all workers. One copy at a time. |
-| `hytte <command> ...` | **CLI** (`src/cli/`) | A short-lived command run by terminals, scripts and agent hooks. Usually sends one message over the named pipe and exits. It never touches daemon state: no log, no mutex, no config. |
+| `hytte <command> ...` | **CLI** (`src/cli/`) | A short-lived command run by terminals, scripts and agent hooks. Usually sends one message over the named pipe and exits. It never touches daemon state: no log, no mutex. A few commands (`pane set`, `doctor`, `mcp`) read `config.toml` and the pack folder, never write them. |
 
 Before 1.0 these were two programs (`hytte.exe` and `notch.exe`); see [section 5](05-cli.md#upgrading-from-notch).
 
@@ -36,7 +36,10 @@ Both modes share the small `crates/proto` library (`hytte-proto`).
 | **Canvas** | The fixed-size, mostly transparent window the pill is drawn into (460 × 310 logical px). The pill animates *inside* it; the window never resizes. |
 | **Scene** | What the pill shows right now (`Idle`, `CompactTask`, `ExpShelf`, ...). Exactly one is active. See `ui_state::Scene`. |
 | **Compact / expanded** | Compact scenes are the collapsed states (`Idle`, `CompactTask`, `CompactMedia`); `Exp*` scenes show on hover or a peek. |
-| **Panel** | A page of the expanded pill: Shelf, Media, Home (quick controls, the starting point), Notes, To-do, Weather, Tasks (dev servers under it), Timer, Power. Each maps to one expanded scene; all but Home can be switched off and reordered (`[panes]`). |
+| **Panel** | A page of the expanded pill: Shelf, Media, Home (quick controls, the starting point), Notes, To-do, Weather, Ask, Tasks (dev servers under it), Agents, Timer, Power, and up to 12 custom panes. Each maps to one expanded scene; all but Home can be switched off and reordered (`[panes]`). |
+| **Script pane** | A custom panel a user defines: a command Hytte runs (or text pushed with `hytte pane set`), shown as lines or rows. Declared as `[[script_pane]]` or as a pack ([section 17](17-writing-panes.md)). |
+| **Pane pack** | A folder `%APPDATA%\Hytte\panes\<name>\pane.toml` holding a script pane and its actions; it runs only after the user approves it. |
+| **Action** | A named command (`[[action]]`) that a card button, a script pane row or a pane button may run. Scripts send only the name. |
 | **Peek** | The pill opening by itself for a few seconds (agent needs input, file landed on the shelf). |
 | **Sentinel** | The thin grey bar (96 × 2.5 px) shown instead of the pill under a maximised, snapped or fullscreen window. |
 | **Task** | Something tracked: a `hytte run` command, a shell command, an agent, or a `hytte set` report. |
@@ -55,24 +58,30 @@ crates/hytte/                     builds hytte.exe
   build.rs, hytte.rc, app.manifest   icons, version info, DPI / UTF-8 / console policy
   assets/                            logo and generated .ico files
   src/main.rs                        entry: CLI dispatch, console handling, daemon
-  src/window.rs + window/            Win32 window, message loop, input, timers, drag and drop
+  src/window.rs + window/            Win32 window: shared state (`window.rs`), the `Ui` and its parts in `window/win.rs` and `window/win/` ([section 7](07-window-and-input.md#where-the-code-is))
   src/render.rs + render/            Direct2D / DirectWrite drawing, one file per pane
   src/settings_win.rs                the big settings window
   src/gpu.rs                         D3D11 + DirectComposition swap chain
   src/ui_state/, animation.rs       pure UI model, spring physics
   src/pipe_server.rs, tasks.rs       pipe listener, task registry
-  src/ports, media, privacy, mic, hog, downloads, calendar, power, tabs .rs   background workers
+  src/ports, media, privacy, mic, hog, downloads, calendar, power, bluetooth, tabs .rs   background workers
+  src/scriptpane, packs .rs          custom panes: running and cleaning a command's output; pane packs, approval, slots
+  src/ollama, clipboard .rs          the Ask pane's local-AI client; the clipboard history and screenshot listener
   src/weather, lyrics, net .rs       weather and lyrics lookups, and the curl wrapper they share
   src/jot, textedit .rs              notes and to-dos, the one-line text editor
   src/position.rs                    where the pill sits sideways, per monitor (pure clamp maths)
   src/breaks, sleep, dnd, timer .rs  break reminders, sleep timer, Do Not Disturb, timer
   src/shelf, drop, transforms, convert .rs   shelf and Drop Vault
   src/fullscreen, tray, config, skin, setup, agents, update .rs
-  src/logging, secrets, perf, single_instance, winrt, proc, rerun .rs   support
+  src/logging, secrets, perf, single_instance, winrt, proc, rerun, welcome .rs   support
   src/cli/                           command dispatch, doctor, agent, hook/init, mcp server, ports, progress, shell scripts
 docs/                             these docs and screenshots (docs/img)
-manifests/winget/                 winget manifest (kept in step by the release tooling)
-.github/workflows/                ci.yml (fmt, clippy, tests), release.yml (on a version tag)
+manual/                           the end-user manual
+examples/panes/                   example pane packs, copied into %APPDATA%\Hytte\panes
+landing-page/                     the project website (a separate Next.js app)
+bucket/hytte.json                 Scoop manifest
+manifests/winget/                 winget manifest (kept in step by the release tooling, like the Scoop one)
+.github/workflows/                ci.yml (version check, fmt, clippy, tests, ARM64, audit), release.yml (on a version tag)
 ```
 
 ## Dependencies

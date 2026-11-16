@@ -39,10 +39,10 @@ Two rules hold everywhere:
 
 0. With arguments, `cli::run` handles them and exits ([section 5](05-cli.md)). Otherwise `detach_console` ([section 1](01-overview.md#one-program-two-modes)).
 1. `logging::init()` installs the panic hook that writes `hytte.log`.
-2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex, retrying up to 5 s (so a freshly updated exe waits for the old one to quit). If another daemon holds it, exit 0. `update::cleanup` deletes a leftover `hytte.exe.old`.
-3. `config::load()` reads (or creates) `config.toml`; `ensure_autostart` writes or removes the `Run` value; `ensure_start_menu` refreshes the shortcut on its own thread.
+2. `single_instance::acquire("HytteSingleInstance")` takes a named mutex, retrying up to 5 s (so a freshly updated exe waits for the old one to quit). If another daemon holds it, exit 0. `update::cleanup` deletes a leftover `hytte.exe.old`; `dnd::recover` and `sleep::recover` undo what a crashed run left behind (Do Not Disturb, a faded volume).
+3. `welcome::note_start` notes whether this is a fresh install (before the config is written). `config::load()` reads (or creates) `config.toml`; a mistake in it is logged now and shown as a card once the window is up. `ensure_autostart` writes or removes the `Run` value; `ensure_start_menu` refreshes the shortcut on its own thread.
 4. Create the `HytteMessage` (pipe → registry) and `TaskUpdate` (registry → UI) channels, then the `UiEvent` channel; start `pipe_server::spawn_listener` and `tasks::spawn_registry` (the listener also gets a `UiEvent` sender for [asks](04-ipc-protocol.md#asking-the-human-ask-and-answer)).
-5. Hand the `UiEvent` sender to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar` and the `config` watcher. Start `update::spawn_checker`. A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), `setup::migrate_profiles` (old `notch` hooks) and `agents::repair` (re-points hooks whose exe moved).
+5. Hand the `UiEvent` sender to the workers: `media`, `privacy`, `mic`, `power`, `ports`, `downloads`, `calendar`, the `config` watcher and the `packs` watcher (which scans `%APPDATA%\Hytte\panes` once, synchronously, and sends the first `UiEvent::Packs`). `bluetooth::configure` starts its watcher only if `[moments] bluetooth` is on. Start `update::spawn_checker`. A background thread runs `setup::ensure_on_path` (unless `add_to_path = false`), `setup::migrate_profiles` (old `notch` hooks) and `agents::repair` (re-points hooks whose exe moved).
 6. Start two Drop Vault workers (`drop::spawn_workers`).
 7. `window::run` takes over the main thread until Quit.
 
@@ -68,9 +68,9 @@ Two rules hold everywhere:
 | Downloads watcher | `ReadDirectoryChangesW` on Downloads (off with `[downloads] enabled = false`) |
 | Calendar watcher | a store-changed channel, timing out when the next event is due (only with `[calendar] enabled`) |
 | Bluetooth watcher | WinRT `DeviceWatcher` callbacks; the thread parks. Started only when `[moments] bluetooth` is on |
-| Pane packs watcher | `FindFirstChangeNotificationW` on `%APPDATA%\Hytte\panes` (with subfolders) |
+| Pane packs watcher | `FindFirstChangeNotificationW` on `%APPDATA%\Hytte\panes` (with subfolders), then a 300 ms settle and a rescan; sends `Packs` only when the packs differ |
 | Drop Vault workers (2), terminal tabs | their job / command channels |
-| Short-lived | media command, thumbnail loader, shelf staging, place search, forecast, lyrics lookup, sleep fade, Start Menu shortcut, PATH setup, update install, manual update check, terminal setup |
+| Short-lived | script pane command (one per run, only while its pane is open), action command (one per click), media command, thumbnail loader, shelf staging, place search, forecast, lyrics lookup, sleep fade, Ask requests and the Ollama start, Start Menu shortcut, PATH setup, update install, manual update check, terminal setup |
 | Update checker | a 60 s sleep, then one check a day (`check_updates`) |
 
 ## Talking to the UI thread
@@ -108,7 +108,7 @@ A few lock-free statics sit beside it because the mouse hook and WinEvent callba
 Hytte is ambient: a failure in one feature must never take down the pill or block the user.
 
 - OS calls that may fail return `Option` / `Result` and are mostly ignored or given a fallback (no battery means no Power pane).
-- Workers retry or fall back to a slow safety poll instead of exiting; a worker panic ends only that thread and is logged.
+- Workers retry or fall back to a slow safety poll instead of exiting; a worker panic ends only that thread and is logged. The one exception that must report back, a script pane's command thread, catches its own panic and sends an error result anyway: only the result clears the pane's busy flag, so a crash without it would leave the pane unable to run again.
 - The CLI never fails a shell prompt: with the daemon down, hook messages drop silently, `hytte set` / `hytte agent` print one line, and `hytte run` still runs the command.
 
 Next: [4. IPC protocol and task lifecycle](04-ipc-protocol.md)

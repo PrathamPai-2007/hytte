@@ -1,6 +1,23 @@
 # 7. Window, input and timers
 
-`crates/hytte/src/window.rs` (and `window/`) is the Win32 layer: it owns the window, turns OS messages into model changes, runs the timers, and handles drag and drop, fullscreen suppression and the tray. It all runs on the UI thread except a few tiny callbacks that only set atomics and post messages.
+`crates/hytte/src/window.rs` and `window/` are the Win32 layer: they own the window, turn OS messages into model changes, run the timers, and handle drag and drop, fullscreen suppression and the tray. It all runs on the UI thread except a few tiny callbacks that only set atomics and post messages.
+
+### Where the code is
+
+`window.rs` holds the cross-thread `Shared` state and starts the window (`mod win;`). The `Ui` struct and everything it does are in `window/win.rs` and `window/win/`, one file per concern, all `impl Ui`:
+
+| File | Holds |
+|---|---|
+| `win.rs` | `Ui`, the constants (`T_*` timer ids, hotkey ids), the thread-local `UI`, `run_windows`, the bridge and ticker threads. |
+| `win/wndproc.rs` | The window procedure: every message the pill handles. |
+| `win/events.rs` | `handle_events` (draining `UiEvent`s into the model) and `apply_config`. |
+| `win/frame.rs` | `after_model_change`, `layout`, `frame` (drawing), rebuilding the GPU renderer, hit testing. |
+| `win/view.rs` | Where the pill sits, which monitor, what is under the pointer. |
+| `win/input.rs`, `win/typing.rs` | Keyboard mode, hover, Rerun, hotkeys; typing in the text fields. |
+| `win/actions.rs` | `run_action` and `chip_action`: what a click does; named actions (`run_named`), script commands (`run_cmd`), pane packs (`ask_packs`, `refresh_panes`, `carry_slot_settings`), update and ask cards. |
+| `win/controls.rs` | Clipboard, timer, panels, scrubbing, volume, wheel, fullscreen and game mode. |
+| `win/scripts.rs` | Custom panes: run a pane's command when due, only while it is on screen (`T_SCRIPT`). |
+| `win/ask.rs`, `win/forecast.rs`, `win/mediactl.rs`, `win/shots.rs`, `win/dnd.rs` | The Ask pane, weather requests, the sleep fade and lyrics, shelf staging and screenshots, drag and drop. |
 
 ## The window
 
@@ -93,6 +110,7 @@ All are one-shot Win32 timers (the handler kills the timer first).
 | `T_EXPIRE` | Until the model's next deadline | After every model change | `after_model_change` (calls `Model::expire`). |
 | `T_TIMER` | ≤ 1 s | Countdown timer running | Redraws the fuse; fires the timer at zero. |
 | `T_FS` | 150 ms | Foreground change or move | Follows the monitor, re-evaluates fullscreen (not while Hytte holds focus for typing or keyboard mode: Hytte in front says nothing about the app under it, and reading it as "no fullscreen" used to collapse the pill under the click), re-asserts topmost (not over a game), follows the virtual desktop. |
+| `T_SCRIPT` | The shown pane's `every`, less the time since its last run, +50 ms | A script pane is on screen and has a command | `after_model_change`, which starts any command that is due (`Ui::script_refresh`) and arms the timer again; killed when no script pane shows. |
 | `T_TRIM` | 30 s | A frame finds nothing moving | If still settled, trims the working set ([section 12](12-performance.md)). |
 | `T_GPU` | 1 s doubling to 30 s | GPU rebuild failed | Retries `rebuild_gpu` ([section 8](08-rendering-and-animation.md#the-gpu-renderer)). |
 | `T_CARET` | 530 ms | A text field takes focus, and after every blink | Toggles the caret and re-arms, while a field has focus; otherwise leaves it shown and stops. |
@@ -107,6 +125,7 @@ While drawing, the renderer records **hit regions** (`Hit { rect, action }`, [se
 | Action | Effect |
 |---|---|
 | `DismissTask`, `DismissChip` | Remove a finished task / the chip. |
+| `Named(name, arg)`, `ScriptRefresh(slot)` | Run an `[[action]]` for a script pane row or button, with `HYTTE_ARG` (first click arms **Sure?** for 3 s when `confirm` is set); run a pane's command now (the refresh button, ignored while it is busy) ([section 17](17-writing-panes.md#actions)). |
 | `CopyText`, `OpenPath` | Clipboard / Explorer. |
 | `MediaPrev`, `MediaToggle`, `MediaNext`, `FocusMedia` | Media commands (short-lived thread) / raise the player. |
 | `FocusTerminal(pid, id)` | Focus the terminal for `pid`, then have the tabs worker select the remembered tab. Used by task rows and servers that belong to a task. |

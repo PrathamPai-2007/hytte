@@ -15,7 +15,7 @@ Code: `crates/proto/src/lib.rs` (messages), `pipe_server.rs` (server), `tasks.rs
 | Instances | Unlimited | Bursts and pending asks (up to 30 s) can't exhaust them. |
 | Max message | 64 KiB (`MAX_MESSAGE_BYTES`) | Bounded memory per connection. |
 
-The listener creates an instance, waits in `ConnectNamedPipe`, hands it to a **new thread** and creates the next one, so a slow client never blocks another. `serve_connection` splits input on `\n` and parses each line as JSON: a `HytteMessage`, then an `Ask`, then a `Cmd`. A line over 64 KiB drops the connection; an unparseable line is ignored silently; a message that parses but fails validation is dropped with a log line.
+The listener creates an instance, waits in `ConnectNamedPipe`, hands it to a **new thread** and creates the next one, so a slow client never blocks another. `serve_connection` splits input on `\n` and parses each line as JSON: a `HytteMessage` first, then a `Cmd`, then an `Ask`. More than 64 KiB buffered without a complete line drops the connection; an unparseable line is ignored silently; a `HytteMessage` or `Cmd` that parses but fails validation is dropped with a log line (`pipe: rejected ...`); an invalid `Ask` is dropped without one. A valid `Cmd` with `wait` holds the connection open like an `Ask` (below); every other `Cmd` is one-way.
 
 **Clients check who they talk to.** `open_pipe` asks Windows who runs the server (`GetNamedPipeServerProcessId`, then its token) and refuses unless it is the same user (`pipe_server_is_current_user`), so a look-alike pipe can't read commands or answer permission requests. A busy pipe is retried for about 200 ms; a missing pipe fails at once. `hytte run` starts a daemon only when the pipe is missing, never when merely busy.
 
@@ -43,6 +43,9 @@ Newline-delimited UTF-8 JSON, one object per line. The CLI sends one line and di
 | `message` | no | ≤ 1024 B | Free text, amber while `NeedsInput`. |
 | `cwd` | no | ≤ 1024 B | Where **Rerun** starts the command (`hytte run` and every hook send it). |
 | `line` | no | ≤ 512 B | Latest output line, mono under a running task (`hytte run`). Older daemons ignore it. |
+| `context` | no | | An agent's context size in tokens (its last turn's input, read from the transcript). |
+| `file` | no | ≤ 1024 B | A file the agent is about to change (Edit, Write ...); the pill counts the distinct ones. |
+| `subagent` | no (`false`) | | The agent is launching a subagent; the pill counts launches. Written only when `true`. |
 
 **Limits are applied when sending:** `HytteMessage::to_line` trims each text field on a character boundary (`proto::cut`), so long replies or error tails arrive shortened, not rejected. The daemon still validates everything.
 
@@ -127,9 +130,20 @@ A client can put a yes/no question on the pill and wait on the same connection. 
 
 No reply on timeout or dismissal, nor while Hytte is paused or in game mode (the ask is dropped on arrival, pending ones when a game starts). Asks queue: the oldest shows, marked `(1/N)`, and each keeps its own 30 s from arrival, so a stale one is dropped and its agent asks in the terminal. One ask per connection: after an answer or drop the daemon flushes and hangs up, so the client learns "no answer" at once; clients must treat a closed pipe or timeout as "no answer". The chip is forced visible over a maximised window or fullscreen video. An `Ask` never parses as a `HytteMessage`, so an older daemon ignores it.
 
-## Script commands: `notify` and `shelf add`
+## Script commands: `Cmd`
 
-One-way requests that aren't tasks (`hytte notify`, `hytte shelf add`; [section 5](05-cli.md)), as a `hytte_proto::Cmd`:
+Requests that aren't tasks (`hytte notify`, `hytte card`, `hytte shelf add`, `hytte note`, `hytte todo`, `hytte pane set`; [section 5](05-cli.md)), as a `hytte_proto::Cmd`. All are one-way except a `card` sent with `wait`. `cmd` is one of `notify`, `card`, `shelf_add`, `pane_set`, `note_add`, `todo_add`; any other value fails validation.
+
+| `cmd` | Fields it uses | Limits |
+|---|---|---|
+| `notify` | `text` | 1 to 1024 B; no `path` |
+| `shelf_add` | exactly one of `text` / `path` | `text` up to 16 KiB (`MAX_SNIPPET_BYTES`); `path` absolute, 1 to 1024 B |
+| `note_add` | `text`, `keep` | non-blank, up to 8000 B (`MAX_JOT_BYTES`) |
+| `todo_add` | `text` | the same |
+| `pane_set` | `id` (the pane's name), `text` | name non-blank, up to 64 B; `text` up to 4096 B (`MAX_PANE_TEXT_BYTES`), may be empty |
+| `card` | `id`, `title`, `text`, `progress`, `icon`, `buttons`, `open`, `ttl`, `done`, `clear`, `wait` | see below |
+
+The cross-field rules in `Cmd::validate`: card fields (`title`, `progress`, `icon`, `buttons`, `open`, `ttl`, `done`, `clear`, `wait`) are valid only on `card`; `id` only on `card` and `pane_set`; `keep` only on `note_add`; `path` only on `shelf_add`. Examples:
 
 ```json
 {"v":1,"cmd":"notify","text":"Build finished"}
@@ -137,7 +151,7 @@ One-way requests that aren't tasks (`hytte notify`, `hytte shelf add`; [section 
 {"v":1,"cmd":"shelf_add","text":"a snippet to keep"}
 ```
 
-`cmd` is `"notify"` or `"shelf_add"`. `text`: 1–1024 B for `notify`, up to 16 KiB for `shelf_add`. `path` (`shelf_add` only): absolute, ≤ 1024 B, exactly one of `text` / `path`. No `task_id` or `name`, so it never parses as the other types, and the daemon replies nothing. Paused or in game mode it does nothing (a shelf add would open the pill); a `notify` card never covers another card; shelf work uses the drop worker (`UiEvent::ShelfAdd`).
+A `Cmd` has no `task_id` or `name`, so it never parses as the other types, and the daemon replies nothing (except to a waited-on `card`). Paused or in game mode it does nothing (a shelf add would open the pill, and a `pane_set` is dropped); a `notify` card never covers another card; shelf work uses the drop worker (`UiEvent::ShelfAdd`).
 
 ### Notes and to-dos: `note_add` and `todo_add`
 
@@ -157,7 +171,7 @@ One-way requests that aren't tasks (`hytte notify`, `hytte shelf add`; [section 
 {"v":1,"cmd":"card","title":"Restart server?","buttons":["Restart","Later"],"ttl":60,"wait":true}
 ```
 
-Card fields on any other command make it invalid; a daemon from before 1.7 drops a `card` line as an unknown command. Cards queue for the chip behind agent asks and the update offer (`Model::cards`, shown from `after_model_change`). With `wait` the connection stays open like an `Ask`: a press writes one line, `{"pressed":"Restart"}`; the card expiring, being dismissed or cleared drops the reply sender, so the client sees a hang-up. The wait is capped at the ttl plus `CARD_QUEUE_SECS` (300 s) for a card stuck in the queue. Buttons never run anything.
+Card fields on any other command make it invalid; a daemon from before 1.7 drops a `card` line as an unknown command. Cards queue for the chip behind agent asks and the update offer (`Model::cards`, shown from `after_model_change`). With `wait` the connection stays open like an `Ask`: a press writes one line, `{"pressed":"Restart"}`; the card expiring, being dismissed or cleared drops the reply sender, so the client sees a hang-up. The wait is capped at the ttl plus `CARD_QUEUE_SECS` (300 s) for a card stuck in the queue. A button's press is only reported back, with one exception: a label written `Label:name`, where `name` is an `[[action]]` (any case; `config.toml` or an approved pack), runs that action when pressed ([section 17](17-writing-panes.md#actions)) and is not reported back. The pipe still carries only the name, never a command.
 
 ### Script pane text: `pane_set`
 
@@ -165,7 +179,7 @@ Card fields on any other command make it invalid; a daemon from before 1.7 drops
 {"v":1,"cmd":"pane_set","id":"Deploys","text":"web v2.0.0 live"}
 ```
 
-`id` is the `[[script_pane]]` name (1–64 B, any case), `text` up to 4 KiB (the pane keeps 2 KiB after cleaning; empty empties it). A name no pane has is ignored by the daemon; `hytte pane set` checks `config.toml` first and says so.
+`id` is the pane's name (non-blank, ≤ 64 B, any case), `text` up to 4 KiB; empty empties the pane. The pane decides how to show it by content (`Model::script_text`): `{"rows": [...], "buttons": [...]}` JSON becomes rows, anything else cleaned text (the pane keeps 6 lines and 2 KiB). A name no pane has is ignored by the daemon; `hytte pane set` checks first (`[[script_pane]]`s and approved pack panes) and says so. The formats and limits are in [section 17](17-writing-panes.md#output-formats).
 
 ## Writing your own client
 

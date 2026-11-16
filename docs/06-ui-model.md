@@ -9,6 +9,8 @@ The module is split by what each file owns. `Model` and `UiEvent` are in `mod.rs
 | File | Holds |
 |---|---|
 | `mod.rs` | `UiEvent`, the `Model` struct, shared constants, `Awake`, `Nudge`; `expire`, `set_idle`, `set_power`, `peek`, `apply_panes`. |
+| `actions.rs` | Named actions (`[[action]]`): `split_action` (a card button `Label:name`), `action_key`, `Press` and `press_action` (the confirm step), `action_card` (the result card). |
+| `agents.rs`, `day.rs` | The Agents pane's layout and details; the "Today" line's `DayStats`. |
 | `scene.rs` | `Scene`, `Panel`, `Bubble`; which pane shows (`panels`, `panel`, `scene`, `forced`), `size`, `glow`, `ambient`. |
 | `cards.rs` | `Chip`, `Card`, `ChipAction`, `Tone`, `Held`; `card`, `show_card`, `dismiss_chip`, the ask click guard. |
 | `tasks.rs` | `TaskView`; `apply_task`, `upsert`, `rows`, `set_ports`, server rows, `AGENT_CLIS`. |
@@ -16,7 +18,7 @@ The module is split by what each file owns. `Model` and `UiEvent` are in `mod.rs
 | `notes.rs` | `Field`; the Notes and To-do lists and their text fields. |
 | `weather.rs` | the forecast and the place chooser. |
 | `ask.rs` | `Reply` (streamed text and its scroll), `AskView`, `AiCard`, `AiKind`, `AiSource`, `AiJob`, `Warm`, `Tight`; the Ask pane and the AI card: `begin_ask`, `begin_ai`, `ai_text`, `ai_done`, the load, unload and memory check (`begin_warm`, `begin_unload`, `fits`, `run_anyway`), `plain` (markdown marks removed). The wrapped height of the text comes from the renderer; the window layer stores it in `Reply::text_h` before the pill's size is worked out. |
-| `script.rs` | `ScriptView`; script panes. |
+| `script.rs` | `ScriptView`; custom panes: `apply_scripts`, `script_text`, `script_done`, `scripts_due`, the row and footer geometry, `scope_actions` / `scope_buttons` ([section 17](17-writing-panes.md)). |
 | `shelf.rs`, `timer.rs` | shelf paging; the timer and calendar heads-up. |
 | `anim.rs` | `Anim` (springs), `Swipe`. |
 | `tests/` | the tests, by topic, with shared builders in `tests/mod.rs`. |
@@ -45,6 +47,16 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | `Places(seq, query, result)`, `Forecast(result)` | weather workers | `places_result` (dropped if the field no longer holds `query`, or `seq` is old), `forecast_result` (dropped for a place since changed). |
 | `WidePlaces(seq, query, result)` | wider place search | `wide_result`: kept in a small session cache; dropped if the field changed. |
 | `Lyrics(key, result)` | lyrics worker | `lyrics_result`: cached; shown only if `key` is still the song on screen. |
+| `Config(Box<Config>)`, `ConfigProblem(String)` | config watcher, startup | `Ui::apply_config` ([section 11](11-configuration-and-files.md#live-reload)); a warning card that opens the file. |
+| `Ask { id, summary, reply }` | pipe listener | An agent's permission question: queued, answered through `reply` ([section 4](04-ipc-protocol.md#asking-the-human-ask-and-answer)). Dropped while paused or in game mode. |
+| `Cmd(Cmd, Option<Sender<String>>)` | pipe listener | A script's request: `notify`, `card`, `shelf_add`, `pane_set`, `note_add`, `todo_add` (`Ui::run_cmd`). The sender is for a waited-on card's pressed label. |
+| `Script(name, Run)` | a script pane's command thread | `Model::script_done`: the pane's text or rows, and its footer problem. |
+| `ActionDone(key, Run)` | an action's thread | `action_finished`, then the result card. `key` is the action name plus its arg. |
+| `Packs(Vec<Pack>)` | the pack watcher | `Ui::refresh_panes` (the effective panes and actions), then a card for each pack waiting for an answer. |
+| `ShelfCopied(Vec<PathBuf>)` | clipboard listener | Files copied in Explorer, shelved by reference (`[shelf] shelve_copied`). |
+| `Bluetooth { name, battery }` | Bluetooth watcher | A "connected" card. |
+| `UpdateOffer { tag, note }`, `Notice(text, tone)` | update checker and installer | The update card; a one-line news card. |
+| `Ollama`, `OllamaInstalled`, `ModelSize`, `Pull`, `PullDone`, `Warm`, `Unload` | Ask workers | The Ask pane's state ([section 9](09-workers.md#ask-ollamars-ai)). |
 
 ## `Model`: the state
 
@@ -65,12 +77,31 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | Focus and breaks | `held` (`Held` counts), `focus_summary`, `nudge` (`Nudge { kind, since }`); `holding()` is true while a Focus timer exists (paused too) |
 | Media extras | `sleep`, `sleep_open`, `lyrics_open`, `lyrics_on`, `lyrics_still` (`[media] lyrics_live` off), `lyric_key`, `lyric_state`, `lyric_cache` (last 20), `lyric_first` |
 | Look | `skin` (`skin::Skin`), `panes` (`[panes]`) |
+| Custom panes and actions | `scripts: Vec<ScriptView>` (by slot), `action_names`, `armed_action` (the one action waiting for its second click, with its deadline), `running_actions` |
+| Cards | `chip`, `cards` (the waiting queue), `card_seq`, `chip_armed` |
 
 `TaskView` is a task's display form: label, event, progress, stderr lines, pid, `attention` message, `source`, `cwd` (a `run` / `shell` task with a folder is `rerunnable()`), and instants `started`, `changed`, `visible_after`.
 
 ## Panels
 
-`Model::panels()` lists panels with content, **in order**: **Shelf** (not empty), **Media** (a session exists), **Home** (mic, sound, keep-awake, timer tiles and volume bar), **Notes**, **To-do** and **Weather**, **Ask** (`[ai] enabled` and `[panes] ask`), **Tasks** (a visible task or a listening server, shown as **SERVERS**), **Timer** (running), **Power** (has a battery). Every one but Home has a switch in `[panes]` (`media`, `shelf`, `tasks`, `timer`, `power`, `notes`, `todo`, `weather`, `ask`; Home is the starting point and always shows), and the result is sorted by `[panes] order` (`Panel::arranged`; panes the list does not name keep their usual place after those it does). `move_pane` rewrites the order for the arrows in the settings window.
+`Model::panels()` lists panels with content, then sorts them by `[panes] order`:
+
+| Panel | Shown when |
+|---|---|
+| **Shelf** | `[panes] shelf` and the shelf holds an item, or the clipboard history has clips |
+| **Media** | `[panes] media` and a media session exists |
+| **Home** | always (the quick controls: mic, sound, keep-awake, timer tiles, volume bar; no switch) |
+| **Notes**, **To-do**, **Weather** | their switch (`notes` and `todo` default off) |
+| **Ask** | `[ai] enabled` and `[panes] ask` |
+| **Tasks** | `[panes] tasks` and a visible terminal task or a listening server (servers show as **SERVERS**) |
+| **Agents** | at least one agent row is visible (`agent_count() > 0`); the switch `[panes] agents` decides which pane the agent rows live in (below) |
+| **Timer** | `[panes] timer` and a timer exists |
+| **Power** | `[panes] power` and a battery |
+| **Script(i)** | custom pane `i` exists (`scripts.len()`) and its switch `[panes] script<i+1>` is on |
+
+The switches are `media`, `shelf`, `tasks`, `agents`, `timer`, `power`, `notes`, `todo`, `weather`, `ask` and `script1` to `script12`. `Panel::arranged` applies `[panes] order` (panes the list does not name keep their usual place after those it does: the order of `Panel::ALL`). `move_pane` rewrites the order for the arrows in the settings window. `Panel::key()` is the name used in `[panes]` and `order` (`script3` for `Script(2)`); `Panel::saved_name` is what `panel.txt` stores.
+
+**Which rows show where** (`Model::visible`): a task is visible only where its pane is on. An agent task (`source = "agent"`) shows when `[panes] agents` **or** `[panes] tasks` is on (in the Agents pane, or in Tasks when Agents is off); a `run` or `shell` task needs `[panes] tasks`; downloads and other sources always (they have their own switch). With Terminal tasks and Coding agents both off, an agent shows nowhere: not in a pane, the compact pill or its count (this was a bug before 1.9.3). `rows()` (Tasks) leaves out the rows `in_agents` claims, `visible_count()` counts every visible row.
 
 - `panel()` is the selected panel if it still exists, else what the collapsed pill shows (Tasks if a task is visible, Media if music plays), else Home, else the first panel left when those are switched off. Attention wins: a task that needs input or finishes `peek`s its pane, which selects it.
 - `tabs()` is true with more than one panel (the tab strip is drawn only then). `step_panel(dir)` moves with wrap-around (sideways scroll, arrows).
@@ -82,16 +113,18 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | # | Condition | Scene |
 |---|---|---|
 | 1 | Fullscreen suppression on, pointer off the pill, nothing forcing visibility | `Sentinel` |
-| 2 | Dragging over the pill (`drop_over`) | `ExpDrop` |
-| 3 | A card (chip) exists | `ExpChip` |
-| 4 | Timer just finished (`timer_done`) | `ExpTimerDone` |
-| 5 | Timer setup card open (`timer_panel`) | `ExpTimer` |
-| 6a | A break reminder is up (`nudge`), hovered or not | `ExpNudge` |
-| 7 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()` (`ExpTasks`, `ExpTimer`, `ExpMedia`, `ExpShelf`, `ExpPower`, `ExpHome`) |
-| 8 | Charger plugged / unplugged < 3 s ago (`charge_since`, `charge_in`) | `ExpCharge` |
-| 9 | A visible task | `CompactTask` |
-| 10 | Media **playing** | `CompactMedia` |
-| 11 | otherwise | `Idle` |
+| 2 | The pill is being placed along the top edge (`placing`) | `Place` (the drag card) |
+| 3 | Dragging over the pill (`drop_over`) | `ExpDrop` |
+| 4 | A card (chip) exists | `ExpChip` |
+| 5 | An Explain / Summarise / Shorten answer exists and `[ai]` is on | `ExpAi` |
+| 6 | Timer just finished (`timer_done`) | `ExpTimerDone` |
+| 7 | Timer setup card open (`timer_panel`) | `ExpTimer` |
+| 8 | A break reminder is up (`nudge`), hovered or not | `ExpNudge` |
+| 9 | Hovered, or peeking (`now < peek_until`) | the expanded scene for `panel()` (`ExpTasks`, `ExpAgents`, `ExpMedia`, `ExpShelf`, `ExpHome`, `ExpTimer`, `ExpPower`, `ExpNotes`, `ExpTodo`, `ExpWeather`, `ExpAsk`, `ExpScript(slot)`) |
+| 10 | Charger plugged / unplugged < 3 s ago (`charge_since`, `charge_in`) | `ExpCharge` |
+| 11 | A visible task | `CompactTask` |
+| 12 | Media **playing** | `CompactMedia` |
+| 13 | otherwise | `Idle` |
 
 **Forced visibility.** `Model::forced()` is true during a drag over the pill, while the timer-finished card or an Allow / Deny chip is up, or until `force_until` (5 s after a drop; `[agent] peek_secs` after `NeedsInput`). These stay visible over fullscreen (thin line or hide mode); game mode still hides everything ([section 7](07-window-and-input.md#fullscreen-suppression)).
 
@@ -107,17 +140,18 @@ Private helpers are `pub(super)`, visible across these files and nowhere else.
 | `Idle` | 120 × 24; 150 with privacy dots; 64 + 58 per chip (+34 with dots) for port / shelf chips; +26 with the mic lock |
 | `CompactTask` / `CompactMedia` | 292 × 32 / 240 × 32 |
 | `ExpTasks` | 380 × (22 + 34 per row shown (≤ `task_rows`, 4), +16 for the "N more · scroll" line, +20 per waiting row, +14 per output line, + stderr box for the first failure, + servers: 26 + 36 per server, ≤ 5), capped at 290 plus 34 per row beyond 4 |
-| `ExpMedia` / `ExpHome` / `ExpPower` | 380 × 132 / 136 / 112 (Home +4 + 28 per app row while the per-app list is open; one row says "no apps") |
-| `ExpShelf` | 380 × 118 (136 with a tile selected) |
-| `ExpTimer` | 380 × 96 running, 152 setup card |
-| `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a one-line card) / 114 |
-| `ExpCharge` | 300 × 52 (no tab strip) |
-| `ExpNudge` | 360 × 56 (no tab strip) |
-| `ExpNotes` / `ExpTodo` | 380 × (12 + 34 field + 8 + 30 per row shown, 1 to 4, plus one for the Undo row, + 8) + tab strip; the wheel scrolls longer lists (`JOT_ROWS` = 4) |
-| `ExpWeather` | 380 × 148 with a forecast, 120 while loading, `38 + 34 + 4 + 28 × suggestions + 8` for the place chooser (one more row while "search more widely" is offered, 16 more under OpenStreetMap results), + tab strip |
-| `ExpTimerDone` with a focus summary | 380 × 134 instead of 114 |
+| `ExpAgents` | 380 × `agents_layout().height`, capped at 290 plus 50 per row beyond 4 |
+| `ExpMedia` / `ExpHome` / `ExpPower` | 380 × 136 / 130 / 112 (Home +4 + 28 per app row while the per-app list is open; one row says "no apps") |
+| `ExpShelf` | 380 × (`shelf_tiles_h()`: 118, or 136 and more with a tile selected; plus `clips_h()` for the clipboard history; 10 more when the shelf is empty) |
+| `ExpTimer` | 380 × 85 running, 150 setup card |
+| `ExpDrop` / `ExpChip` / `ExpTimerDone` | 380 × 116 / 96 (80 for a one-line card, +16 with a `note`) / 114 (134 with a focus summary) |
+| `ExpCharge` / `ExpNudge` / `Place` | 300 × 52 / 360 × 56 / 340 × 78 (none of them has the tab strip) |
+| `ExpNotes` / `ExpTodo` | 380 × `jot_h()`: 12 + 34 field + 8 + 30 per row shown (1 to 4, plus one for the Undo row) + 8; the wheel scrolls longer lists (`JOT_ROWS` = 4) |
+| `ExpWeather` | 380 × `weather_h()`: 148 with a forecast, 120 while loading, `38 + 34 + 4 + 28 × suggestions + 8` for the place chooser (one more row while "search more widely" is offered, 16 more under OpenStreetMap results) |
+| `ExpAsk` / `ExpAi` | 380 × `ask_h()` (field, answer box, footer) / `ai_card_h()` (the card grows with the answer, then scrolls) |
+| `ExpScript(slot)` | 380 × `script_h(slot)`: the footer's position (`script_footer_y`: text lines at 18 px or rows at 26 px, +5 with a progress bar, +30 with buttons) + 28 |
 
-Panels that show the tab strip get `TAB_H` (24 px) more.
+The panes that show the tab strip (every `Exp*` pane except the cards, charge and nudge scenes) get `TAB_H` (24 px) more when there is more than one panel. In keyboard mode `KB_HINT_H` (20 px) is added to every scene that shows the hint line.
 
 `Model::glow(scene)`:
 
@@ -143,8 +177,8 @@ Instead of periodic checks, `Model::expire(now)` removes everything due and retu
 | What | Hold |
 |---|---|
 | `Done` task / `Lost` task | 3 s (`SUCCESS_HOLD`) / 5 s (`LOST_HOLD`); while the user is away, until they're back, then the hold from their first input |
-| Card (chip) | its own `hold`: 10 s (`CHIP_HOLD`), 20 s resource-hog, 60 s calendar |
-| Armed **Kill?** (chip or port) | 3 s (`KILL_CONFIRM`) |
+| Card (chip) | its own `hold`: 10 s (`CHIP_HOLD`), 20 s resource-hog, 60 s calendar and pane-pack approval |
+| Armed **Kill?** (chip or port), armed **Sure?** (a script pane row, button or card action) | 3 s (`KILL_CONFIRM`) |
 | Timer-finished card and alarm | 2 min (`TIMER_DONE_HOLD`) |
 | Keep-awake for an hour | `Awake::Until` its end (`AWAKE_FOR`) |
 | Plug-in / unplug card | 3 s (`CHARGE_HOLD`) |
@@ -193,9 +227,10 @@ Every spring's feel comes from `animation::motion`: `GROW`, `SHRINK`, `ENTER`, `
 | `open`, `copy` | The classic **Open** / **Copy** buttons (Drop Vault results). |
 | `extra` | More `(label, ChipAction)` buttons, before **Dismiss**. |
 | `hold` | How long it stays (default 10 s). |
-| `tone` | Icon: `Done` (purple tick), `Warn` (amber `!`), `Info` (blue `i`). |
+| `tone` | Icon: `Done` (purple tick), `Warn` (amber `!`), `Info` (blue `i`), `Error` (red, a live card's `error` icon). |
+| `prio`, `key`, `note` | Urgency in the queue, a key that replaces a card already showing or waiting, and a quiet line under the text. |
 
-`ChipAction` values: `OpenUrl` (only `http` / `https` reach the shell), `Shelve(path)` (normal `ShelfAdd` path), `KillPid(pid, exe)` (first click arms it: label **Kill?**, button red 3 s; the second terminates via `hytte_proto::ports::kill`, which refuses pid 0, 4, itself, and a pid that no longer belongs to `exe`), `IgnoreExe(name)` (adds to `hog_ignore`), `InstallUpdate` / `UpdateLater(tag)` ([section 15](15-updates.md)), and `Answer(id, allow)` (agent ask; clicks within 400 ms of appearing are ignored, `ask_click_ready`).
+`ChipAction` values: `OpenUrl` (only `http` / `https` reach the shell), `Shelve(path)` (normal `ShelfAdd` path), `KillPid(pid, exe)` (first click arms it: label **Kill?**, button red 3 s; the second terminates via `hytte_proto::ports::kill`, which refuses pid 0, 4, itself, and a pid that no longer belongs to `exe`), `IgnoreExe(name)` (adds to `hog_ignore`), `InstallUpdate` / `UpdateLater(tag)` ([section 15](15-updates.md)), `Answer(id, allow)` (agent ask; clicks within 400 ms of appearing are ignored, `ask_click_ready`), `Card(id, label)` (a live card's button, sent to a waiting script), `Action(name)` (a card button `Label:name` runs an `[[action]]`), `PackAnswer(folder, hash, run)` (Run / Ignore for a pane pack: the answer is for the hash that was shown), and `Welcome(step)` / `WelcomeSkip`.
 
 | Feature | Card | Buttons |
 |---|---|---|
@@ -260,6 +295,22 @@ While `Model::holding()`, background alerts are counted in `Held` instead of sho
 `skin::Skin` gives the body gradient, the glow colour for scenes with none of their own, and the rim tint. The renderer reads `Model::skin` each frame and keys its cached gradient brushes by it, so a skin costs nothing at idle.
 
 `Skin::Accent` derives all three from the Windows accent (`accent_body`, `accent_glow`), which `windows_accent()` reads from `AccentPalette` at start and on `WM_SETTINGCHANGE` and hands to `skin::set_accent` (one atomic, since `Skin` stays plain data). `Skin::cache_key` puts the colour into the body brush's cache key, so a new accent builds a new brush. A test checks text contrast of at least 4.5:1 for accents from black to white.
+
+## Custom panes in the model
+
+`Panel::Script(i)` and `Scene::ExpScript(i)` are one of up to 12 custom panes, by slot (`i` is 0 to 11). `Model::scripts` holds a `ScriptView` per slot: name, command, `every`, what it shows (`text`, or `rows` and `buttons` when the output was JSON rows), the footer `problem`, `updated`, `ran`, `busy`, and for a pack its prefix and folder.
+
+| Piece | What it does |
+|---|---|
+| `apply_scripts(list)` | Called from `Ui::refresh_panes` with the effective panes (`[[script_pane]]`s, then approved packs). A pane that keeps its name keeps what it showed; a changed command clears `ran` so it runs again. |
+| `scripts_due(only, now)` | The slots whose command should run: `only` limits it to the pane on screen. Marks them busy and started; skips panes without a command or already busy. |
+| `script_done(name, run, now)` | A run finished (`UiEvent::Script`): sets the text or rows, the problem (`Exited with code N`, `Stopped after 10 s`) and clears `busy`. |
+| `script_text(name, text, problem, now)` | Pushed text (`pane_set`) or a finished run's text: JSON rows or cleaned text. False when no pane has the name. |
+| `scope_actions` / `scope_buttons` | For a pack, prefix each row's and button's action name with the pack's prefix, and drop any that become invalid. |
+| `script_footer(s, now)` | The quiet line: the problem, or "Updated ... · every ...". |
+| `press_action`, `action_key` (`actions.rs`) | The confirm step and the busy flag, keyed by action name plus arg. |
+
+Running the command, the timer and the click handling are in the window layer: `window/win/scripts.rs` (`script_refresh`, the `T_SCRIPT` timer) and `window/win/actions.rs` (`run_named`, `refresh_panes`, `carry_slot_settings`, `ask_packs`). The authoring contract is [section 17](17-writing-panes.md).
 
 ## Tests
 

@@ -37,7 +37,7 @@ Version 1.6.0 was the exception: it only runs a download with a matching minisig
 
 ## Scoop installs
 
-Under Scoop (`...\scooppps\hytte\<version>\`, `setup::is_scoop`) Hytte never replaces its own exe: Scoop owns the files. A newer release becomes a plain card, "Hytte X is out. Run: scoop update hytte", shown once per version (the same `update-skip` file). Two more differences: PATH setup is skipped (Scoop's shim is already on PATH), and autostart, the Start Menu shortcut and agent hooks are written with `setup::stable_exe`, which swaps the version folder for `current` so they survive an update. The bucket manifest is `bucket/hytte.json`; its `pre_install` stops Hytte so `scoop update` can replace the exe. `hytte doctor` says when it is a Scoop install.
+Under Scoop (`...\scoop\apps\hytte\<version>\`, `setup::is_scoop`) Hytte never replaces its own exe: Scoop owns the files. A newer release becomes a plain card, "Hytte X is out. Run: scoop update hytte", shown once per version (the same `update-skip` file). Two more differences: PATH setup is skipped (Scoop's shim is already on PATH), and autostart, the Start Menu shortcut and agent hooks are written with `setup::stable_exe`, which swaps the version folder for `current` so they survive an update. The bucket manifest is `bucket/hytte.json`; its `pre_install` stops Hytte so `scoop update` can replace the exe. `hytte doctor` says when it is a Scoop install.
 
 ## Releasing so the updater can see it
 

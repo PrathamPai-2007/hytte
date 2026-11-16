@@ -6,7 +6,7 @@
 
 1. **Best effort.** With no daemon, `hytte` says so at most once. `hytte run` still runs your command; hooks stay silent.
 2. **No GUI side effects from hooks.** Only `hytte run` may start the daemon.
-3. **Small and quick.** Only `std`, `windows`, `serde_json` and `hytte-proto`; no runtime to initialise.
+3. **Small and quick.** No runtime to initialise, and the hot paths (`run`, `set`, `hook`, `agent`) use only `std`, `windows`, `serde_json` and `hytte-proto`. `pane set`, `doctor` and `mcp` also read `config.toml` (never write it).
 4. **Exit codes preserved.** `hytte run` exits with the wrapped command's code.
 
 ## How a message is sent
@@ -93,7 +93,7 @@ Daemon side: a row is `agent:<name>:<pid>` with `pid` from `owner_pid`, so liven
 
 ### `hytte mcp` and `hytte setup mcp [--undo]` (`cli/mcp.rs`)
 
-`hytte mcp` is a Model Context Protocol server on stdio (newline-delimited JSON-RPC 2.0; stdout carries protocol only). It answers `initialize` (echoing the client's `protocolVersion`), `ping`, `tools/list` and `tools/call`; notifications get no reply. Five tools, each one an existing `hytte_proto::Cmd` built and `validate()`d like the CLI does: `notify`, `card` (`wait` sends the card and blocks for the `Pressed` line, capped by `ttl` plus `CARD_QUEUE_SECS`; no press or no pill returns the text "no answer", not an error), `note_add`, `todo_add`, `pane_set` (the name must be a `[[script_pane]]`). Bad input or a missing daemon is a tool result with `isError: true`, so the model can read it. Requests are served one at a time, so a waiting `card` holds up the next call. A leading byte-order mark is dropped (PowerShell 5). The `Backend` trait (`send`, `ask`, `panes`) is the seam the tests fake.
+`hytte mcp` is a Model Context Protocol server on stdio (newline-delimited JSON-RPC 2.0; stdout carries protocol only). It answers `initialize` (echoing the client's `protocolVersion`), `ping`, `tools/list` and `tools/call`; notifications get no reply. Five tools, each one an existing `hytte_proto::Cmd` built and `validate()`d like the CLI does: `notify`, `card` (`wait` sends the card and blocks for the `Pressed` line, capped by `ttl` plus `CARD_QUEUE_SECS`; no press or no pill returns the text "no answer", not an error), `note_add`, `todo_add`, `pane_set` (the name must be a `[[script_pane]]` or an approved pack pane, the same as `hytte pane set`; `McpIo::panes` reads both). Bad input or a missing daemon is a tool result with `isError: true`, so the model can read it. Requests are served one at a time, so a waiting `card` holds up the next call. A leading byte-order mark is dropped (PowerShell 5). The `Backend` trait (`send`, `ask`, `panes`) is the seam the tests fake.
 
 `hytte setup mcp` registers this exe with each of `claude` and `codex` found on `PATH`, through their own commands (`claude mcp add --scope user hytte -- <exe> mcp`, `codex mcp add hytte -- <exe> mcp`), removing first so a second run is idempotent; `--undo` runs `mcp remove`. Hytte does not edit their files (Codex's is TOML, Claude's is rewritten by Claude Code itself). It never runs on its own.
 
@@ -107,14 +107,14 @@ One-way `Cmd` requests (`note_add`, `todo_add`) that add to the Notes or To-do p
 
 ### `hytte notify "text"` and `hytte shelf add`
 
-One-way `Cmd` requests ([section 4](04-ipc-protocol.md#script-commands-notify-and-shelf-add)); both exit 1 with "daemon not running" when there is no pill.
+One-way `Cmd` requests ([section 4](04-ipc-protocol.md#script-commands-cmd)); both exit 1 with "daemon not running" when there is no pill.
 
 - `hytte notify "Build finished"` shows a card (words joined; over 1024 bytes cut). Nothing shows while paused or in game mode.
 - `hytte shelf add <file>...` shelves files (made absolute; a missing file exits 2). With no files and text piped in, the text becomes a snippet: `git diff | hytte shelf add` (≤ 16 KiB; more exits 2 and says to use a file).
 
 ### `hytte card [options]`
 
-A live card ([section 4](04-ipc-protocol.md#live-cards-card)). `--title`, `--body`, `--id`, `--progress N`, `--done`, `--icon info|ok|warn|error`, `--button L` (twice at most), `--open URL|PATH`, `--ttl S`, `--clear`, `--wait`. `build_card` parses and validates, so a mistake exits 2 with the reason and the usage (`hytte card --help`). Without `--wait` it exits 1 only when there is no pill. With `--wait` (ttl 60 unless given) it prints the pressed label and exits 0, or exits 1 with no press.
+A live card ([section 4](04-ipc-protocol.md#live-cards-card)). `--title`, `--body`, `--id`, `--progress N`, `--done`, `--icon info|ok|warn|error`, `--button L` (twice at most; `"Label:name"` where `name` is an `[[action]]` makes the button run that action instead of reporting back, [section 17](17-writing-panes.md#actions)), `--open URL|PATH`, `--ttl S`, `--clear`, `--wait`. `build_card` parses and validates, so a mistake exits 2 with the reason and the usage (`hytte card --help`). Without `--wait` it exits 1 only when there is no pill. With `--wait` (ttl 60 unless given) it prints the pressed label and exits 0, or exits 1 with no press.
 
 ```powershell
 hytte card --id deploy --title Deploy --body "Uploading..." --progress 40
@@ -122,9 +122,11 @@ hytte card --id deploy --done --body Live
 $a = hytte card --title "Restart server?" --button Restart --button Later --wait
 ```
 
-### `hytte pane set <name> [--text "..."]`
+### `hytte pane set <name> [--json] [--text "..."]`
 
-Text for a `[[script_pane]]` (`pane_set`); with no `--text`, piped input (up to 4 KiB). It reads `config.toml` (never writes it) and exits 1 with the pane names there are when none matches; exits 1 when there is no pill.
+Text or rows for a custom pane (`pane_set`). With no `--text`, the text is piped input (up to 4096 bytes; typed at a terminal with nothing piped it prints the usage and exits 2). `--json` checks that the text is `{"rows": [...]}` and sends nothing, exit 1, if not (the pane itself decides by content whether pushed text is rows or text, with or without the flag). The name is checked first: the CLI reads `config.toml` (never writes it) and scans the pack folder, and the name must be a `[[script_pane]]` or an **approved** pack pane (since 1.9.3 a pack pane counts); otherwise it exits 1 with the pane names there are. Text over 4096 bytes is cut. Exits 1 when there is no pill. The full contract is in [section 17](17-writing-panes.md#push-mode).
+
+Unlike `hytte note` and `hytte todo`, it does not strip a leading byte-order mark from piped input, so pipe UTF-8 without one (see section 17 for Windows PowerShell 5.1).
 
 ### `hytte doctor` (`cli/doctor.rs`)
 
@@ -138,7 +140,10 @@ One line per check: `ok`, `warn` or `FAIL`, with a `fix:` line under the last tw
 | Command tracking | warns: a detected PowerShell / Git Bash profile lacks the block | `hytte setup` |
 | PowerShell execution policy | Windows PowerShell has the hook but `Restricted` / `AllSigned` won't load profiles | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | Each agent | warns: not connected; fails: hooks point at a missing `hytte.exe` | `hytte setup agents` |
-| `config.toml` | `config::problem` finds a mistake or unknown setting | edit the file |
+| MCP server | warns: registered but its path is stale; not registered is fine (`hytte setup mcp`) | `hytte setup mcp` |
+| `config.toml` | **fails** when `config::problem` finds a mistake or unknown setting; fine when absent | edit the file |
+
+On a Scoop install it also says so (Hytte doesn't self-update there). Doctor does not look at pane packs. A line is `ok`, `warn` (does not change the exit code) or `FAIL`.
 
 `render` and `exit_code` are pure and tested; `checks` gathers facts (`setup::shell_status`, `setup::ps51_blocked`, `agents::status`).
 

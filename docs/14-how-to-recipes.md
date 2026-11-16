@@ -25,7 +25,7 @@ Example: report whether the PC is on a metered connection.
    }
    ```
 4. **Start it** in `main.rs` beside the other workers: `network::spawn_watcher(ui_tx.clone());`.
-5. **Handle the event** in `Ui::handle_events` (`window.rs`): update the model (`after_model_change` runs after).
+5. **Handle the event** in `Ui::handle_events` (`window/win/events.rs`): update the model (`after_model_change` runs after).
 6. **Draw it** in the relevant scene functions in `render/`.
 7. If it polls, add a row to the wake-up table in [section 12](12-performance.md).
 
@@ -55,7 +55,7 @@ Example: `[ports] open_https = false`.
 1. Add the field to the right struct in `config.rs` with `#[serde(default)] pub open_https: bool,`. For a non-zero default use `#[serde(default = "fn_name")]` **and** update that struct's `impl Default`.
 2. Read it through `self.cfg` on the UI thread so a live edit applies at once. If you derive state from it at startup or pass a clone to a worker, refresh that in `Ui::apply_config` ([section 11](11-configuration-and-files.md#live-reload)).
 3. Document it in [section 11](11-configuration-and-files.md#every-setting) (and the README settings block if users commonly change it).
-4. To offer it in the settings window add a row to `render::settings_table` (`pick_i` / `pick_f` / `pick_s` for steps, `Row::Switch` for a switch). A test checks every row's key is one `config.toml` accepts. Number rows get a `Custom` step automatically; add a sentence to `render::help` (hover note, the note "Custom" writes, and what search matches) and a short name to `pane_label` if it's in the pane. A file-only string can use `pick_s_custom` (see `settings_win::custom`).
+4. To offer it in the settings window add a row to `render::settings_table` (`pick_i` / `pick_f` / `pick_s` for steps, `Row::Switch` for a switch). A test checks every row's key is one `config.toml` accepts. Number rows get a `Custom` step automatically; add a sentence to `render::help` (hover note, the note "Custom" writes, and what search matches) and, for a pane's switch, its label in `pane_switch`. A file-only string can use `pick_s_custom` (see `settings_win::custom`).
 
 Never rename or remove a key without keeping the old name readable (`#[serde(alias = "old")]`).
 
@@ -72,17 +72,31 @@ Example: tasks carry a `url` to open on click.
 
 Don't bump `PROTOCOL_VERSION` for an optional field.
 
-## Add a panel (and its scene)
+## Add a built-in pane (and its scene)
 
-Example: "Clipboard history".
+Example: "Clipboard history" as a pane of its own. (To show your own data without changing Hytte, write a script pane instead: [section 17](17-writing-panes.md).)
 
-1. **Model** (`ui_state/scene.rs`): add `Panel::Clipboard` and `Scene::ExpClipboard`; add the panel to `Model::panels()` at its priority position with its content condition; map it in `Model::scene()` (the `hover || peeking` branch); give the scene a size in `Model::size()` (include `tab` if it shows the tab strip) and a glow in `Model::glow()`.
-2. **Renderer** (`render/`): add `Scene::ExpClipboard => self.exp_clipboard(fr, w, h)` to `Renderer::content`; map it in `Panel::of` (that puts it in the tab strip); write `exp_clipboard` with `cc(...)` colours, registering clicks with `hit()` / `button()`.
-3. **Ambient** (`Model::ambient`): only if it animates continuously, with a stop condition.
-4. **Tests:** extend `panels_and_selection` and `scene_priority`.
-5. **Look at it** without running the pill: add a `shoot(...)` call for the scene to the `snapshots` test (`render/snap.rs`), run `HYTTE_SNAP_DIR=<dir> cargo test -p hytte snapshots -- --ignored` and open `index.html` there. Pass `true` for `light` to check the light theme.
+1. **Switch** (`config.rs`): add `pub clipboard: bool` to `Panes` and its default in `impl Default for Panes`. Add its row to `pane_switch` in `render/settings_table.rs` (`Row::Switch("Clipboard", "panes.clipboard", c.clipboard)`) and a hover note to `help` there (`"panes.clipboard" => ...`). The settings window lists every pane in `Panel::arranged` order, so the row and its move arrows follow.
+2. **Model** (`ui_state/scene.rs`): add `Panel::Clipboard` and `Scene::ExpClipboard`. Give the panel a `name()` (the tab's label), a `key()` (the name in `[panes]` and `order`) and an entry in `Panel::ALL` (the array's length is `11 + MAX_SCRIPT_PANES`: raise the 11); map it in `Panel::of`. Add it to `Model::panels()` at its place with its content condition; map it in `Model::scene()` (the `hover || peeking` branch); give the scene a size in `scene_size` (add `tab` if it shows the tab strip) and a glow in `glow_base` (both matches are exhaustive).
+3. **Renderer:** add `Scene::ExpClipboard => self.exp_clipboard(fr, w, h)` to `Renderer::content` (`render/pill.rs`); write `exp_clipboard` in a new `render/` file with `cc(...)` colours, registering clicks with `hit()` / `button()`; give the pane a tab icon in `panel_glyph` (`render.rs`; a Segoe Fluent Icons code point).
+4. **Ambient** (`Model::ambient`): only if it animates continuously, with a stop condition.
+5. **Tests:** extend `panel_names_round_trip`, `panels_and_selection` and `every_pane_but_the_quick_controls_can_be_switched_off` (`ui_state/tests/panes.rs`) and `scene_priority`.
+6. **Look at it** without running the pill: add a `shoot(...)` call for the scene to the `snapshots` test (`render/snap.rs`), run `HYTTE_SNAP_DIR=<dir> cargo test -p hytte snapshots -- --ignored` and open `index.html` there. Pass `true` for `light` to check the light theme.
+7. Document the switch in [section 11](11-configuration-and-files.md#every-setting) and the pane in the manual.
 
-A small related feature can share a pane, as dev servers share Tasks: `panels()` shows Tasks for visible tasks **or** listening ports, `Model::size(ExpTasks)` adds `servers_h()`, and `exp_tasks` draws `servers` under the rows.
+A small related feature can share a pane, as dev servers share Tasks: `panels()` shows Tasks for visible tasks **or** listening ports, `Model::scene_size(ExpTasks)` adds `servers_h()`, and `exp_tasks` draws `servers` under the rows.
+
+## Add a field to a script pane row
+
+Example: an optional `hint` string, shown small under the row text. The path of a row field is: JSON in, `Row`, drawing, and (if it can be clicked) the action.
+
+1. **Parse** (`scriptpane.rs`): add `pub hint: Option<String>` to `Row` (it derives `Default` and `PartialEq`, so existing literals in tests need `..Default::default()` or the new field). In `parse_pane` read it in the `Row { ... }` literal, cleaning and cutting it like the other strings (`one_line(s, LIMIT)` with a new `pub const ROW_HINT_CHARS`). A field that is only a clean, bounded string needs nothing else here: anything unknown is ignored already.
+2. **Keep it** through `ui_state/script.rs`: `ScriptView.rows` holds `Row`s as parsed, `scope_actions` only rewrites `action`, so a plain field arrives untouched. Add geometry if it changes the row's height (`SCRIPT_ROW_H`, `script_row_boxes`): `size` reads the same function as the renderer.
+3. **Draw it** in `Renderer::script_rows` (`render/script.rs`). Draw text through `crate::secrets::mask` like the rest.
+4. **If it travels to an action** (like `arg`), carry it in `Action::Named` (`render.rs`), pass it through `run_named` (`window/win/actions.rs`) into `scriptpane::run_with`, and add it to `action_key` if two rows differing only by it must arm and run separately. Anything that reaches a command line or the environment must be cleaned first (`clean_arg` is the model: one line, a length limit, and the characters `cmd` treats as commands removed).
+5. **Same for buttons:** `Button` and the `buttons` branch of `parse_pane` if the field belongs there too.
+6. **Tests:** extend `json_rows_are_parsed_cleaned_and_limited` (`scriptpane.rs`), and `a_rows_pane_can_carry_buttons_and_args_and_a_pack_prefixes_them` (`ui_state/tests/scripts.rs`) if it is scoped or carried. Add a snapshot (`script-rows` in `render/snap.rs`).
+7. **Document it** in [section 17](17-writing-panes.md#json-rows) (field table, limit table) and the manual's pane page. A new JSON field needs no change to `config.toml` or `pane.toml`. A new *key* in `[[script_pane]]`, `[[action]]` or `pane.toml` is a different job: add it to `ScriptPane` / `NamedAction` (`config.rs`) and, for packs, `packs::File`, and give it a serde default. Only `[[script_pane]]` has a list of known keys (`name`, `command`, `every`, in `config::unknown_keys`): add a new `[[script_pane]]` key there too, or it is reported as a typo. `[[action]]` has no such list, and unknown keys in `pane.toml` are ignored silently.
 
 ## Add a text field
 
@@ -98,7 +112,7 @@ Example: a "snippet name" field.
 
 1. Add a variant to `render::Action` carrying what the click needs.
 2. Register it while drawing: `self.button("Label", x, y, w, h, ACCENT, Action::MyThing(id))`, or `self.hit(...)` around custom drawing.
-3. Handle it in `Ui::run_action` (`window.rs`). Slow work (disk, network, cross-process COM) goes to a worker that reports back with a `UiEvent`.
+3. Handle it in `Ui::run_action` (`window/win/actions.rs`). Slow work (disk, network, cross-process COM) goes to a worker that reports back with a `UiEvent`.
 4. Bringing another window to the front is allowed **only** from `run_action` (a user click) ([section 7](07-window-and-input.md#focusing-a-terminal)).
 
 ## Add a Drop Vault action
@@ -115,7 +129,7 @@ Jobs run on a Drop Vault worker automatically; no threading code needed.
 
 ## Script commands and new subcommands
 
-Users can already do `hytte notify "Backup finished"`, `hytte set --progress 40 --label "Uploading" --task up1` (then `--done` / `--fail`) and `git diff | hytte shelf add` ([section 5](05-cli.md)). To add another script command: give `proto::Cmd` a new `cmd` value, validate it in `Cmd::validate`, handle it in `Ui::run_cmd`, and add a subcommand next to `cmd_notify`.
+Users can already do `hytte notify "Backup finished"`, `hytte set --progress 40 --label "Uploading" --task up1` (then `--done` / `--fail`) and `git diff | hytte shelf add` ([section 5](05-cli.md)). The commands so far are `notify`, `card`, `shelf_add`, `pane_set`, `note_add` and `todo_add` (`hytte note`, `hytte todo` and `hytte pane set` too, [section 5](05-cli.md)). To add another: give `proto::Cmd` a new `cmd` value and, if needed, fields (optional, with the `serde` defaults the others use), validate it in `Cmd::validate` (including which fields are allowed only on it), handle it in `Ui::run_cmd` (`window/win/actions.rs`), add a subcommand next to `cmd_notify`, and, for agents, a tool in `cli/mcp.rs` with a test through the fake `Backend`. Update [section 4](04-ipc-protocol.md#script-commands-cmd).
 
 For a new `hytte` subcommand: add a match arm in `cli/mod.rs::run` (ideally dispatching into its own `cli/` module; the name must not collide with "no arguments" = the daemon); build a `HytteMessage` and `send_msg`, deciding what happens on `false` (silent for hooks, at most one line otherwise); add it to `USAGE`, [section 5](05-cli.md) and the README if users will type it; keep startup fast (no config reads or heavy dependencies).
 

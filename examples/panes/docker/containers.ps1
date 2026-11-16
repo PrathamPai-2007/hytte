@@ -19,12 +19,19 @@ if (-not $list) {
 $rank = { if ($_.Status -match "unhealthy") { 0 } elseif ($_.State -ne "running") { 1 } else { 2 } }
 $rows = $list | Sort-Object $rank | Select-Object -First 6 | ForEach-Object {
     $bad = $_.Status -match "unhealthy"
+    $name = ($_.Names -split ",")[0]
     $row = @{
-        text  = $_.Names
+        text  = $name
         value = ($_.Status -replace "\s*\(.*\)", "")
         tone  = if ($bad) { "bad" } elseif ($_.State -eq "running") { "good" } else { "warn" }
     }
-    if ($bad) { $row.action = "restart-unhealthy" }
+    # An unhealthy row restarts that one container: its name travels as the row's arg (HYTTE_ARG).
+    if ($bad) { $row.action = "restart"; $row.arg = $name }
     $row
 }
-@{ rows = @($rows) } | ConvertTo-Json -Depth 4 -Compress
+$pane = @{ rows = @($rows) }
+# One button under the rows when something is unhealthy (a label is 16 characters at most).
+if (@($list | Where-Object { $_.Status -match "unhealthy" }).Count) {
+    $pane.buttons = @(@{ label = "Fix unhealthy"; action = "restart-unhealthy" })
+}
+$pane | ConvertTo-Json -Depth 4 -Compress
