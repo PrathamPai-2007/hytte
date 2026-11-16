@@ -612,7 +612,10 @@ fn with_both_panes_off_nothing_is_shown_anywhere() {
     assert_eq!(m.visible_count(), 2);
     // Both off: the compact pill has nothing to show either.
     m.panes.tasks = false;
-    assert_eq!((m.visible_count(), m.agent_count(), m.shell_count()), (0, 0, 0));
+    assert_eq!(
+        (m.visible_count(), m.agent_count(), m.shell_count()),
+        (0, 0, 0)
+    );
     assert!(m.primary().is_none());
     // Tasks off, agents on: only the agent.
     m.panes.agents = true;

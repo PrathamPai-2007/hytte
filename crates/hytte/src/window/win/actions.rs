@@ -43,8 +43,16 @@ impl Ui {
             Action::Ai(kind, src) => self.ai_action(kind, src),
             Action::AiDismiss => self.ai_dismiss(),
             Action::ClipAi(i) => self.model.toggle_clip_ai(i),
-            Action::Named(name) => {
-                self.run_named(&name);
+            Action::Named(name, arg) => {
+                self.run_named(&name, arg.as_deref());
+            }
+            Action::ScriptRefresh(slot) => {
+                if let Some(s) = self.model.scripts.get_mut(slot as usize) {
+                    if !s.busy {
+                        s.ran = None;
+                    }
+                }
+                self.script_refresh(hwnd);
             }
             Action::CopyText(s) => set_clipboard(hwnd, &s),
             Action::OpenPath(p) => {
@@ -405,7 +413,7 @@ impl Ui {
                 self.model.dismiss_chip();
             }
             ChipAction::Action(name) => {
-                if self.run_named(&name) {
+                if self.run_named(&name, None) {
                     self.model.dismiss_chip();
                 }
             }
@@ -448,15 +456,9 @@ impl Ui {
             let on = std::array::from_fn(|i| p.script_on(i));
             let (next, order) = crate::packs::remap_slots(&old, &names, on, &p.order);
             use crate::config::{set, set_text, Val};
-            const KEYS: [&str; 4] = [
-                "panes.script1",
-                "panes.script2",
-                "panes.script3",
-                "panes.script4",
-            ];
-            for i in 0..4 {
+            for i in 0..crate::config::MAX_SCRIPT_PANES {
                 if next[i] != on[i] {
-                    let _ = set(KEYS[i], Val::B(next[i]));
+                    let _ = set(crate::ui_state::SCRIPT_SWITCH_KEYS[i], Val::B(next[i]));
                 }
             }
             if order != p.order {
@@ -526,7 +528,7 @@ impl Ui {
     /// Run the `[[action]]` called `name`: the first click of one that needs confirming only
     /// arms it. The command runs on a worker (hidden, in a Job, stopped at its timeout) and its
     /// result comes back as `UiEvent::ActionDone`. True when it started.
-    pub(super) fn run_named(&mut self, name: &str) -> bool {
+    pub(super) fn run_named(&mut self, name: &str, arg: Option<&str>) -> bool {
         use crate::ui_state::Press;
         let now = Instant::now();
         let Some(a) = self.named_action(name) else {
@@ -536,18 +538,22 @@ impl Ui {
             self.model.interrupt(c, now);
             return false;
         };
-        match self.model.press_action(&a.name, a.confirm, now) {
+        // Rows of one action with different args are separate presses (armed, running).
+        let key = crate::ui_state::action_key(&a.name, arg);
+        match self.model.press_action(&key, a.confirm, now) {
             Press::Arm | Press::Busy => false,
             Press::Run => {
                 let sh = self.shared.clone();
+                let arg = arg.map(str::to_owned);
                 std::thread::spawn(move || {
                     crate::proc::eco_thread();
-                    let run = crate::scriptpane::run_in(
+                    let run = crate::scriptpane::run_with(
                         &a.command,
                         std::time::Duration::from_secs(a.timeout),
                         a.dir.as_deref(),
+                        arg.as_deref(),
                     );
-                    push_event(&sh, UiEvent::ActionDone(a.name, run));
+                    push_event(&sh, UiEvent::ActionDone(key, run));
                 });
                 true
             }

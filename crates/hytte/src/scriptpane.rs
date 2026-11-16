@@ -17,6 +17,8 @@ pub struct Run {
     pub text: String,
     /// Set when the output was `{"rows": [...]}`: `text` is then empty.
     pub rows: Option<Vec<Row>>,
+    /// The pane-level buttons that came with the rows.
+    pub buttons: Vec<Button>,
     pub code: Option<i32>,
 }
 
@@ -47,6 +49,42 @@ pub struct Row {
     pub tone: RowTone,
     /// The name of a `[[action]]` in `config.toml`; clicking the row runs it.
     pub action: Option<String>,
+    /// Handed to that action as the environment variable `HYTTE_ARG`: see [`clean_arg`].
+    pub arg: Option<String>,
+}
+
+/// Buttons a rows pane shows under its rows.
+pub const MAX_BUTTONS: usize = 3;
+pub const BUTTON_LABEL_CHARS: usize = 16;
+/// Longest `arg`, in characters.
+pub const ARG_CHARS: usize = 200;
+
+/// A button under a rows pane: `{"label": "Restart all", "action": "restart", "arg": "api"}`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Button {
+    pub label: String,
+    pub action: String,
+    pub arg: Option<String>,
+}
+
+/// What a script printed as `{"rows": [...], "buttons": [...]}`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Parsed {
+    pub rows: Vec<Row>,
+    pub buttons: Vec<Button>,
+}
+
+/// An `arg` made safe to hand over: one line, at most [`ARG_CHARS`] characters, and without the
+/// characters `cmd` treats as commands (`& | < > ^ " %`) or PowerShell as escapes (`` ` ``), so
+/// that even an action written as `echo %HYTTE_ARG%` cannot be talked into running something
+/// else. An arg that is empty after that is none.
+pub fn clean_arg(s: &str) -> Option<String> {
+    let t: String = one_line(s, ARG_CHARS)
+        .chars()
+        .filter(|c| !matches!(c, '&' | '|' | '<' | '>' | '^' | '"' | '%' | '`'))
+        .collect();
+    let t = t.trim();
+    (!t.is_empty()).then(|| t.to_string())
 }
 
 /// A valid action name: letters, digits, `-` and `_`, up to [`ACTION_NAME_CHARS`].
@@ -76,6 +114,12 @@ fn one_line(s: &str, max: usize) -> String {
 /// [`MAX_ROWS`] and rows with neither text nor value are dropped; every string is cleaned like
 /// plain output and cut to its limit, a progress past 100 is 100, and an unknown tone is plain.
 pub fn parse_rows(raw: &str) -> Option<Vec<Row>> {
+    parse_pane(raw).map(|p| p.rows)
+}
+
+/// [`parse_rows`], and the pane's `buttons` too (at most [`MAX_BUTTONS`], each with a label and a
+/// valid action name; they are dropped when there are no rows to sit under).
+pub fn parse_pane(raw: &str) -> Option<Parsed> {
     let raw = raw.trim();
     if !raw.starts_with('{') {
         return None;
@@ -108,11 +152,31 @@ pub fn parse_rows(raw: &str) -> Option<Vec<Row>> {
                 .and_then(|a| a.as_str())
                 .filter(|a| valid_action_name(a))
                 .map(str::to_owned),
+            arg: r.get("arg").and_then(|a| a.as_str()).and_then(clean_arg),
         })
         .filter(|r| !r.text.is_empty() || !r.value.is_empty())
         .take(MAX_ROWS)
-        .collect();
-    Some(rows)
+        .collect::<Vec<_>>();
+    let buttons = if rows.is_empty() {
+        vec![]
+    } else {
+        v.get("buttons")
+            .and_then(|b| b.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|b| {
+                let action = b.get("action")?.as_str().filter(|a| valid_action_name(a))?;
+                let label = one_line(b.get("label")?.as_str()?, BUTTON_LABEL_CHARS);
+                (!label.is_empty()).then(|| Button {
+                    label,
+                    action: action.to_string(),
+                    arg: b.get("arg").and_then(|a| a.as_str()).and_then(clean_arg),
+                })
+            })
+            .take(MAX_BUTTONS)
+            .collect()
+    };
+    Some(Parsed { rows, buttons })
 }
 
 /// The pane's command is due: never run, or last run `every` ago.
@@ -186,8 +250,18 @@ pub fn run(command: &str, limit: Duration) -> Run {
 }
 
 /// [`run`] in `dir` (a pane pack's folder) instead of the home folder.
-#[cfg(windows)]
 pub fn run_in(command: &str, limit: Duration, dir: Option<&std::path::Path>) -> Run {
+    run_with(command, limit, dir, None)
+}
+
+/// [`run_in`] with `HYTTE_ARG` set to `arg` (what a row or button handed to its action).
+#[cfg(windows)]
+pub fn run_with(
+    command: &str,
+    limit: Duration,
+    dir: Option<&std::path::Path>,
+    arg: Option<&str>,
+) -> Run {
     use std::io::Read;
     use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
@@ -201,6 +275,8 @@ pub fn run_in(command: &str, limit: Duration, dir: Option<&std::path::Path>) -> 
     let child = Command::new("cmd")
         .raw_arg(format!("/d /s /c \"{command}\""))
         .current_dir(cwd)
+        // Always set: a stale value from Hytte's own environment is never passed on.
+        .env("HYTTE_ARG", arg.unwrap_or(""))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -291,9 +367,10 @@ pub fn run_in(command: &str, limit: Duration, dir: Option<&std::path::Path>) -> 
         out
     };
     let shown = String::from_utf8_lossy(&pick);
-    match parse_rows(&shown) {
-        Some(rows) => Run {
-            rows: Some(rows),
+    match parse_pane(&shown) {
+        Some(p) => Run {
+            rows: Some(p.rows),
+            buttons: p.buttons,
             code,
             ..Default::default()
         },
@@ -306,7 +383,12 @@ pub fn run_in(command: &str, limit: Duration, dir: Option<&std::path::Path>) -> 
 }
 
 #[cfg(not(windows))]
-pub fn run_in(_command: &str, _limit: Duration, _dir: Option<&std::path::Path>) -> Run {
+pub fn run_with(
+    _command: &str,
+    _limit: Duration,
+    _dir: Option<&std::path::Path>,
+    _arg: Option<&str>,
+) -> Run {
     Run {
         code: Some(-1),
         ..Default::default()
@@ -336,6 +418,62 @@ mod tests {
     }
 
     #[test]
+    fn buttons_and_args_are_cleaned_and_limited() {
+        let p = parse_pane(
+            r#"{"rows":[{"text":"api","action":"go","arg":"a&b | calc \"x\" 100%`"},
+                        {"text":"b","action":"go","arg":"&&"}],
+                "buttons":[
+                  {"label":"Restart all","action":"restart","arg":"all"},
+                  {"label":"","action":"x"},
+                  {"label":"no action"},
+                  {"label":"bad","action":"rm -rf /"},
+                  {"label":"A label that is far too long","action":"b"},
+                  {"label":"C","action":"c"},
+                  {"label":"D","action":"d"}]}"#,
+        )
+        .unwrap();
+        // The characters cmd runs as commands never reach an action, and an arg that is
+        // nothing but them is none.
+        assert_eq!(p.rows[0].arg.as_deref(), Some("ab  calc x 100"));
+        assert_eq!(p.rows[1].arg, None);
+        let b: Vec<(&str, &str)> = p
+            .buttons
+            .iter()
+            .map(|b| (b.label.as_str(), b.action.as_str()))
+            .collect();
+        assert_eq!(b.len(), MAX_BUTTONS);
+        assert_eq!(b[0], ("Restart all", "restart"));
+        assert!(b[1].0.chars().count() <= BUTTON_LABEL_CHARS);
+        assert_eq!(p.buttons[0].arg.as_deref(), Some("all"));
+        // Buttons sit under rows: with none, they are dropped too.
+        assert!(
+            parse_pane(r#"{"rows":[],"buttons":[{"label":"x","action":"y"}]}"#)
+                .unwrap()
+                .buttons
+                .is_empty()
+        );
+        assert_eq!(
+            clean_arg(&"x".repeat(500)).unwrap().chars().count(),
+            ARG_CHARS
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_action_gets_its_arg_in_the_environment_and_nothing_stale() {
+        let r = run_with(
+            "echo %HYTTE_ARG%",
+            Duration::from_secs(10),
+            None,
+            Some("api 7"),
+        );
+        assert_eq!(r.text, "api 7");
+        // No arg: the variable is empty, so cmd leaves the text as written.
+        let r = run_with("echo [%HYTTE_ARG%]", Duration::from_secs(10), None, None);
+        assert_eq!(r.text, "[%HYTTE_ARG%]");
+    }
+
+    #[test]
     fn json_rows_are_parsed_cleaned_and_limited() {
         let r = parse_rows(
             r#"{"rows":[
@@ -357,6 +495,7 @@ mod tests {
                 progress: Some(40),
                 tone: RowTone::Good,
                 action: Some("restart-api".into()),
+                arg: None,
             }
         );
         assert_eq!(

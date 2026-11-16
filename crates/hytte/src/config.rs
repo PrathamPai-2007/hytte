@@ -1,6 +1,7 @@
 //! Single TOML settings file in %APPDATA%\Hytte.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -478,33 +479,40 @@ pub struct Panes {
     /// The tab order, as pane names ("home,media,..."). Set by the arrows in the settings
     /// window; panes not named keep their usual place after the ones that are.
     pub order: String,
-    /// Switches for the `[[script_pane]]`s, by place. Only written when off.
-    #[serde(skip_serializing_if = "is_on")]
-    pub script1: bool,
-    #[serde(skip_serializing_if = "is_on")]
-    pub script2: bool,
-    #[serde(skip_serializing_if = "is_on")]
-    pub script3: bool,
-    #[serde(skip_serializing_if = "is_on")]
-    pub script4: bool,
-}
-
-fn is_on(b: &bool) -> bool {
-    *b
+    /// Switches for the `[[script_pane]]`s, by place: `script1`, `script2` ... Only written
+    /// when off. Read them with [`Panes::script_on`].
+    #[serde(flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scripts: BTreeMap<String, bool>,
 }
 
 impl Panes {
-    /// Whether the script pane in this place (0..4) is switched on.
+    /// Whether the script pane in this place (0..[`MAX_SCRIPT_PANES`]) is switched on.
     pub fn script_on(&self, slot: usize) -> bool {
-        match slot {
-            0 => self.script1,
-            1 => self.script2,
-            2 => self.script3,
-            3 => self.script4,
-            _ => false,
+        slot < MAX_SCRIPT_PANES && self.scripts.get(&script_key(slot)).copied().unwrap_or(true)
+    }
+
+    /// Switch the script pane in this place on or off (on is the default, so it is not stored).
+    #[cfg(test)]
+    pub fn set_script(&mut self, slot: usize, on: bool) {
+        if on {
+            self.scripts.remove(&script_key(slot));
+        } else {
+            self.scripts.insert(script_key(slot), false);
         }
     }
 }
+
+/// A script pane's key in `[panes]`: `script1` for the first place.
+pub fn script_key(slot: usize) -> String {
+    format!("script{}", slot + 1)
+}
+
+/// Whether `key` is a script pane switch (`script1`, `script12` ...).
+fn is_script_key(key: &str) -> bool {
+    key.strip_prefix("script")
+        .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+}
+
 impl Default for Panes {
     fn default() -> Self {
         Self {
@@ -519,10 +527,7 @@ impl Default for Panes {
             weather: true,
             ask: false,
             order: String::new(),
-            script1: true,
-            script2: true,
-            script3: true,
-            script4: true,
+            scripts: BTreeMap::new(),
         }
     }
 }
@@ -651,7 +656,7 @@ impl Default for NamedAction {
 }
 
 /// Most script panes the tab strip takes.
-pub const MAX_SCRIPT_PANES: usize = 4;
+pub const MAX_SCRIPT_PANES: usize = 12;
 /// Longest tab label, in characters.
 pub const SCRIPT_NAME_CHARS: usize = 16;
 /// Fastest a script pane's command repeats, in seconds.
@@ -769,11 +774,7 @@ pub fn load() -> Config {
 
 /// Settings that are read but are not in a default file (an unset `Option`), or that older
 /// versions wrote and that are ignored now (so nobody is told off for a file Hytte made).
-const ALSO_KNOWN: [(&str, &str); 13] = [
-    ("panes", "script1"),
-    ("panes", "script2"),
-    ("panes", "script3"),
-    ("panes", "script4"),
+const ALSO_KNOWN: [(&str, &str); 9] = [
     ("general", "output_folder"),
     ("downloads", "folder"),
     ("general", "suppress_fullscreen"),
@@ -819,7 +820,11 @@ fn unknown_keys(text: &str) -> Vec<String> {
             continue;
         };
         for k in keys.keys() {
-            if !known_keys.contains_key(k) && !ALSO_KNOWN.contains(&(sec.as_str(), k.as_str())) {
+            let script_switch = sec == "panes" && is_script_key(k);
+            if !known_keys.contains_key(k)
+                && !script_switch
+                && !ALSO_KNOWN.contains(&(sec.as_str(), k.as_str()))
+            {
                 out.push(format!("{sec}.{k}"));
             }
         }
@@ -1289,17 +1294,22 @@ command = "echo repeat"
 [[script_pane]]
 name = "   "
 
-[[script_pane]]
-name = "C"
-[[script_pane]]
-name = "D"
-[[script_pane]]
-name = "E"
 "#;
-        let c: Config = toml::from_str(text).unwrap();
+        // Past the limit the rest are dropped.
+        let many: String = (0..MAX_SCRIPT_PANES + 3)
+            .map(|i| {
+                format!(
+                    "[[script_pane]]
+name = \"P{i}\"
+"
+                )
+            })
+            .collect();
+        let c: Config = toml::from_str(&format!("{text}{many}")).unwrap();
         let p = c.script_panes();
-        let names: Vec<&str> = p.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, ["Server status, t", "Deploys", "C", "D"]);
+        assert_eq!(p.len(), MAX_SCRIPT_PANES);
+        let names: Vec<&str> = p.iter().take(3).map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Server status, t", "Deploys", "P0"]);
         assert_eq!(p[0].every, SCRIPT_MIN_EVERY, "no faster than 30 s");
         assert_eq!((p[1].command.as_str(), p[1].every), ("", 300));
         assert_eq!(problem(text, false), None, "a list of panes is not a typo");
@@ -1309,6 +1319,30 @@ name = "E"
         assert!(!toml::to_string_pretty(&Config::default())
             .unwrap()
             .contains("script_pane"));
+    }
+
+    #[test]
+    fn script_pane_switches_are_stored_by_place_and_only_when_off() {
+        let mut c = Config::default();
+        assert!((0..MAX_SCRIPT_PANES).all(|i| c.panes.script_on(i)));
+        assert!(!c.panes.script_on(MAX_SCRIPT_PANES), "no such place");
+        c.panes.set_script(0, false);
+        c.panes.set_script(11, false);
+        let text = toml::to_string_pretty(&c).unwrap();
+        assert!(text.contains("script1 = false") && text.contains("script12 = false"));
+        assert!(!text.contains("script2"));
+        let back: Config = toml::from_str(&text).unwrap();
+        assert!(!back.panes.script_on(0) && back.panes.script_on(1) && !back.panes.script_on(11));
+        assert_eq!(problem(&text, false), None, "pane switches are not typos");
+        assert!(problem(
+            "[panes]
+script3x = false
+",
+            false
+        )
+        .is_some());
+        c.panes.set_script(0, true);
+        assert!(c.panes.script_on(0) && !toml::to_string_pretty(&c).unwrap().contains("script1 "));
     }
 
     #[test]

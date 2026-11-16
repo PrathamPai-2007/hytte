@@ -790,7 +790,7 @@ fn script_names() -> Vec<String> {
 }
 
 /// A row's label is `&'static str`; a pane's name is kept for the life of the process, once per
-/// distinct name (a handful at most: four slots, names of at most 24 characters).
+/// distinct name (a dozen at most: twelve slots, names of at most 24 characters).
 fn intern(s: &str) -> &'static str {
     static NAMES: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
     let Ok(mut g) = NAMES.lock() else {
@@ -803,20 +803,6 @@ fn intern(s: &str) -> &'static str {
     g.push(n);
     n
 }
-
-/// Script panes in the settings window, by slot (their names live in `config.toml`).
-const SCRIPT_LABELS: [&str; 4] = [
-    "Script pane 1",
-    "Script pane 2",
-    "Script pane 3",
-    "Script pane 4",
-];
-const SCRIPT_SWITCHES: [&str; 4] = [
-    "panes.script1",
-    "panes.script2",
-    "panes.script3",
-    "panes.script4",
-];
 
 /// A pane's switch, labelled for the settings window (which adds the move arrows).
 fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
@@ -834,11 +820,14 @@ fn pane_switch(p: crate::ui_state::Panel, c: &crate::config::Panes) -> Row {
         Weather => Row::Switch("Weather", "panes.weather", c.weather),
         Ask => Row::Switch("Ask (local AI)", "panes.ask", c.ask),
         Script(i) => {
-            let i = (i as usize).min(SCRIPT_LABELS.len() - 1);
-            let label = script_names()
-                .get(i)
-                .map_or(SCRIPT_LABELS[i], |n| intern(n));
-            Row::Switch(label, SCRIPT_SWITCHES[i], c.script_on(i))
+            let i = (i as usize).min(crate::ui_state::SCRIPT_SWITCH_KEYS.len() - 1);
+            // A slot without a name (the settings window opened before the panes were read).
+            let label = script_names().get(i).map_or("Custom pane", |n| intern(n));
+            Row::Switch(
+                label,
+                crate::ui_state::SCRIPT_SWITCH_KEYS[i],
+                c.script_on(i),
+            )
         }
     }
 }

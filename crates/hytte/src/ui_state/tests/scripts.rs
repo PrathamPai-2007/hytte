@@ -16,9 +16,9 @@ fn script_panes_take_slots_keep_their_text_and_run_on_schedule() {
         Some(Panel::Script(1))
     );
     // A switched-off pane leaves the tab strip.
-    m.panes.script2 = false;
+    m.panes.set_script(1, false);
     assert!(!m.panels().contains(&Panel::Script(1)));
-    m.panes.script2 = true;
+    m.panes.set_script(1, true);
     // Only the pane on screen runs, once until its interval passes; push-only never runs.
     let due = m.scripts_due(Some(0), t0);
     assert_eq!(due.len(), 1);
@@ -392,6 +392,58 @@ fn a_pane_shows_rows_pushed_as_json_and_falls_back_to_text() {
     };
     m.script_done("Stack", run, t0);
     assert_eq!(m.scripts[0].problem.as_deref(), Some("Exited with code 3"));
+}
+
+#[test]
+fn a_rows_pane_can_carry_buttons_and_args_and_a_pack_prefixes_them() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    m.apply_scripts(&[crate::config::ScriptPane {
+        name: "Stack".into(),
+        pack: Some("stack".into()),
+        ..Default::default()
+    }]);
+    let json = r#"{"rows":[{"text":"api","action":"open","arg":"7"}],
+                   "buttons":[{"label":"Restart","action":"restart"}]}"#;
+    m.script_text("Stack", json, None, t0);
+    let s = &m.scripts[0];
+    assert_eq!(s.rows[0].action.as_deref(), Some("stack-open"));
+    assert_eq!(s.rows[0].arg.as_deref(), Some("7"));
+    assert_eq!(s.buttons[0].action, "stack-restart");
+    // The buttons take room between the last row and the footer.
+    let rows_end = script_row_boxes(&s.rows)
+        .last()
+        .map(|(y, h)| y + h)
+        .unwrap();
+    assert_eq!(script_buttons_y(s), rows_end + 4.0);
+    assert_eq!(script_footer_y(s), rows_end + 4.0 + SCRIPT_BTN_H + 2.0);
+    // Plain text afterwards drops them.
+    m.script_text("Stack", "all fine", None, t0);
+    assert!(m.scripts[0].buttons.is_empty());
+    // A finished run brings its buttons along.
+    let p = crate::scriptpane::parse_pane(json).unwrap();
+    let run = crate::scriptpane::Run {
+        rows: Some(p.rows),
+        buttons: p.buttons,
+        code: Some(0),
+        ..Default::default()
+    };
+    m.script_done("Stack", run, t0);
+    assert_eq!(m.scripts[0].buttons.len(), 1);
+}
+
+#[test]
+fn rows_of_one_action_with_different_args_are_separate_presses() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    let (a, b) = (action_key("kill", Some("1")), action_key("kill", Some("2")));
+    assert_eq!(split_action_key(&a), ("kill", Some("1")));
+    assert_eq!(split_action_key("plain"), ("plain", None));
+    assert_eq!(m.press_action(&a, true, t0), Press::Arm);
+    assert!(m.action_armed(&a) && !m.action_armed(&b));
+    assert_eq!(m.press_action(&a, true, t0), Press::Run);
+    // The other one is not busy because the first is.
+    assert_eq!(m.press_action(&b, true, t0), Press::Arm);
 }
 
 #[test]

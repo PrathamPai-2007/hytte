@@ -43,8 +43,10 @@ impl Renderer {
                 motion::ENTER,
             )
         };
-        let icon = 26.0;
         let label = |p: Panel| text_w(m.panel_label(p)) + 10.0;
+        // Icons squeeze together when many panes (a dozen custom ones) would not fit.
+        let names: f32 = ps.iter().map(|&p| label(p) * weight(p)).sum();
+        let icon = ((w - 64.0 - names) / ps.len() as f32).clamp(15.0, 26.0);
         let total: f32 = ps.iter().map(|&p| icon + label(p) * weight(p)).sum();
         let mut x = (w - total) / 2.0;
         let (cy, th) = (h - TAB_H / 2.0 - 2.0, 20.0);

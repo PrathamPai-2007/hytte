@@ -154,8 +154,10 @@ pub enum Action {
     Set(&'static str, Val),
     /// Open `config.toml` for the settings the pane doesn't have.
     OpenConfig,
-    /// Run the `[[action]]` with this name (a script pane row or a card button).
-    Named(String),
+    /// Run the `[[action]]` with this name (a script pane row or button), handing it the `arg`.
+    Named(String, Option<String>),
+    /// Run a script pane's command now, without waiting for its next turn.
+    ScriptRefresh(u8),
     /// A text field: click to type in it.
     Field(Field),
     /// The Notes field's 24 h / Keep switch.

@@ -27,6 +27,21 @@ pub fn privacy_start(old: (bool, bool), new: (bool, bool), app: Option<&str>) ->
     })
 }
 
+/// What arming, running and finishing an action are tracked by: its name, and the `arg` a row
+/// or button gave it (two rows of one action with different args are two presses).
+pub fn action_key(name: &str, arg: Option<&str>) -> String {
+    match arg {
+        Some(a) => format!("{name}\u{1f}{a}"),
+        None => name.to_string(),
+    }
+}
+
+/// The name and arg an [`action_key`] was made of.
+pub fn split_action_key(key: &str) -> (&str, Option<&str>) {
+    key.split_once('\u{1f}')
+        .map_or((key, None), |(n, a)| (n, Some(a)))
+}
+
 /// What pressing an action's button leads to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Press {

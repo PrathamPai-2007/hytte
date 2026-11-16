@@ -15,7 +15,7 @@
 //! card shows its command with **Run** and **Ignore**. The answer is kept in
 //! `%APPDATA%\Hytte\pack-answers\` (not in the pack's folder, so a downloaded pack cannot
 //! arrive already approved) and holds a hash of the file, so an edited file asks again. A pack
-//! shares the four-pane limit with `[[script_pane]]`s, which come first.
+//! shares the twelve-pane limit with `[[script_pane]]`s, which come first.
 
 use crate::config::{
     NamedAction, ScriptPane, ACTION_MAX_TIMEOUT, ACTION_TIMEOUT, MAX_SCRIPT_PANES,
@@ -258,7 +258,7 @@ pub fn effective(
     (panes, actions)
 }
 
-/// Panes sit in four slots, and a slot's switch (`panes.scriptN`) and place in `panes.order`
+/// Panes sit in numbered slots, and a slot's switch (`panes.scriptN`) and place in `panes.order`
 /// belong to the slot. When the names in the slots change (a pane deleted, a pack approved
 /// ahead of another), carry each pane's switch and place to its new slot, so nobody else
 /// inherits them. A pane with no old slot starts on and last in the order.
@@ -279,7 +279,10 @@ pub fn remap_slots(
         .split(',')
         .map(str::trim)
         .filter_map(|k| {
-            let Some(i) = k.strip_prefix("script").and_then(|d| d.parse::<usize>().ok()) else {
+            let Some(i) = k
+                .strip_prefix("script")
+                .and_then(|d| d.parse::<usize>().ok())
+            else {
                 return Some(k.to_string());
             };
             match old.get(i.wrapping_sub(1)) {
@@ -327,7 +330,9 @@ pub fn spawn_watcher(ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>)
             &HSTRING::from(dir().as_os_str()),
             true,
             // DIR_NAME: deleting a pack's folder (to the Recycle Bin it is a rename) touches no file.
-            FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+            FILE_NOTIFY_CHANGE_DIR_NAME
+                | FILE_NOTIFY_CHANGE_FILE_NAME
+                | FILE_NOTIFY_CHANGE_LAST_WRITE,
         ) else {
             return;
         };
@@ -435,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn packs_follow_the_config_panes_and_share_the_four_pane_limit() {
+    fn packs_follow_the_config_panes_and_share_the_pane_limit() {
         let cfg = |n: &str| ScriptPane {
             name: n.into(),
             command: "x".into(),
@@ -460,9 +465,11 @@ mod tests {
         let an: Vec<&str> = actions.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(an, ["a-go", "b-go", "c-go"]);
         // Config panes come first and use up the room.
-        let four = vec![cfg("1"), cfg("2"), cfg("3"), cfg("4")];
-        let (panes, _) = effective(four, vec![], &packs);
-        assert_eq!(panes.len(), 4);
+        let full: Vec<ScriptPane> = (0..MAX_SCRIPT_PANES)
+            .map(|i| cfg(&format!("p{i}")))
+            .collect();
+        let (panes, _) = effective(full, vec![], &packs);
+        assert_eq!(panes.len(), MAX_SCRIPT_PANES);
         assert!(panes.iter().all(|p| p.pack.is_none()));
         // A tab name that is taken is skipped.
         let (panes, _) = effective(vec![cfg("A")], vec![], &packs[..1]);
@@ -495,18 +502,22 @@ mod tests {
     #[test]
     fn a_pane_keeps_its_switch_and_place_when_the_slots_shift() {
         let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // The first slots as written; the rest are on.
+        let sw = |a: &[bool]| -> [bool; MAX_SCRIPT_PANES] {
+            std::array::from_fn(|i| a.get(i).copied().unwrap_or(true))
+        };
         let old = v(&["A", "B", "C"]);
         // B is switched off and sits first; then A is deleted.
         let (on, order) = remap_slots(
             &old,
             &v(&["B", "C"]),
-            [true, false, true, true],
+            sw(&[true, false, true]),
             "script2,home,script1,script3",
         );
-        assert_eq!(on, [false, true, true, true]);
+        assert_eq!(on, sw(&[false, true, true]));
         assert_eq!(order, "script1,home,script2");
         // A new pane takes the free slot on, and last.
-        let (on, _) = remap_slots(&v(&["B"]), &v(&["B", "N"]), [false, false, true, true], "");
-        assert_eq!(on, [false, true, true, true]);
+        let (on, _) = remap_slots(&v(&["B"]), &v(&["B", "N"]), sw(&[false, false]), "");
+        assert_eq!(on, sw(&[false, true]));
     }
 }

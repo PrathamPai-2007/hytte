@@ -17,13 +17,31 @@ pub enum Panel {
     Weather,
     /// One question for your own Ollama (`[ai]`), answered in the pane.
     Ask,
-    /// One of your `[[script_pane]]`s, by its place in the config (0..4).
+    /// One of your `[[script_pane]]`s, by its place in the config (0..12).
     Script(u8),
 }
 
 /// Script pane keys in `[panes] order`, by slot (the pane's place among `[[script_pane]]`s).
-pub const SCRIPT_KEYS: [&str; crate::config::MAX_SCRIPT_PANES] =
-    ["script1", "script2", "script3", "script4"];
+pub const SCRIPT_KEYS: [&str; crate::config::MAX_SCRIPT_PANES] = [
+    "script1", "script2", "script3", "script4", "script5", "script6", "script7", "script8",
+    "script9", "script10", "script11", "script12",
+];
+
+/// The settings keys of the same switches (`panes.script1` ...).
+pub const SCRIPT_SWITCH_KEYS: [&str; crate::config::MAX_SCRIPT_PANES] = [
+    "panes.script1",
+    "panes.script2",
+    "panes.script3",
+    "panes.script4",
+    "panes.script5",
+    "panes.script6",
+    "panes.script7",
+    "panes.script8",
+    "panes.script9",
+    "panes.script10",
+    "panes.script11",
+    "panes.script12",
+];
 
 impl Panel {
     pub fn name(self) -> &'static str {
@@ -45,7 +63,7 @@ impl Panel {
     }
 
     /// Every pane, in the order the tab strip has them until the user moves them.
-    pub const ALL: [Panel; 15] = [
+    pub const ALL: [Panel; 11 + crate::config::MAX_SCRIPT_PANES] = [
         Panel::Shelf,
         Panel::Media,
         Panel::Home,
@@ -61,6 +79,14 @@ impl Panel {
         Panel::Script(1),
         Panel::Script(2),
         Panel::Script(3),
+        Panel::Script(4),
+        Panel::Script(5),
+        Panel::Script(6),
+        Panel::Script(7),
+        Panel::Script(8),
+        Panel::Script(9),
+        Panel::Script(10),
+        Panel::Script(11),
     ];
 
     /// The pane's name in `[panes]` (the switch `panes.<key>` and the `order` list).

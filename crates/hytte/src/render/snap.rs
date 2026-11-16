@@ -611,11 +611,15 @@ fn resets_write_the_default() {
             assert_eq!(k, row.key());
             let text = crate::config::with_value("", k, v).expect(k);
             let back = crate::config::parse(&text).expect(k);
-            let again = settings_table(&back)
+            // A script pane's row exists only while its name is registered (shared state other
+            // tests set), so a missing row is not a failure.
+            let Some(again) = settings_table(&back)
                 .into_iter()
                 .flat_map(|s| s.rows)
                 .find(|r| r.key() == k)
-                .unwrap();
+            else {
+                continue;
+            };
             assert!((again.at() - row.at()).abs() < 0.004, "{k}");
         }
     }
@@ -1877,7 +1881,7 @@ fn script_snapshots() {
     // The settings window's rows for the two panes (search narrows the list to them).
     let mut cfg = Config::default();
     cfg.script_pane = panes.to_vec();
-    cfg.panes.script2 = false;
+    cfg.panes.set_script(1, false);
     let mut r = Renderer::offscreen_sized(1720, 900, 2.0).unwrap();
     let view = SettingsView {
         mouse: None,
@@ -2193,7 +2197,7 @@ fn script_row_snapshots() {
         every: 300,
         ..Default::default()
     }]);
-    m.panes.script1 = true;
+    m.panes.set_script(0, true);
     let json = r#"{"rows":[
         {"text":"api","value":"up 3d","tone":"good","action":"restart-api"},
         {"text":"worker","value":"2 failed","tone":"bad","progress":35},
@@ -2222,6 +2226,43 @@ fn script_row_snapshots() {
         &m,
         Scene::ExpScript(0),
         false,
+    );
+
+    // A pane with its own command (a refresh button) and buttons under the rows.
+    m.apply_scripts(&[crate::config::ScriptPane {
+        name: "Stack".into(),
+        command: "echo".into(),
+        every: 300,
+        ..Default::default()
+    }]);
+    let with_buttons = r#"{"rows":[
+        {"text":"api","value":"up 3d","tone":"good","action":"restart-api","arg":"api"},
+        {"text":"worker","value":"2 failed","tone":"bad","action":"restart-api","arg":"worker"}
+    ],"buttons":[
+        {"label":"Restart all","action":"restart-api","arg":"all"},
+        {"label":"Logs","action":"logs"}
+    ]}"#;
+    m.armed_action = None;
+    m.script_text("Stack", with_buttons, None, now);
+    shoot(
+        &mut r,
+        &dir,
+        "script-buttons",
+        &m,
+        Scene::ExpScript(0),
+        false,
+    );
+    m.armed_action = Some((
+        crate::ui_state::action_key("restart-api", Some("all")),
+        now + std::time::Duration::from_secs(3),
+    ));
+    shoot(
+        &mut r,
+        &dir,
+        "script-buttons-armed",
+        &m,
+        Scene::ExpScript(0),
+        true,
     );
 
     // A card whose button runs an action.

@@ -274,12 +274,13 @@ impl Ui {
                     self.refresh_panes();
                     self.ask_packs(now);
                 }
-                UiEvent::ActionDone(name, run) => {
-                    self.model.action_finished(&name);
+                UiEvent::ActionDone(key, run) => {
+                    self.model.action_finished(&key);
+                    let name = crate::ui_state::split_action_key(&key).0;
                     let timeout = self
-                        .named_action(&name)
+                        .named_action(name)
                         .map_or(crate::config::ACTION_TIMEOUT, |a| a.timeout);
-                    let c = crate::ui_state::action_card(&name, &run, timeout, now);
+                    let c = crate::ui_state::action_card(name, &run, timeout, now);
                     self.model.interrupt(c, now);
                 }
                 UiEvent::Lyrics(key, r) => self.model.lyrics_result(key, r),

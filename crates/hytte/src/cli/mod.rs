@@ -383,14 +383,15 @@ fn cmd_pane(args: &[String]) {
     // Read only: unlike `config::load`, never writes a default file from the CLI.
     let text_cfg = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
     let cfg = crate::config::parse(&text_cfg).unwrap_or_default();
-    let panes = cfg.script_panes();
+    // `[[script_pane]]`s and approved packs: the panes the daemon has.
+    let (panes, _) = crate::packs::effective(cfg.script_panes(), vec![], &crate::packs::scan());
     if !panes
         .iter()
         .any(|p| p.name.eq_ignore_ascii_case(name.trim()))
     {
         let known: Vec<&str> = panes.iter().map(|p| p.name.as_str()).collect();
         eprintln!(
-            "hytte pane: no [[script_pane]] called \"{name}\" in config.toml{}",
+            "hytte pane: no pane called \"{name}\" ([[script_pane]] or an approved pack){}",
             if known.is_empty() {
                 String::new()
             } else {

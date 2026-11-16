@@ -13,6 +13,8 @@ pub struct ScriptView {
     pub text: String,
     /// Or, when the script gave `{"rows": [...]}`, these rows (then `text` is empty).
     pub rows: Vec<crate::scriptpane::Row>,
+    /// Buttons under the rows (from the same output).
+    pub buttons: Vec<crate::scriptpane::Button>,
     /// When the last run went wrong: "exit 3", "stopped after 10 s". None: fine.
     pub problem: Option<String>,
     /// When the text last changed (a run finished or a script pushed).
@@ -54,6 +56,20 @@ fn scope_actions(
     rows
 }
 
+/// The same for the buttons.
+fn scope_buttons(
+    mut buttons: Vec<crate::scriptpane::Button>,
+    pack: Option<&str>,
+) -> Vec<crate::scriptpane::Button> {
+    if let Some(p) = pack {
+        for b in &mut buttons {
+            b.action = format!("{p}-{}", b.action);
+        }
+        buttons.retain(|b| crate::scriptpane::valid_action_name(&b.action));
+    }
+    buttons
+}
+
 /// Height of one row of a pane that shows rows, and what a progress bar adds.
 pub const SCRIPT_ROW_H: f32 = 26.0;
 pub const SCRIPT_BAR_H: f32 = 5.0;
@@ -76,15 +92,25 @@ pub fn script_row_boxes(rows: &[crate::scriptpane::Row]) -> Vec<(f32, f32)> {
         .collect()
 }
 
-/// Where the footer of a script pane starts: under the last row or text line.
+/// Height of the row of buttons under a rows pane, with its gap.
+pub const SCRIPT_BTN_H: f32 = 30.0;
+
+/// Where the buttons of a rows pane start: under the last row.
+pub fn script_buttons_y(s: &ScriptView) -> f32 {
+    script_row_boxes(&s.rows)
+        .last()
+        .map_or(10.0, |(y, h)| y + h)
+        + 4.0
+}
+
+/// Where the footer of a script pane starts: under the last row (and the buttons) or text line.
 pub fn script_footer_y(s: &ScriptView) -> f32 {
     if s.rows.is_empty() {
         18.0 + script_rows(s) as f32 * 18.0
+    } else if s.buttons.is_empty() {
+        script_buttons_y(s) + 2.0
     } else {
-        script_row_boxes(&s.rows)
-            .last()
-            .map_or(10.0, |(y, h)| y + h)
-            + 6.0
+        script_buttons_y(s) + SCRIPT_BTN_H + 2.0
     }
 }
 
@@ -173,13 +199,15 @@ impl Model {
             return false;
         };
         // Pushed text may be rows too (`hytte pane set --json`).
-        match crate::scriptpane::parse_rows(text) {
-            Some(rows) => {
-                s.rows = scope_actions(rows, s.pack.as_deref());
+        match crate::scriptpane::parse_pane(text) {
+            Some(p) => {
+                s.rows = scope_actions(p.rows, s.pack.as_deref());
+                s.buttons = scope_buttons(p.buttons, s.pack.as_deref());
                 s.text.clear();
             }
             None => {
                 s.rows.clear();
+                s.buttons.clear();
                 s.text = crate::scriptpane::clean(text);
             }
         }
@@ -203,6 +231,7 @@ impl Model {
             Some(rows) => {
                 if let Some(s) = self.scripts.iter_mut().find(|s| s.name == name) {
                     s.rows = scope_actions(rows, s.pack.as_deref());
+                    s.buttons = scope_buttons(run.buttons, s.pack.as_deref());
                     s.text.clear();
                     s.problem = problem;
                     s.updated = Some(now);

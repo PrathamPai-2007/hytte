@@ -15,6 +15,7 @@ impl Renderer {
         let (x, tw) = (18.0, w - 36.0);
         if !s.rows.is_empty() {
             self.script_rows(fr, s, w);
+            self.script_buttons(fr, s);
         } else if s.text.is_empty() {
             let (a, b) = if s.busy {
                 ("Running…".to_string(), s.command.clone())
@@ -52,15 +53,84 @@ impl Renderer {
         }
         let foot = crate::ui_state::script_footer(s, fr.now);
         let fc = if s.problem.is_some() { AMBER } else { GRAY };
+        let fy = crate::ui_state::script_footer_y(s);
+        // A pane with a command can be run now: a small refresh button ends the footer.
+        let can_refresh = !s.command.is_empty();
         self.text(
             &foot,
             &self.f.small,
             x,
-            crate::ui_state::script_footer_y(s),
-            tw,
+            fy,
+            if can_refresh { tw - 26.0 } else { tw },
             16.0,
             self.cc(fc, 1.0),
         );
+        if can_refresh {
+            let (cx, cy) = (w - 18.0 - 8.0, fy + 8.0);
+            let hov = !s.busy
+                && self.hit(
+                    cx - 12.0,
+                    cy - 12.0,
+                    24.0,
+                    24.0,
+                    Action::ScriptRefresh(slot),
+                );
+            if hov {
+                self.fill_rr(cx - 11.0, cy - 11.0, 22.0, 22.0, 11.0, self.cc(fg, 0.08));
+            }
+            let a = if s.busy {
+                0.25
+            } else if hov {
+                0.9
+            } else {
+                0.5
+            };
+            self.glyph_s('\u{E72C}', cx, cy, self.cc(fg, a));
+        }
+    }
+
+    /// The pane's buttons, side by side under its rows. Each runs its action with its `arg`;
+    /// one that needs confirming says "Sure?" after the first click.
+    fn script_buttons(&self, fr: &Frame, s: &crate::ui_state::ScriptView) {
+        let fg = self.fg();
+        let y = crate::ui_state::script_buttons_y(s);
+        let h = crate::ui_state::SCRIPT_BTN_H - 6.0;
+        let mut x = 18.0;
+        for b in &s.buttons {
+            let key = crate::ui_state::action_key(&b.action, b.arg.as_deref());
+            let armed = fr.model.action_armed(&key);
+            let label = if armed { "Sure?" } else { b.label.as_str() };
+            let bw = text_w(label).max(text_w(&b.label)) + 24.0;
+            let hov = self.hit(x, y, bw, h, Action::Named(b.action.clone(), b.arg.clone()));
+            let bg = if armed { AMBER } else { fg };
+            self.fill_rr(
+                x,
+                y,
+                bw,
+                h,
+                h / 2.0,
+                self.cc(
+                    bg,
+                    if armed {
+                        0.22
+                    } else if hov {
+                        0.16
+                    } else {
+                        0.08
+                    },
+                ),
+            );
+            self.text(
+                label,
+                &self.f.small,
+                x + (bw - text_w(label)) / 2.0,
+                y + (h - 16.0) / 2.0,
+                bw,
+                16.0,
+                self.cc(if armed { AMBER } else { fg }, 0.95),
+            );
+            x += bw + 8.0;
+        }
     }
 
     /// A pane whose script gave rows: a dot in the tone, the text, the value on the right, a
@@ -81,13 +151,22 @@ impl Renderer {
                 RowTone::Bad => Some(RED),
             };
             let hov = match &r.action {
-                Some(a) => self.hit(8.0, y, w - 16.0, h - 2.0, Action::Named(a.clone())),
+                Some(a) => self.hit(
+                    8.0,
+                    y,
+                    w - 16.0,
+                    h - 2.0,
+                    Action::Named(a.clone(), r.arg.clone()),
+                ),
                 None => false,
             };
             if hov {
                 self.fill_rr(8.0, y, w - 16.0, h - 2.0, 9.0, self.cc(fg, 0.06));
             }
-            let armed = r.action.as_ref().is_some_and(|a| fr.model.action_armed(a));
+            let armed = r.action.as_ref().is_some_and(|a| {
+                fr.model
+                    .action_armed(&crate::ui_state::action_key(a, r.arg.as_deref()))
+            });
             if let Some(c) = tone {
                 self.circle(24.0, y + 13.0, 3.5, self.cc(c, 0.95));
             }
