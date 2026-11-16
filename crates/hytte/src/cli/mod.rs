@@ -331,7 +331,7 @@ usage: hytte card [options]
   --progress <0-100> a bar; the card stays until --done or 30 s without an update
   --done             the job finished (fills the bar, shows a tick)
   --icon <info|ok|warn|error>
-  --button \"...\"     up to two; a press only reports back, it never runs anything
+  --button \"...\"     up to two; a press is reported back; only \"Label:name\" runs a named [[action]] you set up
   --open <url|path>  adds an Open button
   --ttl <seconds>    how long it stays (default 10, with --wait 60, at most 3600)
   --wait             block until a button is pressed: prints its label, exit 0;
@@ -868,7 +868,12 @@ impl mcp::Backend for McpIo {
     fn panes(&self) -> Vec<String> {
         let text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
         let cfg = crate::config::parse(&text).unwrap_or_default();
-        cfg.script_panes().iter().map(|p| p.name.clone()).collect()
+        // `[[script_pane]]`s and approved packs, as `hytte pane set` knows them.
+        crate::packs::effective(cfg.script_panes(), vec![], &crate::packs::scan())
+            .0
+            .into_iter()
+            .map(|p| p.name)
+            .collect()
     }
 }
 

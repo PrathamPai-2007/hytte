@@ -797,7 +797,13 @@ fn unknown_keys(text: &str) -> Vec<String> {
     let mut out = vec![];
     for (sec, v) in &user {
         // `[[script_pane]]` is a list (absent from the defaults): check each entry's keys.
-        if sec == "script_pane" {
+        // `[[action]]` is a list too.
+        let list_keys: Option<&[&str]> = match sec.as_str() {
+            "script_pane" => Some(&["name", "command", "every"]),
+            "action" => Some(&["name", "command", "confirm", "timeout"]),
+            _ => None,
+        };
+        if let Some(allowed) = list_keys {
             for k in v
                 .as_array()
                 .into_iter()
@@ -805,8 +811,8 @@ fn unknown_keys(text: &str) -> Vec<String> {
                 .filter_map(|e| e.as_table())
             {
                 for key in k.keys() {
-                    if !["name", "command", "every"].contains(&key.as_str()) {
-                        out.push(format!("script_pane.{key}"));
+                    if !allowed.contains(&key.as_str()) {
+                        out.push(format!("{sec}.{key}"));
                     }
                 }
             }
@@ -1319,6 +1325,22 @@ name = \"P{i}\"
         assert!(!toml::to_string_pretty(&Config::default())
             .unwrap()
             .contains("script_pane"));
+    }
+
+    #[test]
+    fn action_blocks_are_not_typos_but_their_misspelt_keys_are() {
+        let ok = "[[action]]
+name = \"a\"
+command = \"b\"
+confirm = true
+timeout = 5
+";
+        assert_eq!(problem(ok, false), None);
+        let typo = "[[action]]
+name = \"a\"
+comand = \"b\"
+";
+        assert!(problem(typo, false).unwrap().contains("action.comand"));
     }
 
     #[test]

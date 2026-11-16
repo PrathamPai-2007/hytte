@@ -790,7 +790,7 @@ fn script_names() -> Vec<String> {
 }
 
 /// A row's label is `&'static str`; a pane's name is kept for the life of the process, once per
-/// distinct name (a dozen at most: twelve slots, names of at most 24 characters).
+/// distinct name (a dozen at most: twelve slots, names of at most 16 characters).
 fn intern(s: &str) -> &'static str {
     static NAMES: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
     let Ok(mut g) = NAMES.lock() else {

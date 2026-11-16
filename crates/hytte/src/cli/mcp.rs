@@ -13,7 +13,7 @@ pub(super) trait Backend {
     fn send(&self, c: &Cmd) -> bool;
     /// Send a waited-on card; the pressed button's label, or None (no pill, no press).
     fn ask(&self, c: &Cmd) -> Option<String>;
-    /// The `[[script_pane]]` names in config.toml.
+    /// The pane names: `[[script_pane]]`s in config.toml and approved packs.
     fn panes(&self) -> Vec<String>;
 }
 
@@ -34,7 +34,7 @@ pub(super) fn tools() -> Value {
             "id": s("Send again with the same id to update the card in place"),
             "icon": {"type": "string", "enum": hytte_proto::CARD_ICONS},
             "buttons": {"type": "array", "items": {"type": "string"}, "maxItems": 2,
-                "description": "Up to two labels of 24 bytes. A press is only reported back, it never runs anything"},
+                "description": "Up to two labels of 24 bytes. A press is reported back; only a Label:name button runs a named [[action]]"},
             "wait": {"type": "boolean", "description": "Block until a button is pressed (needs buttons)"},
             "ttl": {"type": "integer", "minimum": 1, "maximum": 3600,
                 "description": "Seconds the card stays; with wait the default is 60"},
@@ -52,7 +52,7 @@ pub(super) fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["text"],
             "properties": {"text": s("Up to 2000 characters")}}},
         {"name": "pane_set",
-         "description": "Set the text of one of the user's [[script_pane]]s (a pane name from their config.toml).",
+         "description": "Set the text of one of the user's [[script_pane]]s (a pane name from their config.toml, or an approved pane pack).",
          "inputSchema": {"type": "object", "required": ["name", "text"], "properties": {
             "name": s("The pane's name"),
             "text": s("Plain text, or JSON {\"rows\": [...]}, up to 4096 bytes")}}}
@@ -160,7 +160,7 @@ fn call(name: &str, a: &Value, io: &dyn Backend) -> Result<String, String> {
             let panes = io.panes();
             if !panes.iter().any(|p| p.eq_ignore_ascii_case(n.trim())) {
                 return Err(format!(
-                    "no [[script_pane]] called \"{n}\" in config.toml{}",
+                    "no pane called \"{n}\" ([[script_pane]] or an approved pack){}",
                     if panes.is_empty() {
                         String::new()
                     } else {

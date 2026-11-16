@@ -226,7 +226,7 @@ pub struct Cmd {
     /// One of [`CARD_ICONS`]; absent = info.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// Up to two labels. A press is only reported back (`wait`); it never runs anything.
+    /// Up to two labels. A press is reported back (`wait`); only a `Label:name` button runs a named `[[action]]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub buttons: Vec<String>,
     /// An http(s) URL or an absolute path, offered as **Open**.
