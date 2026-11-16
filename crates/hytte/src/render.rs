@@ -571,7 +571,7 @@ fn panel_glyph(p: Panel) -> char {
         Panel::Todo => '\u{E73A}',
         Panel::Weather => '\u{E753}',
         Panel::Ask => '\u{E8BD}',
-        Panel::Script(_) => '\u{E943}',
+        Panel::Script(_) => '\u{E71D}', // apps grid: a custom pane, not a code pane
     }
 }
 
