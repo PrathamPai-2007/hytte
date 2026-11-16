@@ -28,7 +28,15 @@ If you run Claude Code, Codex, Copilot CLI or another supported agent inside a W
 
 ## Day to day
 
-- **Agents pane:** every agent has a row in the **Agents** tab: its project, what it is doing or asking, how long it has waited, and what it has done this turn (files edited, subagents started, context size). Click a row to jump to its terminal. Turn the tab off in [Settings](07-settings.md) and agents list with your terminal tasks again.
+- **Coding agents pane:** every agent has a row in its own tab: its project, what it is doing or asking, how long it has waited, and what it has done this turn (files edited, subagents started, context size). Click a row to jump to its terminal. This tab is on by default.
+- **Where agents show:** two switches under **Panes** in [Settings](07-settings.md#choosing-and-ordering-panes) decide.
+
+  | Coding agents | Terminal tasks | Agents show |
+  |---|---|---|
+  | on | on | In the Coding agents pane. Terminal tasks lists only commands. |
+  | on | off | In the Coding agents pane. |
+  | off | on | Inside Terminal tasks, with your commands. |
+  | off | off | Nowhere. Neither agents nor terminal tasks show, even on the compact pill. |
 - **Today:** a quiet line under the rows adds up the day: time agents spent working, time they waited for you, and turns finished ("Today  2 h 10 min working · 14 min waiting for you · 9 turns"). It lives in memory only, starts over at midnight and when Hytte restarts, and is never written to disk.
 - **Working:** the agent appears by name, with its current step where the agent reports one, such as `Editing src/main.rs`.
 - **How long it has run:** a working agent shows its time on this turn (it starts over with each prompt), and the finished card says "Ran 8 min" on its quiet line when the turn took ten seconds or more.

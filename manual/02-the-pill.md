@@ -4,9 +4,9 @@ Hytte never takes keyboard focus on its own, so it won't interrupt your typing. 
 
 ## Opening and closing
 
-Point at the pill and it opens. Move away and it closes. If you'd rather click, set **open on click** in [Settings](07-settings.md).
+Point at the pill and it opens. Move away and it closes. If you'd rather click, set **How the pill opens** to **Click** in [Settings](07-settings.md).
 
-The pin in the row of icons keeps it open until you click the pin again. (Remove the pin with `pin_button = false` in [Settings](07-settings.md#editing-configtoml).)
+The pin in the row of icons keeps it open until you click the pin again. (Remove the pin with **Show a pin button on the open pill** in [Settings](07-settings.md).)
 
 ## Panes
 
@@ -15,13 +15,14 @@ The icons along the bottom switch between panes. Only panes with something to sh
 | Pane | Shows |
 |---|---|
 | **Shelf** | Files you've parked. |
-| **Media** | What's playing. |
-| **Home** | Quick controls. Always there. |
+| **Music** | What's playing. |
+| **Quick controls** | The home pane. Always there. |
 | **Notes**, **To-do**, **Weather** | Things you type, and the forecast. See [Everyday tools](06-everyday-tools.md). You can hide any of them in [Settings](07-settings.md). |
-| **Tasks** | Running commands, agents and dev servers. |
+| **Terminal tasks** | Running commands and dev servers (and agents too, if **Coding agents** is off). |
+| **Coding agents** | Claude Code, Codex and other agents, in their own pane. See [AI agents](04-ai-agents.md). |
 | **Timer** | A running timer. |
-| **Power** | Battery and power mode, on laptops. |
-| Your own panes | Whatever your scripts show, under the names you give them. See [Your terminal](03-terminal.md#your-own-panes). |
+| **Battery** | Battery and power mode, on laptops. |
+| Your own panes | Whatever your scripts show, under the names you give them. See [Custom panes](10-custom-panes.md). |
 
 To switch panes, click an icon, swipe sideways on a touchpad, or turn the mouse wheel over the pill. A sideways swipe on the closed pill peeks at the next pane for three seconds.
 

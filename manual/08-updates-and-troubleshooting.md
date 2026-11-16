@@ -4,7 +4,7 @@
 
 Hytte checks a minute after it starts, then daily. When there's a new version, a card offers **Update** or **Later**. **Update** swaps in the new `hytte.exe` and restarts. Your settings, shelf and setup are kept.
 
-To check now, use tray → **Check for updates…**. To turn off the automatic check, set `check_updates = false`.
+To check now, use tray → **Check for updates…**. To turn off the automatic check, switch off **Check for updates automatically** in [Settings](07-settings.md).
 
 Only `api.github.com` and `github.com` are contacted, and nothing about you is sent.
 
@@ -31,6 +31,7 @@ It checks the pill, `PATH`, your terminals, agents and `config.toml`, and says h
 | `hytte: daemon not running` | Run `hytte`. Your command still ran. |
 | `hytte` isn't recognised | Open a **new** terminal, or run `.\hytte.exe setup` from Hytte's folder. |
 | Commands don't show up | Set up terminal integration and open a new terminal. Commands under 3 seconds are hidden on purpose. |
+| Agents or terminal tasks show nowhere | **Coding agents** and **Terminal tasks** are both off under Settings → **Panes**. Switch one on ([details](04-ai-agents.md#day-to-day)). |
 | An agent never shows up | Tray → **Connect AI agents**, restart the agent, and in Codex trust the hooks with `/hooks`. If the agent runs inside WSL, run `hytte setup agents --wsl` too. |
 | An agent can't use the hytte tools | Run `hytte setup mcp`, then start a new agent session. `hytte doctor` says whether Claude Code and Codex have it registered. |
 | I moved the pill and want it back | Double-click its top edge, or tray → **Reset pill position**. |
@@ -38,6 +39,7 @@ It checks the pill, `PATH`, your terminals, agents and `config.toml`, and says h
 | A task failed after Ctrl+C | Open a new terminal to get the current hook. |
 | The update didn't install | The folder is probably read-only. Move `hytte.exe` under your user folder, or update by hand. |
 | `config.toml` warning card | Click it to open the file at the mistake. Your previous settings stay in force. |
+| A custom pane is missing, or shows nothing | See [Custom panes](10-custom-panes.md#when-something-is-wrong). A pack has to be approved with **Run** first. |
 | A port isn't listed | Add it to `[ports] watch`, or set `show_all = true`. |
 | The hotkey does nothing | Another app may own it: Settings → **Hotkeys** says **Taken by another app** in amber. Click the field and press a different combination. |
 | A resource warning I don't want | **Ignore** it, raise `[hog] cpu_pct` / `mem_mb`, or set `[hog] enabled = false`. |

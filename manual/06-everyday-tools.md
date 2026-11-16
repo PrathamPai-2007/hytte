@@ -19,7 +19,7 @@ The Home pane has four tiles, a volume bar and the settings gear.
 
 <img src="../docs/img/media.png" alt="The Media pane" width="300">
 
-The Media pane controls whatever is playing, as long as the player reports itself to Windows (most browsers and players do). Drag the timeline to seek, and click the album art to raise the player. The **Lyrics** button and the moon (a sleep timer) are described just below.
+The Music pane controls whatever is playing, as long as the player reports itself to Windows (most browsers and players do). Drag the timeline to seek, and click the album art to raise the player. The **Lyrics** button and the moon (a sleep timer) are described just below.
 
 ## Timer and focus sessions
 
@@ -37,11 +37,11 @@ When it ends, an alarm rings for up to two minutes. Choose **Stop alarm** or **+
 
 <img src="../docs/img/lyrics.png" alt="The lyrics page" width="300"> <img src="../docs/img/sleep.png" alt="The sleep timer" width="300">
 
-**Lyrics.** Click **Lyrics** on the Media pane. The page shows the line being sung with the line before and after. They are on for new installs (older installs keep their setting; the page has a **Turn on** button, and there is a switch in [Settings](07-settings.md)). Looking a song up sends its title and artist to [lrclib.net](https://lrclib.net), a free lyrics database, so switch lyrics off if you would rather not. Nothing is looked up unless the page is open, and Hytte keeps lyrics only in memory, for the last 20 songs.
+**Lyrics.** Click **Lyrics** on the Music pane. The page shows the line being sung with the line before and after. They are on for new installs (older installs keep their setting; the page has a **Turn on** button, and there is a **Show lyrics** switch in [Settings](07-settings.md)). Looking a song up sends its title and artist to [lrclib.net](https://lrclib.net), a free lyrics database, so switch lyrics off if you would rather not. Nothing is looked up unless the page is open, and Hytte keeps lyrics only in memory, for the last 20 songs.
 
 Lyrics are not looked up for video and photo apps (Photos, Movies & TV, Windows Media Player, VLC, mpv, PotPlayer, Netflix and similar): the page says so and nothing is sent. Browsers are not skipped, so a video tab may find nothing.
 
-With timed lyrics the lines glide smoothly from one to the next. The **Live** tick box at the bottom left turns that off, so you see the words to scroll through instead (the choice is kept; it is `[media] lyrics_live`). **Live** is greyed out and does nothing for songs that have no timed lyrics.
+With timed lyrics the lines glide smoothly from one to the next. The **Live** tick box at the bottom left turns that off, so you see the words to scroll through instead (the choice is kept; it is **Follow the song live** in [Settings](07-settings.md), or `[media] lyrics_live`). **Live** is greyed out and does nothing for songs that have no timed lyrics.
 
 If the database has the words but for a different recording of the song, you see them without timing, scrolling with the mouse wheel. A touchpad moves one line per long stretch of two-finger scroll, so the page doesn't fly past.
 
@@ -55,7 +55,7 @@ Choose **Start focus** on the timer card.
 
 During a session:
 
-- **Windows Do Not Disturb is on**, and goes back to how it was when the session ends. If Hytte closes unexpectedly, it is put back the next time Hytte starts. Hytte uses a Windows setting Microsoft doesn't document, so a Windows update could stop this working. Hytte then still does the next two things. Turn it off with `[timer] focus_dnd = false`.
+- **Windows Do Not Disturb is on**, and goes back to how it was when the session ends. If Hytte closes unexpectedly, it is put back the next time Hytte starts. Hytte uses a Windows setting Microsoft doesn't document, so a Windows update could stop this working. Hytte then still does the next two things. Turn it off with **Do Not Disturb during focus** in [Settings](07-settings.md).
 - **Hytte keeps quiet too.** Finished downloads, finished tasks, agent reply cards and CPU warnings wait. When the session ends, one line tells you what you missed ("While you focused: 2 downloads, 1 task failed"). Things that need you still come through: an agent asking permission, the timer itself, and your next meeting.
 - **The pill shows a thin pale line** instead of the bright fuse. It turns amber in the last minute.
 
@@ -99,7 +99,7 @@ Reminders wait during a focus session, a camera or microphone call, quiet hours,
 
 ## Dev servers
 
-Anything listening on a common port (`3000`, `5173`, `8080` and others) appears under **SERVERS** in the Tasks pane. Servers are named after their project folder.
+Anything listening on a common port (`3000`, `5173`, `8080` and others) appears under **SERVERS** in the Terminal tasks pane. Servers are named after their project folder.
 
 - **Open** opens it in your browser.
 - **Stop** stops it, and asks twice.
@@ -111,17 +111,17 @@ To list another port, add it to `watch`, or set `show_all = true` ([Settings](07
 
 | Alert | Buttons | Turn it off |
 |---|---|---|
-| **Browser downloads** show as tasks, then a finished card. | **Open**, **Shelve** | `[downloads] enabled = false` |
-| **Resource hogs:** an app using over 70 % of the CPU for 30 seconds, or over 4 GB of memory. | **Kill** (asks twice), **Ignore** | `[hog] enabled = false` |
-| **Next meeting**, 10 minutes before it starts. Off by default, because titles are private. | **Join**, when there's a link | Turn on with `[calendar] enabled = true` |
+| **Browser downloads** show as tasks, then a finished card. | **Open**, **Shelve** | **Notify when a download finishes** in [Settings](07-settings.md) |
+| **Resource hogs:** an app using over 70 % of the CPU for 30 seconds, or over 4 GB of memory. | **Kill** (asks twice), **Ignore** | **Alert on CPU or memory hogs** in [Settings](07-settings.md) |
+| **Next meeting**, 10 minutes before it starts. Off by default, because titles are private. | **Join**, when there's a link | Turn on with **Warn before calendar events** in [Settings](07-settings.md) |
 | **Camera and mic dots** while an app uses them. | | Always on |
-| **Camera or microphone starts:** a 3-second card naming the app (not when it stops; not during Focus or quiet hours). | | `[moments] privacy = false` |
-| **A Bluetooth device connects:** "Pixel Buds connected", with its battery when it reports one. | | `[moments] bluetooth = false` |
+| **Camera or microphone starts:** a 3-second card naming the app (not when it stops; not during Focus or quiet hours). | | **Camera or microphone starts** in [Settings](07-settings.md) |
+| **A Bluetooth device connects:** "Pixel Buds connected", with its battery when it reports one. | | **Bluetooth device connects** in [Settings](07-settings.md) |
 
 If another card is showing when an alert arrives, it waits its turn instead of being lost. A card that has waited over 30 seconds is dropped.
 
 ## Battery
 
-On laptops, the Power pane shows your charge and time left, and lets you switch between **Saver**, **Balanced** and **Performance**.
+On laptops, the Battery pane shows your charge and time left, and lets you switch between **Saver**, **Balanced** and **Performance**.
 
 Next: [7. Settings](07-settings.md)
