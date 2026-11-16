@@ -151,7 +151,7 @@ Hytte writes `config.toml` only to create it on first run (`config::save`), for 
 | `[clipboard] ignore_apps` | `keepass`, `keepassxc`, `1password`, `bitwarden` | Programs whose copies are never kept (exe name, any case, `.exe` optional). |
 | `[[action]] name` / `command` | none | A command a card button (`Label:name`) or a script pane row (`"action": "name"`) may run, hidden, in your home folder. A name is letters, digits, `-` and `_` (40 at most); repeats and empty commands are skipped; 32 actions at most. |
 | `[[action]] confirm` / `timeout` | `false` / `60` | `true`: the first click arms ("Sure?"), the second runs. Seconds until it is stopped with everything it started (1 to 600). |
-| `%APPDATA%\Hytte\panes\<name>\pane.toml` | none | A pane pack: `name`, `command`, `every` and its own `[[action]]`s ([section 16](16-whats-new.md#180)). Runs only after you press **Run** on the card; `.approved` / `.ignored` in its folder hold a hash of the file you saw. |
+| `%APPDATA%\Hytte\panes\<name>\pane.toml` | none | A pane pack: `name`, `command`, `every` and its own `[[action]]`s ([section 16](16-whats-new.md#180)). Runs only after you press **Run** on the card; Your answer is kept in `%APPDATA%\Hytte\pack-answers\` as a hash of the file you saw. |
 | `[weather] units` | `"auto"` | `"auto"` (the Windows measurement setting), `"metric"` or `"imperial"`. |
 | `[media] lyrics` | `true` | Look songs up on lrclib.net while the lyrics page is open (sends title and artist). |
 | `[media] lyrics_live` | `true` | Follow the song line by line when the lyrics are timed; off shows the words as a list. |

@@ -2,6 +2,12 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
+## 1.9.3 (unreleased)
+
+- **Deleting a pane takes its row with it.** Removing a pack's folder (including to the Recycle Bin) now drops the pane at once, and an open Settings window drops its row too; before, both stayed until a restart.
+- **Pack approvals moved out of the pack.** Your Run / Ignore answer is now kept in `%APPDATA%\Hytte\pack-answers\`. A pack can no longer arrive with an `.approved` file already in its folder. Packs you approved before ask once more.
+- **A script pane can't get stuck.** If the thread running a pane's command crashed, the pane never ran again until restart; it now shows an error and keeps going.
+
 ## 1.9.2
 
 - **Move the pill.** Press on its top edge and drag sideways; the pill shows a card with the keys (let go places it, Esc cancels, double-click the edge resets). Each monitor remembers its own spot. See [manual 2](../manual/02-the-pill.md#moving-the-pill-sideways).

@@ -398,7 +398,7 @@ impl Ui {
                     .iter()
                     .find(|p| p.folder == folder && p.hash == hash)
                 {
-                    crate::packs::answer(&p.path, &hash, run);
+                    crate::packs::answer(&p.folder, &hash, run);
                     self.packs = crate::packs::scan();
                     self.refresh_panes();
                 }
@@ -428,6 +428,10 @@ impl Ui {
         self.model.apply_scripts(&panes);
         self.model.apply_actions(&actions);
         self.actions = actions;
+        // An open Settings window lists the panes by name: a deleted pack or `[[script_pane]]`
+        // has to leave it too.
+        crate::render::set_script_names(panes.into_iter().map(|p| p.name).collect());
+        crate::settings_win::refresh(&self.cfg);
     }
 
     /// The action called `name` (any case), from `config.toml` or an approved pack.

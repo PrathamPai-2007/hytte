@@ -28,8 +28,15 @@ impl Ui {
             let sh = self.shared.clone();
             std::thread::spawn(move || {
                 crate::proc::eco_thread();
-                let run =
-                    crate::scriptpane::run_in(&command, crate::scriptpane::TIMEOUT, dir.as_deref());
+                // A panic must still send the event: only `script_done` clears the pane's `busy`.
+                let run = std::panic::catch_unwind(|| {
+                    crate::scriptpane::run_in(&command, crate::scriptpane::TIMEOUT, dir.as_deref())
+                })
+                .unwrap_or_else(|_| crate::scriptpane::Run {
+                    text: "Hytte hit an error running it".into(),
+                    code: Some(-1),
+                    ..Default::default()
+                });
                 push_event(&sh, UiEvent::Script(name, run));
             });
         }

@@ -12,8 +12,9 @@
 //! ```
 //!
 //! A pack runs nothing until you say so: the first time (and whenever its `pane.toml` changes) a
-//! card shows its command with **Run** and **Ignore**. The answer is written beside it
-//! (`.approved` / `.ignored`, holding a hash of the file), so an edited file asks again. A pack
+//! card shows its command with **Run** and **Ignore**. The answer is kept in
+//! `%APPDATA%\Hytte\pack-answers\` (not in the pack's folder, so a downloaded pack cannot
+//! arrive already approved) and holds a hash of the file, so an edited file asks again. A pack
 //! shares the four-pane limit with `[[script_pane]]`s, which come first.
 
 use crate::config::{
@@ -189,10 +190,7 @@ pub fn scan() -> Vec<Pack> {
             let path = e.path();
             let text = std::fs::read_to_string(path.join("pane.toml")).ok()?;
             let folder = e.file_name().to_string_lossy().into_owned();
-            let read = |f: &str| std::fs::read_to_string(path.join(f)).ok();
-            let answer = read(".approved")
-                .map(|a| (true, a.trim().to_string()))
-                .or_else(|| read(".ignored").map(|a| (false, a.trim().to_string())));
+            let answer = read_answer_in(&answers_dir(), &folder);
             Some(parse(&folder, &path, &text, answer))
         })
         .collect();
@@ -200,15 +198,32 @@ pub fn scan() -> Vec<Pack> {
     out
 }
 
+/// Where answers are kept: outside the packs, so a pack can't bring its own.
+fn answers_dir() -> PathBuf {
+    crate::config::data_dir().join("pack-answers")
+}
+
+fn read_answer_in(dir: &Path, folder: &str) -> Option<(bool, String)> {
+    let read = |ext: &str| std::fs::read_to_string(dir.join(format!("{folder}.{ext}"))).ok();
+    read("approved")
+        .map(|a| (true, a.trim().to_string()))
+        .or_else(|| read("ignored").map(|a| (false, a.trim().to_string())))
+}
+
 /// Remember your answer for this exact file (its hash).
-pub fn answer(pack: &Path, hash: &str, run: bool) {
+pub fn answer(folder: &str, hash: &str, run: bool) {
+    answer_in(&answers_dir(), folder, hash, run);
+}
+
+fn answer_in(dir: &Path, folder: &str, hash: &str, run: bool) {
     let (keep, drop) = if run {
-        (".approved", ".ignored")
+        ("approved", "ignored")
     } else {
-        (".ignored", ".approved")
+        ("ignored", "approved")
     };
-    let _ = std::fs::remove_file(pack.join(drop));
-    let _ = std::fs::write(pack.join(keep), hash);
+    let _ = std::fs::create_dir_all(dir);
+    let _ = std::fs::remove_file(dir.join(format!("{folder}.{drop}")));
+    let _ = std::fs::write(dir.join(format!("{folder}.{keep}")), hash);
 }
 
 /// What Hytte uses: `[[script_pane]]`s first, then the approved packs while there is room (a
@@ -254,14 +269,15 @@ pub fn spawn_watcher(ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>)
         use windows::core::HSTRING;
         use windows::Win32::Foundation::WAIT_OBJECT_0;
         use windows::Win32::Storage::FileSystem::{
-            FindFirstChangeNotificationW, FindNextChangeNotification, FILE_NOTIFY_CHANGE_FILE_NAME,
-            FILE_NOTIFY_CHANGE_LAST_WRITE,
+            FindFirstChangeNotificationW, FindNextChangeNotification, FILE_NOTIFY_CHANGE_DIR_NAME,
+            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
         };
         use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE};
         let Ok(h) = FindFirstChangeNotificationW(
             &HSTRING::from(dir().as_os_str()),
             true,
-            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+            // DIR_NAME: deleting a pack's folder (to the Recycle Bin it is a rename) touches no file.
+            FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
         ) else {
             return;
         };
@@ -404,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn packs_come_from_folders_and_answers_are_saved_beside_them() {
+    fn packs_come_from_folders_and_answers_are_kept_outside_the_pack() {
         let root = std::env::temp_dir().join(format!("hytte-packs-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let one = root.join("one");
@@ -415,13 +431,14 @@ mod tests {
         let text = std::fs::read_to_string(one.join("pane.toml")).unwrap();
         let p = parse("one", &one, &text, None);
         assert_eq!(p.state, State::Pending);
-        answer(&one, &p.hash, true);
-        assert_eq!(
-            std::fs::read_to_string(one.join(".approved")).unwrap(),
-            p.hash
-        );
-        answer(&one, &p.hash, false);
-        assert!(!one.join(".approved").exists() && one.join(".ignored").exists());
+        let ans = root.join("answers");
+        // An `.approved` the pack brought along counts for nothing.
+        std::fs::write(one.join(".approved"), &p.hash).unwrap();
+        assert_eq!(read_answer_in(&ans, "one"), None);
+        answer_in(&ans, "one", &p.hash, true);
+        assert_eq!(read_answer_in(&ans, "one"), Some((true, p.hash.clone())));
+        answer_in(&ans, "one", &p.hash, false);
+        assert_eq!(read_answer_in(&ans, "one"), Some((false, p.hash.clone())));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
