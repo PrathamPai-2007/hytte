@@ -430,8 +430,40 @@ impl Ui {
         self.actions = actions;
         // An open Settings window lists the panes by name: a deleted pack or `[[script_pane]]`
         // has to leave it too.
-        crate::render::set_script_names(panes.into_iter().map(|p| p.name).collect());
+        let names: Vec<String> = panes.into_iter().map(|p| p.name).collect();
+        crate::render::set_script_names(names.clone());
+        self.carry_slot_settings(names);
         crate::settings_win::refresh(&self.cfg);
+    }
+
+    /// The panes' names in the slots changed: move each pane's switch and place with it
+    /// (see `packs::remap_slots`). The write comes back through the config watcher, by which
+    /// time the names match and nothing more happens.
+    fn carry_slot_settings(&mut self, names: Vec<String>) {
+        if !self.packs_seen || self.slot_names.as_ref() == Some(&names) {
+            return;
+        }
+        if let Some(old) = self.slot_names.replace(names.clone()) {
+            let p = &self.cfg.panes;
+            let on = std::array::from_fn(|i| p.script_on(i));
+            let (next, order) = crate::packs::remap_slots(&old, &names, on, &p.order);
+            use crate::config::{set, set_text, Val};
+            const KEYS: [&str; 4] = [
+                "panes.script1",
+                "panes.script2",
+                "panes.script3",
+                "panes.script4",
+            ];
+            for i in 0..4 {
+                if next[i] != on[i] {
+                    let _ = set(KEYS[i], Val::B(next[i]));
+                }
+            }
+            if order != p.order {
+                let _ = set_text("panes.order", &order);
+            }
+        }
+        crate::packs::save_slot_names(&names);
     }
 
     /// The action called `name` (any case), from `config.toml` or an approved pack.

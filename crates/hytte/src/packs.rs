@@ -258,6 +258,56 @@ pub fn effective(
     (panes, actions)
 }
 
+/// Panes sit in four slots, and a slot's switch (`panes.scriptN`) and place in `panes.order`
+/// belong to the slot. When the names in the slots change (a pane deleted, a pack approved
+/// ahead of another), carry each pane's switch and place to its new slot, so nobody else
+/// inherits them. A pane with no old slot starts on and last in the order.
+pub fn remap_slots(
+    old: &[String],
+    new: &[String],
+    on: [bool; MAX_SCRIPT_PANES],
+    order: &str,
+) -> ([bool; MAX_SCRIPT_PANES], String) {
+    let find = |list: &[String], n: &str| list.iter().position(|o| o.eq_ignore_ascii_case(n));
+    let mut next = [true; MAX_SCRIPT_PANES];
+    for (j, n) in new.iter().enumerate().take(MAX_SCRIPT_PANES) {
+        if let Some(i) = find(old, n) {
+            next[j] = on[i];
+        }
+    }
+    let order = order
+        .split(',')
+        .map(str::trim)
+        .filter_map(|k| {
+            let Some(i) = k.strip_prefix("script").and_then(|d| d.parse::<usize>().ok()) else {
+                return Some(k.to_string());
+            };
+            match old.get(i.wrapping_sub(1)) {
+                // A slot that held a pane: follow it, or drop it when it is gone.
+                Some(name) => find(new, name).map(|j| format!("script{}", j + 1)),
+                None => Some(k.to_string()),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    (next, order)
+}
+
+fn slots_file() -> PathBuf {
+    crate::config::data_dir().join("pane-slots.json")
+}
+
+/// The names the slots held when Hytte last looked (what `remap_slots` moves from).
+pub fn load_slot_names() -> Option<Vec<String>> {
+    serde_json::from_str(&std::fs::read_to_string(slots_file()).ok()?).ok()
+}
+
+pub fn save_slot_names(names: &[String]) {
+    if let Ok(t) = serde_json::to_string(names) {
+        let _ = std::fs::write(slots_file(), t);
+    }
+}
+
 /// Re-scan when anything under the panes folder changes, and send the packs to the UI when they
 /// differ from last time. The thread sleeps on a directory notification: no change, no wake-up.
 pub fn spawn_watcher(ui_tx: crossbeam_channel::Sender<crate::ui_state::UiEvent>) {
@@ -440,5 +490,23 @@ mod tests {
         answer_in(&ans, "one", &p.hash, false);
         assert_eq!(read_answer_in(&ans, "one"), Some((false, p.hash.clone())));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_pane_keeps_its_switch_and_place_when_the_slots_shift() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let old = v(&["A", "B", "C"]);
+        // B is switched off and sits first; then A is deleted.
+        let (on, order) = remap_slots(
+            &old,
+            &v(&["B", "C"]),
+            [true, false, true, true],
+            "script2,home,script1,script3",
+        );
+        assert_eq!(on, [false, true, true, true]);
+        assert_eq!(order, "script1,home,script2");
+        // A new pane takes the free slot on, and last.
+        let (on, _) = remap_slots(&v(&["B"]), &v(&["B", "N"]), [false, false, true, true], "");
+        assert_eq!(on, [false, true, true, true]);
     }
 }

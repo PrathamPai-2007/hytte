@@ -270,6 +270,7 @@ impl Ui {
                 UiEvent::Script(name, run) => self.model.script_done(&name, run, now),
                 UiEvent::Packs(packs) => {
                     self.packs = packs;
+                    self.packs_seen = true;
                     self.refresh_panes();
                     self.ask_packs(now);
                 }

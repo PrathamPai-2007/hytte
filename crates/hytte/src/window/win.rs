@@ -367,6 +367,10 @@ struct Ui {
     clip_seq: u32,
     /// Pane packs on disk, and the actions now in force (config plus approved packs).
     packs: Vec<crate::packs::Pack>,
+    /// Whether the first scan of the packs has arrived (before it their panes look "gone").
+    packs_seen: bool,
+    /// The names the pane slots held at the last `refresh_panes`.
+    slot_names: Option<Vec<String>>,
     actions: Vec<crate::config::NamedAction>,
     /// Packs already asked about this session (folder:hash), so a dismissed card stays gone.
     packs_asked: Vec<String>,
@@ -735,6 +739,8 @@ pub fn run_windows(
             scripts_primed: false,
             clip_seq: 0,
             packs: vec![],
+            packs_seen: false,
+            slot_names: crate::packs::load_slot_names(),
             actions: vec![],
             packs_asked: vec![],
             welcome: crate::welcome::pending().map(|t| (t, 0)),

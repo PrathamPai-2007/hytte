@@ -6,6 +6,7 @@ What changed in each version, newest first. Each version ends with a short note 
 
 - **Deleting a pane takes its row with it.** Removing a pack's folder (including to the Recycle Bin) now drops the pane at once, and an open Settings window drops its row too; before, both stayed until a restart.
 - **Pack approvals moved out of the pack.** Your Run / Ignore answer is now kept in `%APPDATA%\Hytte\pack-answers\`. A pack can no longer arrive with an `.approved` file already in its folder. Packs you approved before ask once more.
+- **Panes keep their switch and place.** The four script-pane slots used to own the switch and the place in the tab order, so deleting one pane (or approving a pack ahead of another) handed its switch to the next pane. Hytte now remembers which name sat in which slot (`pane-slots.json`) and moves each pane's switch and place with it.
 - **Both switches off now means off.** With Terminal tasks and Coding agents both switched off, a running Claude Code session still showed in the compact pill and its count. Rows now show only where their pane is on: an agent in Coding agents (or Terminal tasks when that is off), a command in Terminal tasks. Downloads keep their own switch.
 - **A script pane can't get stuck.** If the thread running a pane's command crashed, the pane never ran again until restart; it now shows an error and keeps going.
 
