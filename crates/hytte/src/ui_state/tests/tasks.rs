@@ -598,3 +598,23 @@ fn a_working_agent_goes_quiet_after_a_while_and_any_news_clears_it() {
         "quiet 2h"
     );
 }
+
+#[test]
+fn with_both_panes_off_nothing_is_shown_anywhere() {
+    let t0 = Instant::now();
+    let mut m = no_extra_panes();
+    m.now = Some(t0);
+    m.apply_task(agent_in("a1", "hytte", TaskEvent::Progress, None, t0), t0);
+    m.apply_task(st("build", TaskEvent::Start, t0), t0);
+    assert_eq!(m.visible_count(), 2);
+    // Agents off: the agent falls back to Tasks and still shows.
+    m.panes.agents = false;
+    assert_eq!(m.visible_count(), 2);
+    // Both off: the compact pill has nothing to show either.
+    m.panes.tasks = false;
+    assert_eq!((m.visible_count(), m.agent_count(), m.shell_count()), (0, 0, 0));
+    assert!(m.primary().is_none());
+    // Tasks off, agents on: only the agent.
+    m.panes.agents = true;
+    assert_eq!(m.visible_count(), 1);
+}

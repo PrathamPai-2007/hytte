@@ -309,8 +309,17 @@ impl Model {
         }
     }
 
+    /// Whether `t` may show anywhere (the pane, the compact pill, its count): past its delay and
+    /// owned by a pane that is on. A coding agent belongs to Coding agents, or to Terminal tasks
+    /// when that one is off; a command belongs to Terminal tasks. With both off, neither shows.
+    /// Downloads have their own switch (`downloads.enabled`).
     pub(super) fn visible(&self, t: &TaskView) -> bool {
-        self.now.is_none_or(|n| n >= t.visible_after)
+        let owned = match t.source.as_str() {
+            "agent" => self.panes.agents || self.panes.tasks,
+            "run" | "shell" => self.panes.tasks,
+            _ => true,
+        };
+        owned && self.now.is_none_or(|n| n >= t.visible_after)
     }
 
     /// Height the open per-app volume list adds to the Home pane (one row says "no apps").
