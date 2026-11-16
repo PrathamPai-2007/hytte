@@ -2,7 +2,7 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## 1.9.3 (unreleased)
+## 1.9.3
 
 - **Deleting a pane takes its row with it.** Removing a pack's folder (including to the Recycle Bin) now drops the pane at once, and an open Settings window drops its row too; before, both stayed until a restart.
 - **Pack approvals moved out of the pack.** Your Run / Ignore answer is now kept in `%APPDATA%\Hytte\pack-answers\`. A pack can no longer arrive with an `.approved` file already in its folder. Packs you approved before ask once more.

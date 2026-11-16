@@ -736,7 +736,12 @@ impl Config {
                 name,
                 command,
                 confirm: a.confirm,
-                timeout: a.timeout.clamp(1, ACTION_MAX_TIMEOUT),
+                // 0 means "not set", as in a pack's pane.toml.
+                timeout: if a.timeout == 0 {
+                    ACTION_TIMEOUT
+                } else {
+                    a.timeout.clamp(1, ACTION_MAX_TIMEOUT)
+                },
                 dir: None,
             });
             if out.len() == MAX_ACTIONS {
@@ -1223,7 +1228,7 @@ mod tests {
         assert_eq!(names, ["restart-api", "slow", "instant"]);
         assert!(a[0].confirm && a[0].timeout == ACTION_TIMEOUT);
         assert_eq!(a[1].timeout, ACTION_MAX_TIMEOUT);
-        assert_eq!(a[2].timeout, 1);
+        assert_eq!(a[2].timeout, ACTION_TIMEOUT, "0 means not set");
         let many: String = (0..50)
             .map(|i| {
                 format!(
@@ -1325,6 +1330,16 @@ name = \"P{i}\"
         assert!(!toml::to_string_pretty(&Config::default())
             .unwrap()
             .contains("script_pane"));
+    }
+
+    #[test]
+    fn an_action_timeout_of_zero_means_the_default_like_in_a_pack() {
+        let c: Config = toml::from_str(
+            "[[action]]\nname = \"a\"\ncommand = \"x\"\ntimeout = 0\n[[action]]\nname = \"b\"\ncommand = \"x\"\ntimeout = 9999\n",
+        )
+        .unwrap();
+        let t: Vec<u64> = c.named_actions().iter().map(|a| a.timeout).collect();
+        assert_eq!(t, [ACTION_TIMEOUT, ACTION_MAX_TIMEOUT]);
     }
 
     #[test]

@@ -63,7 +63,7 @@ timeout = 120
 | `[[action]] name` | none | Letters, digits, `-` and `_`, 1 to **19** characters, unique within the pack (any case). |
 | `[[action]] command` | none | Required. Runs in the pack's folder. |
 | `[[action]] confirm` | `false` | `true`: the first click asks "Sure?", the second runs. |
-| `[[action]] timeout` | `60` | Seconds until the action and everything it started is stopped; kept between 1 and 600. Leave it out for the default: an explicit `0` means 60 in a pack but 1 second in `config.toml`. |
+| `[[action]] timeout` | `60` | Seconds until the action and everything it started is stopped; kept between 1 and 600. Leave it out (or write `0`) for the default. |
 
 Rules the loader applies (`packs::parse`):
 

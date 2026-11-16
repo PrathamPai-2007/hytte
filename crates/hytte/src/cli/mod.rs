@@ -377,7 +377,8 @@ fn cmd_pane(args: &[String]) {
                 .by_ref()
                 .take(hytte_proto::MAX_PANE_TEXT_BYTES as u64)
                 .read_to_string(&mut t);
-            t
+            // PowerShell 5 pipes a byte-order mark ahead of the text.
+            t.trim_start_matches('\u{feff}').to_string()
         }
     };
     // Read only: unlike `config::load`, never writes a default file from the CLI.

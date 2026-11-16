@@ -126,7 +126,7 @@ $a = hytte card --title "Restart server?" --button Restart --button Later --wait
 
 Text or rows for a custom pane (`pane_set`). With no `--text`, the text is piped input (up to 4096 bytes; typed at a terminal with nothing piped it prints the usage and exits 2). `--json` checks that the text is `{"rows": [...]}` and sends nothing, exit 1, if not (the pane itself decides by content whether pushed text is rows or text, with or without the flag). The name is checked first: the CLI reads `config.toml` (never writes it) and scans the pack folder, and the name must be a `[[script_pane]]` or an **approved** pack pane (since 1.9.3 a pack pane counts); otherwise it exits 1 with the pane names there are. Text over 4096 bytes is cut. Exits 1 when there is no pill. The full contract is in [section 17](17-writing-panes.md#push-mode).
 
-Unlike `hytte note` and `hytte todo`, it does not strip a leading byte-order mark from piped input, so pipe UTF-8 without one (see section 17 for Windows PowerShell 5.1).
+Like `hytte note` and `hytte todo`, it drops a leading byte-order mark from piped input (since 1.9.3; see section 17 for Windows PowerShell 5.1).
 
 ### `hytte doctor` (`cli/doctor.rs`)
 
