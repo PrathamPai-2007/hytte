@@ -6,6 +6,7 @@ mod agent;
 mod doctor;
 mod hook;
 mod mcp;
+mod mcp_panes;
 mod portscmd;
 mod progress;
 
@@ -853,9 +854,44 @@ fn cmd_setup(_args: &[String]) {
 }
 
 /// The pill and config as `hytte mcp` reaches them: the same calls the commands above make.
-struct McpIo;
+struct McpIo {
+    limit: std::sync::Mutex<crate::agent_guard::Limiter>,
+}
 
 impl mcp::Backend for McpIo {
+    fn actions(&self) -> Vec<(String, bool)> {
+        let text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
+        let cfg = crate::config::parse(&text).unwrap_or_default();
+        crate::packs::effective(
+            cfg.script_panes(),
+            cfg.named_actions(),
+            &crate::packs::scan(),
+        )
+        .1
+        .into_iter()
+        .map(|a| (a.name, a.confirm))
+        .collect()
+    }
+    fn run_action(&self, c: &hytte_proto::Cmd) -> Option<String> {
+        let line = c.to_line().ok()?;
+        // The human has hytte::ASK_WAIT_SECS to answer; a little more for the reply to arrive.
+        request_reply(&line, hytte_proto::ASK_WAIT_SECS + 10)
+            .and_then(|r| serde_json::from_str::<hytte_proto::Pressed>(r.trim()).ok())
+            .map(|p| p.pressed)
+    }
+    fn packs_dir(&self) -> std::path::PathBuf {
+        crate::packs::dir()
+    }
+    fn allow_write(&self) -> bool {
+        self.limit
+            .lock()
+            .map(|mut l| l.allow(Instant::now()))
+            .unwrap_or(false)
+    }
+    fn audit(&self, tool: &str, target: &str, result: &str) {
+        crate::agent_guard::audit(tool, target, result);
+    }
+
     fn send(&self, c: &hytte_proto::Cmd) -> bool {
         send_cmd(c)
     }
@@ -901,7 +937,9 @@ pub fn run(args: &[String]) {
         "shelf" => cmd_shelf(&args[1..]),
         "note" => cmd_jot(true, &args[1..]),
         "todo" => cmd_jot(false, &args[1..]),
-        "mcp" => mcp::run(&McpIo),
+        "mcp" => mcp::run(&McpIo {
+            limit: Default::default(),
+        }),
         #[cfg(debug_assertions)]
         "__update" => crate::update::debug_install(),
         _ => usage(),

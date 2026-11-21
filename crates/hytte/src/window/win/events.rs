@@ -253,6 +253,12 @@ impl Ui {
                     self.model.interrupt(c, now);
                 }
                 UiEvent::Cmd(c, reply) => self.run_cmd(c, reply, now),
+                // The human already said yes, so an action with `confirm` doesn't ask again.
+                UiEvent::ActionApproved(name, arg) => {
+                    if !self.paused && !self.gaming {
+                        self.run_named_with(&name, arg.as_deref(), true);
+                    }
+                }
                 UiEvent::UpdateOffer { tag, note } => {
                     self.update_offer = Some((tag, note));
                     self.show_update(now);

@@ -101,6 +101,28 @@ try {
     }
     Check "a note round-trips through the daemon to disk" $saw
 
+    # `hytte mcp` end to end: the tool list, a read, and a pane made and removed as a pack.
+    $rpc = @(
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}',
+        '{"jsonrpc":"2.0","id":2,"method":"tools/list"}',
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pane_list","arguments":{}}}',
+        '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"pane_create","arguments":{"name":"SmokeAgent","command":"echo hi"}}}',
+        '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"action_run","arguments":{"name":"no-such-action"}}}',
+        '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"pane_remove","arguments":{"name":"Smoke"}}}'
+    )
+    $in = [IO.Path]::GetTempFileName(); $outp = [IO.Path]::GetTempFileName()
+    ($rpc -join "`n") | Set-Content -Encoding ASCII $in
+    $m = Start-Process -FilePath $Exe -ArgumentList "mcp" -Wait -PassThru -WindowStyle Hidden `
+        -RedirectStandardInput $in -RedirectStandardOutput $outp
+    $mt = Get-Content $outp -Raw
+    Remove-Item $in, $outp -ErrorAction SilentlyContinue
+    Check "mcp lists the agent tools" ($mt -match 'action_run' -and $mt -match 'pane_create' -and $mt -match 'action_list')
+    Check "mcp pane_list sees the config's pane" ($mt -match 'Smoke')
+    Check "mcp pane_create writes an unapproved pack" (Test-Path (Join-Path $data "panes\smokeagent\pane.toml"))
+    Check "mcp action_run refuses an unknown name" ($mt -match 'no action called')
+    Check "mcp never removes a pane it did not make" ($mt -match 'made by an agent')
+
     if (-not $SkipPerf) {
         Write-Host ("  settling {0} s, then sampling CPU for {1} s ..." -f $Settle, $Sample)
         Start-Sleep -Seconds $Settle

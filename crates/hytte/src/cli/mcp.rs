@@ -1,6 +1,9 @@
 //! `hytte mcp`: a Model Context Protocol server on stdio, so an agent can put a card on the
 //! pill, ask you a question with buttons, or add a note. Every tool is one of the commands the
 //! CLI already has (`hytte_proto::Cmd`); nothing here reaches the daemon any other way.
+//! Beyond those, an agent can list panes and actions, make, change and remove its own panes
+//! (as packs, which wait for your Run: `mcp_panes.rs`), and ask to run a named action (the pill
+//! asks you first: `pipe_server.rs`). Writes are rate-limited and logged to `mcp.log`.
 //! Newline-delimited JSON-RPC 2.0, stdout carries protocol only. Requests are answered one at a
 //! time, so a `card` that waits holds up the next call (an agent waits for its own answer anyway).
 
@@ -15,6 +18,17 @@ pub(super) trait Backend {
     fn ask(&self, c: &Cmd) -> Option<String>;
     /// The pane names: `[[script_pane]]`s in config.toml and approved packs.
     fn panes(&self) -> Vec<String>;
+    /// Every action name Hytte knows (config.toml's and approved packs'), and whether it asks
+    /// "Sure?" before it runs.
+    fn actions(&self) -> Vec<(String, bool)>;
+    /// Send an `action_run` and wait for the pill's one-line answer (the human is asked first).
+    fn run_action(&self, c: &Cmd) -> Option<String>;
+    /// Where the pane packs live.
+    fn packs_dir(&self) -> std::path::PathBuf;
+    /// False when too many writes came in the last minute (counts the call when true).
+    fn allow_write(&self) -> bool;
+    /// One line in `mcp.log`.
+    fn audit(&self, tool: &str, target: &str, result: &str);
 }
 
 const LATEST: &str = "2025-06-18";
@@ -55,7 +69,35 @@ pub(super) fn tools() -> Value {
          "description": "Set the text of one of the user's [[script_pane]]s (a pane name from their config.toml, or an approved pane pack).",
          "inputSchema": {"type": "object", "required": ["name", "text"], "properties": {
             "name": s("The pane's name"),
-            "text": s("Plain text, or JSON {\"rows\": [...]}, up to 4096 bytes")}}}
+            "text": s("Plain text, or JSON {\"rows\": [...]}, up to 4096 bytes")}}},
+        {"name": "pane_list",
+         "description": "The names of the user's panes ([[script_pane]]s and approved pane packs), the ones pane_set can fill.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "action_list",
+         "description": "The named actions the user has set up (action_run takes one of these names). Shows names only, never their commands.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "pane_create",
+         "description": "Make a new pane that runs a command and shows what it prints. It does NOT run until the user presses Run on a card showing the command, so say what it is for. At most 4 panes made by agents.",
+         "inputSchema": {"type": "object", "required": ["name", "command"], "properties": {
+            "name": s("The tab's label, up to 16 characters"),
+            "command": s("One self-contained command line (run with cmd /c), up to 400 bytes, that prints text or JSON {\"rows\": [...]}"),
+            "every": {"type": "integer", "minimum": 30, "maximum": 86400,
+                "description": "Seconds between runs while the pane is open (default 60)"}}}},
+        {"name": "pane_update",
+         "description": "Change a pane you made. The user is asked to press Run again, because the command changed.",
+         "inputSchema": {"type": "object", "required": ["name", "command"], "properties": {
+            "name": s("The pane's name"),
+            "command": s("The new command line"),
+            "every": {"type": "integer", "minimum": 30, "maximum": 86400}}}},
+        {"name": "pane_remove",
+         "description": "Remove a pane you made. The user's own panes are never touched.",
+         "inputSchema": {"type": "object", "required": ["name"],
+            "properties": {"name": s("The pane's name")}}},
+        {"name": "action_run",
+         "description": "Ask to run one of the user's named actions (see action_list). The user is asked Allow or Deny on their screen each time; the reply says which, and the result of the action appears on their pill. You cannot run an arbitrary command.",
+         "inputSchema": {"type": "object", "required": ["name"], "properties": {
+            "name": s("An action name from action_list"),
+            "arg": s("Optional text the action receives as HYTTE_ARG, up to 256 bytes")}}}
     ])
 }
 
@@ -171,6 +213,68 @@ fn call(name: &str, a: &Value, io: &dyn Backend) -> Result<String, String> {
             hytte_proto::cut(&mut t, hytte_proto::MAX_PANE_TEXT_BYTES);
             sent(Cmd::pane_set(n.trim(), t), "set")
         }
+        "pane_list" => {
+            let p = io.panes();
+            Ok(if p.is_empty() {
+                "no panes".into()
+            } else {
+                p.join("\n")
+            })
+        }
+        "action_list" => {
+            let a = io.actions();
+            Ok(if a.is_empty() {
+                "no actions: the user has not defined any".into()
+            } else {
+                a.iter()
+                    .map(|(n, confirm)| {
+                        format!("{n}{}", if *confirm { " (asks Sure? first)" } else { "" })
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+        }
+        "pane_create" | "pane_update" | "pane_remove" => {
+            let n = text_of(a, "name")?.unwrap_or_default();
+            if !io.allow_write() {
+                io.audit(name, &n, "rate limited");
+                return Err("rate limited: at most 10 changes a minute".into());
+            }
+            let cmd = text_of(a, "command")?.unwrap_or_default();
+            let every = number(a, "every", u64::MAX)?;
+            let dir = io.packs_dir();
+            let r = match name {
+                "pane_create" => super::mcp_panes::create(&dir, &io.panes(), &n, &cmd, every),
+                "pane_update" => super::mcp_panes::update(&dir, &n, &cmd, every),
+                _ => super::mcp_panes::remove(&dir, &n),
+            };
+            io.audit(name, &n, if r.is_ok() { "ok" } else { "refused" });
+            r
+        }
+        "action_run" => {
+            let n = text_of(a, "name")?.unwrap_or_default();
+            let arg = text_of(a, "arg")?.filter(|s| !s.is_empty());
+            let c = Cmd::action_run(n.trim(), arg);
+            if !c.validate() {
+                return Err("not a valid action_run: name is letters, digits, - and _ (up to 40), arg up to 256 bytes".into());
+            }
+            if !io
+                .actions()
+                .iter()
+                .any(|(x, _)| x.eq_ignore_ascii_case(n.trim()))
+            {
+                io.audit("action_run", n.trim(), "no such action");
+                let names: Vec<_> = io.actions().into_iter().map(|(x, _)| x).collect();
+                return Err(format!(
+                    "no action called \"{}\" (there is: {})",
+                    n.trim(),
+                    names.join(", ")
+                ));
+            }
+            Ok(io.run_action(&c).unwrap_or_else(|| {
+                "no answer: Hytte isn't running, or nobody answered in time".into()
+            }))
+        }
         _ => Err(format!("unknown tool {name}")),
     }
 }
@@ -250,8 +354,39 @@ mod tests {
         sent: RefCell<Vec<Cmd>>,
         up: bool,
         press: Option<String>,
+        /// What the pill answers to an `action_run` (None: no answer).
+        verdict: Option<String>,
+        dir: std::path::PathBuf,
+        /// Writes allowed before the limiter says no (None: always).
+        writes_left: RefCell<Option<usize>>,
+        log: RefCell<Vec<String>>,
     }
     impl Backend for Fake {
+        fn actions(&self) -> Vec<(String, bool)> {
+            vec![("deploy".into(), true), ("docker-restart".into(), false)]
+        }
+        fn run_action(&self, c: &Cmd) -> Option<String> {
+            self.sent.borrow_mut().push(c.clone());
+            self.verdict.clone()
+        }
+        fn packs_dir(&self) -> std::path::PathBuf {
+            self.dir.clone()
+        }
+        fn allow_write(&self) -> bool {
+            match &mut *self.writes_left.borrow_mut() {
+                Some(0) => false,
+                Some(n) => {
+                    *n -= 1;
+                    true
+                }
+                None => true,
+            }
+        }
+        fn audit(&self, tool: &str, target: &str, result: &str) {
+            self.log
+                .borrow_mut()
+                .push(format!("{tool} {target} {result}"));
+        }
         fn send(&self, c: &Cmd) -> bool {
             self.sent.borrow_mut().push(c.clone());
             self.up
@@ -281,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn handshake_lists_the_five_tools_and_ignores_notifications() {
+    fn handshake_lists_the_tools_and_ignores_notifications() {
         let io = Fake::default();
         let r = rpc(&io, "initialize", json!({"protocolVersion": "2024-11-05"}));
         assert_eq!(r["result"]["protocolVersion"], "2024-11-05");
@@ -294,7 +429,19 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["notify", "card", "note_add", "todo_add", "pane_set"]
+            [
+                "notify",
+                "card",
+                "note_add",
+                "todo_add",
+                "pane_set",
+                "pane_list",
+                "action_list",
+                "pane_create",
+                "pane_update",
+                "pane_remove",
+                "action_run"
+            ]
         );
         assert!(handle(
             &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
@@ -371,5 +518,125 @@ mod tests {
         // No pill: an error the model can read.
         let down = Fake::default();
         assert!(tool(&down, "notify", json!({"text": "x"})).1);
+    }
+
+    fn tmp(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("hytte-mcp-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn the_read_tools_list_names_and_never_commands() {
+        let io = Fake::default();
+        assert_eq!(tool(&io, "pane_list", json!({})), ("Build".into(), false));
+        let (t, err) = tool(&io, "action_list", json!({}));
+        assert!(!err);
+        assert!(t.contains("deploy (asks Sure? first)") && t.contains("docker-restart"));
+        assert!(io.sent.borrow().is_empty(), "reads send nothing");
+    }
+
+    #[test]
+    fn action_run_asks_the_pill_and_reports_the_answer() {
+        let yes = Fake {
+            verdict: Some("allowed and started".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            tool(&yes, "action_run", json!({"name": "deploy", "arg": "web"})),
+            ("allowed and started".into(), false)
+        );
+        let sent = yes.sent.borrow();
+        assert_eq!(
+            (
+                sent[0].cmd.as_str(),
+                sent[0].id.as_deref(),
+                sent[0].text.as_deref()
+            ),
+            ("action_run", Some("deploy"), Some("web"))
+        );
+        // Nobody answered: a readable answer, not a hang.
+        let silent = Fake::default();
+        let (t, err) = tool(&silent, "action_run", json!({"name": "Deploy"}));
+        assert!(t.starts_with("no answer") && !err);
+    }
+
+    #[test]
+    fn action_run_refuses_what_is_not_a_known_name_before_asking_anyone() {
+        let io = Fake {
+            verdict: Some("allowed".into()),
+            ..Default::default()
+        };
+        for a in [
+            json!({"name": "rm -rf /"}),
+            json!({"name": "nope"}),
+            json!({"name": ""}),
+            json!({"name": "deploy", "arg": "x".repeat(300)}),
+            json!({"name": 5}),
+            json!({}),
+        ] {
+            let (_, err) = tool(&io, "action_run", a.clone());
+            assert!(err, "{a}");
+        }
+        assert!(io.sent.borrow().is_empty(), "the pill was never asked");
+    }
+
+    #[test]
+    fn pane_tools_make_a_pack_that_waits_for_run_and_are_logged() {
+        let d = tmp("tools");
+        let io = Fake {
+            dir: d.clone(),
+            ..Default::default()
+        };
+        let (t, err) = tool(
+            &io,
+            "pane_create",
+            json!({"name": "Deploys", "command": "echo ok", "every": 60}),
+        );
+        assert!(
+            !err && t.contains("nothing runs until you press Run"),
+            "{t}"
+        );
+        assert!(d.join("deploys").join("pane.toml").exists());
+        assert!(
+            !tool(
+                &io,
+                "pane_update",
+                json!({"name": "Deploys", "command": "echo 2"})
+            )
+            .1
+        );
+        // "Build" is the user's own pane: it can't be taken over or removed.
+        assert!(tool(&io, "pane_create", json!({"name": "build", "command": "x"})).1);
+        assert!(tool(&io, "pane_remove", json!({"name": "Build"})).1);
+        assert!(!tool(&io, "pane_remove", json!({"name": "Deploys"})).1);
+        assert!(!d.join("deploys").exists());
+        let log = io.log.borrow().join("|");
+        assert!(
+            log.contains("pane_create Deploys ok") && log.contains("pane_create build refused"),
+            "{log}"
+        );
+        assert!(
+            io.sent.borrow().is_empty(),
+            "pane tools never touch the pipe"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_flood_of_writes_is_stopped_and_logged() {
+        let d = tmp("flood");
+        let io = Fake {
+            dir: d.clone(),
+            writes_left: RefCell::new(Some(1)),
+            ..Default::default()
+        };
+        assert!(!tool(&io, "pane_create", json!({"name": "a", "command": "x"})).1);
+        let (t, err) = tool(&io, "pane_create", json!({"name": "b", "command": "x"}));
+        assert!(err && t.contains("rate limited"));
+        assert!(!d.join("b").exists());
+        assert!(io.log.borrow().iter().any(|l| l.contains("rate limited")));
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
