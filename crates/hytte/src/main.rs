@@ -81,13 +81,15 @@ fn main() {
     detach_console();
     logging::init();
     // Retried briefly: after an update the old process is still quitting when the new one starts.
-    let mut guard = single_instance::acquire("HytteSingleInstance");
+    // HYTTE_INSTANCE: an isolated second copy (the smoke test) has its own mutex and pipe.
+    let mutex = format!("HytteSingleInstance{}", hytte_proto::instance_suffix());
+    let mut guard = single_instance::acquire(&mutex);
     for _ in 0..50 {
         if guard.is_ok() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
-        guard = single_instance::acquire("HytteSingleInstance");
+        guard = single_instance::acquire(&mutex);
     }
     let Ok(_guard) = guard else {
         logging::line("another instance is running; exiting");

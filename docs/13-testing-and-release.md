@@ -16,7 +16,8 @@ On the 1.9.3 branch `cargo test -p hytte` runs 394 tests and leaves 35 ignored (
 |---|---|
 | `proto/src/lib.rs`, `sys.rs`, `ports.rs` | Message round trip, validation, old messages still parsing, an `Ask` or `Cmd` never mistaken for a task, text trimmed on a character boundary, per-user pipe name; ancestor chains stop at pid 0, a loop or the depth limit; a reused pid isn't the listed process (`same_exe`), port filtering, no self-kill. |
 | `hytte/src/ui_state/tests/` | Scene priority, expiry, shell thresholds, ignored commands, peeking, panels and paging, fullscreen break-through, agent CLIs left to hooks, timer card, mic lock, ambient rules, cross-fades, reduced motion, Ctrl+C not shown as an error, failed rows leaving with their terminal, task list scrolling; `panes.rs`: pane switches, order and the custom-pane slots; `scripts.rs`: script pane text and rows, footers, due times, action arming and busy per (action, arg), pack-scoped action names, a failed run's footer. |
-| `scriptpane.rs`, `packs.rs` | Output cleaning (colour codes, `` bars, six lines, 2048 bytes), JSON rows (limits, tones, progress clamp, valid action names, non-rows output staying text), buttons and `arg` cleaning, `HYTTE_ARG` reaching the command and nothing stale, a timed-out command leaving no process behind, `due`; pack loading (prefixed actions, defaults, every kind of mistake), an answer holding only for the file you saw, answers kept outside the pack, packs sharing the 12-pane limit behind config panes, and `remap_slots` carrying a switch and place to the new slot. |
+| `scriptpane.rs`, `packs.rs` | Output cleaning (colour codes, `
+` bars, six lines, 2048 bytes), JSON rows (limits, tones, progress clamp, valid action names, non-rows output staying text), buttons and `arg` cleaning, `HYTTE_ARG` reaching the command and nothing stale, a timed-out command leaving no process behind, `due`; pack loading (prefixed actions, defaults, every kind of mistake), an answer holding only for the file you saw, answers kept outside the pack, packs sharing the 12-pane limit behind config panes, and `remap_slots` carrying a switch and place to the new slot. |
 | `animation.rs`, `timer.rs`, `perf.rs` | Springs converge, are frame-rate independent, keep velocity on retarget; timer sleep gaps, pause, rounds, persistence, alarm WAV; percentile maths and the perf line. |
 | `ui_state/tests/scene.rs`, `render/tween.rs`, `render/film.rs`, `render/tokens.rs` | Scene layers (a reversal continues, quick changes keep fading, a fourth drops the faintest, reduced motion leaves one), the glow colour blend; tweens start at their target, forget what isn't drawn, settle, snap under reduced motion, spring back from a kick; every scripted transition is continuous; radii nest. |
 | `render/snap.rs` | The cached background matches the painted one at 1x, 1.5x and 2x. |
@@ -38,9 +39,24 @@ Motion review (ignored): `HYTTE_SNAP_DIR=<dir> cargo test filmstrips -- --ignore
 
 Ignored tests (run with `-- --ignored`): `render/snap.rs` draws the scenes offscreen (WARP, 200 %, both themes where it matters) into PNGs plus an `index.html` contact sheet, for checking UI changes without running the pill: `HYTTE_SNAP_DIR=<dir> cargo test -p hytte snapshots -- --ignored` (also runs `settings_window_snapshots`; the screenshots in `docs/img` come from these). Normal tests there check every settings-table row writes a key `config.toml` accepts, no key appears twice, and every reset reads back as the default. Manual tests: `mic` (`lists_live_apps`, and `mute_change_wakes_the_watcher`, which flips the real mute and restores it), `calendar_manual_create` / `_dump` / `_delete` (a throw-away calendar), `tabs` (`HYTTE_WT_PID=<pid> cargo test -p hytte selects_other_tab -- --ignored`, needs Windows Terminal with two tabs).
 
+### The smoke test and the perf gate
+
+`scripts/smoke.ps1` starts a built `hytte.exe` for real and checks it from outside:
+
+```powershell
+cargo build --release -p hytte
+./scripts/smoke.ps1                 # smoke + idle budgets, about 100 s
+./scripts/smoke.ps1 -SkipPerf       # smoke only, a few seconds
+./scripts/smoke.ps1 -Out smoke.json # also write the numbers
+```
+
+It runs an isolated second copy: its own `%APPDATA%` in a temp folder (autostart, PATH edits and update checks switched off) and its own pipe and single-instance mutex through the `HYTTE_INSTANCE` environment variable (letters and digits, 16 at most). So it is safe beside your own running Hytte, and it never touches your files, PATH or autostart. It checks that the daemon opens its pipe, that `--version`, `doctor`, `notify`, `card`, `pane set` and `note` reach it, that a note really reaches `jot.json`, that it is still running afterwards and that the log holds no panic. Then it waits 45 s, samples CPU for 30 s and reads private memory, and compares startup time, idle CPU and private memory with the `limit` block of `scripts/perf-baseline.json`. Exit code 1 on any failure.
+
+CI runs it as the `smoke` job (with the numbers uploaded as an artifact, and one retry because a shared runner can have a noisy minute) and as a smoke-only step in the `arm64` job. The limits are loose on purpose (1.5 s, 1 % of a core, 40 MB) so only a real regression trips them; the `baseline` block records what the last measurement saw (about 0.1 s, 0.3 %, 17 MB). When you change what is normal, measure again and edit the file in the same commit.
+
 ### Not covered automatically
 
-Anything needing a real desktop: drawing, hover timing, drag and drop, focus, fullscreen detection, the tray, virtual desktops, media sessions, OCR, shell scripts in real shells, `hytte.exe`'s console behaviour, quitting cleanly, and the update flow ([section 15](15-updates.md#testing-an-update)). Check by hand before a release using [section 2](02-getting-started.md#putting-the-pill-into-every-state).
+Anything needing a real desktop beyond the smoke test above: drawing, hover timing, drag and drop, focus, fullscreen detection, the tray, virtual desktops, media sessions, OCR, shell scripts in real shells, `hytte.exe`'s console behaviour, quitting cleanly, and the update flow ([section 15](15-updates.md#testing-an-update)). Check by hand before a release using [section 2](02-getting-started.md#putting-the-pill-into-every-state).
 
 ### Writing tests
 
