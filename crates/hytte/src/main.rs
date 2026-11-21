@@ -44,6 +44,7 @@ mod privacy;
 #[cfg(windows)]
 mod proc;
 #[cfg(windows)]
+mod registry;
 mod render;
 mod rerun;
 mod scriptpane;

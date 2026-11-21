@@ -1,0 +1,214 @@
+{
+    "version":  1,
+    "packs":  [
+                  {
+                      "name":  "ci-status",
+                      "description":  "The latest runs of one repository\u0027s GitHub Actions: workflow and branch on the left, the result on the right (green, ...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "open.ps1",
+                                        "sha256":  "62518da494fd0c88b07a032b28fbb8466ad34da1973319091a6d70189247ebe9",
+                                        "size":  168
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "eebc8dbf70edef575c5067a4051b8d79348a05c6e444d60e8d49721ce0286aa3",
+                                        "size":  196
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "08470aa275f2c085cb45d0d3d5a37ccdae9f4cab3d8904362359ae1b6c412732",
+                                        "size":  294
+                                    },
+                                    {
+                                        "path":  "repo.txt.example",
+                                        "sha256":  "794f799732f5e61d4d76b2f99af9a1ccf81c70abcfd7216ae08b5d29a2a42aea",
+                                        "size":  22
+                                    },
+                                    {
+                                        "path":  "runs.ps1",
+                                        "sha256":  "330e1563d8af3623ba75cc4440a128da81612324b79c373e47ef13399dda883b",
+                                        "size":  1131
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "disk-space",
+                      "description":  "Each fixed drive with a bar for the space used and the free space on the right. Amber above 75 %, red above 90 %. Not...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "disks.ps1",
+                                        "sha256":  "1e5c67a8fdbb044091faa3b02405f8f25e2782d5a427bc897050976524df0adf",
+                                        "size":  611
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "525d8cc0f8e7174bcee84c69c202145dc01ac0d8c70b33c094debdb80490a40e",
+                                        "size":  102
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "8d2e4badbe07b06d221acca6e2a4caafbd5ce198f310fad27210163b3e09fd5a",
+                                        "size":  142
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "docker",
+                      "description":  "Containers with their status, unhealthy and stopped ones first.",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "containers.ps1",
+                                        "sha256":  "4db103f5774471e33f27516c6c1ff4e650ddc96a950580941fab3cef36555328",
+                                        "size":  1748
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "d14136bc7b2c955a97d3227bdb6bcda8c389e03e68cb99698ff8733214eba721",
+                                        "size":  659
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "7a720e4a0a68f5ef7b143796c8d4b72a737f6e04ae32a364fb46319990d62445",
+                                        "size":  661
+                                    },
+                                    {
+                                        "path":  "restart.ps1",
+                                        "sha256":  "a70ca635e318ac4dd134015504cc8f19316f2f211da28b47621de66aebbe3c8c",
+                                        "size":  398
+                                    },
+                                    {
+                                        "path":  "restart-unhealthy.ps1",
+                                        "sha256":  "9ede01803b90d394bf018f216243dd568e1310aee02cb54332c93bb7095a49b0",
+                                        "size":  254
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "github-prs",
+                      "description":  "Your open pull requests, newest first (up to six): repository, number and title, with draft or open on the right. Cli...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "c642c812a1b8aec226c9750f27d1c38de302a4b3136319aef6bf4059e290e402",
+                                        "size":  236
+                                    },
+                                    {
+                                        "path":  "prs.ps1",
+                                        "sha256":  "c58068d542f1aaebf970c8f91317ce31fdcaa5546f176fea99e184c8272234be",
+                                        "size":  960
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "0fd8695bbfcef94e99d38cf380235d730e7c2f6064fce2ed74987e5401cd86da",
+                                        "size":  240
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "git-repos",
+                      "description":  "For each repository in repos.txt: how many files have uncommitted changes and how many commits are not pushed yet, or...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "986de876b48155bead1e90400fe396f57e8de0201bab8a2125acf2374361e958",
+                                        "size":  101
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "fa31b3c74f7d088c5e15abb32f72283cf7f4c9c62d129a3eb9f212adaf36bf05",
+                                        "size":  214
+                                    },
+                                    {
+                                        "path":  "repos.ps1",
+                                        "sha256":  "dc7573627c01ed21d65c753379fb3174d1bf374125d68fc7eccfbc02c0d14ef6",
+                                        "size":  1305
+                                    },
+                                    {
+                                        "path":  "repos.txt.example",
+                                        "sha256":  "e5bb40a5e2bfc7bf2eb10dc81b5acf8dbab45a9cdbdf2101c0be6290cec18e12",
+                                        "size":  122
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "net-check",
+                      "description":  "Three rows once a minute: is the internet up, the round trip to 1.1.1.1, and whether DNS answers. It only contacts 1....",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "check.ps1",
+                                        "sha256":  "c678bfa0ea19ce4d914669be1b561c1d76ad379cc5da059689fc75ec3e1782e7",
+                                        "size":  970
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "9a2551d67a571b696df6f838864e17ddf7e4d8028619cbddd00d9b06ade1dd40",
+                                        "size":  102
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "0516ee3f075b372f0c819702bf4235a1e8fb97a36d94c9d40661b50d28cc6047",
+                                        "size":  170
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "recycle-bin",
+                      "description":  "The number of items in the Recycle Bin and their size. Clicking the row asks \"Sure?\" and then empties it. Nothing to ...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "bin.ps1",
+                                        "sha256":  "8ce1513e6708d7ec736f779e6b34ab9e000cb317e98e0d2a6649c84e5d85a2b6",
+                                        "size":  770
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "5f97cb0e33ae8a399beaed4b3cf99d81b5bca867c8656725300bb0ae5b1170e6",
+                                        "size":  293
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "e65a0e319f89e41b362c141feda2abbda3c4b4ba8ac1c32d942ccf7357fb0f2f",
+                                        "size":  132
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "top-memory",
+                      "description":  "The five programs using the most RAM, all of a program\u0027s processes added together (Chrome is one row, not forty). The...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "2135e9a37d179ab7c09c14fde96925679c311e84f000d15309597cdc3679b04d",
+                                        "size":  99
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "91cd88282f7b665355fb4bb15fc002a93fbf47125f67f82fd8a22e49caa8e051",
+                                        "size":  180
+                                    },
+                                    {
+                                        "path":  "top.ps1",
+                                        "sha256":  "7ccf496d2726bd2c4854b28d343a5394182d6c5a26b14c767b9cbf3b9ad4c9d7",
+                                        "size":  848
+                                    }
+                                ]
+                  }
+              ]
+}

@@ -45,7 +45,7 @@ fn notice(text: String, tone: crate::ui_state::Tone) {
 }
 
 /// "v2.0.1" / "2.0.1" / "2.0.1-rc1" → (2, 0, 1). Anything else is not a version.
-fn parse(tag: &str) -> Option<(u32, u32, u32)> {
+pub(crate) fn parse(tag: &str) -> Option<(u32, u32, u32)> {
     let core = tag.trim().trim_start_matches('v');
     let core = core.split(['-', '+']).next()?;
     let mut it = core.split('.').map(|p| p.parse::<u32>().ok());

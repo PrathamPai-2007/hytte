@@ -7,6 +7,7 @@ mod doctor;
 mod hook;
 mod mcp;
 mod mcp_panes;
+mod pack;
 mod portscmd;
 mod progress;
 
@@ -38,7 +39,8 @@ usage:
   hytte note [--keep] \"text\"            # add a note (or text on stdin); --keep: it stays past 24 hours
   hytte todo \"text\"                     # add a to-do (or text on stdin)
   hytte setup mcp [--undo]               # register that server with Claude Code and Codex (opt-in)
-  hytte mcp                              # MCP server on stdio: agents can show cards, ask you, add notes
+  hytte mcp                              # MCP server on stdio: agents can show cards, ask you, add notes, make panes, ask to run an action
+  hytte pack <search|info|install|update|remove|list> [name] [--source <https-url|folder>]   # shared pane packs
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
   hytte kill :PORT [--force]             # stop whatever listens on PORT
@@ -937,6 +939,7 @@ pub fn run(args: &[String]) {
         "shelf" => cmd_shelf(&args[1..]),
         "note" => cmd_jot(true, &args[1..]),
         "todo" => cmd_jot(false, &args[1..]),
+        "pack" => pack::run(&args[1..]),
         "mcp" => mcp::run(&McpIo {
             limit: Default::default(),
         }),

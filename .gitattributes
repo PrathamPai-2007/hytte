@@ -1,3 +1,7 @@
 # Shell integration scripts are embedded with include_str! and eval'd by bash/zsh/nu:
 # they must keep LF endings even in a Windows checkout (core.autocrlf=true).
 crates/hytte/src/cli/shell/* text eol=lf
+
+# Pane packs are downloaded by `hytte pack` and checked against SHA-256 hashes of these exact
+# bytes (examples/panes/index.json), so they stay LF in every checkout.
+examples/panes/** text eol=lf

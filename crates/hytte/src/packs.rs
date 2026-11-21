@@ -198,6 +198,14 @@ pub fn scan() -> Vec<Pack> {
     out
 }
 
+/// Drop the Run / Ignore answer for a folder, so it asks again. `hytte pack install` and
+/// `update` do this: an answer covers `pane.toml` only, and an update may change a script.
+pub fn forget_answer(folder: &str) {
+    for ext in ["approved", "ignored"] {
+        let _ = std::fs::remove_file(answers_dir().join(format!("{folder}.{ext}")));
+    }
+}
+
 /// Where answers are kept: outside the packs, so a pack can't bring its own.
 fn answers_dir() -> PathBuf {
     crate::config::data_dir().join("pack-answers")
