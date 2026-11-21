@@ -23,6 +23,7 @@ Read the sections in order the first time: each one builds on the previous ones.
 | 15 | [Updates](15-updates.md) | How the update check and in-place self-replace work, and how to test them. |
 | 16 | [What's new](16-whats-new.md) | What changed in each version, for people who use Hytte and for people who change it. |
 | 17 | [Writing custom panes](17-writing-panes.md) | The authoring guide: `[[script_pane]]` and pane packs, approval, how commands run, the text and JSON output formats, actions and `HYTTE_ARG`, push mode, limits and debugging, with worked examples. Example packs are in [`examples/panes`](../examples/panes/README.md). |
+| 18 | [Agent control and the pack registry](18-agent-control-and-registry.md) | The security model for agents that change panes or run actions, and the `hytte pack` registry: index format, trust chain, how to publish a pack. |
 
 ## Conventions used in these docs
 

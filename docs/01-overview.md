@@ -74,10 +74,12 @@ crates/hytte/                     builds hytte.exe
   src/shelf, drop, transforms, convert .rs   shelf and Drop Vault
   src/fullscreen, tray, config, skin, setup, agents, update .rs
   src/logging, secrets, perf, single_instance, winrt, proc, rerun, welcome .rs   support
-  src/cli/                           command dispatch, doctor, agent, hook/init, mcp server, ports, progress, shell scripts
+  src/cli/                           command dispatch, doctor, agent, hook/init, mcp server (mcp.rs, mcp_panes.rs), pack, ports, progress, shell scripts
+  src/registry, agent_guard .rs      the pack registry (index, SHA-256, install/update/remove); the rate limit and mcp.log
 docs/                             these docs and screenshots (docs/img)
 manual/                           the end-user manual
-examples/panes/                   example pane packs, copied into %APPDATA%\Hytte\panes
+examples/panes/                   the pane packs and their index.json: the default source of `hytte pack`
+scripts/                          release.ps1, version.ps1, smoke.ps1 (the built-exe test), pack-index.ps1, perf-baseline.json
 landing-page/                     the project website (a separate Next.js app)
 bucket/hytte.json                 Scoop manifest
 manifests/winget/                 winget manifest (kept in step by the release tooling, like the Scoop one)

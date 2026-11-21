@@ -19,6 +19,8 @@ Eight example packs come with Hytte's source, in the `examples/panes` folder. Th
 | `git-repos` | Uncommitted and unpushed work in the repositories you list. Needs `git` and a `repos.txt` you fill in. |
 | `recycle-bin` | Items and size in the Recycle Bin. A confirmed click empties it. |
 
+> Prefer a command to copying folders? `hytte pack install <name>` downloads and checks the ready-made ones for you: see [page 11](11-pane-store.md).
+
 ## Installing a pack
 
 A pack is a folder with a file called `pane.toml` in it (plus the scripts it runs).

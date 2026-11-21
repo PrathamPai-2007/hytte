@@ -25,8 +25,8 @@ It never steals focus, idles at about 0.2 % CPU, and uses under 25 MB of RAM. It
 - **Quick controls:** mute microphones and speakers, keep the PC awake, per-app volume.
 - **Timer and focus sessions** that switch on Windows Do Not Disturb and tell you what you missed.
 - **Live cards from your scripts:** progress, icons and buttons, and `--wait` to ask a question and get the answer back.
-- **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts. Eight ready-made packs are in `examples/panes`.
-- **Agents can talk back.** `hytte setup mcp` gives Claude Code and Codex tools to show a card, ask you with buttons and add a note. Agents inside WSL work too (`hytte setup agents --wsl`).
+- **Your own panes,** filled by a command Hytte runs while the pane is open, or by your scripts. Eight ready-made packs are in `examples/panes`, and `hytte pack install <name>` fetches them with a checksum.
+- **Agents can talk back.** `hytte setup mcp` gives Claude Code and Codex tools to show a card, ask you with buttons, add a note, and (only with your Run or Allow) add a pane or run one of your actions. Agents inside WSL work too (`hytte setup agents --wsl`).
 - **Move it.** Drag the pill's top edge sideways; each monitor remembers its place.
 - **Notes, a to-do list and the weather**, typed straight into the pill.
 - **Asks a small AI model on your own PC** (through Ollama, which you install yourself): one question, one answer, plus Explain, Summarise and Shorten on a clip, a file or a failed command. Nothing leaves your machine.

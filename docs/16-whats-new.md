@@ -2,6 +2,17 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
+## 1.10.x (not released yet)
+
+Three releases are planned: 1.10.0 (the test and perf gate), 1.10.1 (agent control and the pack registry), 1.10.2 (this documentation pass).
+
+- **A real test of the built app.** `scripts/smoke.ps1` starts the exe as an isolated second copy, drives it over its pipe and through `hytte mcp` and `hytte pack`, and measures startup, idle CPU and memory against budgets in `scripts/perf-baseline.json`. CI runs it as the `smoke` job (and smoke-only on ARM64). `HYTTE_INSTANCE=<name>` gives a copy its own pipe and mutex, so it runs beside your own Hytte. See [section 13](13-testing-and-release.md#the-smoke-test-and-the-perf-gate).
+- **Agents can do more, and you stay in charge.** `hytte mcp` gains `pane_list`, `action_list`, `pane_create`, `pane_update`, `pane_remove` and `action_run`. A pane an agent makes waits for your **Run**; `action_run` shows **Allow / Deny** every time and runs only actions you defined. Changes are rate-limited and logged in `mcp.log`. See [section 18](18-agent-control-and-registry.md) and [manual 11](../manual/11-pane-store.md).
+- **A pane store.** `hytte pack search | info | install | update | remove | list` installs the example packs (and any collection you point `--source` at), verified by SHA-256, and still waits for **Run**. An install or update asks again, since an old answer covered only `pane.toml`.
+- **The docs.** New section 18, new manual page 11; the CLI, files, tests and overview pages describe the new commands and files.
+
+For people who change Hytte: `Cmd` gains `action_run` (name in `id`, argument in `text`; `valid_action_id`, `MAX_ACTION_ARG_BYTES`), `UiEvent::ActionApproved` is the only way an action runs for an agent (`Ui::run_named_with(.., approved)`), `hytte_proto::instance_suffix` reads `HYTTE_INSTANCE`, `packs::forget_answer`, `update::parse` is `pub(crate)`, and `agent_guard`, `registry`, `cli/mcp_panes` and `cli/pack` are new modules.
+
 ## 1.9.3
 
 - **Deleting a pane takes its row with it.** Removing a pack's folder (including to the Recycle Bin) now drops the pane at once, and an open Settings window drops its row too; before, both stayed until a restart.

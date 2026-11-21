@@ -16,6 +16,7 @@ New here? Read the first two pages, then pick what you need.
 | [8. Updates and troubleshooting](08-updates-and-troubleshooting.md) | Staying current, fixing problems, and uninstalling. |
 | [9. Ask (local AI)](09-ask.md) | Ask a small model on your own PC, and Explain / Summarise / Shorten a clip, file or failed command. |
 | [10. Custom panes](10-custom-panes.md) | Adding your own panes, installing ready-made ones, and keeping them safe. |
+| [11. The pane store](11-pane-store.md) | Installing ready-made panes with one command, and what an agent may do with your panes and actions. |
 
 Something wrong or missing? [Open an issue](https://github.com/PrathamPai-2007/hytte/issues).
 
