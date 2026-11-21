@@ -151,7 +151,10 @@ fn serve_connection(
                     ));
                 }
             } else if let Ok(cmd) = serde_json::from_str::<hytte_proto::Cmd>(trimmed) {
-                if cmd.validate() && cmd.wait {
+                if cmd.validate() && cmd.cmd == "action_run" {
+                    // One per connection: it waits for the human, then answers one line.
+                    return run_action_request(h, cmd, ui_tx);
+                } else if cmd.validate() && cmd.wait {
                     // Like an ask: one per connection, held open for the answer.
                     return wait_for_press(h, cmd, ui_tx);
                 } else if cmd.validate() {
@@ -235,5 +238,84 @@ fn answer(
         m.source = Some("agent".into());
         m.pid = Some(pid);
         let _ = tx.send(m);
+    }
+}
+
+/// The actions Hytte knows now, read like `hytte mcp` does: `config.toml`'s and approved packs'.
+#[cfg(windows)]
+fn known_actions() -> Vec<crate::config::NamedAction> {
+    let text = std::fs::read_to_string(crate::config::config_path()).unwrap_or_default();
+    let cfg = crate::config::parse(&text).unwrap_or_default();
+    crate::packs::effective(
+        cfg.script_panes(),
+        cfg.named_actions(),
+        &crate::packs::scan(),
+    )
+    .1
+}
+
+/// An agent asks to run a named action. Never a command string: only a name the user's own
+/// config or an approved pack defines. Unknown names and a flood are refused here; the rest goes
+/// to the human as an Allow / Deny card, and only a yes reaches the UI thread (as
+/// `UiEvent::ActionApproved`, which nothing on the pipe can send). Every outcome is logged and
+/// answered with one [`hytte_proto::Pressed`] line.
+#[cfg(windows)]
+fn run_action_request(
+    h: windows::Win32::Foundation::HANDLE,
+    cmd: hytte_proto::Cmd,
+    ui_tx: &Sender<UiEvent>,
+) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+    use windows::Win32::Storage::FileSystem::WriteFile;
+    static NEXT: AtomicU64 = AtomicU64::new(1_000_000);
+    static LIMIT: Mutex<Option<crate::agent_guard::Limiter>> = Mutex::new(None);
+    let name = cmd.id.clone().unwrap_or_default();
+    let arg = cmd.text.clone();
+    let say = |what: &str| {
+        crate::agent_guard::audit("action_run", &name, what);
+        if let Ok(mut line) = serde_json::to_string(&hytte_proto::Pressed {
+            pressed: what.to_string(),
+        }) {
+            line.push('\n');
+            let _ = unsafe { WriteFile(h, Some(line.as_bytes()), None, None) };
+        }
+    };
+    let Some(action) = known_actions()
+        .into_iter()
+        .find(|a| a.name.eq_ignore_ascii_case(&name))
+    else {
+        return say("no such action (see action_list)");
+    };
+    let fits = LIMIT
+        .lock()
+        .map(|mut l| {
+            l.get_or_insert_with(Default::default)
+                .allow(std::time::Instant::now())
+        })
+        .unwrap_or(false);
+    if !fits {
+        return say("rate limited: at most 10 action runs a minute");
+    }
+    let (reply, rx) = crossbeam_channel::bounded::<bool>(1);
+    let shown_arg = arg
+        .as_deref()
+        .map(|a| format!(" with \"{}\"", a.chars().take(40).collect::<String>()))
+        .unwrap_or_default();
+    let ev = UiEvent::Ask {
+        id: NEXT.fetch_add(1, Ordering::Relaxed),
+        summary: format!("agent: run the action \"{}\"{shown_arg}?", action.name),
+        reply,
+    };
+    if ui_tx.send(ev).is_err() {
+        return;
+    }
+    match rx.recv_timeout(std::time::Duration::from_secs(hytte_proto::ASK_WAIT_SECS)) {
+        Ok(true) => {
+            let _ = ui_tx.send(UiEvent::ActionApproved(action.name.clone(), arg));
+            say("allowed and started; its result appears on the pill")
+        }
+        Ok(false) => say("denied by the user"),
+        Err(_) => say("no answer: nobody allowed it (or the pill is paused)"),
     }
 }

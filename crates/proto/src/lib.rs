@@ -231,7 +231,9 @@ impl Ask {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cmd {
     pub v: u32,
-    /// `"notify"`, `"card"`, `"shelf_add"`, `"pane_set"`, `"note_add"` or `"todo_add"`.
+    /// `"notify"`, `"card"`, `"shelf_add"`, `"pane_set"`, `"note_add"`, `"todo_add"` or
+    /// `"action_run"` (the name rides in `id`, an optional argument in `text`; the pill asks the
+    /// human first and answers with one [`Pressed`] line).
     pub cmd: String,
     /// The card text (`notify`, a `card`'s body) or the snippet to shelve (`shelf_add`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -271,6 +273,17 @@ pub struct Cmd {
     /// A `note_add` note that stays, instead of leaving after 24 hours.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub keep: bool,
+}
+
+/// Longest argument an `action_run` may carry (it becomes `HYTTE_ARG`).
+pub const MAX_ACTION_ARG_BYTES: usize = 256;
+
+/// An action's name as `config.toml` allows one: letters, digits, `-` and `_`, 1 to 40 characters.
+pub fn valid_action_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().count() <= 40
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// The icons a card may ask for.
@@ -347,6 +360,17 @@ impl Cmd {
     }
 
     /// An empty `card`; fill in what you need.
+    /// Ask the pill to run the named action (after the human says yes).
+    pub fn action_run(name: impl Into<String>, arg: Option<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            cmd: "action_run".into(),
+            id: Some(name.into()),
+            text: arg,
+            ..Default::default()
+        }
+    }
+
     pub fn card() -> Self {
         Self {
             v: PROTOCOL_VERSION,
@@ -383,7 +407,8 @@ impl Cmd {
             || self.clear
             || self.wait;
         if (card_only && self.cmd != "card")
-            || (self.id.is_some() && !matches!(self.cmd.as_str(), "card" | "pane_set"))
+            || (self.id.is_some()
+                && !matches!(self.cmd.as_str(), "card" | "pane_set" | "action_run"))
             || (self.keep && self.cmd != "note_add")
         {
             return false;
@@ -398,6 +423,12 @@ impl Cmd {
                         .as_ref()
                         .is_some_and(|n| !n.trim().is_empty() && n.len() <= 64)
                     && text.is_some_and(|n| n <= MAX_PANE_TEXT_BYTES)
+            }
+            "action_run" => {
+                self.path.is_none()
+                    && self.id.as_deref().is_some_and(valid_action_id)
+                    && text.is_none_or(|n| n > 0 && n <= MAX_ACTION_ARG_BYTES)
+                    && !self.keep
             }
             "notify" => self.path.is_none() && text.is_some_and(|n| n > 0 && n <= 1024),
             "note_add" | "todo_add" => {
@@ -592,6 +623,27 @@ mod tests {
         assert_eq!(instance_suffix_of(Some("smoke1")), "-smoke1");
         assert_eq!(instance_suffix_of(Some(r"..\x/y z")), "-xyz");
         assert_eq!(instance_suffix_of(Some(&"a".repeat(40))).len(), 17);
+    }
+
+    #[test]
+    fn action_run_is_validated() {
+        assert!(Cmd::action_run("deploy", None).validate());
+        assert!(Cmd::action_run("docker-restart", Some("web".into())).validate());
+        for bad in ["", "has space", "a/b", "..", &"x".repeat(41)] {
+            assert!(!Cmd::action_run(bad, None).validate(), "{bad:?}");
+        }
+        assert!(!Cmd::action_run("ok", Some("x".repeat(257))).validate());
+        assert!(!Cmd::action_run("ok", Some(String::new())).validate());
+        let mut c = Cmd::action_run("ok", None);
+        c.path = Some(r"C:\x".into());
+        assert!(!c.validate(), "no path");
+        c.path = None;
+        c.wait = true;
+        assert!(!c.validate(), "wait is for cards");
+        // A name in `id` is still refused on the commands that don't take one.
+        let mut n = Cmd::notify("x");
+        n.id = Some("a".into());
+        assert!(!n.validate());
     }
 
     #[test]

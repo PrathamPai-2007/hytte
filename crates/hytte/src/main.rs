@@ -10,6 +10,7 @@
 // Direct2D drawing helpers take geometry + colour; Win32 structs and test models are built field by field.
 #![allow(clippy::too_many_arguments, clippy::field_reassign_with_default)]
 
+mod agent_guard;
 mod agents;
 mod animation;
 mod bluetooth;

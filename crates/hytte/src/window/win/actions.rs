@@ -529,6 +529,12 @@ impl Ui {
     /// arms it. The command runs on a worker (hidden, in a Job, stopped at its timeout) and its
     /// result comes back as `UiEvent::ActionDone`. True when it started.
     pub(super) fn run_named(&mut self, name: &str, arg: Option<&str>) -> bool {
+        self.run_named_with(name, arg, false)
+    }
+
+    /// `approved`: a human already said yes (an agent's `action_run`), so the action's own
+    /// `confirm` arming is skipped.
+    pub(super) fn run_named_with(&mut self, name: &str, arg: Option<&str>, approved: bool) -> bool {
         use crate::ui_state::Press;
         let now = Instant::now();
         let Some(a) = self.named_action(name) else {
@@ -540,7 +546,7 @@ impl Ui {
         };
         // Rows of one action with different args are separate presses (armed, running).
         let key = crate::ui_state::action_key(&a.name, arg);
-        match self.model.press_action(&key, a.confirm, now) {
+        match self.model.press_action(&key, a.confirm && !approved, now) {
             Press::Arm | Press::Busy => false,
             Press::Run => {
                 let sh = self.shared.clone();
@@ -570,6 +576,10 @@ impl Ui {
         now: Instant,
     ) {
         if self.paused || self.gaming {
+            return;
+        }
+        // Never run from here: the pipe asks the human first and sends `ActionApproved`.
+        if c.cmd == "action_run" {
             return;
         }
         if c.cmd == "pane_set" {
