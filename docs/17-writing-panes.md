@@ -234,7 +234,9 @@ What happens (`cmd_pane`, `Cmd::pane_set`):
 - If the pane also has a command, the next run replaces what you pushed. For a purely pushed pane, set `command = ""` in a `[[script_pane]]`: the footer then shows only the age, and there is no refresh button.
 - A pane's action names in pushed rows follow the same rule: a pack pane's rows name actions without the prefix.
 
-**MCP.** The `hytte mcp` server offers a `pane_set` tool with `name` and `text` arguments (up to 4096 bytes) for agents ([section 5](05-cli.md#hytte-mcp-and-hytte-setup-mcp---undo-climcprs)). It accepts the same names as `hytte pane set`: a `[[script_pane]]` or an approved pack pane (since 1.9.3).
+**MCP.** The `hytte mcp` server offers a `pane_set` tool with `name` and `text` arguments (up to 4096 bytes) for agents ([section 5](05-cli.md#hytte-mcp-and-hytte-setup-mcp---undo-climcprs)). It accepts the same names as `hytte pane set`: a `[[script_pane]]` or an approved pack pane (since 1.9.3). Since 1.10.1 an agent can also create, update and remove panes of its own (as packs that wait for **Run**) and ask to run an action; see [section 18](18-agent-control-and-registry.md).
+
+**Sharing a pack.** Put the folder under `examples/panes/` with a README, run `scripts/pack-index.ps1`, and `hytte pack install <name>` can fetch it: [section 18](18-agent-control-and-registry.md#publishing-a-pack). Keep a pack flat (no sub-folders), each file under 64 KB, at most 20 files.
 
 **Windows PowerShell 5.1 notes.** Pipe JSON in (as above) rather than passing it with `--text`: 5.1 drops the double quotes inside an argument to a native program. Set `$OutputEncoding = [Text.UTF8Encoding]::new($false)` first so non-ASCII text arrives as UTF-8 and without a byte-order mark; a BOM in front of the JSON makes it fail the `--json` check. PowerShell 7 needs neither.
 

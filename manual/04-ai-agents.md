@@ -68,14 +68,18 @@ When an agent asks you a question rather than asking permission, the pill shows 
 
 ## Let an agent talk to the pill (optional)
 
-Hytte can also be a tool the agent calls. Run `hytte setup mcp` and Claude Code and Codex (whichever are installed) get a `hytte` tool server; `hytte setup mcp --undo` removes it. Nothing registers it unless you run that. New agent sessions then have five tools:
+Hytte can also be a tool the agent calls. Run `hytte setup mcp` and Claude Code and Codex (whichever are installed) get a `hytte` tool server; `hytte setup mcp --undo` removes it. Nothing registers it unless you run that. New agent sessions then have these tools:
 
 - **notify**: a short message on the pill.
 - **card**: a card with a title, text, progress bar or up to two buttons. With `wait`, it asks you and the agent receives the label of the button you press, or "no answer" if you don't press one in time.
 - **note_add** and **todo_add**: add to your Notes and To-do lists.
 - **pane_set**: set the text of one of your script panes.
 
-A button press only reports back to the agent; Hytte never runs anything because of it. Each call is the same as the matching `hytte` command, and does nothing while Hytte is paused or not running (the agent is told so).
+- **pane_list** and **action_list**: the names of your panes and of the actions you set up (never their commands).
+- **pane_create**, **pane_update**, **pane_remove**: the agent can add a pane of its own (up to four). It does not run until you press **Run** on the card that shows its command, and a change asks again. It can never change or remove your own panes.
+- **action_run**: the agent can ask to run one of your named actions. You see **Allow** or **Deny** every time, and no answer in 30 seconds counts as no.
+
+A card's button press only reports back to the agent; it never runs anything. The agent cannot run a command it makes up, only an action you already defined. Every pane change and action attempt is written to `%APPDATA%\Hytte\mcp.log`. The details, and what these checks do not cover, are on [page 11](11-pane-store.md#when-an-agent-wants-to-add-a-pane-or-run-something). Each call does nothing while Hytte is paused or not running (the agent is told so).
 
 ## Other tools
 

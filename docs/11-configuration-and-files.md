@@ -17,6 +17,9 @@ Everything Hytte writes is under the current user's profile; nothing is system-w
 | `…\hytte.log` | `logging.rs` | Panics; fullscreen decision changes; hotkey, GPU and startup failures; migrated profiles; update activity; rejected pipe messages; frame telemetry with `HYTTE_PERF=1`. At startup a log over 1 MB is renamed `hytte.log.old` (one old log is kept). |
 | `…\panes\<name>\pane.toml` | you (or a pack you copied) | A pane pack: a script pane, its actions and its scripts ([section 17](17-writing-panes.md)). The folder is created at startup and watched. |
 | `…\pack-answers\<name>.approved` / `.ignored` | `packs::answer` | Your Run / Ignore for a pack: the FNV-1a hash of the `pane.toml` you saw. Outside the pack, so a pack cannot bring its own answer. An edited `pane.toml` no longer matches and asks again. |
+| `…\mcp.log` | `agent_guard::audit` | One line per agent write or action attempt: unix seconds, tool, target, result (tab-separated, fields cut to 200 characters). About 256 KB, then one `mcp.log.old` ([section 18](18-agent-control-and-registry.md)). |
+| `…\panes\<name>\.hytte-agent` | `cli/mcp_panes.rs` | Marks a pack folder an agent made, so only that folder can be changed or removed by an agent. |
+| `…\panes\<name>\.hytte-pack.json` | `registry.rs` | Marks a pack `hytte pack install` made: name, version, source and the files it brought, so `update` and `remove` touch only those. |
 | `…\pane-slots.json` | `packs::save_slot_names` | The pane names last held by the custom-pane slots (`["A","B"]`), so a changed list can move each pane's switch and place with it ([section 17](17-writing-panes.md#the-pane-cap-slots-and-switches)). |
 | `…\panel.txt` | `Ui::remember_panel` | With `remember_panel`, the panel the pill last collapsed on. |
 | `…\welcome` | `welcome::finish` | Present once the welcome tour (fresh installs only) was finished or skipped. |
