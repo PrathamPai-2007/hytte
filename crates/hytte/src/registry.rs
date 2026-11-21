@@ -584,7 +584,7 @@ mod tests {
         let forget = |n: &str| forgot.borrow_mut().push(n.to_string());
         let msg = install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "DEMO",
             "1.9.3",
@@ -609,7 +609,7 @@ mod tests {
         // Twice: told to update instead.
         let again = install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "demo",
             "1.9.3",
@@ -625,7 +625,7 @@ mod tests {
         std::fs::write(f.root.join("src").join("demo").join("d.ps1"), "'evil'\n").unwrap();
         let e = install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "demo",
             "1.9.3",
@@ -638,7 +638,7 @@ mod tests {
         std::fs::write(f.root.join("src").join("demo").join("d.ps1"), "'hellp'\n").unwrap();
         assert!(install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "demo",
             "1.9.3",
@@ -655,7 +655,7 @@ mod tests {
         std::fs::write(f.packs.join("demo").join("pane.toml"), "mine").unwrap();
         let e = install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "demo",
             "1.9.3",
@@ -680,7 +680,7 @@ mod tests {
         let f = fixture("upd", &files());
         install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "demo",
             "1.9.3",
@@ -713,7 +713,7 @@ mod tests {
         let f = fixture("rm", &files());
         install(
             &src(&f),
-            &[f.entry.clone()],
+            std::slice::from_ref(&f.entry),
             &f.packs,
             "demo",
             "1.9.3",
@@ -771,13 +771,13 @@ mod tests {
     #[test]
     fn info_shows_what_would_run_and_search_finds_by_word() {
         let f = fixture("info", &files());
-        let s = info(&src(&f), &[f.entry.clone()], "demo").unwrap();
+        let s = info(&src(&f), std::slice::from_ref(&f.entry), "demo").unwrap();
         assert!(
             s.contains("powershell -File d.ps1") && s.contains("Read the scripts"),
             "{s}"
         );
-        assert!(search(&[f.entry.clone()], "DEM").contains("demo"));
-        assert!(search(&[f.entry.clone()], "zzz").contains("nothing found"));
+        assert!(search(std::slice::from_ref(&f.entry), "DEM").contains("demo"));
+        assert!(search(std::slice::from_ref(&f.entry), "zzz").contains("nothing found"));
         let _ = std::fs::remove_dir_all(&f.root);
     }
 }
