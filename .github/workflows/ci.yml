@@ -42,6 +42,9 @@ jobs:
       - run: cargo test --workspace
       - run: cargo build --release -p hytte
       - run: ./target/release/hytte.exe --version
+      # Starts the real exe as an isolated copy and drives it over its pipe; no timing here, as
+      # ARM runners are too noisy to budget.
+      - run: ./scripts/smoke.ps1 -SkipPerf
 
   # Known-vulnerable dependencies (RustSec). Its own job: a new advisory shouldn't hide
   # whether the code itself builds and passes.
@@ -52,3 +55,24 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo install cargo-audit --locked
       - run: cargo audit
+
+  # The built app, started for real: it must come up, answer over its pipe and stay within the
+  # idle budgets in scripts/perf-baseline.json (startup, idle CPU, private memory).
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo build --release -p hytte
+      # One retry: a shared runner can have a noisy minute, and a real regression fails twice.
+      - shell: pwsh
+        run: |
+          ./scripts/smoke.ps1 -Out smoke.json
+          if ($LASTEXITCODE -ne 0) { Write-Host "retrying once"; ./scripts/smoke.ps1 -Out smoke.json }
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: smoke
+          path: smoke.json
+          if-no-files-found: ignore

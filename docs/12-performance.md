@@ -16,6 +16,8 @@ Hytte runs all day beside everything else, so idle cost matters more than peak s
 
 The three rows above were measured at 60 Hz right after the background cache and the vblank pacing, before the later motion and look work (sliding rows, rolling digits, corners, the shadow). They are to be measured again on the final build at 120 Hz before the release.
 
+`scripts/smoke.ps1` measures startup, idle CPU and private memory on the built exe and CI fails above the limits in `scripts/perf-baseline.json` ([section 13](13-testing-and-release.md#the-smoke-test-and-the-perf-gate)). Last measured on 1.9.3 with it: about 0.1 s to open the pipe, 0.2 to 0.5 % idle CPU, 17 MB private bytes (the table's 10 MB was 1.7.0's, before later features).
+
 Release builds use `lto = true` and `codegen-units = 1` (root `Cargo.toml`).
 
 ### Why the GPU renderer uses WARP

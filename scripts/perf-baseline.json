@@ -1,0 +1,5 @@
+{
+  "note": "Measured 2026-11-22, release build 1.9.3, Windows 11, isolated %APPDATA%, 45 s settle then 30 s sample (scripts/smoke.ps1), three runs. Limits are what CI enforces; they are deliberately loose because shared runners are noisy (docs/12-performance.md has the targets).",
+  "baseline": { "startup_ms": 100, "idle_cpu_pct": 0.3, "private_mb": 17 },
+  "limit": { "startup_ms": 1500, "idle_cpu_pct": 1.0, "private_mb": 40 }
+}

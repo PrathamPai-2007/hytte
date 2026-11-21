@@ -15,10 +15,34 @@ pub const PIPE_PREFIX: &str = r"\\.\pipe\hytte";
 /// stranger who creates the plain name can't intercept anything.
 pub fn pipe_name() -> &'static str {
     static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    NAME.get_or_init(|| match sys::user_sid() {
-        Some(sid) => format!("{PIPE_PREFIX}-{sid}"),
-        None => PIPE_PREFIX.to_string(),
+    NAME.get_or_init(|| {
+        let base = match sys::user_sid() {
+            Some(sid) => format!("{PIPE_PREFIX}-{sid}"),
+            None => PIPE_PREFIX.to_string(),
+        };
+        format!("{base}{}", instance_suffix())
     })
+}
+
+/// `-<name>` when `HYTTE_INSTANCE` is set, else empty: a second, isolated Hytte (the smoke
+/// test runs one beside yours) gets its own pipe and single-instance mutex. Letters and digits
+/// only, 16 at most; anything else is dropped, so the value can't alter the pipe's path.
+pub fn instance_suffix() -> String {
+    instance_suffix_of(std::env::var("HYTTE_INSTANCE").ok().as_deref())
+}
+
+fn instance_suffix_of(v: Option<&str>) -> String {
+    let name: String = v
+        .unwrap_or("")
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(16)
+        .collect();
+    if name.is_empty() {
+        String::new()
+    } else {
+        format!("-{name}")
+    }
 }
 /// Max single message bytes — pipe input is untrusted.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
@@ -559,6 +583,15 @@ mod tests {
         assert_eq!(back.label.len(), 1023); // 341 whole characters
         assert_eq!(back.message.unwrap().len(), 1024);
         assert_eq!(back.stderr_tail.unwrap().len(), 8192);
+    }
+
+    #[test]
+    fn instance_suffix_is_plain_and_bounded() {
+        assert_eq!(instance_suffix_of(None), "");
+        assert_eq!(instance_suffix_of(Some("")), "");
+        assert_eq!(instance_suffix_of(Some("smoke1")), "-smoke1");
+        assert_eq!(instance_suffix_of(Some(r"..\x/y z")), "-xyz");
+        assert_eq!(instance_suffix_of(Some(&"a".repeat(40))).len(), 17);
     }
 
     #[test]
