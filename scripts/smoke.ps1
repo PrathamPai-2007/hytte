@@ -123,6 +123,14 @@ try {
     Check "mcp action_run refuses an unknown name" ($mt -match 'no action called')
     Check "mcp never removes a pane it did not make" ($mt -match 'made by an agent')
 
+    # `hytte pack` against the repository's own registry folder: verify, install, list, remove.
+    $reg = Join-Path $root "examples\panes"
+    $pi = Invoke-Hytte @("pack", "install", "disk-space", "--source", $reg)
+    Check "pack install verifies and installs" ($pi.Code -eq 0 -and (Test-Path (Join-Path $data "panes\disk-space\pane.toml"))) $pi.Text
+    Check "pack list shows it" ((Invoke-Hytte @("pack", "list")).Text -match 'disk-space')
+    Check "pack update says up to date" ((Invoke-Hytte @("pack", "update", "--source", $reg)).Text -match 'up to date')
+    Check "pack remove takes it away" ((Invoke-Hytte @("pack", "remove", "disk-space")).Code -eq 0 -and -not (Test-Path (Join-Path $data "panes\disk-space")))
+
     if (-not $SkipPerf) {
         Write-Host ("  settling {0} s, then sampling CPU for {1} s ..." -f $Settle, $Sample)
         Start-Sleep -Seconds $Settle

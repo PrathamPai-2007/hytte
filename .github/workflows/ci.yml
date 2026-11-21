@@ -15,6 +15,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       # The version must be the same in both Cargo.toml files, Cargo.lock and the winget manifest.
       - run: ./scripts/version.ps1 check
+      # The pack registry's index must match the folders it lists (hashes the installer checks).
+      - run: ./scripts/pack-index.ps1 -Check
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
