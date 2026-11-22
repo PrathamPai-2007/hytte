@@ -26,20 +26,20 @@ So permissions are **not per agent**. They are per **capability**, enforced wher
 ### `action_run`, step by step (`pipe_server.rs`, `run_action_request`)
 
 1. The MCP process checks the name against its own list and sends `Cmd::action_run(name, arg)`.
-2. The pipe thread (**not** the MCP process, so a client that skips MCP gets the same treatment) validates the message (`valid_action_id`, arg up to 256 bytes), looks the name up in `config.toml` plus approved packs, and refuses an unknown one.
+2. The pipe thread (**not** the MCP process, so a client that skips MCP gets the same treatment) validates the message (`valid_action_id`, arg at most 40 bytes: what the card can show in full), looks the name up in `config.toml` plus approved packs, and refuses an unknown one. The arg then gets the cleaning a pane row's `arg` gets (`scriptpane::clean_arg`); one that would change is refused, so what the Allow card shows is exactly what `HYTTE_ARG` holds.
 3. It applies a daemon-wide rate limit (10 a minute), then sends `UiEvent::Ask` and blocks for the answer, like an agent's permission prompt.
 4. Only a yes sends **`UiEvent::ActionApproved(name, arg)`**. Nothing that arrives on the pipe can construct that event, and `run_cmd` ignores an `action_run` that reaches it. The UI thread runs it through the usual `run_named_with(.., approved = true)`, which skips the action's own "Sure?" arming (a person just said yes) but keeps the busy check, the timeout and the result card.
 5. Every outcome (unknown, rate limited, allowed, denied, no answer) is written to `mcp.log` and sent back as one `Pressed` line, which the agent reads as the tool result.
 
 ### Allowing an action in advance
 
-`hytte mcp grant <action>` (in a terminal you typed into) writes `%APPDATA%\Hytte\mcp-grants\<action>.grant`, next to `pack-answers`. `hytte mcp revoke <action>` removes it, `hytte mcp grants` lists them. It is set from the CLI, **not** by a click and never by a tool call, so an agent cannot grant itself anything through MCP. The file holds `agent_guard::grant_hash`: the FNV hash of the action's name, command and the folder it runs in. Edit the command, or approve a pack that redefines the name, and the hash no longer matches, so the card comes back. A granted run still goes through the rate limit and is still logged (`started (you allowed this action in advance ...)`).
+`hytte mcp grant <action>` (in a terminal you typed into) writes `%APPDATA%\Hytte\mcp-grants\<action>.grant`, next to `pack-answers`. `hytte mcp revoke <action>` removes it, `hytte mcp grants` lists them. It is set from the CLI, **not** by a click and never by a tool call, so an agent cannot grant itself anything through MCP. The file holds `agent_guard::grant_hash`: a SHA-256 over the action's name, command and the folder it runs in, each length-prefixed so no value can be split differently to collide. Edit the command, or approve a pack that redefines the name, and the hash no longer matches, so the card comes back. A granted run still goes through the rate limit and is still logged (`started (you allowed this action in advance ...)`).
 
 ### Reading back: `pane_get`, `agent_status`, `events`
 
 These three are `Cmd`s with `cmd` = `pane_get` (name in `id`), `agent_status` or `events` (the last number seen in `text`). `pipe_server::answer_query` sends `UiEvent::Query(cmd, reply)` to the UI thread, which owns the model, waits up to 3 s, and writes the JSON string back as one `Pressed` line (the same reply shape as `card --wait` and `action_run`). `ui_state/query.rs` builds the answers (`pane_json`, `agents_json`, `events_json`) and nothing in it mutates the model, except `log_event`, which the `ActionDone` handler calls.
 
-`events` is a ring of the last 100 things that happened, each numbered (`seq`), with a time, `type` (today only `action_done`), a name and a one-line detail cut to 120 characters. MCP is request and reply, so there are no pushed notifications: a caller passes the `next` number from its previous answer as `since` and gets only what is new. Numbers keep counting after old events fall out of the ring.
+`events` is a ring of the last 100 things that happened, each numbered (`seq`), with a time, `type` (today only `action_done`), a name and a one-line detail cut to 120 characters. MCP is request and reply, so there are no pushed notifications: a caller passes the `next` number from its previous answer as `since` and gets only what is new. Numbers keep counting after old events fall out of the ring, and the first one after a restart is seeded from the clock (seconds times 1000), so a caller holding a cursor from before a restart still gets everything new.
 
 ### What this does and does not protect against
 
@@ -49,12 +49,20 @@ Does **not** protect against software already running as you with shell or file 
 
 `mcp.log` is `%APPDATA%\Hytte\mcp.log`: `unix-seconds <TAB> tool <TAB> target <TAB> result`, fields cut to 200 characters with control characters turned into spaces (so a payload cannot forge a line), about 256 KB and then one old copy (`agent_guard::audit_line`, `audit_to`).
 
+### Step 5 reports the truth
+
+`UiEvent::ActionApproved(name, arg, reply)` carries a reply channel: the UI thread answers `true` only if `run_named_with` really started the action (not paused, not in game mode, not already running, still defined). The tool result says "allowed and started" or "allowed, but it did not start (it is already running, or the pill is paused)", and `mcp.log` records the same.
+
+### A pack that asks again
+
+Pack cards are asked once a session, keyed by folder, `pane.toml` hash and the version `hytte pack` installed (`registry::version_of`), so an update that changes only a script still asks. Keys of packs that are no longer waiting are dropped on every rescan (`Ui::ask_packs`), and `hytte pack install | update | remove` drop the old answer *before* touching the files, so the rescan the file change causes finds no stale approval.
+
 ### Limits worth knowing
 
 - Events are polled, not pushed, and only action results are recorded so far (`Model::log_event` is where a new kind goes).
 - "Always allow" is a terminal command, not a button on the card: the card's reply is a plain yes or no, shared with agents' permission prompts.
 - The rate limits (10 a minute) are per MCP process for the pane tools (`McpIo.limit`) and daemon-wide for `action_run`.
-- `pane_create`'s `command` is a command line the *agent* chose, run by `cmd /c` after you press Run. The card shows its first 60 characters; a long command is cut there. Read what an agent asks you to approve.
+- `pane_create`'s `command` is a command line the *agent* chose, run by `cmd /c` after you press Run. The card shows the first 60 characters, so `mcp_panes::check_command` allows **at most 60 characters** (`MAX_COMMAND`) and collapses runs of whitespace: the whole command is on the card, and padding cannot push the real command off it. A longer one is refused with that reason.
 
 ## The pack registry
 

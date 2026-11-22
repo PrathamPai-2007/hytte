@@ -43,8 +43,8 @@ mod power;
 mod privacy;
 #[cfg(windows)]
 mod proc;
-#[cfg(windows)]
 mod registry;
+#[cfg(windows)]
 mod render;
 mod rerun;
 mod scriptpane;

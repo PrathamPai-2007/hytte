@@ -346,6 +346,12 @@ fn read_marker(dir: &Path) -> Option<Installed> {
     serde_json::from_slice(&std::fs::read(dir.join(MARKER)).ok()?).ok()
 }
 
+/// The version `hytte pack` installed into this folder, or empty: part of what makes a pack's
+/// card "new", since an update may change a script while `pane.toml` stays the same.
+pub fn version_of(dir: &Path) -> String {
+    read_marker(dir).map(|m| m.version).unwrap_or_default()
+}
+
 fn write_files(dir: &Path, files: &[(String, Vec<u8>)], m: &Installed) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("couldn't create {}: {e}", dir.display()))?;
     for (p, b) in files {
@@ -388,11 +394,12 @@ pub fn install(
         source: src.label(),
         files: e.files.iter().map(|f| f.path.clone()).collect(),
     };
+    // Before the files land: the pill rescans when they do, and must find no old answer.
+    forget(&e.name);
     if let Err(err) = write_files(&dir, &files, &m) {
         let _ = std::fs::remove_dir_all(&dir);
         return Err(err);
     }
-    forget(&e.name);
     Ok(format!("Installed {} {}. {NEXT}", e.name, e.version))
 }
 
@@ -448,6 +455,7 @@ pub fn update(
             source: src.label(),
             files: e.files.iter().map(|f| f.path.clone()).collect(),
         };
+        forget(&e.name);
         if let Err(err) = write_files(&dir, &files, &m) {
             lines.push(format!("{n}: {err}"));
             continue;
@@ -458,7 +466,6 @@ pub fn update(
                 let _ = std::fs::remove_file(dir.join(gone));
             }
         }
-        forget(&e.name);
         lines.push(format!(
             "{n}: updated {} -> {}. {NEXT}",
             old.version, e.version

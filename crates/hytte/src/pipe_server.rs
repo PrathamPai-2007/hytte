@@ -273,7 +273,7 @@ fn run_action_request(
     static NEXT: AtomicU64 = AtomicU64::new(1_000_000);
     static LIMIT: Mutex<Option<crate::agent_guard::Limiter>> = Mutex::new(None);
     let name = cmd.id.clone().unwrap_or_default();
-    let arg = cmd.text.clone();
+    let raw_arg = cmd.text.clone();
     let say = |what: &str| {
         crate::agent_guard::audit("action_run", &name, what);
         if let Ok(mut line) = serde_json::to_string(&hytte_proto::Pressed {
@@ -289,6 +289,15 @@ fn run_action_request(
     else {
         return say("no such action (see action_list)");
     };
+    // The argument becomes HYTTE_ARG, so it gets the same cleaning a pane row's does; one that
+    // would change is refused, so what the Allow card shows is exactly what the action gets.
+    let arg = match raw_arg.as_deref() {
+        None => None,
+        Some(a) => match crate::scriptpane::clean_arg(a) {
+            Some(c) if c == a => Some(c),
+            _ => return say("refused: the argument has characters that are not allowed"),
+        },
+    };
     let fits = LIMIT
         .lock()
         .map(|mut l| {
@@ -302,8 +311,11 @@ fn run_action_request(
     // Granted from a terminal with `hytte mcp grant`, and only for this exact command.
     let hash = crate::agent_guard::grant_hash(&action.name, &action.command, action.dir.as_deref());
     if crate::agent_guard::is_granted_in(&crate::agent_guard::grants_dir(), &action.name, &hash) {
-        let _ = ui_tx.send(UiEvent::ActionApproved(action.name.clone(), arg));
-        return say("started (you allowed this action in advance with `hytte mcp grant`)");
+        return say(&if start_action(ui_tx, &action.name, arg) {
+            "started (you allowed this action in advance with `hytte mcp grant`)".to_string()
+        } else {
+            NOT_STARTED.to_string()
+        });
     }
     let (reply, rx) = crossbeam_channel::bounded::<bool>(1);
     let shown_arg = arg
@@ -319,10 +331,11 @@ fn run_action_request(
         return;
     }
     match rx.recv_timeout(std::time::Duration::from_secs(hytte_proto::ASK_WAIT_SECS)) {
-        Ok(true) => {
-            let _ = ui_tx.send(UiEvent::ActionApproved(action.name.clone(), arg));
-            say("allowed and started; its result appears on the pill")
-        }
+        Ok(true) => say(&if start_action(ui_tx, &action.name, arg) {
+            "allowed and started; its result appears on the pill".to_string()
+        } else {
+            NOT_STARTED.to_string()
+        }),
         Ok(false) => say("denied by the user"),
         Err(_) => say("no answer: nobody allowed it (or the pill is paused)"),
     }
@@ -348,4 +361,21 @@ fn answer_query(
         line.push('\n');
         let _ = unsafe { WriteFile(h, Some(line.as_bytes()), None, None) };
     }
+}
+
+const NOT_STARTED: &str =
+    "allowed, but it did not start (it is already running, or the pill is paused)";
+
+/// Hand an approved action to the UI thread and learn whether it really started.
+#[cfg(windows)]
+fn start_action(ui_tx: &Sender<UiEvent>, name: &str, arg: Option<String>) -> bool {
+    let (tx, rx) = crossbeam_channel::bounded::<bool>(1);
+    if ui_tx
+        .send(UiEvent::ActionApproved(name.to_string(), arg, tx))
+        .is_err()
+    {
+        return false;
+    }
+    rx.recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap_or(false)
 }

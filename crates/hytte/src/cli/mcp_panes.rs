@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 pub const MARKER: &str = ".hytte-agent";
 /// How many panes agents may have at once.
 pub const MAX_AGENT_PANES: usize = 4;
-const MAX_COMMAND: usize = 400;
+/// What the Run card shows of a command (`Ui::ask_packs` cuts at 60 characters). An agent's
+/// command must fit, so the person presses Run on all of it, not on a harmless-looking start.
+pub const MAX_COMMAND: usize = 60;
 const MAX_EVERY: u64 = 86_400;
 
 fn bad_text(s: &str) -> bool {
@@ -34,13 +36,17 @@ fn folder_of(name: &str) -> Result<String, String> {
 }
 
 fn check_command(command: &str) -> Result<String, String> {
-    let c = command.trim();
-    if c.is_empty() || c.len() > MAX_COMMAND || bad_text(c) {
+    if bad_text(command) {
+        return Err("command must be one line".into());
+    }
+    // Runs of spaces collapse, so padding can't push the real command off the card.
+    let c = command.split_whitespace().collect::<Vec<_>>().join(" ");
+    if c.is_empty() || c.chars().count() > MAX_COMMAND {
         return Err(format!(
-            "command must be one line, 1 to {MAX_COMMAND} bytes (it is run with cmd /c, so a self-contained command)"
+            "command must be 1 to {MAX_COMMAND} characters on one line, so the user can read all of it on the Run card (it is run with cmd /c)"
         ));
     }
-    Ok(c.to_string())
+    Ok(c)
 }
 
 fn check_every(every: Option<u64>) -> Result<u64, String> {
@@ -193,6 +199,16 @@ mod tests {
     }
 
     #[test]
+    fn padding_cannot_hide_the_end_of_a_command() {
+        let d = tmp("pad");
+        // Spaces collapse, so what the card shows is the whole command.
+        create(&d, &[], "Pad", "echo   hi     there", None).unwrap();
+        let text = std::fs::read_to_string(d.join("pad").join("pane.toml")).unwrap();
+        assert!(text.contains("echo hi there"), "{text}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn an_update_changes_the_hash_so_it_asks_again() {
         let d = tmp("upd");
         create(&d, &[], "Build", "echo one", None).unwrap();
@@ -213,7 +229,12 @@ mod tests {
             ("---", "x", None),
             ("ok", "", None),
             ("ok", "a\nb", None),
-            ("ok", &"x".repeat(401), None),
+            ("ok", &"x".repeat(61), None),
+            (
+                "ok",
+                &format!("echo ok{}& {}", " ".repeat(70), "x".repeat(60)),
+                None,
+            ),
             ("ok", "x", Some(5)),
             ("ok", "x", Some(999_999)),
         ] {

@@ -81,14 +81,19 @@ pub fn grants_dir() -> std::path::PathBuf {
     crate::config::data_dir().join("mcp-grants")
 }
 
-/// What a grant is tied to: the action's name, its command and the folder it runs in. Edit the
+/// What a grant is tied to (SHA-256): the action's name, its command and the folder it runs in. Edit the
 /// command (or approve a pack that redefines the name) and the grant no longer matches, so the
 /// pill asks again.
 pub fn grant_hash(name: &str, command: &str, dir: Option<&std::path::Path>) -> String {
-    crate::packs::hash(&format!(
-        "{name}\n{command}\n{}",
-        dir.map(|d| d.display().to_string()).unwrap_or_default()
-    ))
+    // SHA-256 over length-prefixed fields: no value can be split differently to collide.
+    let dir = dir.map(|d| d.display().to_string()).unwrap_or_default();
+    let text = format!(
+        "{}:{name}{}:{command}{}:{dir}",
+        name.len(),
+        command.len(),
+        dir.len()
+    );
+    crate::registry::sha256_hex(text.as_bytes())
 }
 
 fn grant_file(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
@@ -148,6 +153,8 @@ mod tests {
             "deploy",
             &grant_hash("deploy", "make evil", None)
         ));
+        // Fields can't be shifted across the separator to make two different actions equal.
+        assert_ne!(grant_hash("a", "b\0c", None), grant_hash("a\0b", "c", None));
         assert_ne!(
             grant_hash("a", "c", None),
             grant_hash("a", "c", Some(std::path::Path::new("C:/pack")))

@@ -93,7 +93,7 @@ pub(super) fn tools() -> Value {
          "description": "Make a new pane that runs a command and shows what it prints. It does NOT run until the user presses Run on a card showing the command, so say what it is for. At most 4 panes made by agents.",
          "inputSchema": {"type": "object", "required": ["name", "command"], "properties": {
             "name": s("The tab's label, up to 16 characters"),
-            "command": s("One self-contained command line (run with cmd /c), up to 400 bytes, that prints text or JSON {\"rows\": [...]}"),
+            "command": s("One self-contained command line (run with cmd /c), at most 60 characters so the user can read all of it on the Run card, that prints text or JSON {\"rows\": [...]}"),
             "every": {"type": "integer", "minimum": 30, "maximum": 86400,
                 "description": "Seconds between runs while the pane is open (default 60)"}}}},
         {"name": "pane_update",
@@ -110,7 +110,7 @@ pub(super) fn tools() -> Value {
          "description": "Ask to run one of the user's named actions (see action_list). The user is asked Allow or Deny on their screen each time, unless they allowed that exact action in advance; the reply says which, and the result of the action appears on their pill. You cannot run an arbitrary command.",
          "inputSchema": {"type": "object", "required": ["name"], "properties": {
             "name": s("An action name from action_list"),
-            "arg": s("Optional text the action receives as HYTTE_ARG, up to 256 bytes")}}}
+            "arg": s("Optional text the action receives as HYTTE_ARG: up to 40 characters, no & | < > ^ \" % or backtick")}}}
     ])
 }
 
@@ -289,7 +289,7 @@ fn call(name: &str, a: &Value, io: &dyn Backend) -> Result<String, String> {
             let arg = text_of(a, "arg")?.filter(|s| !s.is_empty());
             let c = Cmd::action_run(n.trim(), arg);
             if !c.validate() {
-                return Err("not a valid action_run: name is letters, digits, - and _ (up to 40), arg up to 256 bytes".into());
+                return Err("not a valid action_run: name is letters, digits, - and _ (up to 40), arg up to 40 characters".into());
             }
             if !io
                 .actions()
@@ -612,7 +612,7 @@ mod tests {
             json!({"name": "rm -rf /"}),
             json!({"name": "nope"}),
             json!({"name": ""}),
-            json!({"name": "deploy", "arg": "x".repeat(300)}),
+            json!({"name": "deploy", "arg": "x".repeat(41)}),
             json!({"name": 5}),
             json!({}),
         ] {

@@ -257,10 +257,11 @@ impl Ui {
                     let _ = reply.send(self.model.answer_query(&c));
                 }
                 // The human already said yes, so an action with `confirm` doesn't ask again.
-                UiEvent::ActionApproved(name, arg) => {
-                    if !self.paused && !self.gaming {
-                        self.run_named_with(&name, arg.as_deref(), true);
-                    }
+                UiEvent::ActionApproved(name, arg, reply) => {
+                    let started = !self.paused
+                        && !self.gaming
+                        && self.run_named_with(&name, arg.as_deref(), true);
+                    let _ = reply.send(started);
                 }
                 UiEvent::UpdateOffer { tag, note } => {
                     self.update_offer = Some((tag, note));
