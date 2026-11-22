@@ -2030,6 +2030,75 @@ fn welcome_snapshots() {
 }
 
 /// The Agents pane: one agent working, one waiting beside two working, long names.
+/// The two cards that put a person in charge of what an agent or a downloaded pack may run:
+/// a pack waiting for Run, and an agent asking to run one of your actions. `docs/img`'s
+/// `pack-run-card` and `agent-action-ask` come from here.
+#[test]
+#[ignore]
+fn agent_control_snapshots() {
+    use crate::ui_state::{Chip, ChipAction, Prio, Tone};
+    let dir = std::path::PathBuf::from(std::env::var("HYTTE_SNAP_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::offscreen(snap_scale()).unwrap();
+    let now = Instant::now();
+    for light in [false, true] {
+        let sfx = if light { "-light" } else { "" };
+        let mut m = model();
+        m.now = Some(now);
+        let mut c = Chip::new("Run the pane \"Docker\"?", now);
+        // Built like `Ui::ask_packs`: the first 60 characters of the command, then the actions.
+        let command = "powershell -NoProfile -ExecutionPolicy Bypass -File containers.ps1";
+        let mut shown: String = command.chars().take(60).collect();
+        if command.chars().count() > 60 {
+            shown.push('…');
+        }
+        c.note = Some(format!("{shown}  +2 action(s)"));
+        c.tone = Tone::Warn;
+        c.prio = Prio::Alert;
+        c.extra = vec![
+            (
+                "Run".into(),
+                ChipAction::PackAnswer("docker".into(), "x".into(), true),
+            ),
+            (
+                "Ignore".into(),
+                ChipAction::PackAnswer("docker".into(), "x".into(), false),
+            ),
+        ];
+        m.chip = Some(c);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("pack-run-card{sfx}"),
+            &m,
+            Scene::ExpChip,
+            light,
+        );
+
+        let mut m = model();
+        m.now = Some(now);
+        let mut c = Chip::new(
+            "agent: run the action \"docker-restart\" with \"web-1\"?",
+            now,
+        );
+        c.tone = Tone::Warn;
+        c.prio = Prio::Ask;
+        c.extra = vec![
+            ("Allow".into(), ChipAction::Answer(1, true)),
+            ("Deny".into(), ChipAction::Answer(1, false)),
+        ];
+        m.chip = Some(c);
+        shoot(
+            &mut r,
+            &dir,
+            &format!("agent-action-ask{sfx}"),
+            &m,
+            Scene::ExpChip,
+            light,
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn agent_snapshots() {

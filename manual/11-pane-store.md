@@ -12,7 +12,11 @@ hytte pack info docker       # see exactly what a pane will run
 hytte pack install docker    # download it
 ```
 
-Hytte then shows a card on the pill with the pane's command and two buttons, **Run** and **Ignore**. **Nothing runs until you press Run.** A new tab appears once you do.
+Hytte then shows a card on the pill with the pane's command and two buttons, **Run** and **Ignore**. **Nothing runs until you press Run.** A new tab appears once you do. (**Dismiss** just hides the card for now; it asks again the next time Hytte starts.)
+
+<img src="../docs/img/pack-run-card.png" alt="The card Hytte shows for a new pane: its command, with Run, Ignore and Dismiss" width="520">
+
+The card shows the start of the command. A long one is cut off, so use `hytte pack info <name>` to read all of it.
 
 Before you press Run, take a minute to read what it does: `hytte pack info <name>` prints the commands. Your Run covers the pane's settings file. It does not cover the scripts next to it, so open the pack's folder (`%APPDATA%\Hytte\panes\<name>`) if you want to read those too.
 
@@ -54,7 +58,9 @@ If you used `hytte setup mcp`, an agent can do more than show cards. Here is wha
 | Change or remove a pane **it made** | The same card again after a change. It can never change or remove your own panes. |
 | Run one of your actions | **"agent: run the action X?"** with **Allow** and **Deny**, every time. No answer in 30 seconds counts as no. |
 
-An agent cannot run any command it makes up: only an action that already exists in your `config.toml` or in an approved pane. It can ask at most ten times a minute.
+<img src="../docs/img/agent-action-ask.png" alt="The card Hytte shows when an agent asks to run one of your actions: Allow, Deny and Dismiss" width="520">
+
+**Dismiss** counts as no, the same as waiting 30 seconds. An agent cannot run any command it makes up: only an action that already exists in your `config.toml` or in an approved pane. It can ask at most ten times a minute.
 
 ### Letting one action run without asking
 
