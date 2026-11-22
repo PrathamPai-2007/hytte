@@ -19,6 +19,10 @@ So permissions are **not per agent**. They are per **capability**, enforced wher
 | Make panes | `pane_create`, `pane_update`, `pane_remove` | The pane is written as a **pack**, so it arrives unanswered: the pill shows its command with **Run** / **Ignore**, and nothing runs until Run. Any edit changes the file's hash and asks again. At most four agent-made panes; only folders the agent made (a `.hytte-agent` marker) can be changed or removed; your own panes are refused. |
 | Run an action | `action_run` | The pill shows **"agent: run the action X?"** with Allow / Deny, every time, unless you allowed that action in advance (below). Only a *name* defined in your `config.toml` or an approved pack runs, never a command string. No answer in 30 s is a no. |
 
+<img src="img/agent-action-ask.png" alt="The Allow / Deny card for an agent's action_run" width="480">
+
+(Both cards are drawn by the ignored test `agent_control_snapshots` in `render/snap.rs`; the pack card's twin is `pack-run-card.png`. Each card also has the usual **Dismiss**; on the action card it drops the reply, which the agent reads as "no answer".)
+
 ### `action_run`, step by step (`pipe_server.rs`, `run_action_request`)
 
 1. The MCP process checks the name against its own list and sends `Cmd::action_run(name, arg)`.
