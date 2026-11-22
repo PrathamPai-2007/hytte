@@ -2029,7 +2029,6 @@ fn welcome_snapshots() {
     contact_sheet(&dir);
 }
 
-/// The Agents pane: one agent working, one waiting beside two working, long names.
 /// The two cards that put a person in charge of what an agent or a downloaded pack may run:
 /// a pack waiting for Run, and an agent asking to run one of your actions. `docs/img`'s
 /// `pack-run-card` and `agent-action-ask` come from here.
@@ -2099,6 +2098,7 @@ fn agent_control_snapshots() {
     }
 }
 
+/// The Agents pane: one agent working, one waiting beside two working, long names.
 #[test]
 #[ignore]
 fn agent_snapshots() {

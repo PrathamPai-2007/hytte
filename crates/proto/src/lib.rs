@@ -277,8 +277,9 @@ pub struct Cmd {
     pub keep: bool,
 }
 
-/// Longest argument an `action_run` may carry (it becomes `HYTTE_ARG`).
-pub const MAX_ACTION_ARG_BYTES: usize = 256;
+/// Longest argument an `action_run` may carry (it becomes `HYTTE_ARG`). It is what the Allow
+/// card can show in full, so the person says yes to all of it.
+pub const MAX_ACTION_ARG_BYTES: usize = 40;
 
 /// An action's name as `config.toml` allows one: letters, digits, `-` and `_`, 1 to 40 characters.
 pub fn valid_action_id(s: &str) -> bool {
@@ -361,7 +362,6 @@ impl Cmd {
         }
     }
 
-    /// An empty `card`; fill in what you need.
     /// Ask the pill to run the named action (after the human says yes).
     pub fn action_run(name: impl Into<String>, arg: Option<String>) -> Self {
         Self {
@@ -394,6 +394,7 @@ impl Cmd {
         matches!(self.cmd.as_str(), "pane_get" | "agent_status" | "events")
     }
 
+    /// An empty `card`; fill in what you need.
     pub fn card() -> Self {
         Self {
             v: PROTOCOL_VERSION,
@@ -675,7 +676,8 @@ mod tests {
         for bad in ["", "has space", "a/b", "..", &"x".repeat(41)] {
             assert!(!Cmd::action_run(bad, None).validate(), "{bad:?}");
         }
-        assert!(!Cmd::action_run("ok", Some("x".repeat(257))).validate());
+        assert!(Cmd::action_run("ok", Some("x".repeat(40))).validate());
+        assert!(!Cmd::action_run("ok", Some("x".repeat(41))).validate());
         assert!(!Cmd::action_run("ok", Some(String::new())).validate());
         let mut c = Cmd::action_run("ok", None);
         c.path = Some(r"C:\x".into());

@@ -16,7 +16,7 @@ Hytte then shows a card on the pill with the pane's command and two buttons, **R
 
 <img src="../docs/img/pack-run-card.png" alt="The card Hytte shows for a new pane: its command, with Run, Ignore and Dismiss" width="520">
 
-The card shows the start of the command. A long one is cut off, so use `hytte pack info <name>` to read all of it.
+The card shows the start of the command. A long one from the store is cut off, so use `hytte pack info <name>` to read all of it.
 
 Before you press Run, take a minute to read what it does: `hytte pack info <name>` prints the commands. Your Run covers the pane's settings file. It does not cover the scripts next to it, so open the pack's folder (`%APPDATA%\Hytte\panes\<name>`) if you want to read those too.
 
@@ -54,7 +54,7 @@ If you used `hytte setup mcp`, an agent can do more than show cards. Here is wha
 | List your panes and the names of your actions | Nothing. It only reads names, never commands. |
 | Read what a pane shows, whether an agent is waiting for you, or what happened lately | Nothing. It only looks at what the pill already shows. |
 | Show a card, a note or a to-do, or fill one of your panes | The card, note or to-do, as before. |
-| Make a pane (up to four) | The **Run / Ignore** card with the command it chose. Nothing runs until you press Run. |
+| Make a pane (up to four) | The **Run / Ignore** card with the command it chose. The command can be at most 60 characters, so you see all of it. Nothing runs until you press Run. |
 | Change or remove a pane **it made** | The same card again after a change. It can never change or remove your own panes. |
 | Run one of your actions | **"agent: run the action X?"** with **Allow** and **Deny**, every time. No answer in 30 seconds counts as no. |
 

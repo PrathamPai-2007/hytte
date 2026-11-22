@@ -12,7 +12,7 @@ Three releases are planned: 1.10.0 (the test and perf gate), 1.10.1 (agent contr
 - **A pane store.** `hytte pack search | info | install | update | remove | list` installs the example packs (and any collection you point `--source` at), verified by SHA-256, and still waits for **Run**. An install or update asks again, since an old answer covered only `pane.toml`.
 - **The docs.** New section 18, new manual page 11; the CLI, files, tests and overview pages describe the new commands and files.
 
-For people who change Hytte: `Cmd` gains `action_run` (name in `id`, argument in `text`; `valid_action_id`, `MAX_ACTION_ARG_BYTES`), `UiEvent::ActionApproved` is the only way an action runs for an agent (`Ui::run_named_with(.., approved)`), `Cmd::query` / `is_query` and `UiEvent::Query` carry the reads (`ui_state/query.rs`: `EventLog`, `Model::log_event`, `answer_query`), `agent_guard::grant_*` and `cli/grants.rs` the advance grants, `hytte_proto::instance_suffix` reads `HYTTE_INSTANCE`, `packs::forget_answer`, `update::parse` is `pub(crate)`, and `agent_guard`, `registry`, `cli/mcp_panes` and `cli/pack` are new modules.
+For people who change Hytte: `Cmd` gains `action_run` (name in `id`, argument in `text`; `valid_action_id`, `MAX_ACTION_ARG_BYTES` = 40), `UiEvent::ActionApproved` is the only way an action runs for an agent (`Ui::run_named_with(.., approved)`), `Cmd::query` / `is_query` and `UiEvent::Query` carry the reads (`ui_state/query.rs`: `EventLog`, `Model::log_event`, `answer_query`), `agent_guard::grant_*` and `cli/grants.rs` the advance grants, `hytte_proto::instance_suffix` reads `HYTTE_INSTANCE`, `packs::forget_answer`, `update::parse` is `pub(crate)`, and `agent_guard`, `registry`, `cli/mcp_panes` and `cli/pack` are new modules.
 
 ## 1.9.3
 

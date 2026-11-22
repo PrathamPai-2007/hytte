@@ -480,8 +480,27 @@ impl Ui {
     /// or whose `pane.toml` has a mistake. Each is asked once a session.
     pub(super) fn ask_packs(&mut self, now: Instant) {
         use crate::packs::State;
+        // What is asked about: the folder, the `pane.toml` hash and the version `hytte pack`
+        // installed (an update can change a script and leave `pane.toml` alone).
+        let key_of = |p: &crate::packs::Pack| {
+            format!(
+                "{}:{}:{}",
+                p.folder,
+                p.hash,
+                crate::registry::version_of(&p.path)
+            )
+        };
+        // A pack that is no longer waiting (answered, removed) is forgotten, so if it comes
+        // back waiting (an answer dropped by `hytte pack update`, or made again) it asks again.
+        let waiting: Vec<String> = self
+            .packs
+            .iter()
+            .filter(|p| p.state == State::Pending)
+            .map(key_of)
+            .collect();
+        self.packs_asked.retain(|k| waiting.contains(k));
         for p in self.packs.clone() {
-            let key = format!("{}:{}", p.folder, p.hash);
+            let key = key_of(&p);
             if self.packs_asked.contains(&key) {
                 continue;
             }

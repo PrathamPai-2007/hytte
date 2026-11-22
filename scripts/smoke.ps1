@@ -34,7 +34,9 @@ function Check([string]$name, [bool]$ok, [string]$detail = "") {
 function Invoke-Hytte([string[]]$ArgList) {
     $o = [IO.Path]::GetTempFileName(); $e = [IO.Path]::GetTempFileName()
     try {
-        $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -Wait -PassThru -WindowStyle Hidden `
+        # Start-Process joins the list with spaces and adds no quotes, so quote what needs it.
+        $quoted = @($ArgList | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+        $p = Start-Process -FilePath $Exe -ArgumentList $quoted -Wait -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $o -RedirectStandardError $e
         [pscustomobject]@{ Code = $p.ExitCode; Text = ((Get-Content $o -Raw) + (Get-Content $e -Raw)) }
     }
@@ -184,3 +186,4 @@ $result.failures = $failures.Count
 if ($Out) { $result | ConvertTo-Json | Set-Content -Encoding UTF8 $Out }
 if ($failures.Count) { Write-Host ("`n{0} check(s) failed." -f $failures.Count); exit 1 }
 Write-Host "`nAll good."
+exit 0

@@ -29,6 +29,11 @@ impl Model {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let log = &mut self.events;
+        if log.next == 0 {
+            // Seeded from the clock, so a restart does not hand out small numbers again: a
+            // caller holding an old cursor still gets everything new.
+            log.next = at * 1000;
+        }
         log.next += 1;
         let one_line = detail.lines().next().unwrap_or("").trim();
         log.items.push_back((
@@ -167,20 +172,22 @@ mod tests {
         let all: Value = serde_json::from_str(&m.events_json(0)).unwrap();
         assert_eq!(all["events"].as_array().unwrap().len(), 2);
         assert_eq!(all["events"][0]["detail"], "finished");
-        assert_eq!(all["next"], 2);
-        let after: Value = serde_json::from_str(&m.events_json(1)).unwrap();
+        let b = all["events"][0]["seq"].as_u64().unwrap();
+        assert!(b > 1_000_000_000_000, "seeded from the clock: {b}");
+        assert_eq!(all["next"], b + 1);
+        let after: Value = serde_json::from_str(&m.events_json(b)).unwrap();
         assert_eq!(after["events"].as_array().unwrap().len(), 1);
         assert_eq!(after["events"][0]["name"], "restart");
-        assert!(m.events_json(2).contains(r#""events":[]"#));
+        assert!(m.events_json(b + 1).contains(r#""events":[]"#));
         for i in 0..250 {
             m.log_event("action_done", &format!("a{i}"), "x");
         }
         let all: Value = serde_json::from_str(&m.events_json(0)).unwrap();
         assert_eq!(all["events"].as_array().unwrap().len(), KEEP);
-        assert_eq!(all["next"], 252, "numbers keep counting");
+        assert_eq!(all["next"], b + 251, "numbers keep counting");
         // A long payload is cut, so an answer stays small.
         m.log_event("x", &"n".repeat(500), &"d".repeat(500));
-        let last: Value = serde_json::from_str(&m.events_json(252)).unwrap();
+        let last: Value = serde_json::from_str(&m.events_json(b + 251)).unwrap();
         assert!(last["events"][0].to_string().len() < 300);
     }
 

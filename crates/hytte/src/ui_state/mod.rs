@@ -150,7 +150,8 @@ pub enum UiEvent {
     Query(hytte_proto::Cmd, crossbeam_channel::Sender<String>),
     /// The human said yes to an agent's `action_run` (`pipe_server` asks; nothing else sends
     /// this, so a pipe client cannot run an action without that answer): name and argument.
-    ActionApproved(String, Option<String>),
+    /// The last item answers whether it really started (not paused, not already running).
+    ActionApproved(String, Option<String>, crossbeam_channel::Sender<bool>),
     /// A script asked for a card or a shelf item (`hytte notify`, `hytte card`, `hytte shelf
     /// add`). A `card --wait` comes with where to send the pressed button's label.
     Cmd(hytte_proto::Cmd, Option<crossbeam_channel::Sender<String>>),
