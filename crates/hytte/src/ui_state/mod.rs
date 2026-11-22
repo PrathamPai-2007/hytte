@@ -19,6 +19,7 @@ mod cards;
 mod day;
 mod media;
 mod notes;
+mod query;
 mod scene;
 mod script;
 mod shelf;
@@ -144,6 +145,9 @@ pub enum UiEvent {
         summary: String,
         reply: crossbeam_channel::Sender<bool>,
     },
+    /// An agent reads the pill (`pane_get`, `agent_status`, `events`): answer on `reply` with
+    /// one JSON string. Reads only.
+    Query(hytte_proto::Cmd, crossbeam_channel::Sender<String>),
     /// The human said yes to an agent's `action_run` (`pipe_server` asks; nothing else sends
     /// this, so a pipe client cannot run an action without that answer): name and argument.
     ActionApproved(String, Option<String>),
@@ -253,6 +257,8 @@ pub struct Model {
     pub chip: Option<Chip>,
     /// Script panes (`[[script_pane]]`), by slot.
     pub scripts: Vec<ScriptView>,
+    /// What happened lately, for an agent that polls `events` (`query.rs`).
+    pub events: query::EventLog,
     /// Live cards (`hytte card`) waiting for the chip, oldest first.
     // ponytail: a chip set directly elsewhere (a download, a notice) replaces a card on it
     // without requeueing; a progress card comes back with its next update. Route every chip

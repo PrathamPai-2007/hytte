@@ -74,9 +74,92 @@ pub fn audit_to(path: &std::path::Path, tool: &str, target: &str, result: &str) 
     }
 }
 
+// ---- "always allow this action": set from a terminal, not by an agent's tool call ----
+
+/// `%APPDATA%\Hytte\mcp-grants\<action>.grant`, beside `pack-answers`, outside any pack.
+pub fn grants_dir() -> std::path::PathBuf {
+    crate::config::data_dir().join("mcp-grants")
+}
+
+/// What a grant is tied to: the action's name, its command and the folder it runs in. Edit the
+/// command (or approve a pack that redefines the name) and the grant no longer matches, so the
+/// pill asks again.
+pub fn grant_hash(name: &str, command: &str, dir: Option<&std::path::Path>) -> String {
+    crate::packs::hash(&format!(
+        "{name}\n{command}\n{}",
+        dir.map(|d| d.display().to_string()).unwrap_or_default()
+    ))
+}
+
+fn grant_file(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    hytte_proto::valid_action_id(name).then(|| dir.join(format!("{}.grant", name.to_lowercase())))
+}
+
+pub fn is_granted_in(dir: &std::path::Path, name: &str, hash: &str) -> bool {
+    grant_file(dir, name)
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .is_some_and(|t| t.trim() == hash)
+}
+
+pub fn grant_in(dir: &std::path::Path, name: &str, hash: &str) -> Result<(), String> {
+    let f = grant_file(dir, name).ok_or("not an action name")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(f, hash).map_err(|e| e.to_string())
+}
+
+/// True when there was a grant to remove.
+pub fn revoke_in(dir: &std::path::Path, name: &str) -> bool {
+    grant_file(dir, name).is_some_and(|f| std::fs::remove_file(f).is_ok())
+}
+
+/// The granted action names (lower case).
+pub fn granted_in(dir: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .map(|d| {
+            d.flatten()
+                .filter_map(|e| {
+                    e.file_name()
+                        .to_str()?
+                        .strip_suffix(".grant")
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_grant_holds_only_for_the_command_that_was_granted() {
+        let d = std::env::temp_dir().join(format!("hytte-grants-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let h = grant_hash("deploy", "make deploy", None);
+        assert!(!is_granted_in(&d, "deploy", &h));
+        grant_in(&d, "Deploy", &h).unwrap();
+        assert!(is_granted_in(&d, "deploy", &h) && is_granted_in(&d, "DEPLOY", &h));
+        // The command was edited (or a pack redefined the name): no longer granted.
+        assert!(!is_granted_in(
+            &d,
+            "deploy",
+            &grant_hash("deploy", "make evil", None)
+        ));
+        assert_ne!(
+            grant_hash("a", "c", None),
+            grant_hash("a", "c", Some(std::path::Path::new("C:/pack")))
+        );
+        assert_eq!(granted_in(&d), ["deploy"]);
+        assert!(revoke_in(&d, "deploy") && !revoke_in(&d, "deploy"));
+        assert!(!is_granted_in(&d, "deploy", &h));
+        // A name that could climb out of the folder is not an action name.
+        assert!(grant_in(&d, "..", &h).is_err() && grant_in(&d, "a/b", &h).is_err());
+        assert!(!revoke_in(&d, ".."));
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn the_limiter_stops_at_ten_a_minute_and_forgets() {

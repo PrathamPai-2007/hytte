@@ -137,7 +137,10 @@ try {
         '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pane_list","arguments":{}}}',
         '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"pane_create","arguments":{"name":"SmokeAgent","command":"echo hi"}}}',
         '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"action_run","arguments":{"name":"no-such-action"}}}',
-        '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"pane_remove","arguments":{"name":"Smoke"}}}'
+        '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"pane_remove","arguments":{"name":"Smoke"}}}',
+        '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"pane_get","arguments":{"name":"Smoke"}}}',
+        '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"agent_status","arguments":{}}}',
+        '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"events","arguments":{}}}'
     )
     $in = [IO.Path]::GetTempFileName(); $outp = [IO.Path]::GetTempFileName()
     ($rpc -join "`n") | Set-Content -Encoding ASCII $in
@@ -149,6 +152,8 @@ try {
     Check "mcp pane_list sees the config's pane" ($mt -match 'Smoke')
     Check "mcp pane_create writes an unapproved pack" (Test-Path (Join-Path $data "panes\smokeagent\pane.toml"))
     Check "mcp action_run refuses an unknown name" ($mt -match 'no action called')
+    Check "mcp pane_get reads a pane back from the daemon" ($mt -match 'age_secs')
+    Check "mcp agent_status and events answer" ($mt -match 'agents' -and $mt -match 'next')
     Check "mcp never removes a pane it did not make" ($mt -match 'made by an agent')
 
     # The agent's pane waits for a Run card on the pill; take it away so the idle measurement

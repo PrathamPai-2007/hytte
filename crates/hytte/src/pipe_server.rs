@@ -151,7 +151,9 @@ fn serve_connection(
                     ));
                 }
             } else if let Ok(cmd) = serde_json::from_str::<hytte_proto::Cmd>(trimmed) {
-                if cmd.validate() && cmd.cmd == "action_run" {
+                if cmd.validate() && cmd.is_query() {
+                    return answer_query(h, cmd, ui_tx);
+                } else if cmd.validate() && cmd.cmd == "action_run" {
                     // One per connection: it waits for the human, then answers one line.
                     return run_action_request(h, cmd, ui_tx);
                 } else if cmd.validate() && cmd.wait {
@@ -297,6 +299,12 @@ fn run_action_request(
     if !fits {
         return say("rate limited: at most 10 action runs a minute");
     }
+    // Granted from a terminal with `hytte mcp grant`, and only for this exact command.
+    let hash = crate::agent_guard::grant_hash(&action.name, &action.command, action.dir.as_deref());
+    if crate::agent_guard::is_granted_in(&crate::agent_guard::grants_dir(), &action.name, &hash) {
+        let _ = ui_tx.send(UiEvent::ActionApproved(action.name.clone(), arg));
+        return say("started (you allowed this action in advance with `hytte mcp grant`)");
+    }
     let (reply, rx) = crossbeam_channel::bounded::<bool>(1);
     let shown_arg = arg
         .as_deref()
@@ -317,5 +325,27 @@ fn run_action_request(
         }
         Ok(false) => say("denied by the user"),
         Err(_) => say("no answer: nobody allowed it (or the pill is paused)"),
+    }
+}
+
+/// A read from an agent: ask the UI thread, which owns the model, and write the one JSON
+/// string it returns as a [`hytte_proto::Pressed`] line. No answer in 3 s writes nothing.
+#[cfg(windows)]
+fn answer_query(
+    h: windows::Win32::Foundation::HANDLE,
+    cmd: hytte_proto::Cmd,
+    ui_tx: &Sender<UiEvent>,
+) {
+    use windows::Win32::Storage::FileSystem::WriteFile;
+    let (reply, rx) = crossbeam_channel::bounded::<String>(1);
+    if ui_tx.send(UiEvent::Query(cmd, reply)).is_err() {
+        return;
+    }
+    let Ok(pressed) = rx.recv_timeout(std::time::Duration::from_secs(3)) else {
+        return;
+    };
+    if let Ok(mut line) = serde_json::to_string(&hytte_proto::Pressed { pressed }) {
+        line.push('\n');
+        let _ = unsafe { WriteFile(h, Some(line.as_bytes()), None, None) };
     }
 }

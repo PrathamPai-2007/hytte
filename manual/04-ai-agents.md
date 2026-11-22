@@ -76,8 +76,9 @@ Hytte can also be a tool the agent calls. Run `hytte setup mcp` and Claude Code 
 - **pane_set**: set the text of one of your script panes.
 
 - **pane_list** and **action_list**: the names of your panes and of the actions you set up (never their commands).
+- **pane_get**, **agent_status** and **events**: read what a pane shows, which agents the pill is tracking (and whether one is waiting for you), and what happened lately.
 - **pane_create**, **pane_update**, **pane_remove**: the agent can add a pane of its own (up to four). It does not run until you press **Run** on the card that shows its command, and a change asks again. It can never change or remove your own panes.
-- **action_run**: the agent can ask to run one of your named actions. You see **Allow** or **Deny** every time, and no answer in 30 seconds counts as no.
+- **action_run**: the agent can ask to run one of your named actions. You see **Allow** or **Deny** every time (unless you allowed that one action in advance with `hytte mcp grant`), and no answer in 30 seconds counts as no.
 
 A card's button press only reports back to the agent; it never runs anything. The agent cannot run a command it makes up, only an action you already defined. Every pane change and action attempt is written to `%APPDATA%\Hytte\mcp.log`. The details, and what these checks do not cover, are on [page 11](11-pane-store.md#when-an-agent-wants-to-add-a-pane-or-run-something). Each call does nothing while Hytte is paused or not running (the agent is told so).
 

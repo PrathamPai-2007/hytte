@@ -253,6 +253,9 @@ impl Ui {
                     self.model.interrupt(c, now);
                 }
                 UiEvent::Cmd(c, reply) => self.run_cmd(c, reply, now),
+                UiEvent::Query(c, reply) => {
+                    let _ = reply.send(self.model.answer_query(&c));
+                }
                 // The human already said yes, so an action with `confirm` doesn't ask again.
                 UiEvent::ActionApproved(name, arg) => {
                     if !self.paused && !self.gaming {
@@ -286,6 +289,16 @@ impl Ui {
                     let timeout = self
                         .named_action(name)
                         .map_or(crate::config::ACTION_TIMEOUT, |a| a.timeout);
+                    let how = match run.code {
+                        Some(0) => "finished".to_string(),
+                        Some(n) => format!("failed (exit {n})"),
+                        None => "stopped or timed out".to_string(),
+                    };
+                    self.model.log_event(
+                        "action_done",
+                        name,
+                        &format!("{how}: {}", run.text.lines().next().unwrap_or("")),
+                    );
                     let c = crate::ui_state::action_card(name, &run, timeout, now);
                     self.model.interrupt(c, now);
                 }

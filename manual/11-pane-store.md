@@ -48,12 +48,25 @@ If you used `hytte setup mcp`, an agent can do more than show cards. Here is wha
 | The agent can... | What you see |
 |---|---|
 | List your panes and the names of your actions | Nothing. It only reads names, never commands. |
+| Read what a pane shows, whether an agent is waiting for you, or what happened lately | Nothing. It only looks at what the pill already shows. |
 | Show a card, a note or a to-do, or fill one of your panes | The card, note or to-do, as before. |
 | Make a pane (up to four) | The **Run / Ignore** card with the command it chose. Nothing runs until you press Run. |
 | Change or remove a pane **it made** | The same card again after a change. It can never change or remove your own panes. |
 | Run one of your actions | **"agent: run the action X?"** with **Allow** and **Deny**, every time. No answer in 30 seconds counts as no. |
 
 An agent cannot run any command it makes up: only an action that already exists in your `config.toml` or in an approved pane. It can ask at most ten times a minute.
+
+### Letting one action run without asking
+
+If an agent runs the same safe action all day, you can allow just that one in advance, from a terminal:
+
+```powershell
+hytte mcp grant docker-restart    # shows the command you are allowing
+hytte mcp grants                  # what is allowed in advance
+hytte mcp revoke docker-restart   # ask every time again
+```
+
+If the action's command ever changes, you are asked again. An agent cannot do this for itself: it only works from a terminal you typed into.
 
 Everything an agent changes or tries to run is written to `%APPDATA%\Hytte\mcp.log`, one line each, so you can look afterwards.
 

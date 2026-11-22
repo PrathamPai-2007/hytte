@@ -23,6 +23,8 @@ pub(super) trait Backend {
     fn actions(&self) -> Vec<(String, bool)>;
     /// Send an `action_run` and wait for the pill's one-line answer (the human is asked first).
     fn run_action(&self, c: &Cmd) -> Option<String>;
+    /// Send a read (`pane_get`, `agent_status`, `events`) and wait for the pill's JSON answer.
+    fn query(&self, c: &Cmd) -> Option<String>;
     /// Where the pane packs live.
     fn packs_dir(&self) -> std::path::PathBuf;
     /// False when too many writes came in the last minute (counts the call when true).
@@ -76,6 +78,17 @@ pub(super) fn tools() -> Value {
         {"name": "action_list",
          "description": "The named actions the user has set up (action_run takes one of these names). Shows names only, never their commands.",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "pane_get",
+         "description": "What one of the user's panes shows right now: its text or rows, any problem, and how old it is.",
+         "inputSchema": {"type": "object", "required": ["name"],
+            "properties": {"name": s("The pane's name (see pane_list)")}}},
+        {"name": "agent_status",
+         "description": "The coding agents the user's pill is tracking: what each is doing and whether it is waiting for the user.",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "events",
+         "description": "What happened lately (an action finished or failed), newest last. Pass the `next` number from the previous call as `since` to get only what is new; poll rather than wait.",
+         "inputSchema": {"type": "object", "properties": {
+            "since": {"type": "integer", "minimum": 0, "description": "The last event number you saw (default 0: all kept, up to 100)"}}}},
         {"name": "pane_create",
          "description": "Make a new pane that runs a command and shows what it prints. It does NOT run until the user presses Run on a card showing the command, so say what it is for. At most 4 panes made by agents.",
          "inputSchema": {"type": "object", "required": ["name", "command"], "properties": {
@@ -94,7 +107,7 @@ pub(super) fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["name"],
             "properties": {"name": s("The pane's name")}}},
         {"name": "action_run",
-         "description": "Ask to run one of the user's named actions (see action_list). The user is asked Allow or Deny on their screen each time; the reply says which, and the result of the action appears on their pill. You cannot run an arbitrary command.",
+         "description": "Ask to run one of the user's named actions (see action_list). The user is asked Allow or Deny on their screen each time, unless they allowed that exact action in advance; the reply says which, and the result of the action appears on their pill. You cannot run an arbitrary command.",
          "inputSchema": {"type": "object", "required": ["name"], "properties": {
             "name": s("An action name from action_list"),
             "arg": s("Optional text the action receives as HYTTE_ARG, up to 256 bytes")}}}
@@ -234,6 +247,26 @@ fn call(name: &str, a: &Value, io: &dyn Backend) -> Result<String, String> {
                     .join("\n")
             })
         }
+        "pane_get" | "agent_status" | "events" => {
+            let c = match name {
+                "pane_get" => {
+                    let n = text_of(a, "name")?.unwrap_or_default();
+                    Cmd::query("pane_get", Some(n.trim().to_string()))
+                }
+                "agent_status" => Cmd::query("agent_status", None),
+                _ => Cmd::query(
+                    "events",
+                    number(a, "since", u64::MAX / 2)?.map(|n| n.to_string()),
+                ),
+            };
+            if !c.validate() {
+                return Err(
+                    "not a valid request: pane_get needs a name; since is a whole number".into(),
+                );
+            }
+            io.query(&c)
+                .ok_or_else(|| "Hytte isn't running, or didn't answer".to_string())
+        }
         "pane_create" | "pane_update" | "pane_remove" => {
             let n = text_of(a, "name")?.unwrap_or_default();
             if !io.allow_write() {
@@ -369,6 +402,10 @@ mod tests {
             self.sent.borrow_mut().push(c.clone());
             self.verdict.clone()
         }
+        fn query(&self, c: &Cmd) -> Option<String> {
+            self.sent.borrow_mut().push(c.clone());
+            self.verdict.clone()
+        }
         fn packs_dir(&self) -> std::path::PathBuf {
             self.dir.clone()
         }
@@ -437,6 +474,9 @@ mod tests {
                 "pane_set",
                 "pane_list",
                 "action_list",
+                "pane_get",
+                "agent_status",
+                "events",
                 "pane_create",
                 "pane_update",
                 "pane_remove",
@@ -638,5 +678,44 @@ mod tests {
         assert!(!d.join("b").exists());
         assert!(io.log.borrow().iter().any(|l| l.contains("rate limited")));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_read_back_tools_ask_the_pill_and_pass_its_json_on() {
+        let io = Fake {
+            verdict: Some(r#"{"events":[],"next":3}"#.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            tool(&io, "events", json!({"since": 2})),
+            (r#"{"events":[],"next":3}"#.into(), false)
+        );
+        assert!(!tool(&io, "agent_status", json!({})).1);
+        assert!(!tool(&io, "pane_get", json!({"name": " Build "})).1);
+        let s = io.sent.borrow();
+        assert_eq!(
+            (s[0].cmd.as_str(), s[0].text.as_deref()),
+            ("events", Some("2"))
+        );
+        assert_eq!(s[1].cmd, "agent_status");
+        assert_eq!(
+            (s[2].cmd.as_str(), s[2].id.as_deref()),
+            ("pane_get", Some("Build"))
+        );
+        drop(s);
+        // Bad input never reaches the pill.
+        let n = io.sent.borrow().len();
+        for (t, a) in [
+            ("pane_get", json!({})),
+            ("pane_get", json!({"name": ""})),
+            ("events", json!({"since": -1})),
+            ("events", json!({"since": "x"})),
+        ] {
+            assert!(tool(&io, t, a.clone()).1, "{t} {a}");
+        }
+        assert_eq!(io.sent.borrow().len(), n);
+        // No pill: a readable error, not a hang.
+        let down = Fake::default();
+        assert!(tool(&down, "agent_status", json!({})).1);
     }
 }
