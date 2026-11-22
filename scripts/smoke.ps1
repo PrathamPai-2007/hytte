@@ -86,6 +86,34 @@ try {
     if (-not $up) { throw "no daemon" }
     Write-Host ("        startup {0} ms" -f $result.startup_ms)
 
+    # Measured first, on the quiet pill: the checks below leave cards (a pack waiting for Run)
+    # that keep it drawing, which is not what "idle" means.
+    if (-not $SkipPerf) {
+        Write-Host ("  settling {0} s, then sampling CPU for {1} s ..." -f $Settle, $Sample)
+        Start-Sleep -Seconds $Settle
+        $proc.Refresh()
+        $cpu0 = $proc.TotalProcessorTime.TotalSeconds
+        $t0 = [Diagnostics.Stopwatch]::StartNew()
+        Start-Sleep -Seconds $Sample
+        $proc.Refresh()
+        $cpu1 = $proc.TotalProcessorTime.TotalSeconds
+        $result.idle_cpu_pct = [math]::Round(100 * ($cpu1 - $cpu0) / $t0.Elapsed.TotalSeconds, 3)
+        $result.private_mb = [math]::Round($proc.PrivateMemorySize64 / 1MB, 1)
+        $result.threads = $proc.Threads.Count
+        $result.handles = $proc.HandleCount
+        Write-Host ("        idle CPU {0} % of one core, private {1} MB, {2} threads, {3} handles" -f `
+                $result.idle_cpu_pct, $result.private_mb, $result.threads, $result.handles)
+        if (Test-Path $Baseline) {
+            $b = Get-Content $Baseline -Raw | ConvertFrom-Json
+            foreach ($k in "startup_ms", "idle_cpu_pct", "private_mb") {
+                $limit = $b.limit.$k
+                if ($null -ne $limit) {
+                    Check ("{0} within budget ({1} <= {2})" -f $k, $result[$k], $limit) ($result[$k] -le $limit)
+                }
+            }
+        }
+    }
+
     $d = Invoke-Hytte @("doctor")
     Check "hytte doctor runs (no crash, a report)" ($d.Text -match 'Hytte doctor')
     Check "notify reaches the daemon" ((Invoke-Hytte @("notify", "smoke test")).Code -eq 0)
@@ -123,6 +151,10 @@ try {
     Check "mcp action_run refuses an unknown name" ($mt -match 'no action called')
     Check "mcp never removes a pane it did not make" ($mt -match 'made by an agent')
 
+    # The agent's pane waits for a Run card on the pill; take it away so the idle measurement
+    # below sees an idle pill, not a card being shown.
+    Remove-Item (Join-Path $data "panes\smokeagent") -Recurse -Force -ErrorAction SilentlyContinue
+
     # `hytte pack` against the repository's own registry folder: verify, install, list, remove.
     $reg = Join-Path $root "examples\panes"
     $pi = Invoke-Hytte @("pack", "install", "disk-space", "--source", $reg)
@@ -131,31 +163,6 @@ try {
     Check "pack update says up to date" ((Invoke-Hytte @("pack", "update", "--source", $reg)).Text -match 'up to date')
     Check "pack remove takes it away" ((Invoke-Hytte @("pack", "remove", "disk-space")).Code -eq 0 -and -not (Test-Path (Join-Path $data "panes\disk-space")))
 
-    if (-not $SkipPerf) {
-        Write-Host ("  settling {0} s, then sampling CPU for {1} s ..." -f $Settle, $Sample)
-        Start-Sleep -Seconds $Settle
-        $proc.Refresh()
-        $cpu0 = $proc.TotalProcessorTime.TotalSeconds
-        $t0 = [Diagnostics.Stopwatch]::StartNew()
-        Start-Sleep -Seconds $Sample
-        $proc.Refresh()
-        $cpu1 = $proc.TotalProcessorTime.TotalSeconds
-        $result.idle_cpu_pct = [math]::Round(100 * ($cpu1 - $cpu0) / $t0.Elapsed.TotalSeconds, 3)
-        $result.private_mb = [math]::Round($proc.PrivateMemorySize64 / 1MB, 1)
-        $result.threads = $proc.Threads.Count
-        $result.handles = $proc.HandleCount
-        Write-Host ("        idle CPU {0} % of one core, private {1} MB, {2} threads, {3} handles" -f `
-                $result.idle_cpu_pct, $result.private_mb, $result.threads, $result.handles)
-        if (Test-Path $Baseline) {
-            $b = Get-Content $Baseline -Raw | ConvertFrom-Json
-            foreach ($k in "startup_ms", "idle_cpu_pct", "private_mb") {
-                $limit = $b.limit.$k
-                if ($null -ne $limit) {
-                    Check ("{0} within budget ({1} <= {2})" -f $k, $result[$k], $limit) ($result[$k] -le $limit)
-                }
-            }
-        }
-    }
     Check "still running after all of it" (-not $proc.HasExited)
 }
 catch { if ($_.Exception.Message -ne "no daemon") { Check "unexpected error" $false $_.Exception.Message } }
