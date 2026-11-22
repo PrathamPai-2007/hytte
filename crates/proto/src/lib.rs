@@ -231,6 +231,8 @@ impl Ask {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cmd {
     pub v: u32,
+    /// `"pane_get"` (name in `id`), `"agent_status"` and `"events"` (the last number seen in
+    /// `text`) are reads: the pill answers with one [`Pressed`] line holding a JSON string.
     /// `"notify"`, `"card"`, `"shelf_add"`, `"pane_set"`, `"note_add"`, `"todo_add"` or
     /// `"action_run"` (the name rides in `id`, an optional argument in `text`; the pill asks the
     /// human first and answers with one [`Pressed`] line).
@@ -371,6 +373,27 @@ impl Cmd {
         }
     }
 
+    /// A read the pill answers with JSON: `"pane_get"` (with `arg` = the pane's name),
+    /// `"agent_status"` or `"events"` (with `arg` = the last event number seen).
+    pub fn query(kind: &str, arg: Option<String>) -> Self {
+        let mut c = Self {
+            v: PROTOCOL_VERSION,
+            cmd: kind.into(),
+            ..Default::default()
+        };
+        if kind == "pane_get" {
+            c.id = arg;
+        } else {
+            c.text = arg;
+        }
+        c
+    }
+
+    /// True for the commands that only read.
+    pub fn is_query(&self) -> bool {
+        matches!(self.cmd.as_str(), "pane_get" | "agent_status" | "events")
+    }
+
     pub fn card() -> Self {
         Self {
             v: PROTOCOL_VERSION,
@@ -408,7 +431,10 @@ impl Cmd {
             || self.wait;
         if (card_only && self.cmd != "card")
             || (self.id.is_some()
-                && !matches!(self.cmd.as_str(), "card" | "pane_set" | "action_run"))
+                && !matches!(
+                    self.cmd.as_str(),
+                    "card" | "pane_set" | "action_run" | "pane_get"
+                ))
             || (self.keep && self.cmd != "note_add")
         {
             return false;
@@ -429,6 +455,23 @@ impl Cmd {
                     && self.id.as_deref().is_some_and(valid_action_id)
                     && text.is_none_or(|n| n > 0 && n <= MAX_ACTION_ARG_BYTES)
                     && !self.keep
+            }
+            "pane_get" => {
+                self.path.is_none()
+                    && text.is_none()
+                    && self
+                        .id
+                        .as_ref()
+                        .is_some_and(|n| !n.trim().is_empty() && n.len() <= 64)
+            }
+            "agent_status" => self.path.is_none() && self.id.is_none() && text.is_none(),
+            "events" => {
+                self.path.is_none()
+                    && self.id.is_none()
+                    && self
+                        .text
+                        .as_ref()
+                        .is_none_or(|t| t.len() <= 20 && t.chars().all(|c| c.is_ascii_digit()))
             }
             "notify" => self.path.is_none() && text.is_some_and(|n| n > 0 && n <= 1024),
             "note_add" | "todo_add" => {
@@ -644,6 +687,20 @@ mod tests {
         let mut n = Cmd::notify("x");
         n.id = Some("a".into());
         assert!(!n.validate());
+    }
+
+    #[test]
+    fn queries_are_validated() {
+        assert!(Cmd::query("pane_get", Some("Deploys".into())).validate());
+        assert!(!Cmd::query("pane_get", None).validate());
+        assert!(!Cmd::query("pane_get", Some(" ".into())).validate());
+        assert!(Cmd::query("agent_status", None).validate());
+        assert!(Cmd::query("events", None).validate());
+        assert!(Cmd::query("events", Some("42".into())).validate());
+        for bad in ["-1", "x", "1 2", "123456789012345678901"] {
+            assert!(!Cmd::query("events", Some(bad.into())).validate(), "{bad}");
+        }
+        assert!(Cmd::query("events", None).is_query() && !Cmd::notify("x").is_query());
     }
 
     #[test]

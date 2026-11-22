@@ -14,10 +14,10 @@ So permissions are **not per agent**. They are per **capability**, enforced wher
 
 | Capability | Tools | What stands in the way |
 |---|---|---|
-| Read | `pane_list`, `action_list` | Nothing: it shows what the pill already shows. `action_list` gives names and whether they ask "Sure?", never commands. |
+| Read | `pane_list`, `action_list`, `pane_get`, `agent_status`, `events` | Nothing: it shows what the pill already shows. `action_list` gives names and whether they ask "Sure?", never commands. `pane_get` is one pane's text or rows, `agent_status` the agents the pill tracks and whether any waits for you, `events` what happened lately (see below). |
 | Show things | `notify`, `card`, `note_add`, `todo_add`, `pane_set` | Unchanged since 1.9.2: they show or store text, and run nothing. |
 | Make panes | `pane_create`, `pane_update`, `pane_remove` | The pane is written as a **pack**, so it arrives unanswered: the pill shows its command with **Run** / **Ignore**, and nothing runs until Run. Any edit changes the file's hash and asks again. At most four agent-made panes; only folders the agent made (a `.hytte-agent` marker) can be changed or removed; your own panes are refused. |
-| Run an action | `action_run` | The pill shows **"agent: run the action X?"** with Allow / Deny, every time. Only a *name* defined in your `config.toml` or an approved pack runs, never a command string. No answer in 30 s is a no. |
+| Run an action | `action_run` | The pill shows **"agent: run the action X?"** with Allow / Deny, every time, unless you allowed that action in advance (below). Only a *name* defined in your `config.toml` or an approved pack runs, never a command string. No answer in 30 s is a no. |
 
 ### `action_run`, step by step (`pipe_server.rs`, `run_action_request`)
 
@@ -26,6 +26,16 @@ So permissions are **not per agent**. They are per **capability**, enforced wher
 3. It applies a daemon-wide rate limit (10 a minute), then sends `UiEvent::Ask` and blocks for the answer, like an agent's permission prompt.
 4. Only a yes sends **`UiEvent::ActionApproved(name, arg)`**. Nothing that arrives on the pipe can construct that event, and `run_cmd` ignores an `action_run` that reaches it. The UI thread runs it through the usual `run_named_with(.., approved = true)`, which skips the action's own "Sure?" arming (a person just said yes) but keeps the busy check, the timeout and the result card.
 5. Every outcome (unknown, rate limited, allowed, denied, no answer) is written to `mcp.log` and sent back as one `Pressed` line, which the agent reads as the tool result.
+
+### Allowing an action in advance
+
+`hytte mcp grant <action>` (in a terminal you typed into) writes `%APPDATA%\Hytte\mcp-grants\<action>.grant`, next to `pack-answers`. `hytte mcp revoke <action>` removes it, `hytte mcp grants` lists them. It is set from the CLI, **not** by a click and never by a tool call, so an agent cannot grant itself anything through MCP. The file holds `agent_guard::grant_hash`: the FNV hash of the action's name, command and the folder it runs in. Edit the command, or approve a pack that redefines the name, and the hash no longer matches, so the card comes back. A granted run still goes through the rate limit and is still logged (`started (you allowed this action in advance ...)`).
+
+### Reading back: `pane_get`, `agent_status`, `events`
+
+These three are `Cmd`s with `cmd` = `pane_get` (name in `id`), `agent_status` or `events` (the last number seen in `text`). `pipe_server::answer_query` sends `UiEvent::Query(cmd, reply)` to the UI thread, which owns the model, waits up to 3 s, and writes the JSON string back as one `Pressed` line (the same reply shape as `card --wait` and `action_run`). `ui_state/query.rs` builds the answers (`pane_json`, `agents_json`, `events_json`) and nothing in it mutates the model, except `log_event`, which the `ActionDone` handler calls.
+
+`events` is a ring of the last 100 things that happened, each numbered (`seq`), with a time, `type` (today only `action_done`), a name and a one-line detail cut to 120 characters. MCP is request and reply, so there are no pushed notifications: a caller passes the `next` number from its previous answer as `since` and gets only what is new. Numbers keep counting after old events fall out of the ring.
 
 ### What this does and does not protect against
 
@@ -37,7 +47,8 @@ Does **not** protect against software already running as you with shell or file 
 
 ### Limits worth knowing
 
-- Not built yet: `pane_get` and `agent_status` (they need a reply path from the UI thread's model, not just from config files), event subscription, and an "Always allow this action" answer. Each `action_run` asks again.
+- Events are polled, not pushed, and only action results are recorded so far (`Model::log_event` is where a new kind goes).
+- "Always allow" is a terminal command, not a button on the card: the card's reply is a plain yes or no, shared with agents' permission prompts.
 - The rate limits (10 a minute) are per MCP process for the pane tools (`McpIo.limit`) and daemon-wide for `action_run`.
 - `pane_create`'s `command` is a command line the *agent* chose, run by `cmd /c` after you press Run. The card shows its first 60 characters; a long command is cut there. Read what an agent asks you to approve.
 
@@ -96,6 +107,8 @@ To check by hand: `hytte pack info <name> --source examples/panes`, then `instal
 ## Testing
 
 - `cli/mcp.rs` (fake `Backend`): the read tools list names only; `action_run` reports the answer, refuses unknown names and bad arguments *before* asking; pane tools produce a pack that waits for Run and are logged; a flood is stopped.
+- `ui_state/query.rs`: a pane reads back as the user sees it (text, then rows); events are numbered, polled by cursor and bounded; `agent_status` lists only agents.
+- `agent_guard.rs` also covers grants: only for the granted command, case-insensitive names, no name that climbs out of the folder.
 - `cli/mcp_panes.rs`: a created pane parses as `State::Pending`; an update changes the hash; bad names, commands and `every`; your panes and unmarked folders are never changed; the four-pane cap; a folder with foreign files is not removed.
 - `agent_guard.rs`: the limiter, a log line that cannot be forged, rotation.
 - `registry.rs`: the SHA-256 vectors, install, tamper (same size, different bytes), refusing foreign folders and too-new Hytte, update keeping your files, remove, index rejection, `info`.

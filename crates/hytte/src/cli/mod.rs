@@ -4,6 +4,7 @@
 
 mod agent;
 mod doctor;
+mod grants;
 mod hook;
 mod mcp;
 mod mcp_panes;
@@ -40,6 +41,7 @@ usage:
   hytte todo \"text\"                     # add a to-do (or text on stdin)
   hytte setup mcp [--undo]               # register that server with Claude Code and Codex (opt-in)
   hytte mcp                              # MCP server on stdio: agents can show cards, ask you, add notes, make panes, ask to run an action
+  hytte mcp grant|revoke <action> | grants   # let an agent run one action without asking each time
   hytte pack <search|info|install|update|remove|list> [name] [--source <https-url|folder>]   # shared pane packs
   hytte doctor                           # check the setup and say how to fix what's wrong
   hytte ports [--all]                    # list dev-server listeners
@@ -881,6 +883,12 @@ impl mcp::Backend for McpIo {
             .and_then(|r| serde_json::from_str::<hytte_proto::Pressed>(r.trim()).ok())
             .map(|p| p.pressed)
     }
+    fn query(&self, c: &hytte_proto::Cmd) -> Option<String> {
+        let line = c.to_line().ok()?;
+        request_reply(&line, 5)
+            .and_then(|r| serde_json::from_str::<hytte_proto::Pressed>(r.trim()).ok())
+            .map(|p| p.pressed)
+    }
     fn packs_dir(&self) -> std::path::PathBuf {
         crate::packs::dir()
     }
@@ -940,6 +948,14 @@ pub fn run(args: &[String]) {
         "note" => cmd_jot(true, &args[1..]),
         "todo" => cmd_jot(false, &args[1..]),
         "pack" => pack::run(&args[1..]),
+        "mcp"
+            if matches!(
+                args.get(1).map(String::as_str),
+                Some("grant" | "revoke" | "grants")
+            ) =>
+        {
+            grants::run(&args[1..])
+        }
         "mcp" => mcp::run(&McpIo {
             limit: Default::default(),
         }),
