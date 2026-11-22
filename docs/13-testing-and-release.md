@@ -8,7 +8,7 @@ cargo test --workspace
 
 Off Windows see [section 2](02-getting-started.md#working-from-macos-or-linux): you can type-check, lint and run `hytte-proto`'s tests, but not the `hytte` crate's. Tests are `#[cfg(test)] mod tests` blocks at the bottom of each file (the UI model's are in `ui_state/tests/`); there is no top-level `tests/` folder.
 
-On the 1.9.3 branch `cargo test -p hytte` runs 394 tests and leaves 35 ignored (the manual and snapshot tests below).
+On the 1.10 branch `cargo test -p hytte` runs 422 tests and leaves 35 ignored (the manual and snapshot tests below); `hytte-proto` has 19. These counts drift: treat them as a rough size, not a rule.
 
 ## What is covered
 
@@ -69,8 +69,9 @@ Anything needing a real desktop beyond the smoke test above: drawing, hover timi
 
 1. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`
 2. A manual pass over every scene, on a high-DPI monitor if you have one (the snapshot test is a quick first look).
-3. An idle check ([section 12](12-performance.md#measuring)): about 0 % CPU when collapsed.
-4. `scripts/release.ps1 <version>` (below): bumps the version everywhere, runs step 1 and a release build, commits and tags. The tag must match: the release job refuses a tag whose exe reports another version, since the in-app updater would refuse that download too.
+3. `cargo build --release -p hytte`, then `./scripts/smoke.ps1` ([above](#the-smoke-test-and-the-perf-gate)): the built exe starts, answers, and idles within budget. It replaces the old hand idle check ([section 12](12-performance.md#measuring) says how to measure by hand).
+4. `./scripts/pack-index.ps1 -Check` if you touched `examples/panes` ([section 18](18-agent-control-and-registry.md#publishing-a-pack)).
+5. `scripts/release.ps1 <version>` (below): bumps the version everywhere, runs step 1 and a release build, commits and tags. The tag must match: the release job refuses a tag whose exe reports another version, since the in-app updater would refuse that download too.
 
 ## How a release is built
 

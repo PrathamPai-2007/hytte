@@ -33,6 +33,8 @@ It checks the pill, `PATH`, your terminals, agents and `config.toml`, and says h
 | Commands don't show up | Set up terminal integration and open a new terminal. Commands under 3 seconds are hidden on purpose. |
 | Agents or terminal tasks show nowhere | **Coding agents** and **Terminal tasks** are both off under Settings → **Panes**. Switch one on ([details](04-ai-agents.md#day-to-day)). |
 | An agent never shows up | Tray → **Connect AI agents**, restart the agent, and in Codex trust the hooks with `/hooks`. If the agent runs inside WSL, run `hytte setup agents --wsl` too. |
+| I want to see what an agent changed or ran | Open `%APPDATA%\Hytte\mcp.log`: one line per pane change or action attempt ([page 11](11-pane-store.md)). |
+| `hytte pack install` fails | See the table at the end of [page 11](11-pane-store.md#if-something-goes-wrong). Nothing is installed when a check fails. |
 | An agent can't use the hytte tools | Run `hytte setup mcp`, then start a new agent session. `hytte doctor` says whether Claude Code and Codex have it registered. |
 | I moved the pill and want it back | Double-click its top edge, or tray → **Reset pill position**. |
 | Old terminals show no tasks after an update | Open a new terminal. |
