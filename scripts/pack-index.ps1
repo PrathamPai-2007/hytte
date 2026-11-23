@@ -43,7 +43,9 @@ foreach ($d in (Get-ChildItem $dir -Directory | Sort-Object Name)) {
     $version = "1.0.0"
     if ($old.ContainsKey($d.Name)) {
         $o = $old[$d.Name]
-        $same = (($o.files | ForEach-Object { "$($_.path):$($_.sha256)" }) -join "|") -eq (($files | ForEach-Object { "$($_.path):$($_.sha256)" }) -join "|")
+        # Compared in ordinal order: Sort-Object is culture-aware, so a runner and a desktop list the files differently.
+        $key = { param($l) $a = @($l | ForEach-Object { "$($_.path):$($_.sha256)" }); [Array]::Sort($a, [StringComparer]::Ordinal); $a -join "|" }
+        $same = (& $key $o.files) -eq (& $key $files)
         $version = $o.version
         if (-not $same) {
             if ($Check) { $version = "CHANGED" }
