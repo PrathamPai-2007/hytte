@@ -1,16 +1,16 @@
 {
-    "version": "1.10.1",
+    "version": "1.11.0",
     "description": "Lightweight dynamic notch for Windows 11: long-running commands, AI agents, dev servers, music and a file shelf in one small pill.",
     "homepage": "https://github.com/PrathamPai-2007/hytte",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/PrathamPai-2007/hytte/releases/download/v1.10.1/hytte-1.10.1-x64.zip",
-            "hash": "0F3335C8DD721FF8D1D958AF5E6D64A2482DEC8376768EB1E2019FF2379E3081"
+            "url": "https://github.com/PrathamPai-2007/hytte/releases/download/v1.11.0/hytte-1.11.0-x64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
         },
         "arm64": {
-            "url": "https://github.com/PrathamPai-2007/hytte/releases/download/v1.10.1/hytte-1.10.1-arm64.zip",
-            "hash": "9D61A85721FD591733D86FB3ACB120A63BF01924BD7CF68FA698E115DC569964"
+            "url": "https://github.com/PrathamPai-2007/hytte/releases/download/v1.11.0/hytte-1.11.0-arm64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
         }
     },
     "bin": "hytte.exe",
