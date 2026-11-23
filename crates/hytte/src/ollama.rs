@@ -813,13 +813,22 @@ mod tests {
         let (host, _s) = serve(vec![chunk; 200], Duration::from_millis(100));
         let cancel = Arc::new(AtomicBool::new(false));
         let c2 = cancel.clone();
+        let seen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let s2 = seen.clone();
+        // Stop once the first piece is in (a fixed delay raced a slow runner's connect time).
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
+            while s2.load(Ordering::Relaxed) == 0 {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            std::thread::sleep(Duration::from_millis(200));
             c2.store(true, Ordering::Relaxed);
         });
         let t = Instant::now();
         let mut n = 0;
-        let r = ask(&host, &q(), &cancel, |_| n += 1);
+        let r = ask(&host, &q(), &cancel, |_| {
+            n += 1;
+            seen.store(n, Ordering::Relaxed);
+        });
         assert_eq!(r, Ok(()));
         assert!((1..20).contains(&n), "got {n} pieces");
         assert!(
