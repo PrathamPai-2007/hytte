@@ -1,0 +1,3 @@
+name = "Clocks"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File clocks.ps1"
+every = 30

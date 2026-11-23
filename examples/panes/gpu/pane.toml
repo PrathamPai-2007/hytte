@@ -1,0 +1,3 @@
+name = "GPU"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File gpu.ps1"
+every = 30

@@ -20,6 +20,26 @@ The card shows the start of the command, after a note such as "+2 action(s)" whe
 
 Before you press Run, take a minute to read what it does: `hytte pack info <name>` prints the commands. Your Run covers the pane's settings file. It does not cover the scripts next to it, so open the pack's folder (`%APPDATA%\Hytte\panes\<name>`) if you want to read those too.
 
+## What is in the store
+
+| Pane | Shows | You need |
+|---|---|---|
+| `battery` | charge, charging or not, time left | nothing (it says so on a desktop PC) |
+| `uptime-and-load` | time since boot, CPU, memory | nothing |
+| `top-cpu`, `top-memory` | the programs using the most CPU or RAM | nothing |
+| `disk-space` | each drive's used space | nothing |
+| `wifi` | network name, signal, speed | a Wi-Fi adapter, Windows in English |
+| `gpu` | NVIDIA GPU load, memory, temperature | an NVIDIA GPU and its driver |
+| `time-zones` | the time in up to six places | nothing (`zones.txt` to choose your own) |
+| `net-check` | internet up, latency, DNS | nothing |
+| `recycle-bin` | what is in it; a click empties it (asks "Sure?") | nothing |
+| `git-repos` | uncommitted and unpushed work in the repos you list | `git`, and a `repos.txt` |
+| `docker` | containers, unhealthy first; click one to restart it | Docker Desktop |
+| `github-prs`, `github-notifications`, `ci-status` | your pull requests, unread notifications, latest CI runs | the GitHub CLI (`gh`), signed in |
+| `ssl-expiry` | days left on the certificate of each host you list | a `hosts.txt` |
+
+Some panes read a small list from a file next to them (`repos.txt`, `hosts.txt`, `zones.txt`). The pack folder holds a `.example` copy: copy it to the name without `.example` and edit it. `hytte pack info <name>` says what a pane needs.
+
 ## Keeping them up to date, or removing them
 
 ```powershell

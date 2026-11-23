@@ -1,0 +1,3 @@
+# One host per line, optionally host:port. Six at most.
+github.com
+example.com

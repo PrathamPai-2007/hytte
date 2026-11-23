@@ -1,0 +1,3 @@
+name = "Certs"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File certs.ps1"
+every = 3600

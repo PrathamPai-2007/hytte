@@ -1,0 +1,4 @@
+# Label=Windows time zone id (see: Get-TimeZone -ListAvailable). One per line, six at most.
+Home=India Standard Time
+Berlin=W. Europe Standard Time
+Seattle=Pacific Standard Time

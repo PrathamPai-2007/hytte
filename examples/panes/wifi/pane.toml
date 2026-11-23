@@ -1,0 +1,3 @@
+name = "Wi-Fi"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File wifi.ps1"
+every = 30

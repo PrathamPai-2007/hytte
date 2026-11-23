@@ -2,6 +2,29 @@
     "version":  1,
     "packs":  [
                   {
+                      "name":  "battery",
+                      "description":  "Charge with a bar, whether it is charging or on battery, and the time left. Amber below 30 %, red below 15 % while on...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "battery.ps1",
+                                        "sha256":  "4a9ce6ecdef4ca80211c0eb2394c1812d912862fc295ec010a797a9051d8546d",
+                                        "size":  1307
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "5b5c55bcba499c3deb8b4aefb345ff385ad65c0c59c58eb3eede5715d7f320ba",
+                                        "size":  104
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "d3238e4dfbc5eb086e1e0be5b9369d19f6d7fa78f5b78c12c70da9126f163cd1",
+                                        "size":  198
+                                    }
+                                ]
+                  },
+                  {
                       "name":  "ci-status",
                       "description":  "The latest runs of one repository\u0027s GitHub Actions: workflow and branch on the left, the result on the right (green, ...",
                       "version":  "1.0.0",
@@ -91,6 +114,29 @@
                                 ]
                   },
                   {
+                      "name":  "github-notifications",
+                      "description":  "Your unread GitHub notifications, newest first (up to six): the repository and the title, with why you got it (review...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "inbox.ps1",
+                                        "sha256":  "f0a77848a6fde0ccac69a43c652c1e9f83cbcea9739abefc4c6abbf6f9d00f5a",
+                                        "size":  1049
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "76856d5fa528a39a742908f6538e5f31acc1f1872fb717864e299c5c33e77565",
+                                        "size":  258
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "2ab897b65fce6602ab1e13847850decf86dcb94d79338bcaaa98246d2e2d0c77",
+                                        "size":  289
+                                    }
+                                ]
+                  },
+                  {
                       "name":  "github-prs",
                       "description":  "Your open pull requests, newest first (up to six): repository, number and title, with draft or open on the right. Cli...",
                       "version":  "1.0.0",
@@ -142,6 +188,29 @@
                                 ]
                   },
                   {
+                      "name":  "gpu",
+                      "description":  "Load, video memory and temperature of each NVIDIA GPU (up to two), through nvidia-smi. Amber above 75 %, red above 90...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "gpu.ps1",
+                                        "sha256":  "c06d755c68fbe8cc18b0d8e2c69f3d15155000e4cec73fb42cf487ae714b0632",
+                                        "size":  1297
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "70c062b8351353758a1549372f8e31f06d7cf8be17597778fb8a46562adfc21e",
+                                        "size":  96
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "0122f3f59bc9745cc79c33ce586cc26efb138b45ad568b50c05d84586b34abfe",
+                                        "size":  178
+                                    }
+                                ]
+                  },
+                  {
                       "name":  "net-check",
                       "description":  "Three rows once a minute: is the internet up, the round trip to 1.1.1.1, and whether DNS answers. It only contacts 1....",
                       "version":  "1.0.0",
@@ -188,6 +257,85 @@
                                 ]
                   },
                   {
+                      "name":  "ssl-expiry",
+                      "description":  "Days left on the HTTPS certificate of each host in hosts.txt (one per line, host or host:port, six at most). Amber be...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "certs.ps1",
+                                        "sha256":  "b8b103d1ce86220e77c912d15b5c24861730143f6bc9f48eee55529f6b457ad0",
+                                        "size":  1986
+                                    },
+                                    {
+                                        "path":  "hosts.txt.example",
+                                        "sha256":  "cadb4af19fa01aa94bb68c3289fa0c38c829f82f652c8e053b0489fe2d31177f",
+                                        "size":  79
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "04c82995e71dd77dcb5f645525ad1daddd3dcd0ee1418aa33200c753ccfdff16",
+                                        "size":  102
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "7a7560453d03acd4b8bb494d44dfb84a6b6b45f22746d50e0642b4102dd5fc52",
+                                        "size":  330
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "time-zones",
+                      "description":  "The time now in up to six places, with the day on the right. Out of the box it shows UTC, London, New York, Tokyo and...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "clocks.ps1",
+                                        "sha256":  "a5063522f0d0bca60cb8fce11d36c5b547664c89c0ff12ad0cd81f9b79184103",
+                                        "size":  1012
+                                    },
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "070c54e93f19aa7e0db6c177c3bcf394ebaafb9f246bc469ffefd9570086337c",
+                                        "size":  102
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "8f7363bfbafc320286769f01672433806d9ee06dfe8371afb6cf03e341223b67",
+                                        "size":  322
+                                    },
+                                    {
+                                        "path":  "zones.txt.example",
+                                        "sha256":  "885bd1941d499cc89f95e9dcd8209e79aa8317b07fff2a70be4e3394f57f13e9",
+                                        "size":  178
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "top-cpu",
+                      "description":  "The five programs using the most CPU over the last second, with all of a program\u0027s processes added together (Chrome i...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "ccf747a7e900c7525880dca2c22e5a6f43135c13074ff0839a7318af6ec28c94",
+                                        "size":  103
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "651a8b0b66404d1befa93099b23d31ee5bc9c898baea45a6e759e4d3c4e33dcf",
+                                        "size":  221
+                                    },
+                                    {
+                                        "path":  "topcpu.ps1",
+                                        "sha256":  "6fd4d9353c291a878e25291cb11c23dfe7ffbb5ba37e1805c0a8d1642cde445f",
+                                        "size":  1029
+                                    }
+                                ]
+                  },
+                  {
                       "name":  "top-memory",
                       "description":  "The five programs using the most RAM, all of a program\u0027s processes added together (Chrome is one row, not forty). The...",
                       "version":  "1.0.0",
@@ -207,6 +355,52 @@
                                         "path":  "top.ps1",
                                         "sha256":  "7ccf496d2726bd2c4854b28d343a5394182d6c5a26b14c767b9cbf3b9ad4c9d7",
                                         "size":  848
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "uptime-and-load",
+                      "description":  "Time since the last boot, CPU load and memory in use, each with a bar where it makes sense. Amber above 75 %, red abo...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "032b0a620b148a61afb1903790c90ee780e453e079a11ce3379e0ad221f88640",
+                                        "size":  102
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "9cc2c5f8e5fb05ba921239041d7c3d07b4f7cd15ae0725aa5401ade7a4b31841",
+                                        "size":  164
+                                    },
+                                    {
+                                        "path":  "uptime.ps1",
+                                        "sha256":  "a8347d9777a4ee10b7ef3301570d8c3d1b2ed3ab58a30a1b1f0c955eb8596ba6",
+                                        "size":  1021
+                                    }
+                                ]
+                  },
+                  {
+                      "name":  "wifi",
+                      "description":  "The network you are on, its signal strength with a bar, and the link speed. Amber below 50 %, red below 25 %. Reads n...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "2a5918e98264f01b2c2d5cfed650ec26d757d5e9ff99fda7b9ef1f5ab058a057",
+                                        "size":  99
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "2123a8bfc324670db387052a8bb9a2bcaed2f9cdb37157a44c23cafeae7ac1f9",
+                                        "size":  231
+                                    },
+                                    {
+                                        "path":  "wifi.ps1",
+                                        "sha256":  "d154f0d560910d952ff7ace746d8bf24226ece26a338e3b565b9641f6073ae74",
+                                        "size":  1049
                                     }
                                 ]
                   }
