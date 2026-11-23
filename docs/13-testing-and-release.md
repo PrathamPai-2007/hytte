@@ -55,6 +55,8 @@ It runs an isolated second copy: its own `%APPDATA%` in a temp folder (autostart
 
 CI runs it as the `smoke` job (with the numbers uploaded as an artifact, and one retry because a shared runner can have a noisy minute) and as a smoke-only step in the `arm64` job. The limits are loose on purpose (1.5 s, 1 % of a core, 40 MB) so only a real regression trips them; the `baseline` block records what the last measurement saw (about 0.1 s, 0.3 %, 17 MB). When you change what is normal, measure again and edit the file in the same commit.
 
+**On a dev PC, pause the music first.** While a song plays, the pill draws its equaliser and idle CPU reads anywhere from 0.5 % to 6 %, and it jumps between runs (the released 1.10.1 does the same). CI runners play nothing, so the gate is meaningful there; for a number you can trust locally, pause Spotify or any video and run the smoke test again.
+
 ### Not covered automatically
 
 Anything needing a real desktop beyond the smoke test above: drawing, hover timing, drag and drop, focus, fullscreen detection, the tray, virtual desktops, media sessions, OCR, shell scripts in real shells, `hytte.exe`'s console behaviour, quitting cleanly, and the update flow ([section 15](15-updates.md#testing-an-update)). Check by hand before a release using [section 2](02-getting-started.md#putting-the-pill-into-every-state).
