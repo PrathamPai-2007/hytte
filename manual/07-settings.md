@@ -11,32 +11,25 @@ Click the **gear** on the Home pane (or, if you have hidden Home, the tray icon 
 
 ### What the sections hold
 
-The window is split into sections. Type in the search box to find a row quickly.
+The window has five sections, listed on the left. Each shows its everyday switches first. Settings that only tune things (delays, sizes, thresholds, lengths) sit behind **Show N more settings** at the bottom of the section: click it to open them, click **Show fewer settings** to fold them away. A small dot beside that line means one of the hidden settings is not at its default. Searching shows everything that matches, folded or not.
 
-| Section | Rows |
-|---|---|
-| **Look and feel** | Color theme, Pill skin, Wait before opening on hover, How the pill opens, Wait before closing, Pill opacity when open, Opacity when idle, Pill size, Animation speed, Glow around the pill, Glow strength, Tint glow from album art. |
-| **Behaviour** | Start Hytte with Windows, Panel shown on launch, Remember last panel after restart, Show a pin button on the open pill, Mute sounds during quiet hours, When an app is fullscreen, Show the pill on screen, Open the pill when a task ends, Hide pill from screenshots and recordings, Run hytte from any terminal (PATH), Check for updates automatically. |
-| **Hotkeys** | Open the pill, Move to the next screen, Open Notes, Open Ask. |
-| **Media** | Show lyrics, Follow the song live. |
-| **Clipboard** | Keep a short clipboard history, Forget a clip after, Forget them when the clipboard is emptied. |
-| **Ask (local AI)** | Ask a model on this PC (Ollama), Model, Keep it in memory. |
-| **Moments** | Bluetooth device connects, Camera or microphone starts. |
-| **Breaks** | Eye break (20-20-20), Stretch reminder, Water reminder. |
-| **Panes** | A switch and **▲ ▼** for every pane (below). |
-| **Timer** | Play a chime when the timer ends, Do Not Disturb during focus, Short break length, Long break length, Focus rounds before a long break. |
-| **AI agents** | Task rows shown before scrolling, Sound when an AI agent needs you, Say a working agent is quiet after. |
-| **Shelf** | Shelf stores files as, Most items on the shelf, Keep the shelf after restart, Remove screenshots after, Delete a screenshot after pasting it, Remove an item after dragging it out, Add new screenshots to the shelf, Put files I copy with Ctrl+C on the shelf. |
-| **Alerts** | Notify when a download finishes, Warn before calendar events, Warn this long before an event, Alert on CPU or memory hogs, CPU level that counts as heavy, Memory level that counts as heavy, Only if it lasts at least. |
-| **Ports and terminal** | List every listening port, Refresh the ports list every, Show terminal commands slower than. |
+| Section | Always shown | Behind "more settings" |
+|---|---|---|
+| **Look and feel** | Color theme, Pill skin, Pill size, Glow around the pill. | Wait before opening on hover, How the pill opens, Wait before closing, Pill opacity when open, Opacity when idle, Animation speed, Glow strength, Tint glow from album art. |
+| **General** | Start Hytte with Windows, Panel shown on launch, When an app is fullscreen, Run hytte from any terminal (PATH), Check for updates automatically. | Remember last panel after restart, Show a pin button on the open pill, Mute sounds during quiet hours, Show the pill on screen, Open the pill when a task ends, Hide pill from screenshots and recordings. |
+| **Hotkeys** | Open the pill, Move to the next screen, Open Notes, Open Ask. | |
+| **Panes** | The list of panes with a switch and **▲ ▼** each (below), then each pane's own settings under a small heading: **Music** (Show lyrics), **Clipboard** (Keep a short clipboard history), **Ask (local AI)** (Ask a model on this PC, Model), **Timer** (Play a chime, Do Not Disturb during focus), **Coding agents** (Sound when an AI agent needs you), **Shelf** (Shelf stores files as, Keep the shelf after restart, Add new screenshots to the shelf, Put files I copy with Ctrl+C on the shelf), **Ports and terminal** (List every listening port). | Follow the song live, Forget a clip after, Forget them when the clipboard is emptied, Keep the model in memory, Short and Long break length, Focus rounds before a long break, Task rows shown before scrolling, Say a working agent is quiet after, Most items on the shelf, Remove screenshots after, Delete a screenshot after pasting it, Remove an item after dragging it out, Refresh the ports list every, Show terminal commands slower than. |
+| **Alerts and reminders** | **Alerts** (Notify when a download finishes, Warn before calendar events, Alert on CPU or memory hogs), **Devices** (Bluetooth device connects, Camera or microphone starts), **Reminders** (Eye break, Stretch reminder, Water reminder). | Warn this long before an event, CPU level that counts as heavy, Memory level that counts as heavy, Only if it lasts at least. |
+
+At the bottom of the left list are two buttons. **Manual** opens this manual on GitHub in your browser. **Open config.toml** opens the settings file, for everything the window doesn't have. In a narrow window they sit side by side at the top.
 
 ### Choosing and ordering panes
 
-The **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Coding agents, Timer, Battery, Notes, To-do, Weather and Ask (local AI), then your own [custom panes](10-custom-panes.md) under their own names. Each has a switch (Quick controls are the home pane and always show), and the **▲ ▼** buttons move it along the tab strip. Notes, To-do and Ask (local AI) start switched off. The other panes start on.
+The top of the **Panes** section lists every pane: Quick controls, Music, Shelf, Terminal tasks, Coding agents, Timer, Battery, Notes, To-do, Weather and Ask (local AI), then your own [custom panes](10-custom-panes.md) under their own names. Each has a switch (Quick controls are the home pane and always show), and the **▲ ▼** buttons move it along the tab strip. Notes, To-do and Ask (local AI) start switched off. The other panes start on.
 
 - Panes that only appear when they have something to show (Music, Shelf, Timer, Battery, Terminal tasks, Coding agents) keep their place in the order for when they do.
 - **Coding agents** lists your agent sessions in their own pane, apart from **Terminal tasks**. See [AI agents](04-ai-agents.md#day-to-day) for how the two switches work together.
-- **Ask (local AI)** appears on the pill only while **Ask a model on this PC (Ollama)** is on in the **Ask (local AI)** section (it is on by default).
+- **Ask (local AI)** appears on the pill only while **Ask a model on this PC (Ollama)** is on in the **Ask (local AI)** group of **Panes** (it is on by default).
 - Custom panes: a pane from `config.toml` first, then approved packs, up to twelve in all. A pane keeps its switch and its place when another pane is deleted or a pack is approved ahead of it.
 
 ### Skin and glow

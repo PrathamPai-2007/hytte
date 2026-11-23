@@ -156,6 +156,8 @@ pub enum Action {
     OpenConfig,
     /// Open the manual (the settings window's Manual button).
     OpenManual,
+    /// Fold or unfold a settings card's "More settings" rows (by the card's name).
+    ToggleMore(&'static str),
     /// Run the `[[action]]` with this name (a script pane row or button), handing it the `arg`.
     Named(String, Option<String>),
     /// Run a script pane's command now, without waiting for its next turn.
@@ -367,6 +369,8 @@ pub struct Renderer {
     /// The settings row the pointer is on this frame (key, row y), and how long the same one
     /// has been pointed at (for the hover note).
     tip_now: Cell<Option<(&'static str, f32)>>,
+    /// The settings cards whose "More settings" rows are shown (not saved).
+    more_open: RefCell<Vec<&'static str>>,
     tip: RefCell<(&'static str, f32)>,
     ox: Cell<f32>,
     t: Cell<f32>,
@@ -662,6 +666,7 @@ impl Renderer {
                 rolls: RefCell::new(HashMap::new()),
                 tweens: RefCell::new(Default::default()),
                 tip_now: Cell::new(None),
+                more_open: RefCell::new(Vec::new()),
                 tip: RefCell::new(("", 0.0)),
                 ox: Cell::new(0.0),
                 t: Cell::new(0.0),
@@ -938,6 +943,8 @@ impl Renderer {
         const COL: f32 = 560.0;
         const SIDE: f32 = 188.0;
         const ROW: f32 = 34.0;
+        /// A sub-heading inside a card.
+        const HEAD_H: f32 = 30.0;
         /// Right-hand column the reset button lives in, the same on every row.
         const RESET_GUT: f32 = 30.0;
         let (w, h) = (self.px.0 as f32 / self.scale, self.px.1 as f32 / self.scale);
@@ -972,14 +979,25 @@ impl Renderer {
         if !q.is_empty() {
             for s in &mut sections {
                 if !s.name.to_lowercase().contains(&q) {
-                    s.rows.retain(|r| {
-                        r.label().to_lowercase().contains(&q)
-                            || help(r.key()).to_lowercase().contains(&q)
-                    });
+                    let keep: Vec<bool> = s
+                        .rows
+                        .iter()
+                        .zip(&s.groups)
+                        .map(|(r, g)| {
+                            g.to_lowercase().contains(&q)
+                                || r.label().to_lowercase().contains(&q)
+                                || help(r.key()).to_lowercase().contains(&q)
+                        })
+                        .collect();
+                    let mut k = keep.iter();
+                    s.rows.retain(|_| *k.next().unwrap_or(&false));
+                    let mut k = keep.iter();
+                    s.groups.retain(|_| *k.next().unwrap_or(&false));
                 }
             }
             sections.retain(|s| !s.rows.is_empty());
         }
+        let searching = !q.is_empty();
         let names: Vec<&str> = sections.iter().map(|s| s.name).collect();
         // What each row holds by default, to offer a reset where it differs.
         let defaults: std::collections::HashMap<&str, (f32, Option<Action>)> =
@@ -1062,8 +1080,45 @@ impl Renderer {
                     self.cc(acc, 0.95),
                 );
                 let top = y + 24.0 + lift;
-                let n = sec.rows.len() as f32;
-                let ch = n * ROW + 8.0;
+                // What the card shows: its rows (the rare ones only when unfolded or searched
+                // for), a small heading above each group, and the fold line last.
+                enum Item {
+                    Head(&'static str),
+                    Row(Row),
+                    More(usize, bool, bool),
+                }
+                let name = sec.name;
+                let open = searching || self.more_open.borrow().contains(&name);
+                let rare = sec.rows.iter().filter(|r| is_rare(r.key())).count();
+                let differs = |r: &Row| {
+                    defaults
+                        .get(r.key())
+                        .is_some_and(|(at, _)| (at - r.at()).abs() > 0.004)
+                };
+                let changed = sec.rows.iter().any(|r| is_rare(r.key()) && differs(r));
+                let mut items: Vec<Item> = Vec::new();
+                let mut last = "";
+                for (row, g) in sec.rows.into_iter().zip(sec.groups) {
+                    if is_rare(row.key()) && !open {
+                        continue;
+                    }
+                    if !g.is_empty() && g != last {
+                        items.push(Item::Head(g));
+                    }
+                    last = g;
+                    items.push(Item::Row(row));
+                }
+                if rare > 0 && !searching {
+                    items.push(Item::More(rare, open, changed));
+                }
+                let height = |it: &Item| {
+                    if matches!(it, Item::Head(_)) {
+                        HEAD_H
+                    } else {
+                        ROW
+                    }
+                };
+                let ch = items.iter().map(height).sum::<f32>() + 8.0;
                 self.fill_rr(0.0, top, cw, ch, 14.0, self.cc(fg, 0.045));
                 self.stroke_rr(
                     0.5,
@@ -1076,16 +1131,73 @@ impl Renderer {
                     false,
                 );
                 let mut ry = top + 4.0;
-                for (k, row) in sec.rows.into_iter().enumerate() {
+                for (k, item) in items.into_iter().enumerate() {
                     if k > 0 {
                         self.line((22.0, ry), (cw - 22.0, ry), self.cc(fg, 0.05), 1.0);
                     }
-                    let reset = defaults
-                        .get(row.key())
-                        .filter(|(at, _)| (at - row.at()).abs() > 0.004)
-                        .and_then(|(_, a)| a.clone());
-                    self.setting_row(row, reset, ry + 2.0, cw, RESET_GUT);
-                    ry += ROW;
+                    let h = height(&item);
+                    match item {
+                        Item::Head(g) => {
+                            self.text(
+                                g,
+                                &self.f.small,
+                                22.0,
+                                ry + 7.0,
+                                cw - 44.0,
+                                18.0,
+                                self.cc(GRAY, 0.9),
+                            );
+                        }
+                        Item::Row(row) => {
+                            let reset = defaults
+                                .get(row.key())
+                                .filter(|(at, _)| (at - row.at()).abs() > 0.004)
+                                .and_then(|(_, a)| a.clone());
+                            self.setting_row(row, reset, ry + 2.0, cw, RESET_GUT);
+                        }
+                        Item::More(n, open, changed) => {
+                            let hov = self.hit(0.0, ry, cw, ROW, Action::ToggleMore(name));
+                            let hh = self.ease(&format!("more:{name}"), hov as u8 as f32);
+                            if hh > 0.01 {
+                                self.fill_rr(
+                                    6.0,
+                                    ry + 2.0,
+                                    cw - 12.0,
+                                    ROW - 4.0,
+                                    10.0,
+                                    self.cc(fg, 0.05 * hh),
+                                );
+                            }
+                            let mut x = 22.0;
+                            if changed {
+                                // A value in here differs from its default: don't hide that.
+                                self.fill_rr(
+                                    x,
+                                    ry + ROW / 2.0 - 3.0,
+                                    6.0,
+                                    6.0,
+                                    3.0,
+                                    self.cc(acc, 0.95),
+                                );
+                                x += 14.0;
+                            }
+                            let label = if open {
+                                "Show fewer settings".to_string()
+                            } else {
+                                format!("Show {n} more settings")
+                            };
+                            self.text(
+                                &label,
+                                &self.f.body,
+                                x,
+                                ry,
+                                cw - x - 22.0,
+                                ROW,
+                                self.cc(acc, 0.9),
+                            );
+                        }
+                    }
+                    ry += h;
                 }
                 y += 24.0 + ch + 22.0;
             }
@@ -1276,6 +1388,16 @@ impl Renderer {
             content: y,
             tops,
             busy: self.fx_busy.get() || tw.moving(),
+        }
+    }
+
+    /// Fold or unfold one settings card's "More settings" rows.
+    pub fn toggle_more(&self, card: &'static str) {
+        let mut v = self.more_open.borrow_mut();
+        if let Some(i) = v.iter().position(|c| *c == card) {
+            v.remove(i);
+        } else {
+            v.push(card);
         }
     }
 

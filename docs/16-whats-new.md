@@ -7,9 +7,10 @@ What changed in each version, newest first. Each version ends with a short note 
 - **`events` can wait.** The MCP `events` tool takes `wait` (0 to 25 seconds): the call holds until something new happens instead of coming back empty, so an agent does not have to poll in a loop. It is still a cursor (`since`, `next`).
 - **More is recorded.** Besides `action_done`: `action_started`, `agent_ask` (an agent asked you something), `ask_answered` (allowed, denied or dismissed), `pack_waiting` and `pack_answered` (a pane is waiting for Run, or you answered), and `card_pressed`.
 - **The Run card keeps its hint.** "+2 action(s)" now comes first, so a long command can no longer cut it off.
+- **A simpler Settings window.** Five sections instead of fourteen (Look and feel, General, Hotkeys, Panes, Alerts and reminders); each pane's own settings now sit under a heading in Panes. Tuning rows (delays, sizes, thresholds, lengths) fold behind **Show N more settings**, with a dot when a hidden one is changed, and search still finds them. A **Manual** button above **Open config.toml** opens the manual on GitHub. No config key changed, so nothing moves in your `config.toml`.
 - **More panes in the store.** Eight new packs: `battery`, `resources`, `top-cpu`, `wifi`, `gpu`, `time-zones`, `github-notifications` and `ssl-expiry` (16 in all; the table is in `examples/panes/README.md`). They need no release: `hytte pack search` reads the index from GitHub.
 
-For people who change Hytte: `Backend::nap` is the pause the tests fake; `Model::log_event` is where a new event kind goes; `pack_run_note` builds the Run card's line.
+For people who change Hytte: `settings_table` is now `raw_table` plus `regroup` (`CARDS`, `RARE`, `Section::groups`); `Backend::nap` is the pause the tests fake; `Model::log_event` is where a new event kind goes; `pack_run_note` builds the Run card's line.
 
 ## 1.10.x
 

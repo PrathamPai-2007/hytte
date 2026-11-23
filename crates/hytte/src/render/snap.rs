@@ -572,7 +572,10 @@ fn model() -> Model {
 fn settings_rows_write_valid_config() {
     let cfg = Config::default();
     let mut keys = std::collections::HashSet::new();
-    for sec in settings_table(&cfg) {
+    // One table for the loop and the count: another test sets script names meanwhile.
+    let table = settings_table(&cfg);
+    let rows: usize = table.iter().map(|s| s.rows.len()).sum();
+    for sec in table {
         for row in sec.rows {
             let writes: Vec<(&str, Val)> = match row {
                 Row::Switch(_, k, _) => vec![(k, Val::B(true)), (k, Val::B(false))],
@@ -594,7 +597,6 @@ fn settings_rows_write_valid_config() {
         }
     }
     // No key twice in the table (a row would fight another).
-    let rows: usize = settings_table(&cfg).iter().map(|s| s.rows.len()).sum();
     assert_eq!(keys.len(), rows);
 }
 
@@ -634,17 +636,22 @@ fn settings_window_snapshots() {
     let (w, h, sc) = (1720, 1400, 2.0);
     let cfg = Config::default();
     type Shot = (&'static str, bool, f32, Option<(f32, f32)>);
-    let shots: [Shot; 5] = [
+    let shots: [Shot; 6] = [
         ("settings-dark", false, 0.0, None),
         ("settings-dark-hover", false, 0.0, Some((420.0, 150.0))),
         ("settings-dark-scrolled", false, 640.0, None),
         ("settings-light", true, 0.0, Some((560.0, 118.0))),
         ("settings-narrow-light", true, 0.0, None),
+        ("settings-dark-more", false, 0.0, None),
     ];
     for (name, light, scroll, mouse) in shots {
         let narrow = name.contains("narrow");
         // A fresh renderer each: eased values must not carry over from the last shot.
         let mut r = Renderer::offscreen_sized(if narrow { 1120 } else { w }, h, sc).unwrap();
+        if name.ends_with("-more") {
+            // The "Show N more settings" rows unfolded on the first card.
+            r.toggle_more("Look and feel");
+        }
         let view = SettingsView {
             mouse,
             pressed: false,

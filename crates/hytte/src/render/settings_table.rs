@@ -95,10 +95,114 @@ impl Row {
     }
 }
 
-/// A titled run of rows.
+/// A titled run of rows, as built row by row (`regroup` turns these into the cards).
+struct Raw {
+    name: &'static str,
+    rows: Vec<Row>,
+}
+
+/// A card of the settings window: a title and its rows. `groups` says, row by row, which small
+/// sub-heading the row sits under ("" for none).
 pub struct Section {
     pub name: &'static str,
     pub rows: Vec<Row>,
+    pub groups: Vec<&'static str>,
+}
+
+/// The five cards, and which of the table's runs go into each (run, sub-heading), in order.
+const CARDS: [(&str, &[(&str, &str)]); 5] = [
+    ("Look and feel", &[("Look and feel", "")]),
+    ("General", &[("Behaviour", "")]),
+    ("Hotkeys", &[("Hotkeys", "")]),
+    (
+        "Panes",
+        &[
+            ("Panes", "Show and order"),
+            ("Media", "Music"),
+            ("Clipboard", "Clipboard"),
+            ("Ask (local AI)", "Ask (local AI)"),
+            ("Timer", "Timer"),
+            ("AI agents", "Coding agents"),
+            ("Shelf", "Shelf"),
+            ("Ports and terminal", "Ports and terminal"),
+        ],
+    ),
+    (
+        "Alerts and reminders",
+        &[
+            ("Alerts", "Alerts"),
+            ("Moments", "Devices"),
+            ("Breaks", "Reminders"),
+        ],
+    ),
+];
+
+/// Settings that are tuning, not everyday switches: each card folds them behind "More settings"
+/// (search and the card's own toggle still show them).
+const RARE: &[&str] = &[
+    "general.hover_delay_ms",
+    "general.open_on",
+    "general.collapse_delay_ms",
+    "general.pill_opacity",
+    "general.idle_opacity",
+    "general.animation",
+    "general.glow_strength",
+    "general.adaptive_glow",
+    "general.remember_panel",
+    "general.pin_button",
+    "general.quiet_hours",
+    "general.monitor",
+    "general.finish_peek_secs",
+    "general.hide_from_capture",
+    "media.lyrics_live",
+    "clipboard.expire_secs",
+    "clipboard.clear_when_emptied",
+    "ai.keep_alive",
+    "timer.break_min",
+    "timer.long_break_min",
+    "timer.rounds",
+    "general.task_rows",
+    "agent.quiet_after_secs",
+    "shelf.max_items",
+    "shelf.screenshot_secs",
+    "shelf.delete_after_paste",
+    "shelf.remove_after_drag",
+    "ports.poll_secs",
+    "shell.threshold_ms",
+    "calendar.lead_min",
+    "hog.cpu_pct",
+    "hog.mem_mb",
+    "hog.secs",
+];
+
+/// True for a row the card hides until "More settings" is opened.
+pub fn is_rare(key: &str) -> bool {
+    RARE.contains(&key)
+}
+
+/// Gather the table's runs into the five cards.
+fn regroup(mut raw: Vec<Raw>) -> Vec<Section> {
+    let mut cards = Vec::new();
+    for (name, parts) in CARDS {
+        let (mut rows, mut groups) = (Vec::new(), Vec::new());
+        for (src, group) in parts {
+            if let Some(i) = raw.iter().position(|r| r.name == *src) {
+                let r = raw.remove(i);
+                groups.extend(std::iter::repeat_n(*group, r.rows.len()));
+                rows.extend(r.rows);
+            }
+        }
+        if !rows.is_empty() {
+            cards.push(Section { name, rows, groups });
+        }
+    }
+    cards
+}
+
+/// Every setting that is a switch, a slider or a short list of steps. Lists and text
+/// (allow / deny lists, ports, hotkey, folders) stay in config.toml.
+pub fn settings_table(c: &Config) -> Vec<Section> {
+    regroup(raw_table(c))
 }
 
 pub(super) fn pick_s(
@@ -292,13 +396,11 @@ pub(super) fn pick_f(
     )
 }
 
-/// Every setting that is a switch, a slider or a short list of steps. Lists and text
-/// (allow / deny lists, ports, hotkey, folders) stay in config.toml.
-pub fn settings_table(c: &Config) -> Vec<Section> {
+fn raw_table(c: &Config) -> Vec<Raw> {
     let (g, sh) = (&c.general, &c.shelf);
     let sw = Row::Switch;
     let mut table = vec![
-        Section {
+        Raw {
             name: "Look and feel",
             rows: vec![
                 pick_s(
@@ -359,7 +461,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Behaviour",
             rows: vec![
                 sw("Start Hytte with Windows", "general.autostart", g.autostart),
@@ -430,7 +532,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Hotkeys",
             rows: vec![
                 hotkey_row("Open the pill", "general.hotkey", &g.hotkey),
@@ -443,7 +545,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 hotkey_row("Open Ask", "ai.hotkey", &c.ai.hotkey),
             ],
         },
-        Section {
+        Raw {
             name: "Media",
             rows: vec![
                 sw("Show lyrics", "media.lyrics", c.media.lyrics),
@@ -454,7 +556,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Clipboard",
             rows: vec![
                 sw(
@@ -480,7 +582,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Ask (local AI)",
             rows: vec![
                 sw(
@@ -503,7 +605,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Moments",
             rows: vec![
                 sw(
@@ -518,7 +620,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Breaks",
             rows: vec![
                 pick_i(
@@ -541,7 +643,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Panes",
             rows: crate::ui_state::Panel::arranged(&c.panes.order)
                 .into_iter()
@@ -555,7 +657,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 .map(|p| pane_switch(p, &c.panes))
                 .collect(),
         },
-        Section {
+        Raw {
             name: "Timer",
             rows: vec![
                 sw(
@@ -593,7 +695,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "AI agents",
             rows: vec![
                 pick_i(
@@ -620,7 +722,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Shelf",
             rows: vec![
                 pick_s(
@@ -664,7 +766,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Alerts",
             rows: vec![
                 sw(
@@ -709,7 +811,7 @@ pub fn settings_table(c: &Config) -> Vec<Section> {
                 ),
             ],
         },
-        Section {
+        Raw {
             name: "Ports and terminal",
             rows: vec![
                 sw(
@@ -852,5 +954,75 @@ mod pane_name_tests {
             })
             .collect();
         assert_eq!(labels, ["Disks", "Bin"]);
+    }
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::*;
+
+    #[test]
+    fn five_cards_hold_every_row_once() {
+        let c = Config::default();
+        let raw_rows: usize = raw_table(&c).iter().map(|r| r.rows.len()).sum();
+        let cards = settings_table(&c);
+        let names: Vec<&str> = cards.iter().map(|s| s.name).collect();
+        assert_eq!(
+            names,
+            [
+                "Look and feel",
+                "General",
+                "Hotkeys",
+                "Panes",
+                "Alerts and reminders"
+            ]
+        );
+        assert_eq!(cards.iter().map(|s| s.rows.len()).sum::<usize>(), raw_rows);
+        for s in &cards {
+            assert_eq!(s.rows.len(), s.groups.len(), "{}", s.name);
+        }
+        // Every run of the table is in some card (a renamed run would silently vanish).
+        let used: Vec<&str> = CARDS
+            .iter()
+            .flat_map(|(_, p)| p.iter().map(|x| x.0))
+            .collect();
+        for r in raw_table(&c) {
+            assert!(used.contains(&r.name), "{} is in no card", r.name);
+        }
+    }
+
+    #[test]
+    fn the_rare_list_names_real_rows_and_never_empties_a_card() {
+        let c = Config::default();
+        let cards = settings_table(&c);
+        let keys: Vec<&str> = cards
+            .iter()
+            .flat_map(|s| s.rows.iter().map(|r| r.key()))
+            .collect();
+        for k in RARE {
+            assert!(keys.contains(k), "{k} is not a setting");
+        }
+        for s in &cards {
+            let rare = s.rows.iter().filter(|r| is_rare(r.key())).count();
+            assert!(rare < s.rows.len(), "{} would show nothing", s.name);
+        }
+        let hidden = keys.iter().filter(|k| is_rare(k)).count();
+        assert!(
+            hidden * 4 >= keys.len(),
+            "folding should hide a real share ({hidden}/{})",
+            keys.len()
+        );
+    }
+
+    #[test]
+    fn the_hotkeys_and_pane_switches_are_never_folded() {
+        let c = Config::default();
+        for s in settings_table(&c) {
+            for r in &s.rows {
+                if matches!(r, Row::Hotkey(..)) || r.key().starts_with("panes.") {
+                    assert!(!is_rare(r.key()), "{}", r.key());
+                }
+            }
+        }
     }
 }

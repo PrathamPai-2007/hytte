@@ -613,6 +613,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                                 open_config(&s.cfg);
                             }
                             Action::OpenManual => open_manual(),
+                            Action::ToggleMore(card) => s.rend.toggle_more(card),
                             Action::PaneMove(k, dir) => {
                                 let order = crate::ui_state::move_pane(&s.cfg.panes.order, k, dir);
                                 match config::set_text("panes.order", &order) {

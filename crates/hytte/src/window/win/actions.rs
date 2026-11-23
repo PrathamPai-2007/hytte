@@ -227,8 +227,8 @@ impl Ui {
                 Err(e) => crate::logging::line(&format!("settings: {e}")),
             },
             Action::OpenConfig => crate::settings_win::open(&self.cfg),
-            // Only the settings window has a Manual button.
-            Action::OpenManual => {}
+            // Only the settings window has a Manual button and folding cards.
+            Action::OpenManual | Action::ToggleMore(_) => {}
             Action::Rerun(id) => self.rerun(&id),
             Action::ShelfScroll(by) => self.model.scroll_shelf(by),
             Action::SetPowerMode(m) => {
