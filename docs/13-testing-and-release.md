@@ -8,7 +8,7 @@ cargo test --workspace
 
 Off Windows see [section 2](02-getting-started.md#working-from-macos-or-linux): you can type-check, lint and run `hytte-proto`'s tests, but not the `hytte` crate's. Tests are `#[cfg(test)] mod tests` blocks at the bottom of each file (the UI model's are in `ui_state/tests/`); there is no top-level `tests/` folder.
 
-`cargo test -p hytte` runs 425 tests and leaves 36 ignored (the manual and snapshot tests below); `hytte-proto` has 19. These counts drift: treat them as a rough size, not a rule.
+`cargo test -p hytte` runs 429 tests and leaves 36 ignored (the manual and snapshot tests below); `hytte-proto` has 19. These counts drift: treat them as a rough size, not a rule.
 
 ## What is covered
 
