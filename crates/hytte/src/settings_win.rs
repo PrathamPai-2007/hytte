@@ -249,6 +249,16 @@ pub fn refresh(cfg: &Config) {
     }
 }
 
+/// The manual's front page on GitHub: a fixed address, never built from anything the user typed.
+const MANUAL_URL: &str = "https://github.com/PrathamPai-2007/hytte/tree/main/manual";
+
+/// Open the manual in the default browser.
+fn open_manual() {
+    let _ = std::process::Command::new("explorer")
+        .arg(MANUAL_URL)
+        .spawn();
+}
+
 /// Open `config.toml` in the user's editor (creating it first when it isn't there yet).
 fn open_config(cfg: &Config) {
     let path = config::config_path();
@@ -602,6 +612,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             Action::OpenConfig => {
                                 open_config(&s.cfg);
                             }
+                            Action::OpenManual => open_manual(),
                             Action::PaneMove(k, dir) => {
                                 let order = crate::ui_state::move_pane(&s.cfg.panes.order, k, dir);
                                 match config::set_text("panes.order", &order) {
@@ -705,4 +716,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         _ => {}
     }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_manual_link_is_a_fixed_https_page_of_this_repo() {
+        assert!(super::MANUAL_URL.starts_with("https://github.com/PrathamPai-2007/hytte/"));
+        assert!(super::MANUAL_URL.ends_with("/manual"));
+        // The page it points at exists in this checkout.
+        let manual =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../manual/README.md");
+        assert!(manual.exists());
+    }
 }

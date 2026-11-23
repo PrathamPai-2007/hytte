@@ -154,6 +154,8 @@ pub enum Action {
     Set(&'static str, Val),
     /// Open `config.toml` for the settings the pane doesn't have.
     OpenConfig,
+    /// Open the manual (the settings window's Manual button).
+    OpenManual,
     /// Run the `[[action]]` with this name (a script pane row or button), handing it the `arg`.
     Named(String, Option<String>),
     /// Run a script pane's command now, without waiting for its next turn.
@@ -987,7 +989,15 @@ impl Renderer {
                 .map(|r| (r.key(), (r.at(), r.set_action())))
                 .collect();
         let mut tops: Vec<f32> = Vec::with_capacity(sections.len());
-        let mut y = if side > 0.0 { 30.0 } else { 74.0 };
+        // A narrow window with little width: the two buttons get a row of their own.
+        let two_rows = side == 0.0 && cw < 380.0;
+        let mut y = if side > 0.0 {
+            30.0
+        } else if two_rows {
+            112.0
+        } else {
+            74.0
+        };
         unsafe {
             if !self.gpu.as_ref().is_none_or(|g| g.begin()) {
                 hits.clear();
@@ -1012,7 +1022,13 @@ impl Renderer {
                     34.0,
                     self.cc(fg, 1.0),
                 );
-                self.open_button(cw - 22.0 - 132.0, 24.0, 132.0);
+                if two_rows {
+                    self.manual_button(22.0, 64.0, 100.0);
+                    self.open_button(130.0, 64.0, 132.0);
+                } else {
+                    self.manual_button(cw - 22.0 - 132.0 - 8.0 - 84.0, 24.0, 84.0);
+                    self.open_button(cw - 22.0 - 132.0, 24.0, 132.0);
+                }
             }
             self.ca.set(1.0);
             self.search_field(view.query, 0.0, y, cw);
@@ -1152,6 +1168,7 @@ impl Renderer {
                         self.cc(fg, a),
                     );
                 }
+                self.manual_button(12.0, h - 122.0, side - 24.0);
                 self.open_button(12.0, h - 84.0, side - 24.0);
                 self.text(
                     concat!("Hytte ", env!("CARGO_PKG_VERSION")),
@@ -1264,19 +1281,20 @@ impl Renderer {
 
     /// The "Open config.toml" button of the settings window.
     fn open_button(&self, x: f32, y: f32, w: f32) {
+        self.window_button("Open config.toml", Action::OpenConfig, "h:open", x, y, w);
+    }
+
+    /// The "Manual" button, above (or beside) "Open config.toml".
+    fn manual_button(&self, x: f32, y: f32, w: f32) {
+        self.window_button("Manual", Action::OpenManual, "h:manual", x, y, w);
+    }
+
+    fn window_button(&self, label: &str, action: Action, key: &str, x: f32, y: f32, w: f32) {
         let fg = self.fg();
-        let hov = self.hit(x, y, w, 30.0, Action::OpenConfig);
-        let h = self.ease("h:open", hov as u8 as f32);
+        let hov = self.hit(x, y, w, 30.0, action);
+        let h = self.ease(key, hov as u8 as f32);
         self.fill_rr(x, y, w, 30.0, 15.0, self.cc(fg, 0.07 + 0.06 * h));
-        self.text(
-            "Open config.toml",
-            &self.f.btn,
-            x,
-            y,
-            w,
-            30.0,
-            self.cc(fg, 0.9),
-        );
+        self.text(label, &self.f.btn, x, y, w, 30.0, self.cc(fg, 0.9));
     }
 
     /// Show the frame with the window at screen position (x, y).
