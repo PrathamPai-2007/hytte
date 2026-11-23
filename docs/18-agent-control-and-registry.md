@@ -39,7 +39,7 @@ So permissions are **not per agent**. They are per **capability**, enforced wher
 
 These three are `Cmd`s with `cmd` = `pane_get` (name in `id`), `agent_status` or `events` (the last number seen in `text`). `pipe_server::answer_query` sends `UiEvent::Query(cmd, reply)` to the UI thread, which owns the model, waits up to 3 s, and writes the JSON string back as one `Pressed` line (the same reply shape as `card --wait` and `action_run`). `ui_state/query.rs` builds the answers (`pane_json`, `agents_json`, `events_json`) and nothing in it mutates the model, except `log_event`, which the `ActionDone` handler calls.
 
-`events` is a ring of the last 100 things that happened, each numbered (`seq`), with a time, `type` (today only `action_done`), a name and a one-line detail cut to 120 characters. MCP is request and reply, so there are no pushed notifications: a caller passes the `next` number from its previous answer as `since` and gets only what is new. Numbers keep counting after old events fall out of the ring, and the first one after a restart is seeded from the clock (seconds times 1000), so a caller holding a cursor from before a restart still gets everything new.
+`events` is a ring of the last 100 things that happened, each numbered (`seq`), with a time, `type`, a name and a one-line detail cut to 120 characters. The types: `action_started`, `action_done` (finished, failed or stopped), `agent_ask` (an agent asked for something, with the ask's text), `ask_answered` (`allowed`, `denied` or `dismissed`, then the ask's text), `pack_waiting` (a pane's Run card went up) and `pack_answered` (`run` or `ignore`), and `card_pressed` (the card's id, the button's label). MCP is request and reply, so there are no pushed notifications: a caller passes the `next` number from its previous answer as `since` and gets only what is new. With `wait` (0 to 25 seconds) `hytte mcp` asks the pill again every 500 ms until something new arrives or the time is up, then answers; the daemon stays stateless and each round is an ordinary query. A waiting call holds up the next tool call, since requests are served one at a time. Numbers keep counting after old events fall out of the ring, and the first one after a restart is seeded from the clock (seconds times 1000), so a caller holding a cursor from before a restart still gets everything new.
 
 ### What this does and does not protect against
 
@@ -59,7 +59,7 @@ Pack cards are asked once a session, keyed by folder, `pane.toml` hash and the v
 
 ### Limits worth knowing
 
-- Events are polled, not pushed, and only action results are recorded so far (`Model::log_event` is where a new kind goes).
+- Events are polled (with an optional `wait`), not pushed; a client that wants a callback has none. `Model::log_event` is where a new kind goes. Changes an agent makes to its own pane files are not events (the Run card, `pack_waiting`, is the sign).
 - "Always allow" is a terminal command, not a button on the card: the card's reply is a plain yes or no, shared with agents' permission prompts.
 - The rate limits (10 a minute) are per MCP process for the pane tools (`McpIo.limit`) and daemon-wide for `action_run`.
 - `pane_create`'s `command` is a command line the *agent* chose, run by `cmd /c` after you press Run. The card shows the first 60 characters, so `mcp_panes::check_command` allows **at most 60 characters** (`MAX_COMMAND`) and collapses runs of whitespace: the whole command is on the card, and padding cannot push the real command off it. A longer one is refused with that reason.

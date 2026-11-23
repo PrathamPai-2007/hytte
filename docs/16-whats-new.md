@@ -2,9 +2,18 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## 1.10.x (not released yet)
+## 1.11.0 (not released yet)
 
-Three releases are planned: 1.10.0 (the test and perf gate), 1.10.1 (agent control and the pack registry), 1.10.2 (this documentation pass).
+- **`events` can wait.** The MCP `events` tool takes `wait` (0 to 25 seconds): the call holds until something new happens instead of coming back empty, so an agent does not have to poll in a loop. It is still a cursor (`since`, `next`).
+- **More is recorded.** Besides `action_done`: `action_started`, `agent_ask` (an agent asked you something), `ask_answered` (allowed, denied or dismissed), `pack_waiting` and `pack_answered` (a pane is waiting for Run, or you answered), and `card_pressed`.
+- **The Run card keeps its hint.** "+2 action(s)" now comes first, so a long command can no longer cut it off.
+- **More panes in the store.** See [manual 11](../manual/11-pane-store.md) for the list.
+
+For people who change Hytte: `Backend::nap` is the pause the tests fake; `Model::log_event` is where a new event kind goes; `pack_run_note` builds the Run card's line.
+
+## 1.10.x
+
+1.10.0 added the test and perf gate; 1.10.1 added agent control, the pack registry and this documentation.
 
 - **A real test of the built app.** `scripts/smoke.ps1` starts the exe as an isolated second copy, drives it over its pipe and through `hytte mcp` and `hytte pack`, and measures startup, idle CPU and memory against budgets in `scripts/perf-baseline.json`. CI runs it as the `smoke` job (and smoke-only on ARM64). `HYTTE_INSTANCE=<name>` gives a copy its own pipe and mutex, so it runs beside your own Hytte. See [section 13](13-testing-and-release.md#the-smoke-test-and-the-perf-gate).
 - **Agents can do more, and you stay in charge.** `hytte mcp` gains `pane_list`, `action_list`, `pane_create`, `pane_update`, `pane_remove` and `action_run`. A pane an agent makes waits for your **Run**; `action_run` shows **Allow / Deny** every time and runs only actions you defined. Changes are rate-limited and logged in `mcp.log`. See [section 18](18-agent-control-and-registry.md) and [manual 11](../manual/11-pane-store.md).
