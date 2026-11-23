@@ -108,3 +108,31 @@ impl Model {
         self.running_actions.retain(|n| n != name);
     }
 }
+
+/// The line on the "Run the pane?" card. The count of extra actions comes first, so a long
+/// command that gets cut at 60 characters can't take the hint with it.
+pub fn pack_run_note(command: &str, extra_actions: usize) -> String {
+    let mut shown: String = command.chars().take(60).collect();
+    if command.chars().count() > 60 {
+        shown.push('…');
+    }
+    if extra_actions > 0 {
+        format!("+{extra_actions} action(s) · {shown}")
+    } else {
+        shown
+    }
+}
+
+#[cfg(test)]
+mod pack_note_tests {
+    use super::pack_run_note;
+
+    #[test]
+    fn the_hint_comes_first_and_survives_a_long_command() {
+        let long = "x".repeat(100);
+        let n = pack_run_note(&long, 2);
+        assert!(n.starts_with("+2 action(s) · "), "{n}");
+        assert!(n.ends_with('…'));
+        assert_eq!(pack_run_note("echo hi", 0), "echo hi");
+    }
+}

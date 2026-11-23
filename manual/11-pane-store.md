@@ -16,7 +16,7 @@ Hytte then shows a card on the pill with the pane's command and two buttons, **R
 
 <img src="../docs/img/pack-run-card.png" alt="The card Hytte shows for a new pane: its command, with Run, Ignore and Dismiss" width="520">
 
-The card shows the start of the command. A long one from the store is cut off, so use `hytte pack info <name>` to read all of it.
+The card shows the start of the command, after a note such as "+2 action(s)" when the pane has extra buttons. A long command from the store is cut off, so use `hytte pack info <name>` to read all of it.
 
 Before you press Run, take a minute to read what it does: `hytte pack info <name>` prints the commands. Your Run covers the pane's settings file. It does not cover the scripts next to it, so open the pack's folder (`%APPDATA%\Hytte\panes\<name>`) if you want to read those too.
 

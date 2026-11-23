@@ -2045,13 +2045,8 @@ fn agent_control_snapshots() {
         let mut m = model();
         m.now = Some(now);
         let mut c = Chip::new("Run the pane \"Docker\"?", now);
-        // Built like `Ui::ask_packs`: the first 60 characters of the command, then the actions.
         let command = "powershell -NoProfile -ExecutionPolicy Bypass -File containers.ps1";
-        let mut shown: String = command.chars().take(60).collect();
-        if command.chars().count() > 60 {
-            shown.push('…');
-        }
-        c.note = Some(format!("{shown}  +2 action(s)"));
+        c.note = Some(crate::ui_state::pack_run_note(command, 2));
         c.tone = Tone::Warn;
         c.prio = Prio::Alert;
         c.extra = vec![

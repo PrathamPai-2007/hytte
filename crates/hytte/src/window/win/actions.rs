@@ -507,13 +507,7 @@ impl Ui {
             let mut c = match &p.state {
                 State::Pending => {
                     let mut c = Chip::new(format!("Run the pane \"{}\"?", p.name), now);
-                    let mut shown: String = p.command.chars().take(60).collect();
-                    if p.command.chars().count() > 60 {
-                        shown.push('…');
-                    }
-                    if !p.actions.is_empty() {
-                        shown = format!("{shown}  +{} action(s)", p.actions.len());
-                    }
+                    let shown = crate::ui_state::pack_run_note(&p.command, p.actions.len());
                     c.note = Some(shown);
                     c.extra = vec![
                         (
