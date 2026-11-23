@@ -1,0 +1,3 @@
+name = "Resources"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File resources.ps1"
+every = 30

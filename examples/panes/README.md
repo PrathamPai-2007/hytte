@@ -25,7 +25,7 @@ A pane runs its command while you have it open (and once when Hytte starts), the
 | [`git-repos`](git-repos) | uncommitted and unpushed work in the repositories you list | `git`, and `repos.txt` (copy `repos.txt.example`) | a list the user edits |
 | [`recycle-bin`](recycle-bin) | items and size in the Recycle Bin; a confirmed click empties it | nothing | `confirm = true` on an action |
 | [`battery`](battery) | charge with a bar, charging or not, time left (says so on a desktop PC) | nothing | a pane that adapts to missing hardware |
-| [`uptime-and-load`](uptime-and-load) | time since boot, CPU load and memory in use | nothing | tone from a threshold |
+| [`resources`](resources) | time since boot, CPU load and memory in use | nothing | tone from a threshold |
 | [`top-cpu`](top-cpu) | the five programs using the most CPU over a second | nothing | sampling twice inside the 10 s limit |
 | [`wifi`](wifi) | network name, signal bar, link speed | a Wi-Fi adapter, English Windows | parsing a command's text |
 | [`gpu`](gpu) | load, video memory and temperature of NVIDIA GPUs | an NVIDIA GPU and its driver (`nvidia-smi`) | a missing tool shown as a row |

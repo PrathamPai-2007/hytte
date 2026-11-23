@@ -1,4 +1,4 @@
-# Uptime, CPU load and RAM in use. Amber above 75 %, red above 90 %.
+# Resources: uptime, CPU load and RAM in use. Amber above 75 %, red above 90 %.
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $os = Get-CimInstance Win32_OperatingSystem
 $up = (Get-Date) - $os.LastBootUpTime

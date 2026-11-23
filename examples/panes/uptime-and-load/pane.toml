@@ -1,3 +1,0 @@
-name = "Uptime"
-command = "powershell -NoProfile -ExecutionPolicy Bypass -File uptime.ps1"
-every = 30

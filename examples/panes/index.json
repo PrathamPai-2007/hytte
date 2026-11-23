@@ -257,6 +257,29 @@
                                 ]
                   },
                   {
+                      "name":  "resources",
+                      "description":  "Time since the last boot, CPU load and memory in use, each with a bar where it makes sense. Amber above 75 %, red abo...",
+                      "version":  "1.0.0",
+                      "min_hytte":  "1.9.3",
+                      "files":  [
+                                    {
+                                        "path":  "pane.toml",
+                                        "sha256":  "992ec0142ffd164926eae338e4d51064cfe33919aade3910606da1a878c554e1",
+                                        "size":  108
+                                    },
+                                    {
+                                        "path":  "README.md",
+                                        "sha256":  "8638a9e5ffb7186ef19c219b41b978964c8ffb6a71cbe1ea24b2232989ae76b2",
+                                        "size":  158
+                                    },
+                                    {
+                                        "path":  "resources.ps1",
+                                        "sha256":  "1b96a4f6fc5bfc14ab5a8b879860e59f45c006b2709fa4aa447a0518542b443a",
+                                        "size":  1032
+                                    }
+                                ]
+                  },
+                  {
                       "name":  "ssl-expiry",
                       "description":  "Days left on the HTTPS certificate of each host in hosts.txt (one per line, host or host:port, six at most). Amber be...",
                       "version":  "1.0.0",
@@ -355,29 +378,6 @@
                                         "path":  "top.ps1",
                                         "sha256":  "7ccf496d2726bd2c4854b28d343a5394182d6c5a26b14c767b9cbf3b9ad4c9d7",
                                         "size":  848
-                                    }
-                                ]
-                  },
-                  {
-                      "name":  "uptime-and-load",
-                      "description":  "Time since the last boot, CPU load and memory in use, each with a bar where it makes sense. Amber above 75 %, red abo...",
-                      "version":  "1.0.0",
-                      "min_hytte":  "1.9.3",
-                      "files":  [
-                                    {
-                                        "path":  "pane.toml",
-                                        "sha256":  "032b0a620b148a61afb1903790c90ee780e453e079a11ce3379e0ad221f88640",
-                                        "size":  102
-                                    },
-                                    {
-                                        "path":  "README.md",
-                                        "sha256":  "9cc2c5f8e5fb05ba921239041d7c3d07b4f7cd15ae0725aa5401ade7a4b31841",
-                                        "size":  164
-                                    },
-                                    {
-                                        "path":  "uptime.ps1",
-                                        "sha256":  "a8347d9777a4ee10b7ef3301570d8c3d1b2ed3ab58a30a1b1f0c955eb8596ba6",
-                                        "size":  1021
                                     }
                                 ]
                   },

@@ -25,7 +25,7 @@ Before you press Run, take a minute to read what it does: `hytte pack info <name
 | Pane | Shows | You need |
 |---|---|---|
 | `battery` | charge, charging or not, time left | nothing (it says so on a desktop PC) |
-| `uptime-and-load` | time since boot, CPU, memory | nothing |
+| `resources` | time since boot, CPU, memory | nothing |
 | `top-cpu`, `top-memory` | the programs using the most CPU or RAM | nothing |
 | `disk-space` | each drive's used space | nothing |
 | `wifi` | network name, signal, speed | a Wi-Fi adapter, Windows in English |
