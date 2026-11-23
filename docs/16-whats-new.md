@@ -2,7 +2,7 @@
 
 What changed in each version, newest first. Each version ends with a short note for people who change Hytte.
 
-## 1.11.0 (not released yet)
+## 1.11.0
 
 - **`events` can wait.** The MCP `events` tool takes `wait` (0 to 25 seconds): the call holds until something new happens instead of coming back empty, so an agent does not have to poll in a loop. It is still a cursor (`since`, `next`).
 - **More is recorded.** Besides `action_done`: `action_started`, `agent_ask` (an agent asked you something), `ask_answered` (allowed, denied or dismissed), `pack_waiting` and `pack_answered` (a pane is waiting for Run, or you answered), and `card_pressed`.
