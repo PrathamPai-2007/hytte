@@ -24,7 +24,7 @@ Installers:
   - Architecture: x64
     InstallerType: zip
     InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.11.0/hytte-1.11.0-x64.zip
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 4C06B00C9B98311AE4C8EF2D7F2424D73535E5D64CF1226EBDCC7EA01D027BB5
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: hytte.exe
@@ -32,7 +32,7 @@ Installers:
   - Architecture: arm64
     InstallerType: zip
     InstallerUrl: https://github.com/PrathamPai-2007/hytte/releases/download/v1.11.0/hytte-1.11.0-arm64.zip
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 07806AED7A4FE360316A9CBFB01448AE0199CDD41E0E5DB17B0874EEE19475C9
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: hytte.exe

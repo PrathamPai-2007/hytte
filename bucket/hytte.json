@@ -6,11 +6,11 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/PrathamPai-2007/hytte/releases/download/v1.11.0/hytte-1.11.0-x64.zip",
-            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+            "hash": "4C06B00C9B98311AE4C8EF2D7F2424D73535E5D64CF1226EBDCC7EA01D027BB5"
         },
         "arm64": {
             "url": "https://github.com/PrathamPai-2007/hytte/releases/download/v1.11.0/hytte-1.11.0-arm64.zip",
-            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+            "hash": "07806AED7A4FE360316A9CBFB01448AE0199CDD41E0E5DB17B0874EEE19475C9"
         }
     },
     "bin": "hytte.exe",
