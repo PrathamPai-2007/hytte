@@ -25,6 +25,10 @@ pub(super) trait Backend {
     fn run_action(&self, c: &Cmd) -> Option<String>;
     /// Send a read (`pane_get`, `agent_status`, `events`) and wait for the pill's JSON answer.
     fn query(&self, c: &Cmd) -> Option<String>;
+    /// Pause between two polls of a waiting `events` call.
+    fn nap(&self) {
+        std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
+    }
     /// Where the pane packs live.
     fn packs_dir(&self) -> std::path::PathBuf;
     /// False when too many writes came in the last minute (counts the call when true).
@@ -34,6 +38,9 @@ pub(super) trait Backend {
 }
 
 const LATEST: &str = "2025-06-18";
+/// How often a waiting `events` call asks the pill again, and the longest it may wait.
+const POLL_MS: u64 = 500;
+const MAX_WAIT_SECS: u64 = 25;
 
 pub(super) fn tools() -> Value {
     let s = |d: &str| json!({"type": "string", "description": d});
@@ -86,9 +93,10 @@ pub(super) fn tools() -> Value {
          "description": "The coding agents the user's pill is tracking: what each is doing and whether it is waiting for the user.",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "events",
-         "description": "What happened lately (an action finished or failed), newest last. Pass the `next` number from the previous call as `since` to get only what is new; poll rather than wait.",
+         "description": "What happened lately on the user's pill, newest last: an action started or finished, a card was pressed, an ask was answered, a pane is waiting for Run or was answered. Pass the `next` number from the previous call as `since` to get only what is new. With `wait` the call holds until something new happens (or the time is up) instead of returning empty.",
          "inputSchema": {"type": "object", "properties": {
-            "since": {"type": "integer", "minimum": 0, "description": "The last event number you saw (default 0: all kept, up to 100)"}}}},
+            "since": {"type": "integer", "minimum": 0, "description": "The last event number you saw (default 0: all kept, up to 100)"},
+            "wait": {"type": "integer", "minimum": 0, "maximum": 25, "description": "Seconds to wait for a new event (default 0: answer at once)"}}}},
         {"name": "pane_create",
          "description": "Make a new pane that runs a command and shows what it prints. It does NOT run until the user presses Run on a card showing the command, so say what it is for. At most 4 panes made by agents.",
          "inputSchema": {"type": "object", "required": ["name", "command"], "properties": {
@@ -264,8 +272,24 @@ fn call(name: &str, a: &Value, io: &dyn Backend) -> Result<String, String> {
                     "not a valid request: pane_get needs a name; since is a whole number".into(),
                 );
             }
-            io.query(&c)
-                .ok_or_else(|| "Hytte isn't running, or didn't answer".to_string())
+            let down = || "Hytte isn't running, or didn't answer".to_string();
+            let mut answer = io.query(&c).ok_or_else(down)?;
+            if name == "events" {
+                let wait = number(a, "wait", MAX_WAIT_SECS)?.unwrap_or(0);
+                // Each round is one question to the pill; stop on the first new event.
+                for _ in 0..wait * 1000 / POLL_MS {
+                    let new = serde_json::from_str::<Value>(&answer)
+                        .ok()
+                        .and_then(|v| v["events"].as_array().map(|e| !e.is_empty()))
+                        .unwrap_or(true);
+                    if new {
+                        break;
+                    }
+                    io.nap();
+                    answer = io.query(&c).ok_or_else(down)?;
+                }
+            }
+            Ok(answer)
         }
         "pane_create" | "pane_update" | "pane_remove" => {
             let n = text_of(a, "name")?.unwrap_or_default();
@@ -393,8 +417,14 @@ mod tests {
         /// Writes allowed before the limiter says no (None: always).
         writes_left: RefCell<Option<usize>>,
         log: RefCell<Vec<String>>,
+        /// Answers to `query`, one per call, before `verdict` takes over.
+        queue: RefCell<Vec<String>>,
+        naps: RefCell<u32>,
     }
     impl Backend for Fake {
+        fn nap(&self) {
+            *self.naps.borrow_mut() += 1;
+        }
         fn actions(&self) -> Vec<(String, bool)> {
             vec![("deploy".into(), true), ("docker-restart".into(), false)]
         }
@@ -404,7 +434,12 @@ mod tests {
         }
         fn query(&self, c: &Cmd) -> Option<String> {
             self.sent.borrow_mut().push(c.clone());
-            self.verdict.clone()
+            let mut q = self.queue.borrow_mut();
+            if q.is_empty() {
+                self.verdict.clone()
+            } else {
+                Some(q.remove(0))
+            }
         }
         fn packs_dir(&self) -> std::path::PathBuf {
             self.dir.clone()
@@ -678,6 +713,37 @@ mod tests {
         assert!(!d.join("b").exists());
         assert!(io.log.borrow().iter().any(|l| l.contains("rate limited")));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn events_can_wait_for_something_new_but_not_forever() {
+        let empty = r#"{"events":[],"next":3}"#.to_string();
+        let got = r#"{"events":[{"seq":4}],"next":4}"#.to_string();
+        // Two empty answers, then an event: it naps twice and returns the event.
+        let io = Fake {
+            queue: RefCell::new(vec![empty.clone(), empty.clone(), got.clone()]),
+            ..Default::default()
+        };
+        assert_eq!(
+            tool(&io, "events", json!({"since": 3, "wait": 10})),
+            (got, false)
+        );
+        assert_eq!((*io.naps.borrow(), io.sent.borrow().len()), (2, 3));
+        // Nothing ever happens: it gives up after wait * 2 rounds and returns the empty answer.
+        let io = Fake {
+            verdict: Some(empty.clone()),
+            ..Default::default()
+        };
+        assert_eq!(tool(&io, "events", json!({"wait": 2})), (empty, false));
+        assert_eq!(*io.naps.borrow(), 4);
+        // Without wait it asks once; too long a wait is refused before the pill is asked.
+        let io = Fake {
+            verdict: Some(r#"{"events":[],"next":1}"#.into()),
+            ..Default::default()
+        };
+        tool(&io, "events", json!({}));
+        assert_eq!((*io.naps.borrow(), io.sent.borrow().len()), (0, 1));
+        assert!(tool(&io, "events", json!({"wait": 26})).1);
     }
 
     #[test]

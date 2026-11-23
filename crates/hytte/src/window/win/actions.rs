@@ -14,6 +14,11 @@ impl Ui {
                 });
                 self.model.dismiss_chip();
                 if was_ask {
+                    if let Some(a) = self.asks.front() {
+                        let s = a.1.clone();
+                        self.model
+                            .log_event("ask_answered", "", &format!("dismissed: {s}"));
+                    }
                     self.asks.pop_front();
                     self.show_ask(Instant::now());
                 }
@@ -374,6 +379,10 @@ impl Ui {
                     return;
                 }
                 if let Some(i) = self.asks.iter().position(|a| a.0 == id) {
+                    let what = if allow { "allowed" } else { "denied" };
+                    let s = self.asks[i].1.clone();
+                    self.model
+                        .log_event("ask_answered", "", &format!("{what}: {s}"));
                     if let Some((.., reply)) = self.asks.remove(i) {
                         let _ = reply.send(allow);
                     }
@@ -407,6 +416,8 @@ impl Ui {
                     .find(|p| p.folder == folder && p.hash == hash)
                 {
                     crate::packs::answer(&p.folder, &hash, run);
+                    let how = if run { "run" } else { "ignore" };
+                    self.model.log_event("pack_answered", &p.folder, how);
                     self.packs = crate::packs::scan();
                     self.refresh_panes();
                 }
@@ -418,6 +429,7 @@ impl Ui {
                 }
             }
             ChipAction::Card(id, label) => {
+                self.model.log_event("card_pressed", &id, &label);
                 if let Some(i) = self.card_waits.iter().position(|w| w.0 == id) {
                     let _ = self.card_waits.remove(i).1.send(label);
                 }
@@ -530,6 +542,7 @@ impl Ui {
                 _ => continue,
             };
             self.packs_asked.push(key.clone());
+            self.model.log_event("pack_waiting", &p.folder, &p.name);
             c.tone = crate::ui_state::Tone::Warn;
             c.prio = crate::ui_state::Prio::Alert;
             c.hold = Duration::from_secs(60);
@@ -562,6 +575,7 @@ impl Ui {
         match self.model.press_action(&key, a.confirm && !approved, now) {
             Press::Arm | Press::Busy => false,
             Press::Run => {
+                self.model.log_event("action_started", &a.name, "");
                 let sh = self.shared.clone();
                 let arg = arg.map(str::to_owned);
                 std::thread::spawn(move || {

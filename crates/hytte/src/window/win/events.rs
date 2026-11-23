@@ -327,6 +327,7 @@ impl Ui {
                 UiEvent::Ask { .. } if self.paused || self.gaming => {}
                 UiEvent::Ask { id, summary, reply } => {
                     // Urgent: it takes the chip over; a second agent's ask queues behind.
+                    self.model.log_event("agent_ask", "", &summary);
                     self.asks.push_back((id, summary, now, reply));
                     self.show_ask(now);
                     if self.cfg.agent.sound && !self.quiet() {
